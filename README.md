@@ -1,2 +1,2 @@
 # fruit_machine
-fruit machine用cmd模拟转圈算法
+用cmd模拟水果机转圈算法
