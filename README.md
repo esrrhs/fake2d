@@ -5,113 +5,155 @@
 [![Build Status](https://github.com/esrrhs/fake2d/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/esrrhs/fake2d/actions)
 [![License](https://img.shields.io/github/license/esrrhs/fake2d)](LICENSE)
 
-**Fake2D** is a 2D game rendering engine driven by [FakeLua](https://github.com/esrrhs/fakelua): C++ owns the window, GPU resources, and scene data; FakeLua scripts orchestrate game logic with per-frame arena reset (no GC pauses).
+**Fake2D** is a lightweight, modern 2D game rendering engine powered by [FakeLua](https://github.com/esrrhs/fakelua): C++ owns the window, GPU resources, and scene graph; FakeLua scripts orchestrate gameplay logic with a per-frame linear arena reset (**zero GC pauses**).
 
-> Status: **Phase 0 skeleton** — project layout, host loop, OpenGL clear, FakeLua `update(dt)` hook. See the [implementation plan](#implementation-plan) below.
+> Status: **Phase 1 complete** — bootable host, OpenGL 3.3 Core shader pipeline, 2D orthographic camera, dynamic `SpriteBatch`, 1x1 white fallback texture, FakeLua native bindings, and headless CI verification. See the [Implementation Plan](#implementation-plan) and [docs/PLAN.md](docs/PLAN.md).
 
-## Design
+---
 
-Aligned with FakeLua’s host model:
+## Modern Design Goals
 
-| Layer | Responsibility |
-|-------|----------------|
-| **C++ host** | Window, GL context, renderer, textures/meshes, scene graph, input, assets |
-| **FakeLua** | Gameplay glue: spawn entities, drive animations, UI flow, level scripts |
-| **Per frame** | `update(dt)` → draw submitted commands → `fakelua::Reset(state)` |
+Fake2D is built from the ground up to follow modern 2D game engine industry standards (aligned with architectures like MonoGame, Raylib, and Defold):
 
-Scripts should stay shallow-state. Heavy objects (sprites, atlases, physics bodies) live in C++ and are exposed through a narrow native API.
+1. **Zero-GC Per-Frame Execution**:
+   - Eliminates garbage collection spikes (the primary performance pitfall in traditional Lua/JS/C# game engines).
+   - Gameplay scripts can allocate frame-local tables, arrays, and variables freely; all frame memory is reclaimed instantly via `fakelua::inter::Reset(state)` at frame boundary.
+2. **Data-Oriented SpriteBatching**:
+   - Quad-based dynamic streaming VBO with pre-allocated static index buffer (`0-1-2-2-3-0` quad pattern).
+   - **Unified 1x1 White Texture**: Colored geometry (rectangles, progress bars, debug cards) and textured sprites share the exact same GLSL shader and batch buffer, preventing pipeline breaks.
+   - Multi-key batch sorting (Layer → Depth/Z → Texture ID → Blend Mode) to minimize draw calls (Phase 5).
+3. **Decoupled 2D Camera & Coordinates**:
+   - Dedicated `Camera2D` supporting viewport scaling, rotation, smooth panning, and zoom.
+   - Two-way coordinate transformation (`ScreenToWorld` and `WorldToScreen`) for pixel-perfect HUDs and world interactions.
+4. **Data-Driven Scene & Assets**:
+   - Spatial node hierarchy (`Transform2D`) with local-to-world dirty caching (Phase 2).
+   - Texture Atlas / SpriteSheet support for packing entire levels into single draw calls.
+   - Script hot-reload via FakeLua's embedded JIT backend for rapid iteration.
+5. **Modern CI & Headless Testing**:
+   - Native support for headless execution (`--headless`, `--frames N`) allows automated smoke and visual regression testing in virtualized CI runners without a physical display.
+   - Built with Modern CMake 3.16+ standards and target-based exports (`fakelua::fakelua`, `fake2d::fake2d`).
 
-## Architecture (target)
+---
 
-```
-┌─────────────────────────────────────────────┐
-│                 FakeLua scripts             │
-│         update / scene / UI logic           │
-└─────────────────────┬───────────────────────┘
-                      │ Call / Native bindings
-┌─────────────────────▼───────────────────────┐
-│                   Engine                    │
-│  ScriptHost · Scene · Input · Resources     │
-├─────────────────────┬───────────────────────┤
-│   SpriteBatch       │  Camera / Transform   │
-│   Texture / Atlas   │  Font (later)         │
-├─────────────────────▼───────────────────────┤
-│        Renderer (OpenGL 3.3 core)           │
-│        Window (GLFW)                        │
-└─────────────────────────────────────────────┘
-```
-
-## Repository layout
+## Architecture
 
 ```
-include/fake2d/     Public headers (Engine, Renderer, ScriptHost)
-src/core/           Engine main loop
-src/render/         GPU renderer
-src/script/         FakeLua bridge
-src/platform/       GLFW window
-src/scene/          Scene graph (Phase 2+)
-scripts/            Sample FakeLua entry scripts
-examples/hello/     Minimal runnable window
-docs/PLAN.md        Detailed roadmap checklist
+┌─────────────────────────────────────────────────────────┐
+│                    FakeLua Scripts                      │
+│            update(dt) · entities · UI logic             │
+└────────────────────────────┬────────────────────────────┘
+                             │ Native bindings (draw_quad, camera_*, ...)
+┌────────────────────────────▼────────────────────────────┐
+│                      Fake2D Engine                      │
+│      ScriptHost · Scene Graph · Input · Resources       │
+├────────────────────────────┬────────────────────────────┤
+│        SpriteBatch         │         Camera2D           │
+│   (Dynamic VBO / Quads)    │ (Ortho VP / Coordinate Xform)
+├────────────────────────────┴────────────────────────────┤
+│         Texture2D          │          Shader            │
+│   (stb_image / 1x1 White)  │     (GLSL 330 Core)        │
+├────────────────────────────┴────────────────────────────┤
+│              Renderer (OpenGL 3.3 Core)                 │
+│              Platform Window (GLFW 3.4)                 │
+└─────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## Repository Layout
+
+```
+fake2d/
+├── CMakeLists.txt           # Modern CMake configuration
+├── include/fake2d/          # Public engine API
+│   ├── camera.h             # 2D Orthographic camera
+│   ├── engine.h             # Engine host & main loop
+│   ├── math.h               # Vec2, Rect, Color, Mat4
+│   ├── renderer.h           # Renderer façade
+│   ├── shader.h             # Shader pipeline & uniforms
+│   ├── sprite_batch.h       # High-performance SpriteBatch
+│   ├── texture.h            # Texture2D & 1x1 white fallback
+│   └── version.h            # Version definitions
+├── src/
+│   ├── core/                # Engine loop & lifecycle
+│   ├── platform/            # GLFW window & GL context
+│   ├── render/              # OpenGL 3.3 Core render implementation
+│   └── script/              # FakeLua integration & bindings
+├── third_party/stb/         # stb_image.h
+├── scripts/                 # Sample FakeLua entry scripts
+├── examples/hello/          # Minimal runnable sample (supports --headless)
+└── docs/PLAN.md             # Detailed roadmap and milestone checklist
+```
+
+---
 
 ## Requirements
 
-- CMake ≥ 3.16, C++23 compiler
-- OpenGL 3.3+ / GLFW 3.4 (fetched via CPM)
-- [FakeLua](https://github.com/esrrhs/fakelua) — auto-detected from:
-  1. Sibling checkout `../fakelua`
-  2. `-DFAKELUA_SOURCE_DIR=/path/to/fakelua`
-  3. CPM fetch of `esrrhs/fakelua` (fallback)
+- CMake ≥ 3.16, C++23 compiler (GCC 13+, Clang 16+, Apple Clang 15+)
+- OpenGL 3.3+ Core Profile / GLFW 3.4 (fetched via CPM)
+- [FakeLua](https://github.com/esrrhs/fakelua) (installed in standard system prefix `/usr/local` or detected via `find_package(fakelua)`)
+
+---
 
 ## Build
 
 ```bash
-# Recommended: clone FakeLua next to this repo
-#   /path/fakelua
-#   /path/fake2d
-
+# Standard build with FakeLua scripting:
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 ./build/bin/fake2d_hello
+
+# Run headless smoke test (e.g. for CI or remote environments):
+./build/bin/fake2d_hello --headless --frames 60
 ```
 
-Window-only skeleton (no FakeLua link — useful for CI / bring-up):
+Window-only skeleton build (without FakeLua, useful for rapid engine-only testing):
 
 ```bash
 cmake -S . -B build -DFAKE2D_WITH_FAKELUA=OFF
 cmake --build build --parallel
 ```
 
-A display is required for the interactive window; CI only checks that `fake2d_hello` links.
+---
 
-## Quick script
+## Quick Script
 
 `scripts/main.lua`:
 
 ```lua
+local time = 0.0
+
 function update(dt)
-    -- Submit draw commands via native bindings (Phases 1–2)
+    time = time + dt
+
+    -- Draw UI background card
+    draw_quad(40, 40, 260, 160, 0.15, 0.18, 0.25, 0.9)
+
+    -- Draw animated bouncing quad
+    local x = 450 + 180 * math.sin(time * 2.0)
+    local y = 200 + 80 * math.cos(time * 3.0)
+    draw_quad(x, y, 80, 80, 0.9, 0.4, 0.7, 1.0)
+
     return 0
 end
 ```
 
-## Implementation plan
+---
 
-| Phase | Goal | Deliverables |
-|-------|------|--------------|
-| **0 — Skeleton** *(current)* | Bootable host | GLFW window, GL clear, FakeLua compile/`update`/`Reset`, hello example, bilingual docs |
-| **1 — Draw primitives** | First pixels | Ortho camera, colored quad, sprite batch, PNG texture load, UV rect |
-| **2 — Scene & assets** | Structure | Node/transform hierarchy, layers, texture atlas, resource cache, hot reload (TCC) |
-| **3 — Script API** | Author games in Lua | Native bindings: `sprite`, `camera`, `input`, `time`; sample mini-game |
-| **4 — Text & audio** | Presentation | Bitmap/SDF font, sound playback stub, simple particle emitter |
-| **5 — Polish** | Ship quality | Batch sorting, vsync/dpi, Android/desktop packing notes, benchmarks vs draw-call count |
+## Implementation Plan
+
+| Phase | Goal | Deliverables | Status |
+|-------|------|--------------|:------:|
+| **0 — Skeleton** | Bootable host | GLFW window, GL clear, FakeLua bridge, hello sample, bilingual docs, headless CLI | **Done** |
+| **1 — Draw primitives** | First pixels | Ortho camera, colored quads, `SpriteBatch`, 1x1 white fallback, PNG textures via stb_image | **Done** |
+| **2 — Scene & assets** | Structure | Transform2D hierarchy, layers/z-order, texture atlas (SpriteSheet), resource cache, hot-reload | Next |
+| **3 — Script API** | Author games in Lua | Native modules (`sprite`, `camera`, `input`, `time`), per-frame input snapshot, demo mini-game | Planned |
+| **4 — Text & audio** | Presentation | Bitmap / MSDF font renderer, audio playback, particle emitter batched into SpriteBatch | Planned |
+| **5 — Polish** | Production quality | Multi-key batch sorting, HiDPI / Retina framebuffer scaling, draw-call benchmarks | Planned |
 
 Detailed checklist: [docs/PLAN.md](docs/PLAN.md).
 
-## Version
-
-`FAKE2D_VERSION_STRING` in [`include/fake2d/version.h`](include/fake2d/version.h) — currently **0.1.0** (Phase 0).
+---
 
 ## License
 
