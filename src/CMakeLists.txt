@@ -3,6 +3,10 @@ cmake_minimum_required(VERSION 3.16)
 set(FAKE2D_SOURCES
     core/engine.cpp
     render/renderer.cpp
+    render/shader.cpp
+    render/texture.cpp
+    render/camera.cpp
+    render/sprite_batch.cpp
     platform/window.cpp
 )
 
@@ -21,19 +25,17 @@ target_include_directories(fake2d
         $<INSTALL_INTERFACE:include>
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_SOURCE_DIR}/third_party
 )
 
 target_link_libraries(fake2d
-    PRIVATE
+    PUBLIC
         glfw
         OpenGL::GL
 )
 
 if (FAKE2D_WITH_FAKELUA)
-    if (NOT TARGET fakelua)
-        message(FATAL_ERROR "FakeLua CMake target 'fakelua' not found")
-    endif ()
-    target_link_libraries(fake2d PUBLIC fakelua)
+    target_link_libraries(fake2d PUBLIC fakelua::fakelua)
     target_compile_definitions(fake2d PUBLIC FAKE2D_WITH_FAKELUA=1)
 endif ()
 

@@ -33,6 +33,7 @@ bool Engine::Init(const EngineConfig &config) {
     desc.width = impl_->config.width;
     desc.height = impl_->config.height;
     desc.vsync = impl_->config.vsync;
+    desc.headless = impl_->config.headless;
 
     if (!impl_->window.Create(desc)) {
         return false;
@@ -55,7 +56,7 @@ bool Engine::Init(const EngineConfig &config) {
     return true;
 }
 
-int Engine::Run() {
+int Engine::Run(int max_frames) {
     if (!impl_->running) {
         return 1;
     }
@@ -64,20 +65,24 @@ int Engine::Run() {
     auto prev = clock::now();
 
     while (!impl_->window.ShouldClose()) {
+        if (max_frames > 0 && impl_->frame_index >= static_cast<std::uint64_t>(max_frames)) {
+            break;
+        }
         const auto now = clock::now();
         impl_->delta_time = std::chrono::duration<double>(now - prev).count();
         prev = now;
 
         impl_->window.PollEvents();
 
-        // Script update then arena reset — FakeLua per-frame contract.
-        impl_->script.CallUpdate(impl_->delta_time);
-        impl_->script.ResetFrame();
-
         // Clear color cycles slightly so the skeleton window is visibly alive.
         const float t = static_cast<float>(impl_->frame_index) * 0.01f;
         const float r = 0.08f + 0.02f * (t - static_cast<int>(t));
         impl_->renderer.BeginFrame(r, 0.10f, 0.14f);
+
+        // Script update then arena reset — FakeLua per-frame contract.
+        impl_->script.CallUpdate(impl_->delta_time);
+        impl_->script.ResetFrame();
+
         impl_->renderer.EndFrame();
         impl_->window.SwapBuffers();
 
@@ -108,6 +113,14 @@ double Engine::DeltaTime() const {
 
 std::uint64_t Engine::FrameIndex() const {
     return impl_ ? impl_->frame_index : 0;
+}
+
+Renderer &Engine::GetRenderer() {
+    return impl_->renderer;
+}
+
+const Renderer &Engine::GetRenderer() const {
+    return impl_->renderer;
 }
 
 } // namespace fake2d
