@@ -7,7 +7,7 @@
 
 **Fake2D** is a lightweight, modern 2D game rendering engine powered by [FakeLua](https://github.com/esrrhs/fakelua): C++ owns the window, GPU resources, and scene graph; FakeLua scripts orchestrate gameplay logic with a per-frame linear arena reset (**zero GC pauses**).
 
-> Status: **Phase 1 complete** — bootable host, OpenGL 3.3 Core shader pipeline, 2D orthographic camera, dynamic `SpriteBatch`, 1x1 white fallback texture, FakeLua native bindings, and headless CI verification. See the [Implementation Plan](#implementation-plan) and [docs/PLAN.md](docs/PLAN.md).
+> Status: **Phase 2 complete** — bootable host, OpenGL 3.3 Core shader pipeline, 2D orthographic camera, dynamic `SpriteBatch`, 1x1 white fallback texture, FakeLua native bindings, `Transform2D` scene graph with layer/z ordering, TexturePacker JSON atlas parsing, handle-based resource manager, and script hot-reload. See the [Implementation Plan](#implementation-plan) and [docs/PLAN.md](docs/PLAN.md).
 
 ---
 
@@ -66,18 +66,23 @@ Fake2D is built from the ground up to follow modern 2D game engine industry stan
 fake2d/
 ├── CMakeLists.txt           # Modern CMake configuration
 ├── include/fake2d/          # Public engine API
+│   ├── atlas.h              # TexturePacker JSON texture atlas
 │   ├── camera.h             # 2D Orthographic camera
 │   ├── engine.h             # Engine host & main loop
 │   ├── math.h               # Vec2, Rect, Color, Mat4
+│   ├── node.h               # Transform2D & scene graph nodes
 │   ├── renderer.h           # Renderer façade
+│   ├── resource_manager.h   # Handle-based resource pool
+│   ├── scene.h              # Layer/z-ordered scene rendering
 │   ├── shader.h             # Shader pipeline & uniforms
 │   ├── sprite_batch.h       # High-performance SpriteBatch
 │   ├── texture.h            # Texture2D & 1x1 white fallback
 │   └── version.h            # Version definitions
 ├── src/
-│   ├── core/                # Engine loop & lifecycle
+│   ├── core/                # Engine loop, lifecycle, resource pool
 │   ├── platform/            # GLFW window & GL context
 │   ├── render/              # OpenGL 3.3 Core render implementation
+│   ├── scene/               # Node hierarchy & scene rendering
 │   └── script/              # FakeLua integration & bindings
 ├── third_party/stb/         # stb_image.h
 ├── scripts/                 # Sample FakeLua entry scripts
@@ -105,6 +110,9 @@ cmake --build build --parallel
 
 # Run headless smoke test (e.g. for CI or remote environments):
 ./build/bin/fake2d_hello --headless --frames 60
+
+# Edit scripts/main.lua while running — the engine recompiles it on save:
+./build/bin/fake2d_hello --hot-reload
 ```
 
 Window-only skeleton build (without FakeLua, useful for rapid engine-only testing):
@@ -146,8 +154,8 @@ end
 |-------|------|--------------|:------:|
 | **0 — Skeleton** | Bootable host | GLFW window, GL clear, FakeLua bridge, hello sample, bilingual docs, headless CLI | **Done** |
 | **1 — Draw primitives** | First pixels | Ortho camera, colored quads, `SpriteBatch`, 1x1 white fallback, PNG textures via stb_image | **Done** |
-| **2 — Scene & assets** | Structure | Transform2D hierarchy, layers/z-order, texture atlas (SpriteSheet), resource cache, hot-reload | Next |
-| **3 — Script API** | Author games in Lua | Native modules (`sprite`, `camera`, `input`, `time`), per-frame input snapshot, demo mini-game | Planned |
+| **2 — Scene & assets** | Structure | Transform2D hierarchy, layers/z-order, texture atlas (SpriteSheet), resource cache, hot-reload | **Done** |
+| **3 — Script API** | Author games in Lua | Native modules (`sprite`, `camera`, `input`, `time`), per-frame input snapshot, demo mini-game | Next |
 | **4 — Text & audio** | Presentation | Bitmap / MSDF font renderer, audio playback, particle emitter batched into SpriteBatch | Planned |
 | **5 — Polish** | Production quality | Multi-key batch sorting, HiDPI / Retina framebuffer scaling, draw-call benchmarks | Planned |
 

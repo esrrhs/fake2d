@@ -52,15 +52,15 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 - [x] Draw API: `DrawQuad(rect, color)`, `DrawSprite(tex, src, dst, tint)`, `DrawSpriteRotated(...)`
 - [x] Cross-platform Linux / macOS OpenGL compatibility (`GL_GLEXT_PROTOTYPES`, std int types)
 
-## Phase 2 — Scene & assets (0.3.x) — in progress
+## Phase 2 — Scene & assets (0.3.x) — done
 
-- [ ] `Transform2D` hierarchical spatial node tree (local transform, world matrix cache, dirty flag)
-- [ ] Layer and Z-ordering support
-- [ ] Texture Atlas / SpriteSheet parser (TexturePacker JSON format)
-- [ ] Resource manager (handle-based texture/atlas caching and reference counting)
-- [ ] Script hot-reload via FakeLua TCC backend
+- [x] `Transform2D` hierarchical spatial node tree (local transform, world matrix cache, dirty flag)
+- [x] Layer and Z-ordering support
+- [x] Texture Atlas / SpriteSheet parser (TexturePacker JSON format)
+- [x] Resource manager (handle-based texture/atlas caching and reference counting)
+- [x] Script hot-reload via FakeLua TCC backend
 
-## Phase 3 — Script API (0.4.x)
+## Phase 3 — Script API (0.4.x) — next
 
 - [ ] Expose native engine modules to FakeLua: `fake2d.sprite`, `fake2d.camera`, `fake2d.input`, `fake2d.time`
 - [ ] Input snapshot (keyboard, mouse position, button clicks) readable per-frame from Lua

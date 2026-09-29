@@ -2,11 +2,15 @@ cmake_minimum_required(VERSION 3.16)
 
 set(FAKE2D_SOURCES
     core/engine.cpp
+    core/resource_manager.cpp
     render/renderer.cpp
     render/shader.cpp
     render/texture.cpp
     render/camera.cpp
     render/sprite_batch.cpp
+    render/atlas.cpp
+    scene/node.cpp
+    scene/scene.cpp
     platform/window.cpp
 )
 
@@ -44,6 +48,9 @@ if (FAKE2D_WITH_FAKELUA)
     target_link_libraries(fake2d PUBLIC fakelua::fakelua)
     target_compile_definitions(fake2d PUBLIC FAKE2D_WITH_FAKELUA=1)
 endif ()
+
+# JSON parsing for TexturePacker atlases (header-only, kept out of the public API).
+target_link_libraries(fake2d PRIVATE nlohmann_json::nlohmann_json)
 
 target_compile_options(fake2d PRIVATE
     $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-Wall -Wextra -Wno-unused-parameter>
