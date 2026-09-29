@@ -15,26 +15,11 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_BINDIR})
 include(cmake/CPM.cmake)
 
 option(FAKE2D_BUILD_EXAMPLES "Build example apps" ON)
-option(FAKE2D_WITH_FAKELUA "Build with FakeLua scripting (requires fakelua source)" ON)
-set(FAKELUA_SOURCE_DIR "" CACHE PATH "Path to a local FakeLua checkout")
-
-# Auto-detect sibling fakelua
-if (FAKELUA_SOURCE_DIR STREQUAL "" AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../fakelua/CMakeLists.txt")
-    set(FAKELUA_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../fakelua" CACHE PATH "" FORCE)
-endif ()
+option(FAKE2D_WITH_FAKELUA "Build with FakeLua scripting" ON)
 
 if (FAKE2D_WITH_FAKELUA)
-    if (NOT FAKELUA_SOURCE_DIR OR NOT EXISTS "${FAKELUA_SOURCE_DIR}/CMakeLists.txt")
-        message(FATAL_ERROR
-            "FAKE2D_WITH_FAKELUA=ON but FakeLua not found.\n"
-            "  Clone https://github.com/esrrhs/fakelua next to this repo, or pass\n"
-            "  -DFAKELUA_SOURCE_DIR=/path/to/fakelua\n"
-            "  Or configure with -DFAKE2D_WITH_FAKELUA=OFF for a window-only skeleton build.")
-    endif ()
-    message(STATUS "FakeLua: ${FAKELUA_SOURCE_DIR}")
-    set(FAKELUA_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-    set(FAKELUA_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
-    add_subdirectory("${FAKELUA_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/_deps/fakelua" EXCLUDE_FROM_ALL)
+    find_package(fakelua REQUIRED)
+    message(STATUS "Found FakeLua: ${fakelua_DIR}")
 else ()
     message(STATUS "FakeLua scripting disabled (FAKE2D_WITH_FAKELUA=OFF)")
 endif ()

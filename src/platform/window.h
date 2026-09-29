@@ -9,6 +9,7 @@ struct WindowDesc {
     int width = 1280;
     int height = 720;
     bool vsync = true;
+    bool headless = false;
 };
 
 class Window {

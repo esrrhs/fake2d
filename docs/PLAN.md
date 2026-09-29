@@ -3,7 +3,7 @@
 Living checklist for the FakeLua-powered 2D rendering engine.
 Status tags: `[ ]` todo · `[~]` in progress · `[x]` done
 
-## Phase 0 — Skeleton (0.1.x) — current
+## Phase 0 — Skeleton (0.1.x) — done
 
 - [x] Replace legacy fruit-machine demo with new project identity
 - [x] CMake + CPM, GLFW, OpenGL clear path
@@ -12,16 +12,16 @@ Status tags: `[ ]` todo · `[~]` in progress · `[x]` done
 - [x] `examples/hello` + `scripts/main.lua`
 - [x] Bilingual README + CI workflow stub
 - [x] Optional `FAKE2D_WITH_FAKELUA=OFF` window-only skeleton for CI / bring-up
-- [ ] Wire richer FakeLua native object bindings (engine handle)
-- [ ] Optional headless/null backend for CI without display
+- [x] Wire richer FakeLua native object bindings (engine handle / draw_quad / camera)
+- [x] Optional headless/null backend for CI without display
 
-## Phase 1 — Draw primitives (0.2.x)
+## Phase 1 — Draw primitives (0.2.x) — done
 
-- [ ] Shader pipeline (vert/frag) for textured + solid quads
-- [ ] Orthographic camera (pixel or world units)
-- [ ] `SpriteBatch` with dynamic VBO flush
-- [ ] Texture2D load (stb_image) + sampler state
-- [ ] Draw API sketch: `draw_quad`, `draw_sprite(tex, src, dst)`
+- [x] Shader pipeline (vert/frag) for textured + solid quads
+- [x] Orthographic camera (pixel or world units)
+- [x] `SpriteBatch` with dynamic VBO flush
+- [x] Texture2D load (stb_image) + sampler state
+- [x] Draw API sketch: `draw_quad`, `draw_sprite(tex, src, dst)`
 
 ## Phase 2 — Scene & assets (0.3.x)
 

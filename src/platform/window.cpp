@@ -23,6 +23,10 @@ bool Window::Create(const WindowDesc &desc) {
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
 #endif
 
+    if (desc.headless) {
+        glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+    }
+
     handle_ = glfwCreateWindow(desc.width, desc.height, desc.title, nullptr, nullptr);
     if (!handle_) {
         std::fprintf(stderr, "fake2d: glfwCreateWindow failed\n");
