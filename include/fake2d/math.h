@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <algorithm>
 
@@ -72,15 +73,15 @@ struct Color {
     static constexpr Color Magenta() { return {1.0f, 0.0f, 1.0f, 1.0f}; }
     static constexpr Color Clear()   { return {0.0f, 0.0f, 0.0f, 0.0f}; }
 
-    static constexpr Color FromRGBA8(uint8_t r8, uint8_t g8, uint8_t b8, uint8_t a8 = 255) {
+    static constexpr Color FromRGBA8(std::uint8_t r8, std::uint8_t g8, std::uint8_t b8, std::uint8_t a8 = 255) {
         return {r8 / 255.0f, g8 / 255.0f, b8 / 255.0f, a8 / 255.0f};
     }
 
-    [[nodiscard]] uint32_t ToRGBA8() const {
-        const auto r8 = static_cast<uint32_t>(std::clamp(r, 0.0f, 1.0f) * 255.0f);
-        const auto g8 = static_cast<uint32_t>(std::clamp(g, 0.0f, 1.0f) * 255.0f);
-        const auto b8 = static_cast<uint32_t>(std::clamp(b, 0.0f, 1.0f) * 255.0f);
-        const auto a8 = static_cast<uint32_t>(std::clamp(a, 0.0f, 1.0f) * 255.0f);
+    [[nodiscard]] std::uint32_t ToRGBA8() const {
+        const auto r8 = static_cast<std::uint32_t>(std::clamp(r, 0.0f, 1.0f) * 255.0f);
+        const auto g8 = static_cast<std::uint32_t>(std::clamp(g, 0.0f, 1.0f) * 255.0f);
+        const auto b8 = static_cast<std::uint32_t>(std::clamp(b, 0.0f, 1.0f) * 255.0f);
+        const auto a8 = static_cast<std::uint32_t>(std::clamp(a, 0.0f, 1.0f) * 255.0f);
         return (a8 << 24) | (b8 << 16) | (g8 << 8) | r8;
     }
 };

@@ -3,6 +3,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 
 namespace fake2d {
 
@@ -38,9 +39,9 @@ bool SpriteBatch::Init(size_t max_quads) {
     glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex2D), reinterpret_cast<const void *>(offsetof(Vertex2D, color)));
 
     // Generate indices: 6 indices per quad (two triangles: 0-1-2 and 2-3-0)
-    std::vector<uint32_t> indices(max_quads_ * 6);
+    std::vector<std::uint32_t> indices(max_quads_ * 6);
     for (size_t i = 0; i < max_quads_; ++i) {
-        const auto base_v = static_cast<uint32_t>(i * 4);
+        const auto base_v = static_cast<std::uint32_t>(i * 4);
         indices[i * 6 + 0] = base_v + 0;
         indices[i * 6 + 1] = base_v + 1;
         indices[i * 6 + 2] = base_v + 2;
@@ -51,7 +52,7 @@ bool SpriteBatch::Init(size_t max_quads) {
 
     glGenBuffers(1, &ibo_);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo_);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLsizeiptr>(indices.size() * sizeof(uint32_t)), indices.data(), GL_STATIC_DRAW);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLsizeiptr>(indices.size() * sizeof(std::uint32_t)), indices.data(), GL_STATIC_DRAW);
 
     glBindVertexArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -93,7 +94,7 @@ void SpriteBatch::End() {
     in_begin_ = false;
 }
 
-void SpriteBatch::EnsureCapacity(size_t quads_to_add, uint32_t texture_id) {
+void SpriteBatch::EnsureCapacity(size_t quads_to_add, std::uint32_t texture_id) {
     if (current_texture_id_ != 0 && current_texture_id_ != texture_id) {
         Flush();
     }
