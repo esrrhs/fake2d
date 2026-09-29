@@ -7,7 +7,7 @@
 
 **Fake2D** 是基于 [FakeLua](https://github.com/esrrhs/fakelua) 的现代化轻量 2D 游戏渲染引擎：C++ 宿主掌控窗口、GPU 资源与场景数据；FakeLua 脚本负责编排玩法与实体逻辑，并在每帧边界执行 Arena 线性重置（**零 GC 停顿**）。
 
-> 当前状态：**Phase 2 已完成** — 可启动宿主、OpenGL 3.3 Core 可编程着色器管线、2D 正交相机、动态流式 `SpriteBatch`、1x1 白图合批优化、FakeLua 原生函数绑定、`Transform2D` 场景图（图层与 Z 排序）、TexturePacker JSON 图集解析、句柄式资源管理器与脚本热重载。详见下方[实现计划](#实现计划)与 [docs/PLAN.md](docs/PLAN.md)。
+> 当前状态：**Phase 3 已完成** — 可启动宿主、OpenGL 3.3 Core 可编程着色器管线、2D 正交相机、动态流式 `SpriteBatch`、`Transform2D` 场景图（图层与 Z 排序）、TexturePacker JSON 图集解析、句柄式资源管理器、脚本热重载，以及原生脚本 API（`sprite` / `camera` / `input` / `time`）与可玩的打砖块示例。详见下方[实现计划](#实现计划)、[docs/PLAN.md](docs/PLAN.md) 与[脚本编写指南](docs/SCRIPTING.md)。
 
 ---
 
@@ -68,6 +68,7 @@ fake2d/
 │   ├── atlas.h              # TexturePacker JSON 图集
 │   ├── camera.h             # 2D 正交相机
 │   ├── engine.h             # 引擎宿主与主循环
+│   ├── input.h              # 每帧键盘/鼠标输入快照
 │   ├── math.h               # Vec2, Rect, Color, Mat4
 │   ├── node.h               # Transform2D 与场景图节点
 │   ├── renderer.h           # 渲染器门面
@@ -83,9 +84,10 @@ fake2d/
 │   ├── render/              # OpenGL 3.3 Core 渲染管线实现
 │   ├── scene/               # 节点层级与场景渲染
 │   └── script/              # FakeLua 桥接与原生 API 注册
-├── third_party/stb/         # stb_image.h
-├── scripts/                 # 示例 FakeLua 脚本
-├── examples/hello/          # 最小可运行示例（支持 --headless）
+├── third_party/stb/         # stb_image.h, stb_image_write.h
+├── scripts/                 # 示例脚本（game.lua = 打砖块，main.lua = 场景演示）
+├── examples/hello/          # 最小可运行示例（支持 --headless、--scene-demo）
+├── docs/SCRIPTING.md        # 脚本编写指南与 API 参考
 └── docs/PLAN.md             # 详细路线图与任务清单
 ```
 
@@ -110,8 +112,11 @@ cmake --build build --parallel
 # 运行无头模式冒烟测试（适用于 CI 或无显示设备环境）：
 ./build/bin/fake2d_hello --headless --frames 60
 
-# 运行中编辑 scripts/main.lua，保存后引擎自动重新编译（热重载）：
+# 运行中编辑 scripts/game.lua，保存后引擎自动重新编译（热重载）：
 ./build/bin/fake2d_hello --hot-reload
+
+# 以 C++ 场景图 / 图集演示替代 Lua 小游戏：
+./build/bin/fake2d_hello --scene-demo
 ```
 
 仅窗口骨架模式（不链接 FakeLua，用于纯 C++ 基础测试）：
@@ -125,25 +130,28 @@ cmake --build build --parallel
 
 ## 快速脚本
 
-`scripts/main.lua`：
+`scripts/game.lua`（默认入口）是一个完全由 Lua 驱动的可玩打砖块小游戏——
+精灵、输入、物理，约 200 行：
 
 ```lua
-local time = 0.0
+local W = 960
+local paddle_x = W * 0.5          -- 持久状态保存在文件级 local 中
+local score = 0 + 0               -- 可变数值必须用表达式初始化
+                                  -- （详见 docs/SCRIPTING.md 的状态规则）
 
 function update(dt)
-    time = time + dt
+    -- 挡板跟随鼠标 / 方向键
+    if input_key_down("left") then paddle_x = paddle_x - 620 * dt end
 
-    -- 绘制 UI 背景卡片
-    draw_quad(40, 40, 260, 160, 0.15, 0.18, 0.25, 0.9)
-
-    -- 绘制带弹跳动画的色块
-    local x = 450 + 180 * math.sin(time * 2.0)
-    local y = 200 + 80 * math.cos(time * 3.0)
-    draw_quad(x, y, 80, 80, 0.9, 0.4, 0.7, 1.0)
-
+    -- 推进球、碰撞砖块、绘制所有元素
+    step_ball(dt)
+    draw()
     return 0
 end
 ```
+
+完整的 API 参考、持久状态规则（FakeLua Arena 与 JIT codegen 约束）以及性能
+最佳实践见[脚本编写指南](docs/SCRIPTING.md)。
 
 ---
 
@@ -154,8 +162,8 @@ end
 | **0 — 骨架** | 可启动宿主 | GLFW 窗口、GL 清屏、FakeLua 桥接、hello 示例、双语文档、CLI 无头测试参数 | **已完成** |
 | **1 — 绘制图元** | 第一批像素 | 正交相机、色块四边形、`SpriteBatch` 动态合批、1x1 白图优化、stb_image 贴图加载 | **已完成** |
 | **2 — 场景与资源** | 结构化支撑 | `Transform2D` 节点层级、图层与 Z 序、图集（SpriteSheet）、资源缓存、GCC JIT 脚本热更 | **已完成** |
-| **3 — 脚本 API** | 脚本制作游戏 | 封装 `sprite`、`camera`、`input`、`time` 等原生模块；每帧输入快照；示例小游戏 | 下一步 |
-| **4 — 文字与音频** | 表现力增强 | 位图 / MSDF 字体渲染、音频播放桩、合批粒子发射器 | 计划中 |
+| **3 — 脚本 API** | 脚本制作游戏 | 封装 `sprite`、`camera`、`input`、`time` 等原生模块；每帧输入快照；可玩打砖块示例；[脚本编写指南](docs/SCRIPTING.md) | **已完成** |
+| **4 — 文字与音频** | 表现力增强 | 位图 / MSDF 字体渲染、音频播放桩、合批粒子发射器 | 下一步 |
 | **5 — 打磨交付** | 商业可交付质量 | 多键合批排序优化、HiDPI / Retina 视网膜缩放、全平台打包指南、DrawCall 性能基准 | 计划中 |
 
 详细任务清单见 [docs/PLAN.md](docs/PLAN.md)。

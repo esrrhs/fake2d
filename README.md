@@ -7,7 +7,7 @@
 
 **Fake2D** is a lightweight, modern 2D game rendering engine powered by [FakeLua](https://github.com/esrrhs/fakelua): C++ owns the window, GPU resources, and scene graph; FakeLua scripts orchestrate gameplay logic with a per-frame linear arena reset (**zero GC pauses**).
 
-> Status: **Phase 2 complete** — bootable host, OpenGL 3.3 Core shader pipeline, 2D orthographic camera, dynamic `SpriteBatch`, 1x1 white fallback texture, FakeLua native bindings, `Transform2D` scene graph with layer/z ordering, TexturePacker JSON atlas parsing, handle-based resource manager, and script hot-reload. See the [Implementation Plan](#implementation-plan) and [docs/PLAN.md](docs/PLAN.md).
+> Status: **Phase 3 complete** — bootable host, OpenGL 3.3 Core shader pipeline, 2D orthographic camera, dynamic `SpriteBatch`, `Transform2D` scene graph with layer/z ordering, TexturePacker JSON atlas parsing, handle-based resource manager, script hot-reload, and a native script API (`sprite` / `camera` / `input` / `time`) with a playable breakout sample. See the [Implementation Plan](#implementation-plan), [docs/PLAN.md](docs/PLAN.md), and the [Scripting Guide](docs/SCRIPTING.md).
 
 ---
 
@@ -69,6 +69,7 @@ fake2d/
 │   ├── atlas.h              # TexturePacker JSON texture atlas
 │   ├── camera.h             # 2D Orthographic camera
 │   ├── engine.h             # Engine host & main loop
+│   ├── input.h              # Per-frame keyboard/mouse snapshot
 │   ├── math.h               # Vec2, Rect, Color, Mat4
 │   ├── node.h               # Transform2D & scene graph nodes
 │   ├── renderer.h           # Renderer façade
@@ -84,9 +85,10 @@ fake2d/
 │   ├── render/              # OpenGL 3.3 Core render implementation
 │   ├── scene/               # Node hierarchy & scene rendering
 │   └── script/              # FakeLua integration & bindings
-├── third_party/stb/         # stb_image.h
-├── scripts/                 # Sample FakeLua entry scripts
-├── examples/hello/          # Minimal runnable sample (supports --headless)
+├── third_party/stb/         # stb_image.h, stb_image_write.h
+├── scripts/                 # Sample scripts (game.lua = breakout, main.lua = scene demo)
+├── examples/hello/          # Minimal runnable sample (supports --headless, --scene-demo)
+├── docs/SCRIPTING.md        # Script authoring guide & API reference
 └── docs/PLAN.md             # Detailed roadmap and milestone checklist
 ```
 
@@ -111,8 +113,11 @@ cmake --build build --parallel
 # Run headless smoke test (e.g. for CI or remote environments):
 ./build/bin/fake2d_hello --headless --frames 60
 
-# Edit scripts/main.lua while running — the engine recompiles it on save:
+# Edit scripts/game.lua while running — the engine recompiles it on save:
 ./build/bin/fake2d_hello --hot-reload
+
+# The Phase 2 C++ scene-graph / atlas demo instead of the Lua game:
+./build/bin/fake2d_hello --scene-demo
 ```
 
 Window-only skeleton build (without FakeLua, useful for rapid engine-only testing):
@@ -126,25 +131,29 @@ cmake --build build --parallel
 
 ## Quick Script
 
-`scripts/main.lua`:
+`scripts/game.lua` (the default entry) is a playable breakout clone driven
+entirely from Lua — sprites, input, and physics, ~200 lines:
 
 ```lua
-local time = 0.0
+local W = 960
+local paddle_x = W * 0.5          -- persistent state lives in file-level locals
+local score = 0 + 0               -- mutable numbers use an expression initializer
+                                  -- (see "state rules" in docs/SCRIPTING.md)
 
 function update(dt)
-    time = time + dt
+    -- paddle follows the mouse / arrow keys
+    if input_key_down("left") then paddle_x = paddle_x - 620 * dt end
 
-    -- Draw UI background card
-    draw_quad(40, 40, 260, 160, 0.15, 0.18, 0.25, 0.9)
-
-    -- Draw animated bouncing quad
-    local x = 450 + 180 * math.sin(time * 2.0)
-    local y = 200 + 80 * math.cos(time * 3.0)
-    draw_quad(x, y, 80, 80, 0.9, 0.4, 0.7, 1.0)
-
+    -- step the ball, collide with bricks, draw everything
+    step_ball(dt)
+    draw()
     return 0
 end
 ```
+
+The full API reference, the persistent-state rules (FakeLua arena + JIT
+codegen constraints), and performance best practices live in the
+[Scripting Guide](docs/SCRIPTING.md).
 
 ---
 
@@ -155,8 +164,8 @@ end
 | **0 — Skeleton** | Bootable host | GLFW window, GL clear, FakeLua bridge, hello sample, bilingual docs, headless CLI | **Done** |
 | **1 — Draw primitives** | First pixels | Ortho camera, colored quads, `SpriteBatch`, 1x1 white fallback, PNG textures via stb_image | **Done** |
 | **2 — Scene & assets** | Structure | Transform2D hierarchy, layers/z-order, texture atlas (SpriteSheet), resource cache, hot-reload | **Done** |
-| **3 — Script API** | Author games in Lua | Native modules (`sprite`, `camera`, `input`, `time`), per-frame input snapshot, demo mini-game | Next |
-| **4 — Text & audio** | Presentation | Bitmap / MSDF font renderer, audio playback, particle emitter batched into SpriteBatch | Planned |
+| **3 — Script API** | Author games in Lua | Native modules (`sprite`, `camera`, `input`, `time`), per-frame input snapshot, playable breakout sample, [Scripting Guide](docs/SCRIPTING.md) | **Done** |
+| **4 — Text & audio** | Presentation | Bitmap / MSDF font renderer, audio playback, particle emitter batched into SpriteBatch | Next |
 | **5 — Polish** | Production quality | Multi-key batch sorting, HiDPI / Retina framebuffer scaling, draw-call benchmarks | Planned |
 
 Detailed checklist: [docs/PLAN.md](docs/PLAN.md).

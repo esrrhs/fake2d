@@ -7,46 +7,23 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <memory>
 #include <string_view>
 #include <vector>
 
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include <stb_image_write.h>
+
 namespace {
+
+// ---------------------------------------------------------------------------
+// Procedural asset generation for the breakout sample: three small white
+// textures tinted from Lua. Generated on demand so the repo stays asset-free.
+// ---------------------------------------------------------------------------
 
 constexpr int kSheetSize = 128;
 constexpr int kTile = 64;
-
-// TexturePacker hash-format atlas describing the procedurally painted sheet
-// below (2x2 tiles of 64x64: circle, box, triangle, diamond).
-constexpr const char *kAtlasJson = R"({
-  "frames": {
-    "red_circle": {
-      "frame": {"x": 0, "y": 0, "w": 64, "h": 64},
-      "rotated": false, "trimmed": false,
-      "spriteSourceSize": {"x": 0, "y": 0, "w": 64, "h": 64},
-      "sourceSize": {"w": 64, "h": 64}, "pivot": {"x": 0.5, "y": 0.5}
-    },
-    "green_box": {
-      "frame": {"x": 64, "y": 0, "w": 64, "h": 64},
-      "rotated": false, "trimmed": false,
-      "spriteSourceSize": {"x": 0, "y": 0, "w": 64, "h": 64},
-      "sourceSize": {"w": 64, "h": 64}, "pivot": {"x": 0.5, "y": 0.5}
-    },
-    "blue_triangle": {
-      "frame": {"x": 0, "y": 64, "w": 64, "h": 64},
-      "rotated": false, "trimmed": false,
-      "spriteSourceSize": {"x": 0, "y": 0, "w": 64, "h": 64},
-      "sourceSize": {"w": 64, "h": 64}, "pivot": {"x": 0.5, "y": 0.5}
-    },
-    "yellow_diamond": {
-      "frame": {"x": 64, "y": 64, "w": 64, "h": 64},
-      "rotated": false, "trimmed": false,
-      "spriteSourceSize": {"x": 0, "y": 0, "w": 64, "h": 64},
-      "sourceSize": {"w": 64, "h": 64}, "pivot": {"x": 0.5, "y": 0.5}
-    }
-  },
-  "meta": { "image": "demo_sheet.png", "size": {"w": 128, "h": 128}, "scale": "1" }
-})";
 
 /// Paint a 128x128 RGBA sheet: four 64x64 shape tiles on transparent background.
 void PaintDemoSheet(std::uint8_t *pixels) {
@@ -88,52 +65,106 @@ void PaintDemoSheet(std::uint8_t *pixels) {
     }
 }
 
-} // namespace
+/// TexturePacker hash-format atlas describing PaintDemoSheet's 2x2 tiles.
+constexpr const char *kAtlasJson = R"({
+  "frames": {
+    "red_circle": {
+      "frame": {"x": 0, "y": 0, "w": 64, "h": 64},
+      "rotated": false, "trimmed": false,
+      "spriteSourceSize": {"x": 0, "y": 0, "w": 64, "h": 64},
+      "sourceSize": {"w": 64, "h": 64}, "pivot": {"x": 0.5, "y": 0.5}
+    },
+    "green_box": {
+      "frame": {"x": 64, "y": 0, "w": 64, "h": 64},
+      "rotated": false, "trimmed": false,
+      "spriteSourceSize": {"x": 0, "y": 0, "w": 64, "h": 64},
+      "sourceSize": {"w": 64, "h": 64}, "pivot": {"x": 0.5, "y": 0.5}
+    },
+    "blue_triangle": {
+      "frame": {"x": 0, "y": 64, "w": 64, "h": 64},
+      "rotated": false, "trimmed": false,
+      "spriteSourceSize": {"x": 0, "y": 0, "w": 64, "h": 64},
+      "sourceSize": {"w": 64, "h": 64}, "pivot": {"x": 0.5, "y": 0.5}
+    },
+    "yellow_diamond": {
+      "frame": {"x": 64, "y": 64, "w": 64, "h": 64},
+      "rotated": false, "trimmed": false,
+      "spriteSourceSize": {"x": 0, "y": 0, "w": 64, "h": 64},
+      "sourceSize": {"w": 64, "h": 64}, "pivot": {"x": 0.5, "y": 0.5}
+    }
+  },
+  "meta": { "image": "demo_sheet.png", "size": {"w": 128, "h": 128}, "scale": "1" }
+})";
 
-int main(int argc, char **argv) {
-    fake2d::EngineConfig cfg;
-    cfg.title = "fake2d hello";
-    cfg.width = 960;
-    cfg.height = 540;
-    cfg.script_entry = "scripts/main.lua";
+// --- breakout shapes (white on transparent; tinted per brick row from Lua) ---
 
-    int max_frames = 0;
-    for (int i = 1; i < argc; ++i) {
-        const std::string_view arg = argv[i];
-        if (arg == "--headless") {
-            cfg.headless = true;
-        } else if (arg == "--frames" && i + 1 < argc) {
-            max_frames = std::atoi(argv[++i]);
-        } else if (arg == "--hot-reload") {
-            cfg.hot_reload = true;
+void PaintRoundedRect(std::uint8_t *pixels, int w, int h, int radius) {
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            std::uint8_t *px = pixels + (static_cast<size_t>(y) * w + x) * 4;
+            const float cx = static_cast<float>(std::clamp(x, radius, w - 1 - radius));
+            const float cy = static_cast<float>(std::clamp(y, radius, h - 1 - radius));
+            const float dx = static_cast<float>(x) - cx;
+            const float dy = static_cast<float>(y) - cy;
+            const float d = std::sqrt(dx * dx + dy * dy);
+            const float a = std::clamp(static_cast<float>(radius) - d + 0.5f, 0.0f, 1.0f);
+            px[0] = px[1] = px[2] = 255;
+            px[3] = static_cast<std::uint8_t>(a * 255.0f);
         }
     }
+}
 
-    fake2d::Engine engine;
-    if (!engine.Init(cfg)) {
-        std::fprintf(stderr, "fake2d_hello: engine init failed\n");
-        return 1;
+void PaintCircle(std::uint8_t *pixels, int w, int h) {
+    const float r = w * 0.5f - 0.5f;
+    const float c = w * 0.5f - 0.5f;
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            std::uint8_t *px = pixels + (static_cast<size_t>(y) * w + x) * 4;
+            const float dx = static_cast<float>(x) - c;
+            const float dy = static_cast<float>(y) - c;
+            const float d = std::sqrt(dx * dx + dy * dy);
+            const float a = std::clamp(r - d + 0.5f, 0.0f, 1.0f);
+            px[0] = px[1] = px[2] = 255;
+            px[3] = static_cast<std::uint8_t>(a * 255.0f);
+        }
     }
+}
 
-    // --- resources: procedural demo atlas ---------------------------------
-    fake2d::ResourceManager &resources = engine.GetResources();
+/// Write the sample's PNG assets unless they already exist next to the binary.
+void EnsureGameAssets() {
+    const std::filesystem::path dir = "assets";
+    std::error_code ec;
+    std::filesystem::create_directory(dir, ec);
 
-    std::vector<std::uint8_t> pixels(static_cast<size_t>(kSheetSize) * kSheetSize * 4);
-    PaintDemoSheet(pixels.data());
-    const fake2d::TextureHandle sheet =
-        resources.CreateTexture("demo_sheet", kSheetSize, kSheetSize, pixels.data());
-    if (sheet == fake2d::kInvalidTextureHandle) {
-        std::fprintf(stderr, "fake2d_hello: failed to create demo sheet\n");
-        return 1;
-    }
+    const auto write = [&dir](const char *name, void (*paint)(std::uint8_t *, int, int), int w, int h) {
+        const std::filesystem::path path = dir / name;
+        if (std::filesystem::exists(path)) {
+            return;
+        }
+        std::vector<std::uint8_t> pixels(static_cast<size_t>(w) * h * 4);
+        paint(pixels.data(), w, h);
+        if (!stbi_write_png(path.string().c_str(), w, h, 4, pixels.data(), w * 4)) {
+            std::fprintf(stderr, "fake2d_hello: failed to write %s\n", path.string().c_str());
+        }
+    };
 
+    write("brick.png", [](std::uint8_t *p, int w, int h) { PaintRoundedRect(p, w, h, 7); }, 86, 26);
+    write("paddle.png", [](std::uint8_t *p, int w, int h) { PaintRoundedRect(p, w, h, 8); }, 120, 18);
+    write("ball.png", PaintCircle, 18, 18);
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2 demo: C++ scene graph with a procedural atlas (kept behind
+// --scene-demo). The default mode is the script-driven breakout game.
+// ---------------------------------------------------------------------------
+
+int RunSceneDemo(fake2d::Engine &engine, const fake2d::TextureHandle sheet, int max_frames) {
     fake2d::Atlas demo_atlas;
-    if (!demo_atlas.LoadFromString(kAtlasJson, *resources.GetTexture(sheet))) {
+    if (!demo_atlas.LoadFromString(kAtlasJson, *engine.GetResources().GetTexture(sheet))) {
         std::fprintf(stderr, "fake2d_hello: failed to parse demo atlas\n");
         return 1;
     }
 
-    // --- scene: hierarchy + layer/z ordering demo --------------------------
     fake2d::Scene scene;
     scene.Root().GetTransform().SetPosition(480.0f, 270.0f);
 
@@ -171,13 +202,60 @@ int main(int argc, char **argv) {
     scene.Root().AddChild(std::move(panel));
 
     double elapsed = 0.0;
-    engine.SetFrameCallback([&](fake2d::Engine &engine) {
-        elapsed += engine.DeltaTime();
+    engine.SetFrameCallback([&](fake2d::Engine &e) {
+        elapsed += e.DeltaTime();
         orbit->GetTransform().SetRotation(static_cast<float>(elapsed) * 0.8f);
         const float s = 1.0f + 0.08f * std::sin(elapsed * 2.0f);
         orbit->GetTransform().SetScale(s);
-        scene.Draw(engine.GetRenderer());
+        scene.Draw(e.GetRenderer());
     });
 
+    return engine.Run(max_frames);
+}
+
+} // namespace
+
+int main(int argc, char **argv) {
+    fake2d::EngineConfig cfg;
+    cfg.title = "fake2d";
+    cfg.width = 960;
+    cfg.height = 540;
+    cfg.script_entry = "scripts/game.lua";
+
+    bool scene_demo = false;
+    int max_frames = 0;
+    for (int i = 1; i < argc; ++i) {
+        const std::string_view arg = argv[i];
+        if (arg == "--headless") {
+            cfg.headless = true;
+        } else if (arg == "--frames" && i + 1 < argc) {
+            max_frames = std::atoi(argv[++i]);
+        } else if (arg == "--hot-reload") {
+            cfg.hot_reload = true;
+        } else if (arg == "--scene-demo") {
+            scene_demo = true;
+            cfg.script_entry = "scripts/main.lua";
+        }
+    }
+
+    fake2d::Engine engine;
+    if (!engine.Init(cfg)) {
+        std::fprintf(stderr, "fake2d_hello: engine init failed\n");
+        return 1;
+    }
+
+    if (scene_demo) {
+        std::vector<std::uint8_t> pixels(static_cast<size_t>(kSheetSize) * kSheetSize * 4);
+        PaintDemoSheet(pixels.data());
+        const fake2d::TextureHandle sheet =
+            engine.GetResources().CreateTexture("demo_sheet", kSheetSize, kSheetSize, pixels.data());
+        if (sheet == fake2d::kInvalidTextureHandle) {
+            std::fprintf(stderr, "fake2d_hello: failed to create demo sheet\n");
+            return 1;
+        }
+        return RunSceneDemo(engine, sheet, max_frames);
+    }
+
+    EnsureGameAssets();
     return engine.Run(max_frames);
 }

@@ -15,8 +15,10 @@ struct Engine::Impl {
     Renderer renderer;
     ScriptHost script;
     ResourceManager resources;
+    Input input;
     bool running = false;
     double delta_time = 0.0;
+    double elapsed = 0.0;
     std::uint64_t frame_index = 0;
 };
 
@@ -42,6 +44,7 @@ bool Engine::Init(const EngineConfig &config) {
     if (!impl_->renderer.Init(impl_->window.Width(), impl_->window.Height())) {
         return false;
     }
+    impl_->input.Attach(impl_->window.Handle());
     if (!impl_->script.Init()) {
         return false;
     }
@@ -74,6 +77,8 @@ int Engine::Run(int max_frames) {
         prev = now;
 
         impl_->window.PollEvents();
+        impl_->input.NewFrame(impl_->window.Handle());
+        impl_->elapsed += impl_->delta_time;
 
         // Clear color cycles slightly so the skeleton window is visibly alive.
         const float t = static_cast<float>(impl_->frame_index) * 0.01f;
@@ -122,6 +127,14 @@ bool Engine::IsRunning() const {
 
 double Engine::DeltaTime() const {
     return impl_ ? impl_->delta_time : 0.0;
+}
+
+double Engine::TimeElapsed() const {
+    return impl_ ? impl_->elapsed : 0.0;
+}
+
+const Input &Engine::GetInput() const {
+    return impl_->input;
 }
 
 std::uint64_t Engine::FrameIndex() const {
