@@ -7,7 +7,7 @@
 
 **Fake2D** 是基于 [FakeLua](https://github.com/esrrhs/fakelua) 的现代化轻量 2D 游戏渲染引擎：C++ 宿主掌控窗口、GPU 资源与场景数据；FakeLua 脚本负责编排玩法与实体逻辑，并在每帧边界执行 Arena 线性重置（**零 GC 停顿**）。
 
-> 当前状态：**Phase 1 已完成** — 可启动宿主、OpenGL 3.3 Core 可编程着色器管线、2D 正交相机、动态流式 `SpriteBatch`、1x1 白图合批优化、FakeLua 原生函数绑定与 CI 无头自动化测试。详见下方[实现计划](#实现计划)与 [docs/PLAN.md](docs/PLAN.md)。
+> 当前状态：**Phase 2 已完成** — 可启动宿主、OpenGL 3.3 Core 可编程着色器管线、2D 正交相机、动态流式 `SpriteBatch`、1x1 白图合批优化、FakeLua 原生函数绑定、`Transform2D` 场景图（图层与 Z 排序）、TexturePacker JSON 图集解析、句柄式资源管理器与脚本热重载。详见下方[实现计划](#实现计划)与 [docs/PLAN.md](docs/PLAN.md)。
 
 ---
 
@@ -65,18 +65,23 @@ Fake2D 从设计之初即对齐现代 2D 游戏引擎工业标准（参考 MonoG
 fake2d/
 ├── CMakeLists.txt           # Modern CMake 工程配置
 ├── include/fake2d/          # 对外公共头文件
+│   ├── atlas.h              # TexturePacker JSON 图集
 │   ├── camera.h             # 2D 正交相机
 │   ├── engine.h             # 引擎宿主与主循环
 │   ├── math.h               # Vec2, Rect, Color, Mat4
+│   ├── node.h               # Transform2D 与场景图节点
 │   ├── renderer.h           # 渲染器门面
+│   ├── resource_manager.h   # 句柄式资源池
+│   ├── scene.h              # 图层/Z 序场景渲染
 │   ├── shader.h             # 着色器管线与 Uniform 缓存
 │   ├── sprite_batch.h       # 高性能 SpriteBatch
 │   ├── texture.h            # 纹理与 1x1 白图单例
 │   └── version.h            # 版本定义
 ├── src/
-│   ├── core/                # 引擎循环与生命周期管理
+│   ├── core/                # 引擎循环、生命周期与资源池
 │   ├── platform/            # GLFW 窗口与 GL 上下文管理
 │   ├── render/              # OpenGL 3.3 Core 渲染管线实现
+│   ├── scene/               # 节点层级与场景渲染
 │   └── script/              # FakeLua 桥接与原生 API 注册
 ├── third_party/stb/         # stb_image.h
 ├── scripts/                 # 示例 FakeLua 脚本
@@ -104,6 +109,9 @@ cmake --build build --parallel
 
 # 运行无头模式冒烟测试（适用于 CI 或无显示设备环境）：
 ./build/bin/fake2d_hello --headless --frames 60
+
+# 运行中编辑 scripts/main.lua，保存后引擎自动重新编译（热重载）：
+./build/bin/fake2d_hello --hot-reload
 ```
 
 仅窗口骨架模式（不链接 FakeLua，用于纯 C++ 基础测试）：
@@ -145,8 +153,8 @@ end
 |------|------|--------|:----:|
 | **0 — 骨架** | 可启动宿主 | GLFW 窗口、GL 清屏、FakeLua 桥接、hello 示例、双语文档、CLI 无头测试参数 | **已完成** |
 | **1 — 绘制图元** | 第一批像素 | 正交相机、色块四边形、`SpriteBatch` 动态合批、1x1 白图优化、stb_image 贴图加载 | **已完成** |
-| **2 — 场景与资源** | 结构化支撑 | `Transform2D` 节点层级、图层与 Z 序、图集（SpriteSheet）、资源缓存、TCC 热更 | 进行中 |
-| **3 — 脚本 API** | 脚本制作游戏 | 封装 `sprite`、`camera`、`input`、`time` 等原生模块；每帧输入快照；示例小游戏 | 计划中 |
+| **2 — 场景与资源** | 结构化支撑 | `Transform2D` 节点层级、图层与 Z 序、图集（SpriteSheet）、资源缓存、TCC 热更 | **已完成** |
+| **3 — 脚本 API** | 脚本制作游戏 | 封装 `sprite`、`camera`、`input`、`time` 等原生模块；每帧输入快照；示例小游戏 | 下一步 |
 | **4 — 文字与音频** | 表现力增强 | 位图 / MSDF 字体渲染、音频播放桩、合批粒子发射器 | 计划中 |
 | **5 — 打磨交付** | 商业可交付质量 | 多键合批排序优化、HiDPI / Retina 视网膜缩放、全平台打包指南、DrawCall 性能基准 | 计划中 |
 

@@ -4,6 +4,7 @@
 #include "fakelua.h"
 
 #include <cstdio>
+#include <filesystem>
 #include <functional>
 #include <stdexcept>
 
@@ -15,7 +16,31 @@ struct ScriptHost::Impl {
     fakelua::JITType jit = fakelua::JIT_TCC;
     bool owns_state = false;
     bool script_ready = false;
+    /// Backend availability learned from the first compile; later compiles
+    /// (hot reload) skip straight to the last working configuration.
+    bool tcc_disabled = false;
+    bool gcc_disabled = false;
+
+    std::filesystem::path entry_path;
+    std::filesystem::file_time_type entry_mtime{};
+    bool has_mtime = false;
 };
+
+namespace {
+
+void CompileIntoState(fakelua::State *state, const std::string &path, bool disable_tcc, bool disable_gcc) {
+    fakelua::CompileConfig cfg;
+    cfg.debug_mode = false;
+    if (disable_tcc) {
+        cfg.disable_jit[fakelua::JIT_TCC] = true;
+    }
+    if (disable_gcc) {
+        cfg.disable_jit[fakelua::JIT_GCC] = true;
+    }
+    fakelua::CompileFile(state, path, cfg);
+}
+
+} // namespace
 
 ScriptHost::ScriptHost() : impl_(new Impl) {}
 
@@ -120,17 +145,81 @@ bool ScriptHost::CompileFile(std::string_view path) {
     if (!impl_->state) {
         return false;
     }
+    const std::string path_str(path);
     try {
-        fakelua::CompileConfig cfg;
-        cfg.debug_mode = false;
-        fakelua::CompileFile(impl_->state, std::string(path), cfg);
+        if (impl_->tcc_disabled) {
+            // Reuse the deepest backend configuration that worked before.
+            CompileIntoState(impl_->state, path_str, impl_->tcc_disabled, impl_->gcc_disabled);
+        } else {
+            try {
+                CompileIntoState(impl_->state, path_str, false, false);
+            } catch (const std::exception &) {
+                // TCC cannot find system headers on some hosts; GCC JIT is the
+                // next-fastest backend, the interpreter the most portable one.
+                std::fprintf(stderr, "fake2d: TCC JIT unavailable, falling back to later backends\n");
+                impl_->tcc_disabled = true;
+                try {
+                    impl_->jit = fakelua::JIT_GCC;
+                    CompileIntoState(impl_->state, path_str, true, false);
+                } catch (const std::exception &) {
+                    std::fprintf(stderr, "fake2d: GCC JIT unavailable, using the interpreter backend\n");
+                    impl_->gcc_disabled = true;
+                    impl_->jit = fakelua::JIT_INTERP;
+                    CompileIntoState(impl_->state, path_str, true, true);
+                }
+            }
+        }
         impl_->script_ready = true;
+
+        impl_->entry_path = std::filesystem::path(path);
+        std::error_code ec;
+        const auto mtime = std::filesystem::last_write_time(impl_->entry_path, ec);
+        impl_->has_mtime = !ec;
+        if (!ec) {
+            impl_->entry_mtime = mtime;
+        }
         return true;
     } catch (const std::exception &e) {
-        std::fprintf(stderr, "fake2d: CompileFile(%s) failed: %s\n", std::string(path).c_str(), e.what());
+        std::fprintf(stderr, "fake2d: CompileFile(%s) failed: %s\n", path_str.c_str(), e.what());
         impl_->script_ready = false;
         return false;
     }
+}
+
+bool ScriptHost::ReloadFile() {
+    if (!impl_->state || impl_->entry_path.empty()) {
+        return false;
+    }
+    try {
+        // Re-compile into the live state: game data lives in C++, so resetting
+        // script globals on reload is by design.
+        CompileIntoState(impl_->state, impl_->entry_path.string(), impl_->tcc_disabled, impl_->gcc_disabled);
+        impl_->script_ready = true;
+        std::fprintf(stderr, "fake2d: hot-reloaded %s\n", impl_->entry_path.string().c_str());
+        return true;
+    } catch (const std::exception &e) {
+        // Keep the previous program running; surface the compile error once.
+        std::fprintf(stderr, "fake2d: hot-reload of %s failed (keeping previous script): %s\n",
+                     impl_->entry_path.string().c_str(), e.what());
+        return false;
+    }
+}
+
+bool ScriptHost::PollHotReload() {
+    if (!impl_->state || !impl_->has_mtime || impl_->entry_path.empty()) {
+        return false;
+    }
+
+    std::error_code ec;
+    const auto mtime = std::filesystem::last_write_time(impl_->entry_path, ec);
+    if (ec || mtime == impl_->entry_mtime) {
+        return false;
+    }
+
+    // Advance the recorded mtime even on failure so a broken edit does not
+    // spam compile errors every frame; the next save retries.
+    impl_->entry_mtime = mtime;
+    return ReloadFile();
 }
 
 bool ScriptHost::CallUpdate(double dt) {

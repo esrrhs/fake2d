@@ -218,4 +218,17 @@ void SpriteBatch::DrawSpriteRotated(const Texture2D &texture, const Rect &src, c
     ++current_quads_;
 }
 
+void SpriteBatch::DrawVertices(const Texture2D &texture, const Vec2 corners[4], const Vec2 uvs[4],
+                               const Color &tint) {
+    if (!texture.IsValid()) return;
+    EnsureCapacity(1, texture.Id());
+
+    const size_t v_idx = current_quads_ * 4;
+    for (size_t i = 0; i < 4; ++i) {
+        vertices_[v_idx + i] = {corners[i], uvs[i], tint};
+    }
+
+    ++current_quads_;
+}
+
 } // namespace fake2d

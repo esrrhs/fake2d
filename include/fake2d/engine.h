@@ -1,14 +1,18 @@
 #pragma once
 
 #include "fake2d/renderer.h"
+#include "fake2d/resource_manager.h"
 #include "fake2d/version.h"
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <string_view>
 
 namespace fake2d {
+
+class Engine;
 
 struct EngineConfig {
     std::string title = "fake2d";
@@ -18,6 +22,11 @@ struct EngineConfig {
     bool headless = false;
     /// Relative path to the FakeLua entry script (e.g. scripts/main.lua).
     std::string script_entry = "scripts/main.lua";
+    /// Watch the entry script's mtime and hot-reload it on change.
+    bool hot_reload = false;
+    /// Optional per-frame C++ hook, invoked after the script update and
+    /// before the frame is flushed (e.g. to draw a scene graph).
+    std::function<void(Engine &)> on_frame;
 };
 
 /// Host-owned engine: window + renderer + FakeLua state.
@@ -38,12 +47,19 @@ public:
 
     void Shutdown();
 
+    /// Set/replace the per-frame C++ hook (usable any time, including after Init).
+    void SetFrameCallback(std::function<void(Engine &)> callback);
+
     [[nodiscard]] bool IsRunning() const;
     [[nodiscard]] double DeltaTime() const;
     [[nodiscard]] std::uint64_t FrameIndex() const;
 
     Renderer &GetRenderer();
     [[nodiscard]] const Renderer &GetRenderer() const;
+
+    /// Shared handle-based texture/atlas pool.
+    ResourceManager &GetResources();
+    [[nodiscard]] const ResourceManager &GetResources() const;
 
 private:
     struct Impl;

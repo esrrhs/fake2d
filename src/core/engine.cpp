@@ -14,6 +14,7 @@ struct Engine::Impl {
     platform::Window window;
     Renderer renderer;
     ScriptHost script;
+    ResourceManager resources;
     bool running = false;
     double delta_time = 0.0;
     std::uint64_t frame_index = 0;
@@ -83,6 +84,13 @@ int Engine::Run(int max_frames) {
         impl_->script.CallUpdate(impl_->delta_time);
         impl_->script.ResetFrame();
 
+        if (impl_->config.hot_reload) {
+            impl_->script.PollHotReload();
+        }
+        if (impl_->config.on_frame) {
+            impl_->config.on_frame(*this);
+        }
+
         impl_->renderer.EndFrame();
         impl_->window.SwapBuffers();
 
@@ -98,9 +106,14 @@ void Engine::Shutdown() {
         return;
     }
     impl_->running = false;
+    impl_->resources.Clear();
     impl_->script.Shutdown();
     impl_->renderer.Shutdown();
     impl_->window.Destroy();
+}
+
+void Engine::SetFrameCallback(std::function<void(Engine &)> callback) {
+    impl_->config.on_frame = std::move(callback);
 }
 
 bool Engine::IsRunning() const {
@@ -121,6 +134,14 @@ Renderer &Engine::GetRenderer() {
 
 const Renderer &Engine::GetRenderer() const {
     return impl_->renderer;
+}
+
+ResourceManager &Engine::GetResources() {
+    return impl_->resources;
+}
+
+const ResourceManager &Engine::GetResources() const {
+    return impl_->resources;
 }
 
 } // namespace fake2d

@@ -26,6 +26,14 @@ bool ScriptHost::CompileFile(std::string_view path) {
     return false;
 }
 
+bool ScriptHost::ReloadFile() {
+    return false;
+}
+
+bool ScriptHost::PollHotReload() {
+    return false;
+}
+
 bool ScriptHost::CallUpdate(double dt) {
     (void)dt;
     return false;
