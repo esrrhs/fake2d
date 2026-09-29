@@ -51,3 +51,6 @@ _build/
 *.gcno
 coverage.info
 coverage_html/
+assets/
+build/
+build-nofakelua/
