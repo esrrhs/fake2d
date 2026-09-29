@@ -1,8 +1,16 @@
 #include "fake2d/texture.h"
 #include "gl.h"
 
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+#endif
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h"
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 #include <cstdio>
 #include <string>
@@ -61,7 +69,7 @@ Texture2D &Texture2D::operator=(Texture2D &&other) noexcept {
     return *this;
 }
 
-bool Texture2D::Create(int width, int height, const uint8_t *data, int channels,
+bool Texture2D::Create(int width, int height, const std::uint8_t *data, int channels,
                        TextureFilter filter, TextureWrap wrap) {
     Destroy();
 
@@ -103,7 +111,7 @@ bool Texture2D::LoadFromFile(std::string_view file_path, TextureFilter filter, T
     const std::string path(file_path);
     stbi_set_flip_vertically_on_load(0);
     int w = 0, h = 0, ch = 0;
-    uint8_t *pixels = stbi_load(path.c_str(), &w, &h, &ch, 4);
+    std::uint8_t *pixels = stbi_load(path.c_str(), &w, &h, &ch, 4);
     if (!pixels) {
         std::fprintf(stderr, "fake2d: Failed to load texture file '%s': %s\n", path.c_str(), stbi_failure_reason());
         return false;
@@ -124,7 +132,7 @@ void Texture2D::Destroy() {
     }
 }
 
-void Texture2D::Bind(uint32_t slot) const {
+void Texture2D::Bind(std::uint32_t slot) const {
     if (id_) {
         glActiveTexture(GL_TEXTURE0 + slot);
         glBindTexture(GL_TEXTURE_2D, id_);
@@ -139,7 +147,7 @@ const Texture2D &Texture2D::White() {
     static Texture2D white_tex;
     static bool initialized = false;
     if (!initialized) {
-        const uint8_t white_pixel[4] = {0xFF, 0xFF, 0xFF, 0xFF};
+        const std::uint8_t white_pixel[4] = {0xFF, 0xFF, 0xFF, 0xFF};
         initialized = white_tex.Create(1, 1, white_pixel, 4, TextureFilter::Nearest, TextureWrap::Clamp);
     }
     return white_tex;

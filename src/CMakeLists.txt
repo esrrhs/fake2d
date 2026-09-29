@@ -32,6 +32,12 @@ target_link_libraries(fake2d
     PUBLIC
         glfw
         OpenGL::GL
+        $<$<PLATFORM_ID:Linux>:m>
+)
+
+target_compile_definitions(fake2d
+    PUBLIC
+        $<$<NOT:$<PLATFORM_ID:Darwin>>:GL_GLEXT_PROTOTYPES>
 )
 
 if (FAKE2D_WITH_FAKELUA)

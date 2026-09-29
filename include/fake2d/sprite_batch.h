@@ -4,6 +4,7 @@
 #include "fake2d/shader.h"
 #include "fake2d/texture.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -48,15 +49,15 @@ public:
     void ResetStats() { draw_call_count_ = 0; total_quad_count_ = 0; }
 
 private:
-    void EnsureCapacity(size_t quads_to_add, uint32_t texture_id);
+    void EnsureCapacity(size_t quads_to_add, std::uint32_t texture_id);
 
-    uint32_t vao_ = 0;
-    uint32_t vbo_ = 0;
-    uint32_t ibo_ = 0;
+    std::uint32_t vao_ = 0;
+    std::uint32_t vbo_ = 0;
+    std::uint32_t ibo_ = 0;
 
     size_t max_quads_ = 4096;
     size_t current_quads_ = 0;
-    uint32_t current_texture_id_ = 0;
+    std::uint32_t current_texture_id_ = 0;
 
     std::vector<Vertex2D> vertices_;
     Mat4 current_view_projection_;

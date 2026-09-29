@@ -31,7 +31,7 @@ public:
     void SetVec4(std::string_view name, const Color &val);
     void SetMat4(std::string_view name, const Mat4 &val);
 
-    [[nodiscard]] uint32_t Id() const { return program_id_; }
+    [[nodiscard]] std::uint32_t Id() const { return program_id_; }
     [[nodiscard]] bool IsValid() const { return program_id_ != 0; }
 
     /// Shared default 2D shader with projection and sampler uniform.
@@ -40,7 +40,7 @@ public:
 private:
     int GetUniformLocation(std::string_view name);
 
-    uint32_t program_id_ = 0;
+    std::uint32_t program_id_ = 0;
     std::unordered_map<std::string, int> uniform_cache_;
 };
 
