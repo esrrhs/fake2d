@@ -12,6 +12,8 @@ set(FAKE2D_SOURCES
     scene/node.cpp
     scene/scene.cpp
     platform/window.cpp
+    platform/input.cpp
+    script/script_bindings.cpp
 )
 
 if (FAKE2D_WITH_FAKELUA)

@@ -1,6 +1,6 @@
 #include "fake2d/script_host.h"
-#include "fake2d/engine.h"
 
+#include "script_bindings.h"
 #include "fakelua.h"
 
 #include <cstdio>
@@ -57,85 +57,7 @@ bool ScriptHost::Init() {
 
 void ScriptHost::BindEngine(Engine *engine) {
     impl_->engine = engine;
-    if (!impl_->state || !impl_->engine) {
-        return;
-    }
-
-    // Register 2D draw primitives
-    fakelua::RegisterNativeFunction(
-        impl_->state, "draw_quad", false,
-        std::function<void(fakelua::State *, double, double, double, double, double, double, double, double)>(
-            [this](fakelua::State * /*s*/, double x, double y, double w, double h, double r, double g, double b, double a) {
-                if (impl_->engine) {
-                    impl_->engine->GetRenderer().DrawQuad(
-                        static_cast<float>(x), static_cast<float>(y),
-                        static_cast<float>(w), static_cast<float>(h),
-                        Color{static_cast<float>(r), static_cast<float>(g), static_cast<float>(b), static_cast<float>(a)}
-                    );
-                }
-            }
-        )
-    );
-
-    fakelua::RegisterNativeFunction(
-        impl_->state, "draw_quad_rgb", false,
-        std::function<void(fakelua::State *, double, double, double, double, double, double, double)>(
-            [this](fakelua::State * /*s*/, double x, double y, double w, double h, double r, double g, double b) {
-                if (impl_->engine) {
-                    impl_->engine->GetRenderer().DrawQuad(
-                        static_cast<float>(x), static_cast<float>(y),
-                        static_cast<float>(w), static_cast<float>(h),
-                        Color{static_cast<float>(r), static_cast<float>(g), static_cast<float>(b), 1.0f}
-                    );
-                }
-            }
-        )
-    );
-
-    // Register camera controls
-    fakelua::RegisterNativeFunction(
-        impl_->state, "camera_set_position", false,
-        std::function<void(fakelua::State *, double, double)>(
-            [this](fakelua::State * /*s*/, double x, double y) {
-                if (impl_->engine) {
-                    impl_->engine->GetRenderer().GetCamera().SetPosition(static_cast<float>(x), static_cast<float>(y));
-                }
-            }
-        )
-    );
-
-    fakelua::RegisterNativeFunction(
-        impl_->state, "camera_move", false,
-        std::function<void(fakelua::State *, double, double)>(
-            [this](fakelua::State * /*s*/, double dx, double dy) {
-                if (impl_->engine) {
-                    impl_->engine->GetRenderer().GetCamera().Move(static_cast<float>(dx), static_cast<float>(dy));
-                }
-            }
-        )
-    );
-
-    fakelua::RegisterNativeFunction(
-        impl_->state, "camera_set_zoom", false,
-        std::function<void(fakelua::State *, double)>(
-            [this](fakelua::State * /*s*/, double zoom) {
-                if (impl_->engine) {
-                    impl_->engine->GetRenderer().GetCamera().SetZoom(static_cast<float>(zoom));
-                }
-            }
-        )
-    );
-
-    fakelua::RegisterNativeFunction(
-        impl_->state, "camera_set_rotation", false,
-        std::function<void(fakelua::State *, double)>(
-            [this](fakelua::State * /*s*/, double rad) {
-                if (impl_->engine) {
-                    impl_->engine->GetRenderer().GetCamera().SetRotation(static_cast<float>(rad));
-                }
-            }
-        )
-    );
+    RegisterScriptApi(impl_->state, engine);
 }
 
 bool ScriptHost::CompileFile(std::string_view path) {

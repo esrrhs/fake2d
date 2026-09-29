@@ -60,14 +60,14 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 - [x] Resource manager (handle-based texture/atlas caching and reference counting)
 - [x] Script hot-reload via FakeLua JIT backend (GCC JIT default, interpreter fallback)
 
-## Phase 3 — Script API (0.4.x) — next
+## Phase 3 — Script API (0.4.x) — done
 
-- [ ] Expose native engine modules to FakeLua: `fake2d.sprite`, `fake2d.camera`, `fake2d.input`, `fake2d.time`
-- [ ] Input snapshot (keyboard, mouse position, button clicks) readable per-frame from Lua
-- [ ] Complete runnable mini-game sample (e.g. falling sprite catcher / breakout clone)
-- [ ] Documentation for FakeLua script authoring and performance best practices
+- [x] Expose native engine modules to FakeLua: `fake2d.sprite`, `fake2d.camera`, `fake2d.input`, `fake2d.time`
+- [x] Input snapshot (keyboard, mouse position, button clicks) readable per-frame from Lua
+- [x] Complete runnable mini-game sample (breakout clone, `scripts/game.lua`)
+- [x] Documentation for FakeLua script authoring and performance best practices ([docs/SCRIPTING.md](SCRIPTING.md))
 
-## Phase 4 — Text & audio (0.5.x)
+## Phase 4 — Text & audio (0.5.x) — next
 
 - [ ] Bitmap / MSDF (Multi-channel Signed Distance Field) font renderer batched into `SpriteBatch`
 - [ ] Audio clip playback integration (miniaudio or lightweight audio backend)

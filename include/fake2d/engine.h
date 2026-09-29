@@ -1,5 +1,6 @@
 #pragma once
 
+#include "fake2d/input.h"
 #include "fake2d/renderer.h"
 #include "fake2d/resource_manager.h"
 #include "fake2d/version.h"
@@ -52,6 +53,8 @@ public:
 
     [[nodiscard]] bool IsRunning() const;
     [[nodiscard]] double DeltaTime() const;
+    /// Seconds since Init (sum of frame deltas).
+    [[nodiscard]] double TimeElapsed() const;
     [[nodiscard]] std::uint64_t FrameIndex() const;
 
     Renderer &GetRenderer();
@@ -60,6 +63,9 @@ public:
     /// Shared handle-based texture/atlas pool.
     ResourceManager &GetResources();
     [[nodiscard]] const ResourceManager &GetResources() const;
+
+    /// Per-frame input snapshot, refreshed after event polling each frame.
+    const Input &GetInput() const;
 
 private:
     struct Impl;
