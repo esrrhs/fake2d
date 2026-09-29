@@ -58,7 +58,7 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 - [x] Layer and Z-ordering support
 - [x] Texture Atlas / SpriteSheet parser (TexturePacker JSON format)
 - [x] Resource manager (handle-based texture/atlas caching and reference counting)
-- [x] Script hot-reload via FakeLua TCC backend
+- [x] Script hot-reload via FakeLua JIT backend (GCC JIT default, interpreter fallback)
 
 ## Phase 3 — Script API (0.4.x) — next
 

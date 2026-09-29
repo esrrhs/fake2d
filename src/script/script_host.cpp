@@ -13,13 +13,12 @@ namespace fake2d {
 struct ScriptHost::Impl {
     fakelua::State *state = nullptr;
     Engine *engine = nullptr;
-    fakelua::JITType jit = fakelua::JIT_TCC;
+    fakelua::JITType jit = fakelua::JIT_GCC;
     bool owns_state = false;
     bool script_ready = false;
     /// Backend availability learned from the first compile; later compiles
     /// (hot reload) skip straight to the last working configuration.
-    bool tcc_disabled = false;
-    bool gcc_disabled = false;
+    bool interp_only = false;
 
     std::filesystem::path entry_path;
     std::filesystem::file_time_type entry_mtime{};
@@ -28,13 +27,12 @@ struct ScriptHost::Impl {
 
 namespace {
 
-void CompileIntoState(fakelua::State *state, const std::string &path, bool disable_tcc, bool disable_gcc) {
+void CompileIntoState(fakelua::State *state, const std::string &path, bool interp_only) {
     fakelua::CompileConfig cfg;
     cfg.debug_mode = false;
-    if (disable_tcc) {
-        cfg.disable_jit[fakelua::JIT_TCC] = true;
-    }
-    if (disable_gcc) {
+    // TCC is never used; GCC JIT is the default backend.
+    cfg.disable_jit[fakelua::JIT_TCC] = true;
+    if (interp_only) {
         cfg.disable_jit[fakelua::JIT_GCC] = true;
     }
     fakelua::CompileFile(state, path, cfg);
@@ -52,7 +50,6 @@ ScriptHost::~ScriptHost() {
 
 bool ScriptHost::Init() {
     const fakelua::StateConfig cfg;
-    // Prefers TCC for fast iteration during early engine bring-up.
     impl_->state = fakelua::FakeluaNewState(cfg);
     impl_->owns_state = true;
     return impl_->state != nullptr;
@@ -147,26 +144,19 @@ bool ScriptHost::CompileFile(std::string_view path) {
     }
     const std::string path_str(path);
     try {
-        if (impl_->tcc_disabled) {
-            // Reuse the deepest backend configuration that worked before.
-            CompileIntoState(impl_->state, path_str, impl_->tcc_disabled, impl_->gcc_disabled);
+        if (impl_->interp_only) {
+            // Reuse the configuration that worked before.
+            CompileIntoState(impl_->state, path_str, true);
         } else {
             try {
-                CompileIntoState(impl_->state, path_str, false, false);
+                CompileIntoState(impl_->state, path_str, false);
             } catch (const std::exception &) {
-                // TCC cannot find system headers on some hosts; GCC JIT is the
-                // next-fastest backend, the interpreter the most portable one.
-                std::fprintf(stderr, "fake2d: TCC JIT unavailable, falling back to later backends\n");
-                impl_->tcc_disabled = true;
-                try {
-                    impl_->jit = fakelua::JIT_GCC;
-                    CompileIntoState(impl_->state, path_str, true, false);
-                } catch (const std::exception &) {
-                    std::fprintf(stderr, "fake2d: GCC JIT unavailable, using the interpreter backend\n");
-                    impl_->gcc_disabled = true;
-                    impl_->jit = fakelua::JIT_INTERP;
-                    CompileIntoState(impl_->state, path_str, true, true);
-                }
+                // No usable GCC on this host; the interpreter backend is the
+                // most portable fallback.
+                std::fprintf(stderr, "fake2d: GCC JIT unavailable, using the interpreter backend\n");
+                impl_->interp_only = true;
+                impl_->jit = fakelua::JIT_INTERP;
+                CompileIntoState(impl_->state, path_str, true);
             }
         }
         impl_->script_ready = true;
@@ -193,7 +183,7 @@ bool ScriptHost::ReloadFile() {
     try {
         // Re-compile into the live state: game data lives in C++, so resetting
         // script globals on reload is by design.
-        CompileIntoState(impl_->state, impl_->entry_path.string(), impl_->tcc_disabled, impl_->gcc_disabled);
+        CompileIntoState(impl_->state, impl_->entry_path.string(), impl_->interp_only);
         impl_->script_ready = true;
         std::fprintf(stderr, "fake2d: hot-reloaded %s\n", impl_->entry_path.string().c_str());
         return true;
