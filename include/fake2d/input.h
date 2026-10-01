@@ -32,6 +32,8 @@ public:
     /// Button index: 0 = left, 1 = right, 2 = middle.
     [[nodiscard]] bool MouseDown(std::int64_t button) const;
     [[nodiscard]] bool MousePressed(std::int64_t button) const;
+    /// True only on the frame the button came back up.
+    [[nodiscard]] bool MouseReleased(std::int64_t button) const;
     /// Accumulated vertical wheel movement this frame (positive = away from user).
     [[nodiscard]] double MouseWheel() const { return wheel_; }
 

@@ -7,7 +7,7 @@
 
 **Fake2D** is a lightweight, modern 2D game rendering engine powered by [FakeLua](https://github.com/esrrhs/fakelua): C++ owns the window, GPU resources, and scene graph; FakeLua scripts orchestrate gameplay logic with a per-frame linear arena reset (**zero GC pauses**).
 
-> Status: **Phase 3 complete** — bootable host, OpenGL 3.3 Core shader pipeline, 2D orthographic camera, dynamic `SpriteBatch`, `Transform2D` scene graph with layer/z ordering, TexturePacker JSON atlas parsing, handle-based resource manager, script hot-reload, and a native script API (`sprite` / `camera` / `input` / `time`) with a playable breakout sample. See the [Implementation Plan](#implementation-plan), [docs/PLAN.md](docs/PLAN.md), and the [Scripting Guide](docs/SCRIPTING.md).
+> Status: **1.2 — Phase 7 complete** — everything in 1.1 (rendering, audio, particles, physics, animation, tilemaps, UI), plus a spatial-hash physics broadphase with a benchmark, GL line/debug primitives, trauma camera shake, WAV decoding with looping background music, and a kinematic platformer character controller (coyote time, jump buffering, one-way platforms) demonstrated by a complete scrolling `--platformer-demo` level. See the [Implementation Plan](#implementation-plan), [docs/PLAN.md](docs/PLAN.md), the [Scripting Guide](docs/SCRIPTING.md), and [Packaging Notes](docs/PACKAGING.md).
 
 ---
 
@@ -21,10 +21,11 @@ Fake2D is built from the ground up to follow modern 2D game engine industry stan
 2. **Data-Oriented SpriteBatching**:
    - Quad-based dynamic streaming VBO with pre-allocated static index buffer (`0-1-2-2-3-0` quad pattern).
    - **Unified 1x1 White Texture**: Colored geometry (rectangles, progress bars, debug cards) and textured sprites share the exact same GLSL shader and batch buffer, preventing pipeline breaks.
-   - Multi-key batch sorting (Layer → Depth/Z → Texture ID → Blend Mode) to minimize draw calls (Phase 5).
+   - Multi-key batch sorting (Layer → Depth/Z → Blend Mode → Texture ID) merges same-texture quads into one draw call; alpha/additive blend modes; measured by the built-in `--bench` suite (~674 → 8 draw calls for 768 sprites / 8 textures).
 3. **Decoupled 2D Camera & Coordinates**:
    - Dedicated `Camera2D` supporting viewport scaling, rotation, smooth panning, and zoom.
    - Two-way coordinate transformation (`ScreenToWorld` and `WorldToScreen`) for pixel-perfect HUDs and world interactions.
+   - HiDPI/Retina native: the projection works in physical framebuffer pixels while game coordinates stay logical points, and live resize/DPI changes are tracked automatically.
 4. **Data-Driven Scene & Assets**:
    - Spatial node hierarchy (`Transform2D`) with local-to-world dirty caching (Phase 2).
    - Texture Atlas / SpriteSheet support for packing entire levels into single draw calls.
@@ -67,12 +68,20 @@ fake2d/
 ├── CMakeLists.txt           # Modern CMake configuration
 ├── include/fake2d/          # Public engine API
 │   ├── atlas.h              # TexturePacker JSON texture atlas
-│   ├── camera.h             # 2D Orthographic camera
+│   ├── animation.h          # Frame-animation clip pool
+│   ├── audio.h              # miniaudio one-shot clip player
+│   ├── camera.h             # 2D Orthographic camera (+ trauma shake)
+│   ├── character.h          # Kinematic platformer controller
 │   ├── engine.h             # Engine host & main loop
+│   ├── font.h               # TTF/8x8 bitmap glyph atlas
 │   ├── input.h              # Per-frame keyboard/mouse snapshot
 │   ├── math.h               # Vec2, Rect, Color, Mat4
 │   ├── node.h               # Transform2D & scene graph nodes
+│   ├── particle.h           # CPU particle pool & emitters
+│   ├── physics.h            # Built-in AABB/circle physics world
 │   ├── renderer.h           # Renderer façade
+│   ├── tilemap.h            # Tiled JSON tile maps + library
+│   ├── ui.h                 # Anchored panels, labels, buttons
 │   ├── resource_manager.h   # Handle-based resource pool
 │   ├── scene.h              # Layer/z-ordered scene rendering
 │   ├── shader.h             # Shader pipeline & uniforms
@@ -80,15 +89,20 @@ fake2d/
 │   ├── texture.h            # Texture2D & 1x1 white fallback
 │   └── version.h            # Version definitions
 ├── src/
+│   ├── audio/               # miniaudio device, voice mixing, WAV decode
 │   ├── core/                # Engine loop, lifecycle, resource pool
+│   ├── gameplay/            # Platformer character controller
+│   ├── physics/             # Built-in 2D physics world + spatial broadphase
 │   ├── platform/            # GLFW window & GL context
-│   ├── render/              # OpenGL 3.3 Core render implementation
+│   ├── render/              # GL 3.3 Core render, font, particles, animation, tilemap
 │   ├── scene/               # Node hierarchy & scene rendering
-│   └── script/              # FakeLua integration & bindings
-├── third_party/stb/         # stb_image.h, stb_image_write.h
+│   ├── script/              # FakeLua integration & bindings
+│   └── ui/                  # Anchored widget system
+├── third_party/             # stb_image, stb_truetype, stb_rect_pack, miniaudio, font8x8
 ├── scripts/                 # Sample scripts (game.lua = breakout, main.lua = scene demo)
-├── examples/hello/          # Minimal runnable sample (supports --headless, --scene-demo)
+├── examples/hello/          # Samples: breakout, --scene-demo, --map-demo, --platformer-demo, --bench, --phys-bench
 ├── docs/SCRIPTING.md        # Script authoring guide & API reference
+├── docs/PACKAGING.md        # Linux / Windows / macOS packaging notes
 └── docs/PLAN.md             # Detailed roadmap and milestone checklist
 ```
 
@@ -113,11 +127,27 @@ cmake --build build --parallel
 # Run headless smoke test (e.g. for CI or remote environments):
 ./build/bin/fake2d_hello --headless --frames 60
 
+# Capture a framebuffer PNG in headless mode (visual regression tests):
+./build/bin/fake2d_hello --headless --frames 460 --screenshot game.png
+./build/bin/fake2d_hello --headless --frames 40 --scene-demo --screenshot scene.png
+
+# Draw-call / flush-time benchmark (immediate vs sorted batching):
+./build/bin/fake2d_hello --headless --bench
+
 # Edit scripts/game.lua while running — the engine recompiles it on save:
 ./build/bin/fake2d_hello --hot-reload
 
-# The Phase 2 C++ scene-graph / atlas demo instead of the Lua game:
+# The Phase 2 C++ scene graph / atlas demo instead of the Lua game:
 ./build/bin/fake2d_hello --scene-demo
+
+# Phase 6: Tiled tilemap + built-in physics + UI (R or the RESET button):
+./build/bin/fake2d_hello --map-demo
+
+# Phase 7: scrolling platformer (A/D + Space; attract AI headless):
+./build/bin/fake2d_hello --platformer-demo
+
+# Physics broadphase benchmark (brute force vs spatial hash grid):
+./build/bin/fake2d_hello --headless --phys-bench
 ```
 
 Window-only skeleton build (without FakeLua, useful for rapid engine-only testing):
@@ -165,8 +195,10 @@ codegen constraints), and performance best practices live in the
 | **1 — Draw primitives** | First pixels | Ortho camera, colored quads, `SpriteBatch`, 1x1 white fallback, PNG textures via stb_image | **Done** |
 | **2 — Scene & assets** | Structure | Transform2D hierarchy, layers/z-order, texture atlas (SpriteSheet), resource cache, hot-reload | **Done** |
 | **3 — Script API** | Author games in Lua | Native modules (`sprite`, `camera`, `input`, `time`), per-frame input snapshot, playable breakout sample, [Scripting Guide](docs/SCRIPTING.md) | **Done** |
-| **4 — Text & audio** | Presentation | Bitmap / MSDF font renderer, audio playback, particle emitter batched into SpriteBatch | Next |
-| **5 — Polish** | Production quality | Multi-key batch sorting, HiDPI / Retina framebuffer scaling, draw-call benchmarks | Planned |
+| **4 — Text & audio** | Presentation | TTF bitmap font (8x8 fallback) batched into SpriteBatch, miniaudio one-shot SFX, zero-allocation CPU particle system, framebuffer screenshots | **Done** |
+| **5 — Polish (1.0)** | Production quality | Multi-key sorted batching + additive blending, HiDPI/Retina, `--bench` suite, cross-platform [packaging notes](docs/PACKAGING.md), tag-driven release automation | **Done** |
+| **6 — Gameplay (1.1)** | Game systems | Built-in AABB/circle physics with sensor contacts, frame animation, Tiled JSON tilemaps (+solid colliders), anchored UI panels/labels/buttons; `--map-demo` | **Done** |
+| **7 — Platformer & scale (1.2)** | Controller & scale | Spatial-hash broadphase (`--phys-bench` ~6x), line/debug primitives, trauma camera shake, WAV + looping music, tilemap platformer controller (coyote/buffer/one-way) + `--platformer-demo` | **Done** |
 
 Detailed checklist: [docs/PLAN.md](docs/PLAN.md).
 

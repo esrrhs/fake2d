@@ -67,19 +67,37 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 - [x] Complete runnable mini-game sample (breakout clone, `scripts/game.lua`)
 - [x] Documentation for FakeLua script authoring and performance best practices ([docs/SCRIPTING.md](SCRIPTING.md))
 
-## Phase 4 — Text & audio (0.5.x) — next
+## Phase 4 — Text & audio (0.5.x) — done
 
-- [ ] Bitmap / MSDF (Multi-channel Signed Distance Field) font renderer batched into `SpriteBatch`
-- [ ] Audio clip playback integration (miniaudio or lightweight audio backend)
-- [ ] CPU particle emitter with quad batching into `SpriteBatch`
+- [x] Bitmap font renderer: TTF glyph atlas via stb_truetype (runtime rasterized, printable ASCII) with an embedded public-domain 8x8 fallback font; glyph quads submitted straight into `SpriteBatch`
+- [x] Audio clip playback integrated on miniaudio: 44.1 kHz stereo device, in-memory mono float clips, 32-voice one-shot pool; audio-less hosts (headless CI) degrade to no-ops
+- [x] CPU particle system: fixed-slot emitters + 8192-particle ring pool (no per-frame allocation), life/speed/direction/size/gravity/drag/spin config, rotated tinted white-texture quads batched into `SpriteBatch`
+- [x] Native script API for all three (`draw_text` / `text_width`, `audio_play` / `audio_enabled`, `part_*`); breakout sample gained HUD/banner text, SFX and brick debris
+- [x] Headless visual verification: `--screenshot path` framebuffer capture (glReadPixels + PNG)
 
-## Phase 5 — Polish & Production (1.0.x)
+## Phase 5 — Polish & Production (1.0.x) — done
 
-- [ ] Multi-key batch sorting (Layer → Depth/Z → Texture ID → Blend Mode) to minimize draw calls
-- [ ] HiDPI / Retina framebuffer scaling support
-- [ ] Cross-platform packaging notes (Linux / Windows / macOS)
-- [ ] Benchmark suite (draw calls, sprite count vs FPS, memory footprint)
-- [ ] SemVer versioning policy and release automation workflow
+- [x] Multi-key batch sorting (Layer → Depth/Z → Texture ID → Blend Mode): deferred command buffer in `SpriteBatch`, opt-in sorted mode; scene graph renders through it; alpha/additive blend modes
+- [x] HiDPI / Retina framebuffer scaling: physical framebuffer size + content scale from GLFW, orthographic projection in device pixels while game coordinates stay logical points, live resize/DPI-change tracking
+- [x] Benchmark suite: `--bench` measures flush time and draw calls for immediate vs sorted batching (768 sprites / 8 textures: ~674 → 8 draw calls, ~1.35 ms → ~0.10 ms on the reference machine)
+- [x] Cross-platform packaging notes (Linux / Windows / macOS): [PACKAGING.md](PACKAGING.md)
+- [x] SemVer (`MAJOR.MINOR.PATCH` in CMake + `version.h`) and tag-driven release automation (`.github/workflows/release.yml`)
+
+## Phase 7 — Platformer & scale (1.2.x) — done
+
+- [x] Physics broadphase: uniform spatial hash grid replacing O(n²) pair scanning (conservative bounding-circle insertion, deduped candidates), toggleable; `--phys-bench` shows 600 dynamics + statics at ~1.66 ms → ~0.28 ms/step (5.9x)
+- [x] Line primitives: dedicated GL_LINES stream for segments / rectangle outlines / circle outlines, flushed after the quads each frame
+- [x] Camera trauma shake: squared-trauma decay with layered-sine noise driving offset + slight rotation; deterministic for reproducible headless runs; `camera_shake()`
+- [x] WAV loading: PCM 8/16-bit mono/stereo chunk parser, downmix + linear resample to the device rate; one looping music voice (`audio_music` / `audio_music_stop`)
+- [x] Kinematic platformer CharacterController on tilemaps: accel/friction, variable-height jumps, coyote time, jump buffering, one-way platforms (`oneway` tile property), substepped swept movement; complete `--platformer-demo` (scrolling follow cam, tile-rewrite coin pickups, goal flag, attract AI, looping WAV music, debug overlays)
+
+## Phase 6 — Gameplay foundation (1.1.x) — done
+
+- [x] Lightweight built-in 2D physics: circle/AABB colliders, static/dynamic bodies, gravity & restitution, 4-substep integration, circle/box/box-circle pairs, sensor triggers and de-duplicated "contact began" events (zero external dependencies)
+- [x] Sprite frame animation: fixed-pool clips of texture regions, fps / loop / one-shot + finished polling, engine-driven updates, batched drawing
+- [x] Tilemap: Tiled orthogonal JSON loading, per-layer sorted batched rendering (gid flip-flag masking), gid/solid queries, `solid` tile-property parsing and one-call `CreateStaticColliders` into the physics world
+- [x] UI basics: anchor-laid Panel / Label / Button (5 anchors), hover & pressed states, click-on-release polling; `MouseReleased` added to the input snapshot
+- [x] Samples & docs: animated spinning coin in breakout, `--map-demo` (generated Tiled level + 24 bouncing bodies + anchored RESET button), scripting guide chapter, CI demo step
 
 ---
 

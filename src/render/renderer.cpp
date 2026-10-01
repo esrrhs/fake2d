@@ -1,6 +1,12 @@
 #include "fake2d/renderer.h"
 #include "gl.h"
 
+#include "stb/stb_image_write.h"
+
+#include <cstdio>
+#include <cstring>
+#include <vector>
+
 namespace fake2d {
 
 Renderer::Renderer() = default;
@@ -9,27 +15,32 @@ Renderer::~Renderer() {
     Shutdown();
 }
 
-bool Renderer::Init(int width, int height) {
-    width_ = width;
-    height_ = height;
+bool Renderer::Init(int logical_width, int logical_height) {
+    width_ = logical_width;
+    height_ = logical_height;
 
-    camera_.SetViewport(static_cast<float>(width), static_cast<float>(height));
+    camera_.SetViewport(static_cast<float>(logical_width), static_cast<float>(logical_height));
+    camera_.SetContentScale(1.0f);
 
     if (!batch_.Init()) {
         return false;
     }
 
+    // The embedded 8x8 font guarantees this succeeds even on fontless hosts.
+    font_.LoadDefault(28.0f);
+
     ready_ = true;
-    Resize(width, height);
     return true;
 }
 
-void Renderer::Resize(int width, int height) {
-    width_ = width;
-    height_ = height;
-    camera_.SetViewport(static_cast<float>(width), static_cast<float>(height));
+void Renderer::Resize(int fb_width, int fb_height, int logical_width, int logical_height,
+                      float content_scale) {
+    width_ = fb_width;
+    height_ = fb_height;
+    camera_.SetViewport(static_cast<float>(logical_width), static_cast<float>(logical_height));
+    camera_.SetContentScale(content_scale);
     if (ready_) {
-        glViewport(0, 0, width_, height_);
+        glViewport(0, 0, fb_width, fb_height);
     }
 }
 
@@ -51,6 +62,8 @@ void Renderer::EndFrame() {
 
 void Renderer::Shutdown() {
     if (ready_) {
+        // Release the glyph atlas while the GL context is still current.
+        font_.Reset();
         batch_.Shutdown();
         ready_ = false;
     }
@@ -62,6 +75,19 @@ void Renderer::DrawQuad(float x, float y, float w, float h, const Color &color) 
 
 void Renderer::DrawQuad(const Rect &dst, const Color &color) {
     batch_.DrawQuad(dst, color);
+}
+
+void Renderer::DrawLine(float x1, float y1, float x2, float y2, const Color &color) {
+    batch_.DrawLine({x1, y1}, {x2, y2}, color);
+}
+
+void Renderer::DrawRectOutline(const Rect &rect, const Color &color) {
+    batch_.DrawRectOutline(rect, color);
+}
+
+void Renderer::DrawCircleOutline(float cx, float cy, float radius, int segments,
+                                 const Color &color) {
+    batch_.DrawCircleOutline({cx, cy}, radius, segments, color);
 }
 
 void Renderer::DrawSprite(const Texture2D &texture, float x, float y, float w, float h, const Color &tint) {
@@ -77,6 +103,41 @@ void Renderer::DrawSprite(const Texture2D &texture, const Rect &src, const Rect 
 void Renderer::DrawSpriteRotated(const Texture2D &texture, const Rect &src, const Rect &dst,
                                 float angle_rad, const Vec2 &origin, const Color &tint) {
     batch_.DrawSpriteRotated(texture, src, dst, angle_rad, origin, tint);
+}
+
+bool Renderer::LoadDefaultFont(float pixel_height) {
+    return font_.LoadDefault(pixel_height);
+}
+
+float Renderer::DrawText(std::string_view text, float x, float y, float scale, const Color &tint) {
+    return font_.DrawText(batch_, text, x, y, scale, tint);
+}
+
+float Renderer::MeasureText(std::string_view text, float scale) const {
+    return font_.MeasureText(text) * scale;
+}
+
+bool Renderer::SaveScreenshot(const std::string &path) const {
+    if (!ready_ || width_ <= 0 || height_ <= 0) {
+        return false;
+    }
+    const size_t row_bytes = static_cast<size_t>(width_) * 3;
+    std::vector<unsigned char> pixels(row_bytes * static_cast<size_t>(height_));
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(0, 0, width_, height_, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
+
+    // glReadPixels is bottom-left origin; flip rows for a top-left PNG.
+    std::vector<unsigned char> flipped(pixels.size());
+    for (int y = 0; y < height_; ++y) {
+        std::memcpy(&flipped[static_cast<size_t>(height_ - 1 - y) * row_bytes],
+                    &pixels[static_cast<size_t>(y) * row_bytes], row_bytes);
+    }
+    const int ok = stbi_write_png(path.c_str(), width_, height_, 3, flipped.data(),
+                                  static_cast<int>(row_bytes));
+    if (ok == 0) {
+        std::fprintf(stderr, "fake2d: failed to write screenshot %s\n", path.c_str());
+    }
+    return ok != 0;
 }
 
 } // namespace fake2d

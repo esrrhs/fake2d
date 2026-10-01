@@ -11,16 +11,27 @@ void Scene::Draw(Renderer &renderer) {
     std::vector<Node *> nodes;
     Collect(root_.get(), nodes);
 
-    std::stable_sort(nodes.begin(), nodes.end(), [](const Node *a, const Node *b) {
-        if (a->Layer() != b->Layer()) {
-            return a->Layer() < b->Layer();
-        }
-        return a->Z() < b->Z();
-    });
+    // Render the graph inside its own sorted batch cycle so quads sharing a
+    // texture merge across nodes: the batch re-sorts by (layer, z, blend,
+    // texture). Earlier immediate-mode draws (e.g. script background cards)
+    // are flushed first, and later draws resume in immediate mode.
+    SpriteBatch &batch = renderer.GetSpriteBatch();
+    const bool was_sorted = batch.IsSorted();
+    batch.End();
+    batch.SetSorted(true);
+    batch.Begin(renderer.GetCamera().ViewProjectionMatrix());
 
     for (Node *node : nodes) {
+        batch.SetLayer(node->Layer());
+        batch.SetZ(node->Z());
         node->Draw(renderer);
     }
+
+    batch.End();
+    batch.SetSorted(was_sorted);
+    batch.SetLayer(0);
+    batch.SetZ(0.0f);
+    batch.Begin(renderer.GetCamera().ViewProjectionMatrix());
 }
 
 void Scene::Visit(const std::function<void(Node *)> &fn) {

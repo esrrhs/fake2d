@@ -1,0 +1,84 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            artifact: fake2d-linux
+            exe: bin/fake2d_hello
+          - os: windows-2022
+            artifact: fake2d-windows
+            exe: bin/Release/fake2d_hello.exe
+          - os: macos-15
+            artifact: fake2d-macos
+            exe: bin/fake2d_hello
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build pkg-config \
+            libgl1-mesa-dev libx11-dev libxrandr-dev libxi-dev \
+            libxcursor-dev libxinerama-dev libwayland-dev libxkbcommon-dev
+
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DFAKE2D_WITH_FAKELUA=OFF
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Stage artifact
+        shell: bash
+        run: |
+          mkdir -p stage/scripts
+          cp "${{ matrix.exe }}" stage/ || cp "build/${{ matrix.exe }}" stage/
+          cp -r scripts/* stage/scripts/
+          cp README.md LICENSE stage/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: stage/
+
+  release:
+    name: Publish GitHub release
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - name: Package archives
+        run: |
+          cd dist
+          for d in fake2d-*/; do
+            name=${d%/}
+            zip -qr "${name}.zip" "$d"
+          done
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: dist/*.zip
