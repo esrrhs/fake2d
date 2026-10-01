@@ -21,7 +21,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build pkg-config \
+            build-essential cmake ninja-build pkg-config xvfb \
             libgl1-mesa-dev libx11-dev libxrandr-dev libxi-dev \
             libxcursor-dev libxinerama-dev libwayland-dev libxkbcommon-dev
 
@@ -38,3 +38,41 @@ jobs:
         run: |
           test -x build/bin/fake2d_hello
           echo "binary ok"
+
+      - name: Headless run (scene demo: scene graph, font, particles)
+        run: |
+          xvfb-run -a -s '-screen 0 1024x768x24' \
+            env LIBGL_ALWAYS_SOFTWARE=1 \
+            ./build/bin/fake2d_hello --headless --frames 30 --scene-demo
+
+      - name: Headless screenshot (visual smoke)
+        run: |
+          xvfb-run -a -s '-screen 0 1024x768x24' \
+            env LIBGL_ALWAYS_SOFTWARE=1 \
+            ./build/bin/fake2d_hello --headless --frames 40 --scene-demo \
+              --screenshot scene.png
+          test -s scene.png
+
+      - name: Sprite batch benchmark (immediate vs sorted)
+        run: |
+          xvfb-run -a -s '-screen 0 1024x768x24' \
+            env LIBGL_ALWAYS_SOFTWARE=1 \
+            ./build/bin/fake2d_hello --headless --bench
+
+      - name: Tilemap/physics/UI demo
+        run: |
+          xvfb-run -a -s '-screen 0 1024x768x24' \
+            env LIBGL_ALWAYS_SOFTWARE=1 \
+            ./build/bin/fake2d_hello --headless --frames 120 --map-demo
+
+      - name: Platformer demo (controller, one-way, coins, follow cam)
+        run: |
+          xvfb-run -a -s '-screen 0 1024x768x24' \
+            env LIBGL_ALWAYS_SOFTWARE=1 \
+            ./build/bin/fake2d_hello --headless --frames 180 --platformer-demo
+
+      - name: Physics broadphase benchmark
+        run: |
+          xvfb-run -a -s '-screen 0 1024x768x24' \
+            env LIBGL_ALWAYS_SOFTWARE=1 \
+            ./build/bin/fake2d_hello --headless --phys-bench

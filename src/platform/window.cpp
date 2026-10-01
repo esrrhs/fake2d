@@ -38,7 +38,44 @@ bool Window::Create(const WindowDesc &desc) {
     glfwSwapInterval(desc.vsync ? 1 : 0);
     width_ = desc.width;
     height_ = desc.height;
+    RefreshSize();
     return true;
+}
+
+bool Window::RefreshSize() {
+    if (!handle_) {
+        return false;
+    }
+    int w = width_;
+    int h = height_;
+    int fbw = 0;
+    int fbh = 0;
+    float sx = 1.0f;
+    float sy = 1.0f;
+    glfwGetWindowSize(handle_, &w, &h);
+    glfwGetFramebufferSize(handle_, &fbw, &fbh);
+    glfwGetWindowContentScale(handle_, &sx, &sy);
+
+    float scale = (sx + sy) * 0.5f;
+    if (!(scale > 0.0f)) {
+        scale = 1.0f;
+    }
+    // Some platforms expose a zero framebuffer size transiently; fall back to
+    // the logical window size scaled by the reported content scale.
+    if (fbw <= 0 || fbh <= 0) {
+        fbw = static_cast<int>(w * scale);
+        fbh = static_cast<int>(h * scale);
+    }
+
+    const bool changed = w != width_ || h != height_ ||
+                         fbw != fb_width_ || fbh != fb_height_ ||
+                         scale != content_scale_;
+    width_ = w;
+    height_ = h;
+    fb_width_ = fbw;
+    fb_height_ = fbh;
+    content_scale_ = scale;
+    return changed;
 }
 
 void Window::Destroy() {

@@ -18,7 +18,7 @@ Run:
 The engine calls `update(dt)` once per frame:
 
 ```
-PollEvents → BeginFrame(clear) → update(dt) → arena Reset → [C++ frame hook] → flush → SwapBuffers
+PollEvents → physics/particle/animation update → BeginFrame(clear) → update(dt) → arena Reset → [C++ frame hook] → flush → SwapBuffers
 ```
 
 Everything the script allocates during `update` — tables, closures, varargs —
@@ -118,6 +118,125 @@ function says otherwise.
 Draw calls are batched into one vertex stream; texture switches flush the
 batch, so grouping draws by texture keeps draw calls low.
 
+### Batch control (draw-call optimization)
+
+By default the batch flushes in **submission order** whenever the texture or
+blend mode changes — draw order is exactly script order, but a scene that
+hops between textures pays one draw call per hop. Sorted mode instead
+collects the whole frame and reorders by
+
+```
+layer  →  z  →  blend mode  →  texture
+```
+
+merging every quad that shares a texture into one draw call. Contract:
+inside one `(layer, z)` bucket you may not rely on submission order *across
+different textures* (overlapping same-texture quads keep their order). Split
+overlapping content into different layers instead.
+
+| Function | Description |
+|---|---|
+| `batch_set_sorted(bool)` | Enable/disable deferred sorted batching for subsequent frames (stays set across frames). |
+| `draw_set_layer(n)` | Integer layer of subsequent draws; lower layers draw first. Default 0. |
+| `draw_set_z(z)` | Float depth inside the layer; smaller z draws first. Default 0. |
+| `draw_set_blend(mode)` | `0` = normal alpha blending, `1` = additive (`SRC_ALPHA, ONE`) for glow/fire/particles. |
+
+Layer, z and blend reset at the start of each frame. The C++ scene graph
+already sorts itself automatically; these functions are for script-driven
+immediate drawing.
+
+### Debug lines
+
+Thin 1px outlines, accumulated in a separate line stream and drawn after
+all quads:
+
+| Function | Description |
+|---|---|
+| `draw_line(x1, y1, x2, y2, r, g, b, a)` | One line segment. |
+| `draw_rect_outline(x, y, w, h, ...)` | Rectangle outline (4 segments). |
+| `draw_circle_outline(cx, cy, radius, segments, ...)` | Polygonal circle. |
+
+`camera_shake(trauma)` adds trauma in 0..1 to the camera: screen shake
+scales with trauma squared and decays automatically (small rotation +
+offset, deterministic).
+
+### Text
+
+The engine rasterizes one default font at startup: a system TTF (DejaVu /
+Arial / Helvetica / Menlo candidates) at 28px, falling back to the embedded
+public-domain 8x8 bitmap font on fontless hosts (e.g. minimal CI containers).
+Glyph quads go through the same `SpriteBatch` as everything else.
+
+| Function | Description |
+|---|---|
+| `draw_text(text, x, y, scale, r, g, b, a)` | Draw `text` with top-left at `(x, y)`; `scale` multiplies the 28px raster size (`1.0` ≈ 28px tall). Returns the pen x after the last glyph. Channels 0–1. |
+| `text_width(text, scale) -> w` | Measured string width, for centering/right-align. |
+
+```lua
+local w = text_width("YOU WIN!", 1.6)
+draw_text("YOU WIN!", W * 0.5 - w * 0.5, H * 0.5 - 30, 1.6, 1, 0.85, 0.35, 1)
+```
+
+Only printable ASCII (space..tilde) is covered; unsupported glyphs are
+skipped. Number concatenation works directly: `"SCORE " .. score`.
+
+### Audio
+
+One-shot sound effects, fire-and-forget. Clips are mono float PCM registered
+from C++ (`AudioEngine::AddClip`, see the `MakeTone` synthesizer in
+`examples/hello/main.cpp` for an asset-free example). Playback is optional:
+on hosts without an audio device every call below is a silent no-op, so the
+same script runs unchanged in headless CI.
+
+| Function | Description |
+|---|---|
+| `audio_play(name, volume)` | Play a registered clip once (`volume` 0–1). Overflow beyond the 32-voice pool drops the newest request. |
+| `audio_enabled() -> bool` | Whether a playback device was opened. |
+| `audio_music(name, volume)` / `audio_music_stop()` | Start/restart or stop the single looping music track (C++ registers WAV clips via `AudioEngine::AddClipWav`). |
+
+### Particles
+
+A fixed pool of 16 emitters (1-based integer ids) and 8192 particles lives in
+C++; there is **no per-frame allocation** regardless of burst size, and
+emitting past the cap recycles the oldest particle. A config snapshot is
+copied into each particle at emission, so changing an emitter only affects
+later bursts.
+
+| Function | Description |
+|---|---|
+| `part_create() -> id` | Allocate an emitter (`0` if the pool is full). |
+| `part_set_lifetime(id, min, max)` | Life in seconds, uniform random. |
+| `part_set_speed(id, min, max)` | Initial speed px/s, uniform random. |
+| `part_set_direction(id, angle, spread)` | Center angle radians (0 = right, `-pi/2` = up) ± half-angle. |
+| `part_set_size(id, start, end)` | Quad side at birth/death, linear interpolation. |
+| `part_set_color(id, r, g, b, a_start, a_end)` | Tint and alpha fade over life. |
+| `part_set_gravity(id, gx, gy)` | Constant acceleration px/s². |
+| `part_set_drag(id, drag)` | Exponential velocity damping per second (0 = none). |
+| `part_set_spin(id, spin)` | Magnitude of randomized angular velocity rad/s. |
+| `part_emit(id, count, x, y)` | Spawn a burst at a position. |
+| `part_draw()` | Submit every live particle to the batch at this point in the draw order. |
+
+The engine advances all particles once per frame before `update`; scripts
+only configure, emit, and draw. Typical pattern — one shared emitter whose
+color is reconfigured per burst:
+
+```lua
+fx = part_create()
+part_set_lifetime(fx, 0.25, 0.6)
+part_set_speed(fx, 80, 260)
+part_set_direction(fx, -1.57, 3.14)
+part_set_size(fx, 7, 0)
+part_set_gravity(fx, 0, 420)
+part_set_color(fx, 1, 0.4, 0.3, 1, 0)
+-- on an event:
+part_emit(fx, 10, x, y)
+-- once per frame, at the desired draw depth:
+part_draw()
+```
+
+Particles are white-texture quads, so drawing them flushes the previous
+textured batch once; group bursts and call `part_draw()` at one point.
+
 ### Camera
 
 | Function | Description |
@@ -155,6 +274,74 @@ Key names: `"a"`–`"z"`, `"0"`–`"9"`, `"f1"`–`"f12"`, `"space"`, `"enter"`,
 | `time_elapsed()` | Seconds since `Engine::Init`. |
 | `time_frame()` | Frame index (0-based counter). |
 
+### Physics
+
+A tiny built-in arcade physics world, auto-stepped once per frame before
+`update` (4 substeps, semi-implicit Euler). Bodies are circles or AABBs,
+static or dynamic, with gravity scale and restitution. This is not Box2D:
+there are no joints or continuous collision, but zero external dependencies
+and zero per-frame allocations.
+
+| Function | Description |
+|---|---|
+| `phys_create_box(x, y, hw, hh) -> id` / `phys_create_circle(x, y, r) -> id` | Dynamic body; ids are integers, 0 invalid. |
+| `phys_set_static(id, bool)` | Static bodies have infinite mass and don't move (set before play). |
+| `phys_set_sensor(id, bool)` | Sensors report contacts but never collide/respond. |
+| `phys_set_restitution(id, e)` | Bounciness 0–1 (the pair uses the smaller value). |
+| `phys_set_gravity_scale(id, s)` | 0 = weightless. |
+| `phys_set_pos / phys_set_vel(id, x, y)` | Teleport / set velocity. |
+| `phys_set_user(id, n)` | Game tag (e.g. a brick index) surfaced on contacts. |
+| `phys_x / phys_y / phys_vx / phys_vy(id) -> n` | Current state, read after the engine stepped. |
+| `phys_destroy(id)` | Remove a body. |
+| `phys_gravity(gx, gy)` | World gravity (default `0, 900`). |
+| `phys_contact_count() -> n` | Pairs that **began** touching this frame. |
+| `phys_contact_user_a / phys_contact_user_b(i) -> n` | User tags of pair `i`. |
+
+```lua
+ball = phys_create_circle(100, 100, 10)
+phys_set_restitution(ball, 0.7)
+ground = phys_create_box(100, 300, 200, 10); phys_set_static(ground, true)
+-- every frame after the auto-step:
+sprite_draw(ball_tex, phys_x(ball) - 10, phys_y(ball) - 10, 20, 20)
+for i = 0, phys_contact_count() - 1 do ... end
+```
+
+### Frame animation
+
+| Function | Description |
+|---|---|
+| `anim_create() -> id` / `anim_destroy(id)` | Allocate/free a clip (pool of 32, 64 frames each). |
+| `anim_frame(id, tex, sx, sy, sw, sh)` | Append a texture sub-rectangle frame. |
+| `anim_fps(id, fps)` | Playback rate. |
+| `anim_loop(id, bool)` | Loop, or freeze on the last frame. |
+| `anim_play(id)` / `anim_stop(id)` | Restart at frame 0 / halt. |
+| `anim_finished(id) -> bool` | One-shot clip ran to completion. |
+| `anim_draw(id, x, y, w, h)` | Draw the current frame; the engine advances time itself. |
+
+### Tilemap
+
+Load an orthogonal map exported by [Tiled](https://www.mapeditor.org/) as JSON.
+Tile custom properties with `solid = true` (boolean) mark collidable tiles.
+
+| Function | Description |
+|---|---|
+| `map_load(path) -> id` | Loads tileset images relative to the JSON (cached); 0 on failure. |
+| `map_draw(id)` | Draw all visible layers (internally sorted, one draw per tilesheet). |
+| `map_solid(id, col, row) -> bool` | Solid cell test. |
+| `map_cols(id) / map_rows(id) -> n` | Map dimensions in cells. |
+
+### UI
+
+Anchored immediate widgets. Anchor ids: `0` top-left, `1` top-right,
+`2` bottom-left, `3` bottom-right, `4` center; offsets are logical points
+from the anchored corner.
+
+| Function | Description |
+|---|---|
+| `ui_panel(anchor, ox, oy, w, h, r, g, b, a)` | Solid panel quad. |
+| `ui_label(anchor, ox, oy, text, scale, r, g, b, a)` | Auto-measured text. |
+| `ui_button(key, anchor, ox, oy, w, h, text, scale) -> bool` | Returns true exactly on the click-release frame; `key` keeps hover/press state. |
+
 ### Debugging
 
 | Function | Description |
@@ -179,6 +366,14 @@ Key names: `"a"`–`"z"`, `"0"`–`"9"`, `"f1"`–`"f12"`, `"space"`, `"enter"`,
    handle in a file-level local.
 6. **Edge-triggered input** (`input_key_pressed`) for one-shot actions,
    level-triggered (`input_key_down`) for movement.
+7. **Enable sorted batching for texture-hopping scenes** with
+   `batch_set_sorted(true)` and separate overlapping elements via
+   `draw_set_layer`; the benchmark shows ~674 → 8 draw calls for 768 sprites
+   across 8 textures. Keep it off when a frame deliberately interleaves
+   opaque overlays across textures (e.g. full-screen dim panels).
+8. **Use additive blending for glow** — `draw_set_blend(1)` around fire,
+   sparks and explosions, then back to `0`; remember blend state resets to
+   alpha on every frame.
 
 ---
 

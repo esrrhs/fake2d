@@ -1,8 +1,14 @@
 #pragma once
 
+#include "fake2d/animation.h"
+#include "fake2d/audio.h"
 #include "fake2d/input.h"
+#include "fake2d/particle.h"
+#include "fake2d/physics.h"
 #include "fake2d/renderer.h"
 #include "fake2d/resource_manager.h"
+#include "fake2d/tilemap.h"
+#include "fake2d/ui.h"
 #include "fake2d/version.h"
 
 #include <cstdint>
@@ -66,6 +72,30 @@ public:
 
     /// Per-frame input snapshot, refreshed after event polling each frame.
     const Input &GetInput() const;
+
+    /// Best-effort one-shot sound effect player (disabled on audio-less hosts).
+    AudioEngine &GetAudio();
+    [[nodiscard]] const AudioEngine &GetAudio() const;
+
+    /// CPU particle pool, updated once per frame before the script runs.
+    ParticleSystem &GetParticles();
+    [[nodiscard]] const ParticleSystem &GetParticles() const;
+
+    /// Built-in 2D physics world (auto-stepped once per frame).
+    PhysicsWorld &GetPhysics();
+    [[nodiscard]] const PhysicsWorld &GetPhysics() const;
+
+    /// Frame-animation clip pool (auto-advanced once per frame).
+    AnimationSystem &GetAnimations();
+    [[nodiscard]] const AnimationSystem &GetAnimations() const;
+
+    /// Loaded Tiled tile maps.
+    TilemapLibrary &GetTilemaps();
+    [[nodiscard]] const TilemapLibrary &GetTilemaps() const;
+
+    /// Anchored UI widgets; click/hover state is refreshed per frame.
+    UISystem &GetUI();
+    [[nodiscard]] const UISystem &GetUI() const;
 
 private:
     struct Impl;

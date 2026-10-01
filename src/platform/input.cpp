@@ -133,4 +133,9 @@ bool Input::MousePressed(std::int64_t button) const {
            prev_buttons_[button] == 0;
 }
 
+bool Input::MouseReleased(std::int64_t button) const {
+    return button >= 0 && button < static_cast<std::int64_t>(kButtonCount) && buttons_[button] == 0 &&
+           prev_buttons_[button] != 0;
+}
+
 } // namespace fake2d
