@@ -22,6 +22,8 @@ struct Engine::Impl {
     AnimationSystem animations;
     TilemapLibrary tilemaps;
     UISystem ui;
+    SaveStore saves;
+    EntityStore entities;
     bool running = false;
     double delta_time = 0.0;
     double elapsed = 0.0;
@@ -242,6 +244,26 @@ UISystem &Engine::GetUI() {
 
 const UISystem &Engine::GetUI() const {
     return impl_->ui;
+}
+
+SaveStore &Engine::GetSaves() {
+    return impl_->saves;
+}
+
+const SaveStore &Engine::GetSaves() const {
+    return impl_->saves;
+}
+
+EntityStore &Engine::GetEntities() {
+    return impl_->entities;
+}
+
+const EntityStore &Engine::GetEntities() const {
+    return impl_->entities;
+}
+
+const std::string &Engine::SaveDir() const {
+    return impl_->config.save_dir;
 }
 
 } // namespace fake2d

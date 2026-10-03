@@ -8,6 +8,7 @@
 #include "fake2d/tilemap.h"
 #include "fake2d/ui.h"
 
+#include <cmath>
 #include <functional>
 #include <string_view>
 
@@ -267,12 +268,15 @@ void RegisterTilemapApi(fakelua::State *state, Engine *engine) {
                 }
             }));
 
+    // Cell indices/gids take double on the Lua side: math.floor keeps the
+    // float type in FakeLua, so casts happen here at the native boundary.
     fakelua::RegisterNativeFunction(
         state, "map_solid", false,
-        std::function<bool(fakelua::State *, std::int64_t, std::int64_t, std::int64_t)>(
-            [engine](fakelua::State *, std::int64_t id, std::int64_t col, std::int64_t row) {
+        std::function<bool(fakelua::State *, std::int64_t, double, double)>(
+            [engine](fakelua::State *, std::int64_t id, double col, double row) {
                 const Tilemap *map = engine->GetTilemaps().Get(static_cast<int>(id));
-                return map != nullptr && map->SolidAt(static_cast<int>(col), static_cast<int>(row));
+                return map != nullptr &&
+                       map->SolidAt(static_cast<int>(col), static_cast<int>(row));
             }));
 
     fakelua::RegisterNativeFunction(
@@ -289,6 +293,114 @@ void RegisterTilemapApi(fakelua::State *state, Engine *engine) {
             [engine](fakelua::State *, std::int64_t id) -> std::int64_t {
                 const Tilemap *map = engine->GetTilemaps().Get(static_cast<int>(id));
                 return map ? map->Rows() : 0;
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_tilew", false,
+        std::function<std::int64_t(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id) -> std::int64_t {
+                const Tilemap *map = engine->GetTilemaps().Get(static_cast<int>(id));
+                return map ? map->TileWidth() : 0;
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_tileh", false,
+        std::function<std::int64_t(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id) -> std::int64_t {
+                const Tilemap *map = engine->GetTilemaps().Get(static_cast<int>(id));
+                return map ? map->TileHeight() : 0;
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_tile", false,
+        std::function<std::int64_t(fakelua::State *, std::int64_t, double, double)>(
+            [engine](fakelua::State *, std::int64_t id, double col, double row) -> std::int64_t {
+                const Tilemap *map = engine->GetTilemaps().Get(static_cast<int>(id));
+                return map ? static_cast<std::int64_t>(map->TileAt(static_cast<int>(col),
+                                                                   static_cast<int>(row)))
+                           : 0;
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_set_tile", false,
+        std::function<void(fakelua::State *, std::int64_t, double, double, double)>(
+            [engine](fakelua::State *, std::int64_t id, double col, double row,
+                     double gid) {
+                if (gid < 0.0) {
+                    return;
+                }
+                if (Tilemap *map = engine->GetTilemaps().Get(static_cast<int>(id))) {
+                    map->SetTile(static_cast<int>(col), static_cast<int>(row),
+                                 static_cast<std::uint32_t>(gid));
+                }
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_oneway", false,
+        std::function<bool(fakelua::State *, std::int64_t, double, double)>(
+            [engine](fakelua::State *, std::int64_t id, double col, double row) {
+                const Tilemap *map = engine->GetTilemaps().Get(static_cast<int>(id));
+                return map != nullptr && map->OneWayAt(static_cast<int>(col),
+                                                       static_cast<int>(row));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_slope_dir", false,
+        std::function<std::int64_t(fakelua::State *, std::int64_t, double, double)>(
+            [engine](fakelua::State *, std::int64_t id, double col,
+                     double row) -> std::int64_t {
+                const Tilemap *map = engine->GetTilemaps().Get(static_cast<int>(id));
+                return map ? map->SlopeDirAt(static_cast<int>(col),
+                                             static_cast<int>(row))
+                           : 0;
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_ground_y", false,
+        std::function<double(fakelua::State *, std::int64_t, double, double)>(
+            [engine](fakelua::State *, std::int64_t id, double world_x,
+                     double reach_y) -> double {
+                const Tilemap *map = engine->GetTilemaps().Get(static_cast<int>(id));
+                return map ? static_cast<double>(
+                                 map->GroundYAt(static_cast<float>(world_x),
+                                                static_cast<float>(reach_y)))
+                           : -1.0;
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_layer_count", false,
+        std::function<std::int64_t(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id) -> std::int64_t {
+                const Tilemap *map = engine->GetTilemaps().Get(static_cast<int>(id));
+                return map ? static_cast<std::int64_t>(map->Layers().size()) : 0;
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_layer_parallax_x", false,
+        std::function<double(fakelua::State *, std::int64_t, double)>(
+            [engine](fakelua::State *, std::int64_t id, double idx) -> double {
+                if (!std::isfinite(idx) || idx < 0.0) {
+                    return 1.0;
+                }
+                const Tilemap *map = engine->GetTilemaps().Get(static_cast<int>(id));
+                const auto i = static_cast<std::size_t>(idx);
+                return (map && i < map->Layers().size())
+                           ? static_cast<double>(map->Layers()[i].parallax_x)
+                           : 1.0;
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_layer_parallax_y", false,
+        std::function<double(fakelua::State *, std::int64_t, double)>(
+            [engine](fakelua::State *, std::int64_t id, double idx) -> double {
+                if (!std::isfinite(idx) || idx < 0.0) {
+                    return 1.0;
+                }
+                const Tilemap *map = engine->GetTilemaps().Get(static_cast<int>(id));
+                const auto i = static_cast<std::size_t>(idx);
+                return (map && i < map->Layers().size())
+                           ? static_cast<double>(map->Layers()[i].parallax_y)
+                           : 1.0;
             }));
 }
 
@@ -332,6 +444,14 @@ void RegisterUiApi(fakelua::State *state, Engine *engine) {
                     static_cast<float>(ox), static_cast<float>(oy),
                     static_cast<float>(w), static_cast<float>(h),
                     text, static_cast<float>(scale));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "ui_set_origin", false,
+        std::function<void(fakelua::State *, double, double)>(
+            [engine](fakelua::State *, double x, double y) {
+                engine->GetUI().SetWorldOrigin({static_cast<float>(x),
+                                                static_cast<float>(y)});
             }));
 }
 
@@ -668,6 +788,20 @@ void RegisterCameraApi(fakelua::State *state, Engine *engine) {
             [&camera](fakelua::State *, double trauma) {
                 camera.AddTrauma(static_cast<float>(trauma));
             }));
+
+    fakelua::RegisterNativeFunction(
+        state, "camera_viewport_w", false,
+        std::function<double(fakelua::State *)>(
+            [&camera](fakelua::State *) {
+                return static_cast<double>(camera.ViewportWidth());
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "camera_viewport_h", false,
+        std::function<double(fakelua::State *)>(
+            [&camera](fakelua::State *) {
+                return static_cast<double>(camera.ViewportHeight());
+            }));
 }
 
 void RegisterSpriteApi(fakelua::State *state, Engine *engine) {
@@ -832,6 +966,245 @@ void RegisterTimeApi(fakelua::State *state, Engine *engine) {
             [engine](fakelua::State *) { return static_cast<std::int64_t>(engine->FrameIndex()); }));
 }
 
+void RegisterStorageApi(fakelua::State *state, Engine *engine) {
+    fakelua::RegisterNativeFunction(
+        state, "storage_load", false,
+        std::function<bool(fakelua::State *, std::string_view)>(
+            [engine](fakelua::State *, std::string_view slot) {
+                return engine->GetSaves().LoadSlot(slot, engine->SaveDir());
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "storage_save", false,
+        std::function<bool(fakelua::State *, std::string_view)>(
+            [engine](fakelua::State *, std::string_view slot) {
+                return engine->GetSaves().SaveSlot(slot, engine->SaveDir());
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "storage_set_num", false,
+        std::function<void(fakelua::State *, std::string_view, double)>(
+            [engine](fakelua::State *, std::string_view key, double v) {
+                engine->GetSaves().SetNumber(key, v);
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "storage_set_str", false,
+        std::function<void(fakelua::State *, std::string_view, std::string_view)>(
+            [engine](fakelua::State *, std::string_view key, std::string_view v) {
+                engine->GetSaves().SetString(key, v);
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "storage_get_num", false,
+        std::function<double(fakelua::State *, std::string_view, double)>(
+            [engine](fakelua::State *, std::string_view key, double fallback) -> double {
+                return engine->GetSaves().GetNumber(key, fallback);
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "storage_get_str", false,
+        std::function<std::string(fakelua::State *, std::string_view, std::string_view)>(
+            [engine](fakelua::State *, std::string_view key,
+                     std::string_view fallback) -> std::string {
+                return engine->GetSaves().GetString(key, fallback);
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "storage_has", false,
+        std::function<bool(fakelua::State *, std::string_view)>(
+            [engine](fakelua::State *, std::string_view key) {
+                return engine->GetSaves().Has(key);
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "storage_delete", false,
+        std::function<void(fakelua::State *, std::string_view)>(
+            [engine](fakelua::State *, std::string_view key) {
+                engine->GetSaves().Erase(key);
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "storage_reset", false,
+        std::function<void(fakelua::State *)>(
+            [engine](fakelua::State *) { engine->GetSaves().Reset(); }));
+}
+
+void RegisterEntityApi(fakelua::State *state, Engine *engine) {
+    fakelua::RegisterNativeFunction(
+        state, "ent_create", false,
+        std::function<std::int64_t(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t tag) -> std::int64_t {
+                return static_cast<std::int64_t>(
+                    engine->GetEntities().Create(static_cast<std::int64_t>(tag)));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "ent_destroy", false,
+        std::function<void(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id) {
+                engine->GetEntities().Destroy(static_cast<EntityStore::Id>(id));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "ent_clear", false,
+        std::function<void(fakelua::State *)>(
+            [engine](fakelua::State *) { engine->GetEntities().Clear(); }));
+
+    fakelua::RegisterNativeFunction(
+        state, "ent_active", false,
+        std::function<bool(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id) {
+                return engine->GetEntities().Active(static_cast<EntityStore::Id>(id));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "ent_tag", false,
+        std::function<std::int64_t(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id) -> std::int64_t {
+                return engine->GetEntities().Tag(static_cast<EntityStore::Id>(id));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "ent_set_tag", false,
+        std::function<void(fakelua::State *, std::int64_t, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id, std::int64_t tag) {
+                engine->GetEntities().SetTag(static_cast<EntityStore::Id>(id), tag);
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "ent_num", false,
+        std::function<double(fakelua::State *, std::int64_t, double)>(
+            [engine](fakelua::State *, std::int64_t id, double slot) -> double {
+                if (!std::isfinite(slot) || slot < 0.0) {
+                    return 0.0;
+                }
+                return engine->GetEntities().GetNumber(
+                    static_cast<EntityStore::Id>(id), static_cast<std::size_t>(slot));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "ent_set_num", false,
+        std::function<void(fakelua::State *, std::int64_t, double, double)>(
+            [engine](fakelua::State *, std::int64_t id, double slot, double v) {
+                if (!std::isfinite(slot) || slot < 0.0) {
+                    return;
+                }
+                engine->GetEntities().SetNumber(static_cast<EntityStore::Id>(id),
+                                                static_cast<std::size_t>(slot), v);
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "ent_str", false,
+        std::function<std::string(fakelua::State *, std::int64_t, double)>(
+            [engine](fakelua::State *, std::int64_t id, double slot) -> std::string {
+                if (!std::isfinite(slot) || slot < 0.0) {
+                    return {};
+                }
+                return engine->GetEntities().GetString(
+                    static_cast<EntityStore::Id>(id), static_cast<std::size_t>(slot));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "ent_set_str", false,
+        std::function<void(fakelua::State *, std::int64_t, double, std::string_view)>(
+            [engine](fakelua::State *, std::int64_t id, double slot,
+                     std::string_view v) {
+                if (!std::isfinite(slot) || slot < 0.0) {
+                    return;
+                }
+                engine->GetEntities().SetString(static_cast<EntityStore::Id>(id),
+                                                static_cast<std::size_t>(slot), v);
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "ent_count", false,
+        std::function<std::int64_t(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t tag) -> std::int64_t {
+                auto &store = engine->GetEntities();
+                return tag < 0 ? static_cast<std::int64_t>(store.Count())
+                               : static_cast<std::int64_t>(
+                                     store.CountWithTag(static_cast<std::int64_t>(tag)));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "ent_at", false,
+        std::function<std::int64_t(fakelua::State *, double, std::int64_t)>(
+            [engine](fakelua::State *, double index, std::int64_t tag) -> std::int64_t {
+                if (!std::isfinite(index) || index < 0.0) {
+                    return 0;
+                }
+                auto &store = engine->GetEntities();
+                const auto idx = static_cast<std::size_t>(index);
+                const auto id = tag < 0
+                                    ? store.At(idx)
+                                    : store.AtWithTag(idx, static_cast<std::int64_t>(tag));
+                return static_cast<std::int64_t>(id);
+            }));
+}
+
+void RegisterShaderApi(fakelua::State *state, Engine *engine) {
+    fakelua::RegisterNativeFunction(
+        state, "shader_load", false,
+        std::function<std::int64_t(fakelua::State *, std::string_view, std::string_view)>(
+            [engine](fakelua::State *, std::string_view vs, std::string_view fs) -> std::int64_t {
+                return engine->GetRenderer().LoadShaderFromFile(std::string(vs), std::string(fs));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "shader_destroy", false,
+        std::function<void(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id) {
+                engine->GetRenderer().DestroyShader(static_cast<int>(id));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "shader_set_float", false,
+        std::function<void(fakelua::State *, std::int64_t, std::string_view, double)>(
+            [engine](fakelua::State *, std::int64_t id, std::string_view name, double v) {
+                engine->GetRenderer().SetShaderFloat(static_cast<int>(id), name,
+                                                     static_cast<float>(v));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "shader_set_int", false,
+        std::function<void(fakelua::State *, std::int64_t, std::string_view, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id, std::string_view name,
+                     std::int64_t v) {
+                engine->GetRenderer().SetShaderInt(static_cast<int>(id), name,
+                                                   static_cast<int>(v));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "shader_set_vec2", false,
+        std::function<void(fakelua::State *, std::int64_t, std::string_view, double, double)>(
+            [engine](fakelua::State *, std::int64_t id, std::string_view name, double x,
+                     double y) {
+                engine->GetRenderer().SetShaderVec2(static_cast<int>(id), name,
+                                                    static_cast<float>(x),
+                                                    static_cast<float>(y));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "shader_set_vec4", false,
+        std::function<void(fakelua::State *, std::int64_t, std::string_view, double, double,
+                           double, double)>(
+            [engine](fakelua::State *, std::int64_t id, std::string_view name, double r,
+                     double g, double b, double a) {
+                engine->GetRenderer().SetShaderVec4(
+                    static_cast<int>(id), name,
+                    Color{static_cast<float>(r), static_cast<float>(g),
+                          static_cast<float>(b), static_cast<float>(a)});
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "draw_use_shader", false,
+        std::function<void(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id) {
+                engine->GetRenderer().UseShaderById(static_cast<int>(id));
+            }));
+}
+
 void RegisterDebugApi(fakelua::State *state) {
     fakelua::RegisterNativeFunction(
         state, "log_number", false,
@@ -859,6 +1232,9 @@ void RegisterScriptApi(fakelua::State *state, Engine *engine) {
     RegisterAnimationApi(state, engine);
     RegisterTilemapApi(state, engine);
     RegisterUiApi(state, engine);
+    RegisterStorageApi(state, engine);
+    RegisterEntityApi(state, engine);
+    RegisterShaderApi(state, engine);
     RegisterDebugApi(state);
 }
 

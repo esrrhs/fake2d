@@ -247,6 +247,8 @@ textured batch once; group bursts and call `part_draw()` at one point.
 | `camera_x() / camera_y() / camera_zoom() / camera_rotation()` | Current values. |
 | `camera_screen_to_world_x(sx, sy) -> x` / `camera_screen_to_world_y(sx, sy) -> y` | Inverse transforms for input handling and HUD anchoring. |
 | `camera_world_to_screen_x(wx, wy) -> x` / `camera_world_to_screen_y(wx, wy) -> y` | World → screen. |
+| `camera_viewport_w() / camera_viewport_h()` | Viewport size in pixels (for clamping follow cameras / world HUDs). |
+| `camera_shake(trauma)` | Add trauma 0..1; shake scales with trauma² and decays automatically. |
 
 ### Input (per-frame snapshot)
 
@@ -328,7 +330,124 @@ Tile custom properties with `solid = true` (boolean) mark collidable tiles.
 | `map_load(path) -> id` | Loads tileset images relative to the JSON (cached); 0 on failure. |
 | `map_draw(id)` | Draw all visible layers (internally sorted, one draw per tilesheet). |
 | `map_solid(id, col, row) -> bool` | Solid cell test. |
+| `map_oneway(id, col, row) -> bool` | One-way platform cell (solid when landing from above). |
+| `map_slope_dir(id, col, row) -> int` | Slope cell: 0 none, 1 rises toward +x, 2 lowers toward +x. |
+| `map_ground_y(id, world_x, reach_y) -> float` | Highest walkable surface y in the ±1-tile window around `reach_y` (solid tops + interpolated slopes), or -1. |
+| `map_tile(id, col, row) -> gid` | Raw tile gid at a cell (0 = empty); rewrite gameplay with `map_set_tile`. |
+| `map_set_tile(id, col, row, gid)` | Overwrite one cell (coin pickups, breakable blocks). |
 | `map_cols(id) / map_rows(id) -> n` | Map dimensions in cells. |
+| `map_tilew(id) / map_tileh(id) -> n` | Cell size in pixels. |
+| `map_layer_count(id) -> n` | Number of parsed layers (tile + image, in Tiled order). |
+| `map_layer_parallax_x/y(id, idx) -> f` | Layer parallax factors (defaults 1.0). |
+
+`col`/`row` are accepted as floats and truncated to int at the native
+boundary, so passing `math.floor(x / map_tilew(id))` directly is safe
+(FakeLua's `math.floor` returns a float).
+
+#### Slope tiles (kinematic controllers)
+
+Mark a Tiled tile with the custom properties `slope` (string `"up"`/`"down"`,
+relative to +x) and optional `slope_rise` (int pixels, default = tile height:
+full-height 45° triangle; e.g. `slope_rise = 16` makes a shallow bump).
+Slope tiles are **not** solid: `map_solid` returns false for them, so they
+neither fill the physics world nor block horizontal movement. Walk on them
+with two queries:
+
+- `map_slope_dir` lets the horizontal sweep skip slope cells (never treat a
+  slope as a wall).
+- `map_ground_y(x, reach_y)` returns the interpolated surface height, taking
+  both solid cell tops and slopes; probe the box's back/center/front and snap
+  the feet to the highest reachable surface. Step up at most ~8px per frame
+  when walking uphill, and snap down while falling onto a downhill surface.
+
+Slope tiles sit in the cell **above** the ground whose surface they meet:
+an `up` slope placed on row r rises from the top of row r+1 to the top of
+row r; pair it with a `down` tile at the next cell for a pyramid bump. The
+platformer demo (`scripts/platformer_demo.lua`) ships a complete, tested
+implementation of this controller (`ground_hint`, `move_x`, `move_y`).
+
+#### Parallax and image layers
+
+Tiled layer properties are honored automatically by `map_draw`:
+
+- Tile layers read `parallaxx`/`parallaxy` (default 1.0) and
+  `offsetx`/`offsety`; factors below 1 scroll slower than the camera (far
+  background), above 1 faster (foreground).
+- Image layers (`type: "imagelayer"`) are drawn interleaved in the layer
+  order of the Tiled JSON; `repeatx`/`repeaty` tiles the image across the
+  viewport. Missing images drop the layer without breaking the map.
+
+Parallax is a 2D translate effect: it is exact at zoom 1 with no camera
+rotation or trauma shake; non-unit zoom scales the effective rate, rotated
+cameras rotate parallax layers, and shake does not move them. Keep camera
+zoom/rotation at identity for levels that rely on pixel-exact parallax.
+Image layers are visual only — cell queries (`map_solid`, `map_ground_y`,
+…) skip them.
+
+### Save storage
+
+Persistent number/string key/value slots, written as JSON under the engine
+save directory (default `saves/`, configurable via `EngineConfig.save_dir`).
+Slot names are restricted to `[A-Za-z0-9_-]{1,32}` — saves cannot escape the
+save directory, and illegal names return false.
+
+| Function | Description |
+|---|---|
+| `storage_load(slot) -> bool` | Replace memory with `<save_dir>/<slot>.json`; a missing file loads as an empty store. |
+| `storage_save(slot) -> bool` | Atomically write memory to the slot file. |
+| `storage_set_num(key, v)` / `storage_set_str(key, s)` | Write a value (overwrites type). |
+| `storage_get_num(key, default) -> n` | Read; missing/wrong-type keys return `default`. |
+| `storage_get_str(key, default) -> s` | Same for strings. |
+| `storage_has(key) -> bool`, `storage_delete(key)`, `storage_reset()` | Presence, erase key, clear memory. |
+
+Typical use: call `storage_load("slot1")` once at first frame, read settings
+throughout play, and `storage_save("slot1")` on level/score changes.
+
+### Entity store
+
+A C++-owned fixed-slot database that survives FakeLua's per-frame arena
+reset: it is the recommended storage for dynamic game objects (enemies,
+pickups, moving platforms) — 256 slots, each with an integer tag, 8 number
+slots and 4 string slots. Ids are 64-bit packed (slot + generation); 0 is
+invalid, and destroyed generations report inactive.
+
+| Function | Description |
+|---|---|
+| `ent_create(tag) -> id` | Allocate (returns 0 when full). |
+| `ent_destroy(id)`, `ent_clear()` | Free one / all (generation bumped). |
+| `ent_active(id) -> bool` | False for stale/destroyed handles. |
+| `ent_tag(id) -> t`, `ent_set_tag(id, t)` | Integer group label. |
+| `ent_num(id, slot) -> n`, `ent_set_num(id, slot, v)` | 8 double fields (0..7); out of range reads 0. |
+| `ent_str(id, slot) -> s`, `ent_set_str(id, slot, s)` | 4 string fields (0..3); out of range reads `""`. |
+| `ent_count([tag]) -> n` | Active entities, optionally filtered by tag; pass -1 for all. |
+| `ent_at(index[, tag]) -> id` | Stable slot-order enumeration (0-based); pass tag -1 for all. |
+
+Pattern: on the first frame `ent_create` your level population once; every
+frame enumerate with `ent_count`/`ent_at` (allocation-free), run AI/phys on
+the numeric fields, and draw per entity. Do **not** cache derived tables
+across frames — cache the ids (numbers) only.
+
+### Custom shaders
+
+Per-draw GLSL shaders for tint/effect work. Eight slots; 0 means the default
+shader. A custom shader must match the built-in vertex contract: vertex
+attributes `a_pos` (vec2, loc 0), `a_uv` (vec2, loc 1), `a_color` (vec4,
+loc 2); uniforms `u_view_projection` (mat4) and `u_texture` (sampler2D,
+bound to unit 0 automatically). Declare your own uniforms on top.
+
+| Function | Description |
+|---|---|
+| `shader_load(vert_path, frag_path) -> id` | Compile from files; returns 0 on failure (error printed to stderr). |
+| `shader_destroy(id)` | Free the slot. |
+| `shader_set_float(id, name, v)`, `shader_set_int(...)`, `shader_set_vec2(id, name, x, y)`, `shader_set_vec4(id, name, r, g, b, a)` | Set uniforms; unknown names are silently ignored. |
+| `draw_use_shader(id)` | Route subsequent draws through the shader; pass 0 to restore the default. |
+
+`draw_use_shader` flushes the current batch immediately, so scope it tightly
+around the objects that need the effect and avoid calling it per sprite.
+Switching restarts the batch, which resets blend/layer/z draw state — set
+`draw_set_blend` again afterwards if needed. The override never carries
+across frames (each frame starts on the default shader). There is no
+fullscreen post-processing (no render targets); apply effects per object.
 
 ### UI
 
@@ -341,12 +460,23 @@ from the anchored corner.
 | `ui_panel(anchor, ox, oy, w, h, r, g, b, a)` | Solid panel quad. |
 | `ui_label(anchor, ox, oy, text, scale, r, g, b, a)` | Auto-measured text. |
 | `ui_button(key, anchor, ox, oy, w, h, text, scale) -> bool` | Returns true exactly on the click-release frame; `key` keeps hover/press state. |
+| `ui_set_origin(x, y)` | Offset added to mouse positions during button hit-testing (set to the camera top-left for a world-anchored HUD). |
+
+Widgets draw through the camera transform, so passing world coordinates as
+offsets (e.g. `cam_x + 16`) anchors a HUD to the world. For clickable
+world-space buttons, call `ui_set_origin(cam_x, cam_y)` before the widgets
+so mouse hit-testing shifts with the camera — the origin is **not** reset
+automatically; screen-space HUDs leave it at `0, 0`.
 
 ### Debugging
 
 | Function | Description |
 |---|---|
 | `log_number(v)` | Print a number to stderr — the script-side printf for headless testing. |
+
+The host binary also accepts `--entry <relpath>` to run any script instead
+of a shipped demo (dev/test hook), e.g.
+`./fake2d_hello --headless --entry scripts/my_smoke.lua --frames 300`.
 
 ---
 
@@ -379,6 +509,13 @@ from the anchored corner.
 
 ## Known FakeLua pitfalls (engine version 2.0.0)
 
+> **Status (2026-10-02):** the multi-return specialization and trailing-argument
+> codegen issues below, plus the `bool`/`va_start` UB and the `main` symbol clash,
+> are fixed in fakelua commit `ef43eae` (installed locally). The workarounds still
+> work and remain recommended style. One issue remains: undeclared globals are
+> miscompiled to `kNil` reads/writes — always `local` your variables. Full details
+> in [FAKELUA_JIT_BUG_REPORT.md](FAKELUA_JIT_BUG_REPORT.md).
+
 Collected while building the samples, so you don't have to rediscover them:
 
 - The GCC JIT backend takes ~0.3–1 s per compile — hot reload trades save
@@ -391,6 +528,40 @@ Collected while building the samples, so you don't have to rediscover them:
 - Compile errors from the JIT point at generated temp files
   (`/tmp/.../fakelua_jit_*.c`); the accompanying `.gcc.log` name in the
   error message is the useful one.
+- **Multi-value returns and type specialization.** The JIT emits typed
+  specializations of a `local function` for each argument-type combination
+  it sees at call sites; a specialized variant is declared with one typed
+  scalar return, so `return a, b, c` inside it emits `FlMakeMulti` into a
+  `double` function and fails the GCC compile ("returning 'CVar' from a
+  function with incompatible result type"). The generic (untyped) variant
+  handles multi-return fine. Keep multi-return helpers un-specializable:
+  take no typed parameters (`build_intent()` in
+  `scripts/platformer_demo.lua` reads `time_frame()` itself), or pass their
+  results through file-level scalars.
+- **Arithmetic in the trailing call-argument slot.** When an operand has an
+  inferred-dynamic type (values unpacked from a multi-return, native call
+  results, degraded locals), `a + b` compiles to a *statement* macro
+  (`OpAdd(a, b, tmp);`). Lua expands a trailing function-call argument into
+  multiple receivers, and that codegen embeds the statement where an
+  expression is legal — producing `x = OpAdd(...)` and an "expected
+  expression" GCC error. Hoist the inner expression into a local first:
+
+  ```lua
+  -- bad: math.min(...) is the trailing arg and impact/1200 is a slow-path op
+  camera_shake(math.min(0.5, impact / 1200.0))
+  -- good:
+  local shake_amt = impact / 1200.0
+  if shake_amt > 0.5 then shake_amt = 0.5 end
+  camera_shake(shake_amt)
+  ```
+
+  Literal/int-typed operands use the native inline fast path and do not
+  trigger this; it only bites with dynamic types (see
+  `scripts/platformer_demo.lua` for the full set of hoists).
+- **`math.floor`/`math.ceil` return floats.** Tile indices derived from
+  pixel coordinates are therefore doubles; every `map_*` cell binding
+  accepts floats and truncates natively, but a Lua-side `for r = r0, r1 do`
+  over them works too because the bounds are whole numbers.
 - Semantics differ from stock Lua where listed above; when in doubt, test
   the pattern headlessly first:
   `./build/bin/fake2d_hello --headless --frames 100` plus `log_number`.

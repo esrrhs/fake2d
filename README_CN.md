@@ -7,7 +7,7 @@
 
 **Fake2D** 是基于 [FakeLua](https://github.com/esrrhs/fakelua) 的现代化轻量 2D 游戏渲染引擎：C++ 宿主掌控窗口、GPU 资源与场景数据；FakeLua 脚本负责编排玩法与实体逻辑，并在每帧边界执行 Arena 线性重置（**零 GC 停顿**）。
 
-> 当前状态：**1.2 — Phase 7 已完成** — 在 1.1（渲染、音频、粒子、物理、动画、瓦片、UI）基础上，新增物理空间哈希宽相及基准、GL 线条/调试图元、Trauma 相机震动、WAV 解码与循环背景音乐，以及含土狼时间/跳跃缓冲/单向平台的瓦片平台跳跃角色控制器，并有完整滚动关卡 `--platformer-demo`。详见下方[实现计划](#实现计划)、[docs/PLAN.md](docs/PLAN.md)、[脚本编写指南](docs/SCRIPTING.md) 与[跨平台打包说明](docs/PACKAGING.md)。
+> 当前状态：**1.3 — Phase 8 马里奥 Demo 已完成** — 在 1.2（渲染、音频、粒子、物理、动画、瓦片、UI、平台控制器）基础上，新增瓦片斜坡、Tiled 视差背景与图片层、SaveStore 存档 KV 存储、EntityStore 原生实体存储槽位、逐物体自定义 Shader 槽位，以及完整的经典 SMB 1-1 式 `--mario-demo`（复古像素贴图、大小马里奥双形态、栗宝宝、问号/砖块弹动破碎、蘑菇道具、旗杆滑降通关流程）。详见下方[实现计划](#实现计划)、[docs/PLAN.md](docs/PLAN.md)、[脚本编写指南](docs/SCRIPTING.md) 与[跨平台打包说明](docs/PACKAGING.md)。
 
 ---
 
@@ -90,8 +90,8 @@ fake2d/
 │   ├── scene/               # 节点层级与场景渲染
 │   └── script/              # FakeLua 桥接与原生 API 注册
 ├── third_party/             # stb_image、stb_truetype、stb_rect_pack、miniaudio、font8x8
-├── scripts/                 # 示例脚本（game.lua = 打砖块，main.lua = 场景演示）
-├── examples/hello/          # 示例：打砖块、--scene-demo、--map-demo、--platformer-demo、--bench、--phys-bench
+├── scripts/                 # 纯 Lua 示例：game.lua（打砖块）、scene_demo.lua、map_demo.lua、platformer_demo.lua、mario.lua
+├── examples/hello/          # 示例：打砖块、--scene-demo、--map-demo、--platformer-demo、--mario-demo、--bench、--phys-bench
 ├── docs/SCRIPTING.md        # 脚本编写指南与 API 参考
 ├── docs/PACKAGING.md        # Linux / Windows / macOS 跨平台打包说明
 └── docs/PLAN.md             # 详细路线图与任务清单
@@ -128,14 +128,18 @@ cmake --build build --parallel
 # 运行中编辑 scripts/game.lua，保存后引擎自动重新编译（热重载）：
 ./build/bin/fake2d_hello --hot-reload
 
-# 以 C++ 场景图 / 图集演示替代 Lua 小游戏：
-./build/bin/fake2d_hello --scene-demo
+# 所有 demo 均为纯 Lua 脚本（二进制只负责生成 PNG/JSON/WAV 素材），
+# 每个参数对应一个入口脚本：
+./build/bin/fake2d_hello --scene-demo      # 精灵、旋转、粒子、文字
 
-# Phase 6：Tiled 瓦片地图 + 内置物理 + UI（按 R 或点击 RESET 重置）：
+# Tiled 瓦片地图 + 内置物理 + UI（按 R 或点击 RESET 重置）：
 ./build/bin/fake2d_hello --map-demo
 
-# Phase 7：滚动平台跳跃关卡（A/D 移动、空格跳跃；无头模式自动演示）：
+# 滚动平台跳跃关卡（A/D 移动、空格跳跃；无头模式自动演示）：
 ./build/bin/fake2d_hello --platformer-demo
+
+# 经典超级马里奥兄弟 1-1 关卡（A/D 移动、Shift 加速、空格跳跃；无头模式自动演示）：
+./build/bin/fake2d_hello --mario-demo
 
 # 物理宽相基准（暴力 O(n²) vs 空间哈希网格）：
 ./build/bin/fake2d_hello --headless --phys-bench
@@ -189,6 +193,7 @@ end
 | **5 — 打磨交付 (1.0)** | 商业可交付质量 | 多键排序合批 + 加法混合、HiDPI/Retina、`--bench` 基准、[跨平台打包说明](docs/PACKAGING.md)、标签触发的发布自动化 | **已完成** |
 | **6 — 玩法基础 (1.1)** | 游戏系统 | 内置 AABB/圆形物理与传感器接触事件、精灵帧动画、Tiled JSON 瓦片地图（含固体碰撞体导出）、锚点 UI 面板/标签/按钮；`--map-demo` | **已完成** |
 | **7 — 平台跳跃与规模 (1.2)** | 控制器与性能 | 空间哈希宽相（`--phys-bench` 约 6 倍）、线条/调试图元、Trauma 相机震动、WAV 与循环音乐、瓦片平台跳跃控制器（土狼/缓冲/单向平台）+ `--platformer-demo` | **已完成** |
+| **8 — 引擎短板与马里奥 (1.3)** | 完整度 | 瓦片斜坡（`map_ground_y`）、Tiled 视差与图片层、`SaveStore` 存档（`storage_*`）、`EntityStore` 原生实体槽位（`ent_*`）、自定义 Shader 槽位（`shader_*`）、SMB 1-1 `--mario-demo` | **已完成** |
 
 详细任务清单见 [docs/PLAN.md](docs/PLAN.md)。
 

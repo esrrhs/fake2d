@@ -3,6 +3,8 @@ cmake_minimum_required(VERSION 3.16)
 set(FAKE2D_SOURCES
     core/engine.cpp
     core/resource_manager.cpp
+    core/save_store.cpp
+    core/entity_store.cpp
     render/renderer.cpp
     render/shader.cpp
     render/texture.cpp

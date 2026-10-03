@@ -7,7 +7,7 @@
 
 **Fake2D** is a lightweight, modern 2D game rendering engine powered by [FakeLua](https://github.com/esrrhs/fakelua): C++ owns the window, GPU resources, and scene graph; FakeLua scripts orchestrate gameplay logic with a per-frame linear arena reset (**zero GC pauses**).
 
-> Status: **1.2 — Phase 7 complete** — everything in 1.1 (rendering, audio, particles, physics, animation, tilemaps, UI), plus a spatial-hash physics broadphase with a benchmark, GL line/debug primitives, trauma camera shake, WAV decoding with looping background music, and a kinematic platformer character controller (coyote time, jump buffering, one-way platforms) demonstrated by a complete scrolling `--platformer-demo` level. See the [Implementation Plan](#implementation-plan), [docs/PLAN.md](docs/PLAN.md), the [Scripting Guide](docs/SCRIPTING.md), and [Packaging Notes](docs/PACKAGING.md).
+> Status: **1.3 — Phase 8 Mario Demo complete** — everything in 1.2 (rendering, audio, particles, physics, animation, tilemaps, UI, platformer controller), plus slope tiles, Tiled parallax & image layers, SaveStore KV persistence, EntityStore fixed-slot subsystem, per-draw custom shaders, and a complete SMB 1-1 style `--mario-demo` with pixel-art sprites, dual-form player, Goombas, ?/brick bumping, mushroom powerups, and flagpole sequence. See the [Implementation Plan](#implementation-plan), [docs/PLAN.md](docs/PLAN.md), the [Scripting Guide](docs/SCRIPTING.md), and [Packaging Notes](docs/PACKAGING.md).
 
 ---
 
@@ -99,8 +99,8 @@ fake2d/
 │   ├── script/              # FakeLua integration & bindings
 │   └── ui/                  # Anchored widget system
 ├── third_party/             # stb_image, stb_truetype, stb_rect_pack, miniaudio, font8x8
-├── scripts/                 # Sample scripts (game.lua = breakout, main.lua = scene demo)
-├── examples/hello/          # Samples: breakout, --scene-demo, --map-demo, --platformer-demo, --bench, --phys-bench
+├── scripts/                 # Pure-Lua samples: game.lua (breakout), scene_demo.lua, map_demo.lua, platformer_demo.lua, mario.lua
+├── examples/hello/          # Samples: breakout, --scene-demo, --map-demo, --platformer-demo, --mario-demo, --bench, --phys-bench
 ├── docs/SCRIPTING.md        # Script authoring guide & API reference
 ├── docs/PACKAGING.md        # Linux / Windows / macOS packaging notes
 └── docs/PLAN.md             # Detailed roadmap and milestone checklist
@@ -137,14 +137,18 @@ cmake --build build --parallel
 # Edit scripts/game.lua while running — the engine recompiles it on save:
 ./build/bin/fake2d_hello --hot-reload
 
-# The Phase 2 C++ scene graph / atlas demo instead of the Lua game:
-./build/bin/fake2d_hello --scene-demo
+# All demos are pure-Lua scripts (the binary only generates their PNG/JSON/WAV
+# assets); each flag selects a different entry script:
+./build/bin/fake2d_hello --scene-demo      # sprites, rotation, particles, text
 
-# Phase 6: Tiled tilemap + built-in physics + UI (R or the RESET button):
+# Tiled tilemap + built-in physics + UI (R or the RESET button):
 ./build/bin/fake2d_hello --map-demo
 
-# Phase 7: scrolling platformer (A/D + Space; attract AI headless):
+# Scrolling platformer (A/D + Space; attract AI headless):
 ./build/bin/fake2d_hello --platformer-demo
+
+# Super Mario Bros 1-1 style demo (A/D + Shift + Space; attract AI headless):
+./build/bin/fake2d_hello --mario-demo
 
 # Physics broadphase benchmark (brute force vs spatial hash grid):
 ./build/bin/fake2d_hello --headless --phys-bench
@@ -199,6 +203,7 @@ codegen constraints), and performance best practices live in the
 | **5 — Polish (1.0)** | Production quality | Multi-key sorted batching + additive blending, HiDPI/Retina, `--bench` suite, cross-platform [packaging notes](docs/PACKAGING.md), tag-driven release automation | **Done** |
 | **6 — Gameplay (1.1)** | Game systems | Built-in AABB/circle physics with sensor contacts, frame animation, Tiled JSON tilemaps (+solid colliders), anchored UI panels/labels/buttons; `--map-demo` | **Done** |
 | **7 — Platformer & scale (1.2)** | Controller & scale | Spatial-hash broadphase (`--phys-bench` ~6x), line/debug primitives, trauma camera shake, WAV + looping music, tilemap platformer controller (coyote/buffer/one-way) + `--platformer-demo` | **Done** |
+| **8 — Engine Gaps & Mario (1.3)** | Completeness | Tilemap slopes (`map_ground_y`), Tiled parallax + image layers, `SaveStore` (`storage_*`), `EntityStore` (`ent_*`), custom shader slots (`shader_*`), SMB 1-1 `--mario-demo` | **Done** |
 
 Detailed checklist: [docs/PLAN.md](docs/PLAN.md).
 

@@ -1,9 +1,8 @@
-#include "fake2d/atlas.h"
-#include "fake2d/character.h"
+// The demos are pure FakeLua scripts (scripts/*_demo.lua + game.lua).
+// This binary only provides: engine bootstrap, procedural asset generation
+// (PNG/Tiled JSON/WAV, since scripts cannot encode binary files), and the
+// micro-benchmarks that measure engine internals.
 #include "fake2d/engine.h"
-#include "fake2d/node.h"
-#include "fake2d/particle.h"
-#include "fake2d/scene.h"
 
 #include <algorithm>
 #include <chrono>
@@ -29,80 +28,6 @@ namespace {
 // Procedural asset generation for the breakout sample: three small white
 // textures tinted from Lua. Generated on demand so the repo stays asset-free.
 // ---------------------------------------------------------------------------
-
-constexpr int kSheetSize = 128;
-constexpr int kTile = 64;
-
-/// Paint a 128x128 RGBA sheet: four 64x64 shape tiles on transparent background.
-void PaintDemoSheet(std::uint8_t *pixels) {
-    auto coverage = [](int tile, float dx, float dy) -> std::uint8_t {
-        switch (tile) {
-            case 0:  // red circle
-                return (dx * dx + dy * dy) <= 26.0f * 26.0f ? 255 : 0;
-            case 1:  // green box
-                return (std::fabs(dx) <= 22.0f && std::fabs(dy) <= 22.0f) ? 255 : 0;
-            case 2: {  // blue triangle, wide bottom, apex top
-                const float t = (dy + 26.0f) / 52.0f;
-                if (t < 0.0f || t > 1.0f) return 0;
-                return std::fabs(dx) <= 28.0f * (1.0f - t) ? 255 : 0;
-            }
-            default:  // yellow diamond
-                return (std::fabs(dx) + std::fabs(dy) <= 28.0f) ? 255 : 0;
-        }
-    };
-
-    const fake2d::Color tile_colors[4] = {
-        fake2d::Color::FromRGBA8(225, 65, 65),
-        fake2d::Color::FromRGBA8(75, 200, 95),
-        fake2d::Color::FromRGBA8(75, 125, 230),
-        fake2d::Color::FromRGBA8(240, 208, 66),
-    };
-
-    for (int y = 0; y < kSheetSize; ++y) {
-        for (int x = 0; x < kSheetSize; ++x) {
-            std::uint8_t *px = pixels + (static_cast<size_t>(y) * kSheetSize + x) * 4;
-            const int tile = (x >= kTile ? 1 : 0) + (y >= kTile ? 2 : 0);
-            const float dx = static_cast<float>(x % kTile) - (kTile * 0.5f - 0.5f);
-            const float dy = static_cast<float>(y % kTile) - (kTile * 0.5f - 0.5f);
-            const std::uint8_t a = coverage(tile, dx, dy);
-            px[0] = static_cast<std::uint8_t>(tile_colors[tile].r * 255.0f);
-            px[1] = static_cast<std::uint8_t>(tile_colors[tile].g * 255.0f);
-            px[2] = static_cast<std::uint8_t>(tile_colors[tile].b * 255.0f);
-            px[3] = a;
-        }
-    }
-}
-
-/// TexturePacker hash-format atlas describing PaintDemoSheet's 2x2 tiles.
-constexpr const char *kAtlasJson = R"({
-  "frames": {
-    "red_circle": {
-      "frame": {"x": 0, "y": 0, "w": 64, "h": 64},
-      "rotated": false, "trimmed": false,
-      "spriteSourceSize": {"x": 0, "y": 0, "w": 64, "h": 64},
-      "sourceSize": {"w": 64, "h": 64}, "pivot": {"x": 0.5, "y": 0.5}
-    },
-    "green_box": {
-      "frame": {"x": 64, "y": 0, "w": 64, "h": 64},
-      "rotated": false, "trimmed": false,
-      "spriteSourceSize": {"x": 0, "y": 0, "w": 64, "h": 64},
-      "sourceSize": {"w": 64, "h": 64}, "pivot": {"x": 0.5, "y": 0.5}
-    },
-    "blue_triangle": {
-      "frame": {"x": 0, "y": 64, "w": 64, "h": 64},
-      "rotated": false, "trimmed": false,
-      "spriteSourceSize": {"x": 0, "y": 0, "w": 64, "h": 64},
-      "sourceSize": {"w": 64, "h": 64}, "pivot": {"x": 0.5, "y": 0.5}
-    },
-    "yellow_diamond": {
-      "frame": {"x": 64, "y": 64, "w": 64, "h": 64},
-      "rotated": false, "trimmed": false,
-      "spriteSourceSize": {"x": 0, "y": 0, "w": 64, "h": 64},
-      "sourceSize": {"w": 64, "h": 64}, "pivot": {"x": 0.5, "y": 0.5}
-    }
-  },
-  "meta": { "image": "demo_sheet.png", "size": {"w": 128, "h": 128}, "scale": "1" }
-})";
 
 // --- breakout shapes (white on transparent; tinted per brick row from Lua) ---
 
@@ -498,9 +423,8 @@ int RunPhysicsBenchmark(fake2d::Engine &engine) {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 6 demo: Tiled tilemap + built-in physics + UI button. All assets
-// (tilesheet and Tiled JSON) are generated on demand so the repo stays
-// binary-asset-free.
+// Asset scaffolding for scripts/map_demo.lua: tilesheet + Tiled JSON.
+// Generated on demand so the repo stays binary-asset-free.
 // ---------------------------------------------------------------------------
 
 constexpr int kMapTile = 32;
@@ -659,109 +583,11 @@ void EnsureMapAssets() {
     }
 }
 
-int RunMapDemo(fake2d::Engine &engine, int max_frames, const std::string &screenshot) {
-    EnsureMapAssets();
-
-    const int map_id = engine.GetTilemaps().Load("assets/level.json", engine.GetResources());
-    fake2d::Tilemap *map = engine.GetTilemaps().Get(map_id);
-    if (map == nullptr) {
-        std::fprintf(stderr, "fake2d_hello: failed to load tilemap\n");
-        return 1;
-    }
-    const auto colliders = map->CreateStaticColliders(engine.GetPhysics());
-    (void)colliders; // pinned for the engine lifetime; static world geometry
-
-    const fake2d::TextureHandle ball_tex = engine.GetResources().LoadTexture("assets/ball.png");
-    const fake2d::Texture2D *ball_texture = engine.GetResources().GetTexture(ball_tex);
-
-    struct Ball {
-        fake2d::BodyId id = fake2d::kInvalidBody;
-        fake2d::Color tint;
-    };
-    constexpr int kBallCount = 24;
-    std::vector<Ball> balls(kBallCount);
-
-    const fake2d::Color palette[] = {
-        fake2d::Color::FromRGBA8(232, 86, 86),
-        fake2d::Color::FromRGBA8(240, 170, 70),
-        fake2d::Color::FromRGBA8(238, 220, 90),
-        fake2d::Color::FromRGBA8(110, 210, 120),
-        fake2d::Color::FromRGBA8(96, 190, 226),
-        fake2d::Color::FromRGBA8(120, 140, 236),
-        fake2d::Color::FromRGBA8(190, 120, 228),
-    };
-
-    std::uint32_t rng = 0x7a17c0deu;
-    auto next_rand = [&rng]() {
-        rng = rng * 1664525u + 1013904223u;
-        return static_cast<float>(rng & 0xFFFFu) / 65535.0f;
-    };
-
-    const auto spawn = [&]() {
-        for (int i = 0; i < kBallCount; ++i) {
-            fake2d::BodyConfig cfg;
-            cfg.position = {96.0f + next_rand() * 768.0f, 32.0f + next_rand() * 120.0f};
-            cfg.radius = 9.0f;
-            cfg.half_extents = {9.0f, 9.0f};
-            cfg.velocity = {(next_rand() - 0.5f) * 260.0f, (next_rand() - 0.5f) * 120.0f};
-            cfg.restitution = 0.62f;
-            balls[i].id = engine.GetPhysics().CreateBody(cfg);
-            balls[i].tint = palette[i % 7];
-        }
-    };
-    const auto reset = [&]() {
-        for (Ball &ball : balls) {
-            engine.GetPhysics().DestroyBody(ball.id);
-        }
-        spawn();
-    };
-    spawn();
-
-    engine.SetFrameCallback([&](fake2d::Engine &e) {
-        if (e.GetInput().KeyPressed("r")) {
-            reset();
-        }
-
-        map->Draw(e.GetRenderer());
-
-        for (const Ball &ball : balls) {
-            const fake2d::BodyConfig *cfg = e.GetPhysics().Get(ball.id);
-            if (cfg != nullptr && ball_texture != nullptr) {
-                e.GetRenderer().DrawSprite(
-                    *ball_texture,
-                    cfg->position.x - cfg->radius, cfg->position.y - cfg->radius,
-                    cfg->radius * 2.0f, cfg->radius * 2.0f, ball.tint);
-            }
-        }
-
-        e.GetUI().Label(fake2d::UIAnchor::TopLeft, 16.0f, 12.0f,
-                        "TILEMAP + PHYSICS DEMO", 0.55f,
-                        fake2d::Color::FromRGBA8(235, 240, 255));
-        if (e.GetUI().Button("reset", fake2d::UIAnchor::TopRight,
-                             16.0f, 10.0f, 104.0f, 32.0f, "RESET (R)", 0.5f)) {
-            reset();
-        }
-        e.GetUI().Label(fake2d::UIAnchor::BottomLeft, 16.0f, 12.0f,
-                        "built-in AABB/circle physics, Tiled JSON, anchored UI",
-                        0.45f, fake2d::Color::FromRGBA8(170, 180, 205));
-
-        if (!screenshot.empty() && e.FrameIndex() == 90) {
-            e.GetRenderer().GetSpriteBatch().Flush();
-            e.GetRenderer().SaveScreenshot(screenshot);
-        }
-    });
-
-    return engine.Run(max_frames);
-}
 
 // ---------------------------------------------------------------------------
-// Phase 7 demo: complete platformer level. Kinematic character controller
-// with coyote time / jump buffering / one-way platforms, coin pickups that
-// rewrite the tilemap, a goal flag, a trauma-shake follow camera, looping
-// WAV background music and debug line overlays.
+// Asset scaffolding for scripts/platformer_demo.lua: level tilesheet,
+// player sprite, Tiled JSON and a 22050 Hz looping music WAV.
 // ---------------------------------------------------------------------------
-
-namespace {
 
 constexpr int kPTile = 32;
 constexpr int kPCols = 42;
@@ -775,6 +601,8 @@ constexpr std::uint32_t kGPlank = 3;
 constexpr std::uint32_t kGCoin = 4;
 constexpr std::uint32_t kGGoal = 5;
 constexpr std::uint32_t kGBack = 6;
+constexpr std::uint32_t kGSlopeUp = 7;
+constexpr std::uint32_t kGSlopeDown = 8;
 
 void PaintPlayer(std::uint8_t *px, int w, int h) {
     for (int y = 0; y < h; ++y) {
@@ -851,6 +679,23 @@ void PaintPlatformerSheet(std::uint8_t *sheet) {
         PutPixel(sheet, kPSheetCols, 5, i, i, 28, 35, 52);
         PutPixel(sheet, kPSheetCols, 5, i + 3, i + 5, 28, 35, 52);
     }
+    // 6 up slope (triangle rising toward +x, grass cap over dirt)
+    // 7 down slope (triangle lowering toward +x)
+    for (int id = 6; id <= 7; ++id) {
+        for (int y = 0; y < kPTile; ++y) {
+            for (int x = 0; x < kPTile; ++x) {
+                const int surf = id == 6 ? (kPTile - 1 - x) : x;
+                if (y < surf) {
+                    continue;
+                }
+                const bool grass_cap = (y - surf) < 8;
+                PutPixel(sheet, kPSheetCols, id, x, y,
+                         grass_cap ? 92 : 122,
+                         grass_cap ? 178 : 82,
+                         grass_cap ? 92 : 50);
+            }
+        }
+    }
 }
 
 void EnsurePlatformerAssets() {
@@ -919,6 +764,11 @@ void EnsurePlatformerAssets() {
         at(coin_cols[i], coin_rows[i]) = kGCoin;
     }
     at(38, kPRows - 3) = kGGoal;
+    // Two 45-degree pyramid bumps (up + down tiles on the row above ground).
+    at(24, kPRows - 3) = kGSlopeUp;
+    at(25, kPRows - 3) = kGSlopeDown;
+    at(33, kPRows - 3) = kGSlopeUp;
+    at(34, kPRows - 3) = kGSlopeDown;
 
     std::ostringstream json;
     json << "{\n"
@@ -935,7 +785,9 @@ void EnsurePlatformerAssets() {
          << "    \"tiles\": [\n"
          << "      {\"id\": 0, \"properties\": [{\"name\": \"solid\", \"type\": \"bool\", \"value\": true}]},\n"
          << "      {\"id\": 1, \"properties\": [{\"name\": \"solid\", \"type\": \"bool\", \"value\": true}]},\n"
-         << "      {\"id\": 2, \"properties\": [{\"name\": \"oneway\", \"type\": \"bool\", \"value\": true}]}\n"
+         << "      {\"id\": 2, \"properties\": [{\"name\": \"oneway\", \"type\": \"bool\", \"value\": true}]},\n"
+         << "      {\"id\": 6, \"properties\": [{\"name\": \"slope\", \"type\": \"string\", \"value\": \"up\"}]},\n"
+         << "      {\"id\": 7, \"properties\": [{\"name\": \"slope\", \"type\": \"string\", \"value\": \"down\"}]}\n"
          << "    ]\n"
          << "  }],\n"
          << "  \"layers\": [{\n"
@@ -954,310 +806,693 @@ void EnsurePlatformerAssets() {
     }
 }
 
-} // namespace
+// ---------------------------------------------------------------------------
+// Mario demo assets: a SMB 1-1 inspired tile sheet, sprites and level JSON.
+// Tile gids (firstgid = 1):
+//   1 ground top, 2 ground fill, 3 brick, 4 question, 5 used,
+//   6 pipe TL, 7 pipe TR, 8 pipe BL, 9 pipe BR, 10 coin,
+//   11 pole top (ball), 12 pole shaft, 13 flag cloth, 14 stone block,
+//   15 goomba spawn marker
+// ---------------------------------------------------------------------------
 
-int RunPlatformerDemo(fake2d::Engine &engine, int max_frames,
-                      const std::string &screenshot) {
-    EnsurePlatformerAssets();
+constexpr int kMTile = 32;
+constexpr int kMCols = 112;
+constexpr int kMRows = 15;
+constexpr int kMSheetCols = 8;
+constexpr int kMSheetRows = 2;
 
-    const int map_id = engine.GetTilemaps().Load("assets/platformer.json",
-                                                 engine.GetResources());
-    fake2d::Tilemap *map = engine.GetTilemaps().Get(map_id);
-    if (map == nullptr) {
-        std::fprintf(stderr, "fake2d_hello: failed to load platformer level\n");
-        return 1;
-    }
-    const std::vector<std::uint32_t> initial_tiles = map->Layers()[0].gids;
-    const int total_coins = static_cast<int>(
-        std::count(initial_tiles.begin(), initial_tiles.end(), kGCoin));
+constexpr std::uint32_t kMGroundTop = 1;
+constexpr std::uint32_t kMGroundFill = 2;
+constexpr std::uint32_t kMBrick = 3;
+constexpr std::uint32_t kMQuestion = 4;
+constexpr std::uint32_t kMUsed = 5;
+constexpr std::uint32_t kMPipeTL = 6;
+constexpr std::uint32_t kMPipeTR = 7;
+constexpr std::uint32_t kMPipeBL = 8;
+constexpr std::uint32_t kMPipeBR = 9;
+constexpr std::uint32_t kMCoin = 10;
+constexpr std::uint32_t kMPoleTop = 11;
+constexpr std::uint32_t kMPole = 12;
+constexpr std::uint32_t kMFlag = 13;
+constexpr std::uint32_t kMStone = 14;
+constexpr std::uint32_t kMGoomba = 15;
 
-    const fake2d::TextureHandle player_tex =
-        engine.GetResources().LoadTexture("assets/player.png");
-    const fake2d::Texture2D *player_texture =
-        engine.GetResources().GetTexture(player_tex);
-
-    // Looping background music decoded from the generated 22050 Hz WAV.
-    engine.GetAudio().AddClipWav("music", "assets/music.wav");
-    engine.GetAudio().PlayMusic("music", 0.22f);
-
-    fake2d::CharacterController player;
-    player.SetMap(map);
-    fake2d::CharacterTuning tuning;
-    player.SetTuning(tuning);
-
-    const fake2d::Vec2 kSpawn{2.0f * kPTile, 13.0f * kPTile};
-    int coins = 0;
-    int win_timer = -1;
-    int jump_hold = 0;
-    bool prev_on_ground = false;
-
-    auto reset = [&]() {
-        player.Spawn(kSpawn);
-        coins = 0;
-        win_timer = -1;
-        for (std::size_t i = 0; i < initial_tiles.size(); ++i) {
-            map->SetTile(static_cast<int>(i % kPCols),
-                         static_cast<int>(i / kPCols), initial_tiles[i]);
-        }
-    };
-    reset();
-
-    engine.SetFrameCallback([&](fake2d::Engine &e) {
-        const std::uint64_t frame = e.FrameIndex();
-
-        // --- intent: keyboard in interactive mode, deterministic AI headless ---
-        const auto &input = e.GetInput();
-        fake2d::CharacterIntent intent;
-        intent.move_x = 1.0f; // attract mode runs right; keyboard overrides:
-        if (input.KeyDown("left") || input.KeyDown("a")) intent.move_x = -1.0f;
-        if (input.KeyDown("right") || input.KeyDown("d")) intent.move_x = 1.0f;
-
-        const fake2d::Vec2 center = player.Center();
-        const int feet_row = static_cast<int>(
-            (center.y + tuning.half_extents.y + 4.0f) / kPTile);
-        const int ahead_col = static_cast<int>(
-            (center.x + tuning.half_extents.x + 20.0f) / kPTile);
-        const bool wall_ahead = map->SolidAt(ahead_col, feet_row) ||
-                                map->SolidAt(ahead_col, feet_row - 1);
-        const bool gap_ahead = !map->SolidAt(ahead_col, feet_row + 1) &&
-                               !map->OneWayAt(ahead_col, feet_row + 1);
-        bool coin_ahead = false;
-        for (int dc = 0; dc <= 3; ++dc) {
-            for (int dr = -4; dr <= 0; ++dr) {
-                if (map->TileAt(ahead_col + dc, feet_row + dr) == kGCoin) {
-                    coin_ahead = true;
-                }
-            }
-        }
-        const bool ai_jump = wall_ahead || (player.OnGround() && gap_ahead) ||
-                             coin_ahead || (frame % 80 == 0);
-        const bool key_jump = input.KeyPressed("space") || input.KeyPressed("w") ||
-                              input.KeyPressed("up");
-        intent.jump_pressed = key_jump || (ai_jump && jump_hold == 0);
-        if (intent.jump_pressed) {
-            jump_hold = 12;
-            e.GetAudio().Play("jump", 0.15);
-        }
-        intent.jump_held = jump_hold > 0;
-        if (jump_hold > 0) {
-            --jump_hold;
-        }
-
-        // --- physics / movement ---
-        const fake2d::CharacterFrame pf =
-            player.Update(static_cast<float>(e.DeltaTime()), intent);
-        if (pf.jumped) {
-            e.GetAudio().Play("jump", 0.12);
-        }
-        if (pf.landed && !prev_on_ground) {
-            e.GetRenderer().GetCamera().AddTrauma(
-                std::min(0.5f, pf.impact_speed / 1200.0f));
-        }
-        prev_on_ground = pf.on_ground;
-
-        // Fell out of the world: respawn.
-        if (player.Center().y > kPRows * kPTile + 60.0f) {
-            player.Spawn(kSpawn);
-        }
-
-        // --- coin pickup by tile rewrite ---
-        const fake2d::Vec2 c = player.Center();
-        for (int dr = -1; dr <= 1; ++dr) {
-            for (int dc = -1; dc <= 1; ++dc) {
-                const int col = static_cast<int>(c.x / kPTile) + dc;
-                const int row = static_cast<int>(c.y / kPTile) + dr;
-                if (map->TileAt(col, row) == kGCoin) {
-                    map->SetTile(col, row, kGBack);
-                    ++coins;
-                    e.GetAudio().Play("coin", 0.35);
-                }
-            }
-        }
-
-        // --- goal ---
-        if (map->TileAt(static_cast<int>(c.x / kPTile),
-                        static_cast<int>(c.y / kPTile)) == kGGoal &&
-            win_timer < 0) {
-            win_timer = 0;
-            e.GetRenderer().GetCamera().AddTrauma(0.7f);
-            e.GetAudio().Play("win", 0.4);
-        }
-        if (win_timer >= 0) {
-            ++win_timer;
-            if (win_timer > 180) {
-                reset();
-            }
-        }
-
-        // --- follow camera (trauma shake applied inside the camera) ---
-        auto &cam = e.GetRenderer().GetCamera();
-        const float vw = cam.ViewportWidth();
-        const float vh = cam.ViewportHeight();
-        const float cam_x = std::clamp(c.x - vw * 0.5f, 0.0f,
-                                       static_cast<float>(map->WidthPx() - vw));
-        const float cam_y = std::clamp(c.y - vh * 0.55f, -20.0f,
-                                       static_cast<float>(map->HeightPx() - vh));
-        cam.SetPosition(cam_x, cam_y);
-
-        // --- render ---
-        map->Draw(e.GetRenderer());
-        if (player_texture != nullptr) {
-            e.GetRenderer().DrawSprite(*player_texture,
-                                       player.Position().x - 2.0f,
-                                       player.Position().y - 2.0f,
-                                       24.0f, 34.0f);
-        }
-
-        // Debug line overlays: player box, coin rings, one-way tops, goal.
-        const fake2d::Color cyan{0.3f, 0.9f, 1.0f, 0.9f};
-        const fake2d::Color yellow{1.0f, 0.9f, 0.4f, 0.8f};
-        const fake2d::Color green{0.5f, 1.0f, 0.6f, 0.8f};
-        e.GetRenderer().DrawRectOutline(player.Bounds(), cyan);
-        const int c0c = std::max(0, static_cast<int>(cam_x / kPTile));
-        const int c1c = std::min(kPCols - 1, static_cast<int>((cam_x + vw) / kPTile));
-        const int r0c = std::max(0, static_cast<int>(cam_y / kPTile));
-        const int r1c = std::min(kPRows - 1, static_cast<int>((cam_y + vh) / kPTile));
-        for (int row = r0c; row <= r1c; ++row) {
-            for (int col = c0c; col <= c1c; ++col) {
-                const float tx = static_cast<float>(col * kPTile);
-                const float ty = static_cast<float>(row * kPTile);
-                if (map->OneWayAt(col, row)) {
-                    e.GetRenderer().DrawLine(tx, ty + 5.0f, tx + kPTile, ty + 5.0f, green);
-                }
-                if (map->TileAt(col, row) == kGCoin) {
-                    e.GetRenderer().DrawCircleOutline(tx + 16.0f, ty + 16.0f, 13.0f, 16, yellow);
-                }
-                if (map->TileAt(col, row) == kGGoal) {
-                    e.GetRenderer().DrawRectOutline({tx + 2, ty + 2, 28, 28}, green);
-                }
-            }
-        }
-
-        // --- HUD (anchored to the camera frustum in world space so it stays
-        // on screen while the follow camera scrolls) ---
-        e.GetUI().SetWorldOrigin({cam_x, cam_y});
-        e.GetUI().Label(fake2d::UIAnchor::TopLeft, cam_x + 16.0f, cam_y + 12.0f,
-                        "COINS " + std::to_string(coins) + "/" +
-                            std::to_string(total_coins),
-                        0.6f, fake2d::Color::FromRGBA8(245, 230, 130));
-        e.GetUI().Label(fake2d::UIAnchor::TopLeft, cam_x + 16.0f, cam_y + 38.0f,
-                        "A/D MOVE  SPACE JUMP", 0.4f,
-                        fake2d::Color::FromRGBA8(170, 180, 205));
-        if (e.GetUI().Button("restart", fake2d::UIAnchor::TopLeft,
-                             cam_x + vw - 126.0f, cam_y + 10.0f, 110.0f, 32.0f,
-                             "RESTART", 0.5f)) {
-            reset();
-        }
-        if (win_timer >= 0) {
-            const std::string banner = "LEVEL COMPLETE!";
-            const float w = e.GetRenderer().MeasureText(banner, 1.4f);
-            e.GetRenderer().DrawText(banner, cam_x + vw * 0.5f - w * 0.5f,
-                                     cam_y + vh * 0.5f - 40.0f,
-                                     1.4f, fake2d::Color::FromRGBA8(120, 235, 140));
-        }
-
-        if (!screenshot.empty() && frame == 140) {
-            e.GetRenderer().GetSpriteBatch().Flush();
-            e.GetRenderer().SaveScreenshot(screenshot);
-        }
-    });
-
-    return engine.Run(max_frames);
+void MPut(std::uint8_t *sheet, int id, int x, int y,
+          std::uint8_t r, std::uint8_t g, std::uint8_t b, std::uint8_t a = 255) {
+    const int sheet_w = kMSheetCols * kMTile;
+    const int ox = (id % kMSheetCols) * kMTile;
+    const int oy = (id / kMSheetCols) * kMTile;
+    std::uint8_t *px = sheet + (static_cast<size_t>(oy + y) * sheet_w + ox + x) * 4;
+    px[0] = r; px[1] = g; px[2] = b; px[3] = a;
 }
 
 // ---------------------------------------------------------------------------
-// Phase 2/4 demo: C++ scene graph with a procedural atlas, bitmap text and
-// particles (kept behind --scene-demo; also exercises Phase 4 headlessly).
+// Hand-authored pixel art: string rows + char palette. ' ' and '.' stay
+// transparent (or leave an already-painted base untouched).
 // ---------------------------------------------------------------------------
+struct Pix {
+    char ch;
+    std::uint8_t r, g, b;
+};
 
-int RunSceneDemo(fake2d::Engine &engine, const fake2d::TextureHandle sheet, int max_frames,
-                 const std::string &screenshot) {
-    fake2d::Atlas demo_atlas;
-    if (!demo_atlas.LoadFromString(kAtlasJson, *engine.GetResources().GetTexture(sheet))) {
-        std::fprintf(stderr, "fake2d_hello: failed to parse demo atlas\n");
-        return 1;
-    }
-
-    fake2d::Scene scene;
-    scene.Root().GetTransform().SetPosition(480.0f, 270.0f);
-
-    auto orbit_group = std::make_unique<fake2d::Node>("orbit_group");
-    fake2d::Node *orbit = orbit_group.get();
-    scene.Root().AddChild(std::move(orbit_group));
-
-    const auto add_sprite = [&](const char *name, const char *region,
-                                float ox, float oy, int layer, float z, float size) {
-        auto node = std::make_unique<fake2d::SpriteNode>(name);
-        node->SetAtlasRegion(&demo_atlas, region);
-        node->SetSize(size, size);
-        node->SetPivot({0.5f, 0.5f});
-        node->GetTransform().SetPosition(ox, oy);
-        node->SetLayer(layer);
-        node->SetZ(z);
-        orbit->AddChild(std::move(node));
-    };
-
-    // Layer 0: yellow diamond sits behind everything on the orbit group.
-    add_sprite("yellow", "yellow_diamond", 0.0f, -130.0f, 0, 0.0f, 72.0f);
-    // Layer 1: the three shapes share a layer; z decides who wins overlaps.
-    add_sprite("red", "red_circle", -160.0f, 0.0f, 1, 0.0f, 88.0f);
-    add_sprite("green", "green_box", 0.0f, 0.0f, 1, 1.0f, 88.0f);
-    add_sprite("blue", "blue_triangle", 160.0f, 0.0f, 1, 2.0f, 88.0f);
-
-    // Layer 2: a solid panel above the sprites — layering beats tree insertion
-    // order, and it shares position with the green box (z=1, layer=1) below it.
-    auto panel = std::make_unique<fake2d::RectNode>("center_panel");
-    panel->SetSize(64.0f, 64.0f);
-    panel->SetPivot({0.5f, 0.5f});
-    panel->SetTint(fake2d::Color::FromRGBA8(255, 214, 102, 235));
-    panel->SetLayer(2);
-    panel->GetTransform().SetPosition(0.0f, 0.0f);
-    scene.Root().AddChild(std::move(panel));
-
-    // Phase 4: a gold spark emitter — gravity + drag + shrinking quads,
-    // all batched into the same SpriteBatch as the scene sprites.
-    fake2d::ParticleSystem &particles = engine.GetParticles();
-    const int sparks = particles.CreateEmitter();
-    if (fake2d::ParticleConfig *cfg = particles.Config(sparks)) {
-        cfg->lifetime_min = 0.4f;
-        cfg->lifetime_max = 0.9f;
-        cfg->speed_min = 30.0f;
-        cfg->speed_max = 95.0f;
-        cfg->angle = -1.5708f;
-        cfg->spread = 3.14159f;
-        cfg->start_size = 6.0f;
-        cfg->end_size = 0.0f;
-        cfg->gravity = {0.0f, 70.0f};
-        cfg->drag = 1.2f;
-        cfg->spin = 6.0f;
-        cfg->color = fake2d::Color::FromRGBA8(255, 214, 102);
-    }
-
-    const std::string title = "fake2d - scene + text + particles";
-    double elapsed = 0.0;
-    engine.SetFrameCallback([&](fake2d::Engine &e) {
-        elapsed += e.DeltaTime();
-        orbit->GetTransform().SetRotation(static_cast<float>(elapsed) * 0.8f);
-        const float s = 1.0f + 0.08f * std::sin(elapsed * 2.0f);
-        orbit->GetTransform().SetScale(s);
-
-        const float ex = 480.0f + 150.0f * std::cos(elapsed * 1.3);
-        const float ey = 270.0f + 120.0f * std::sin(elapsed * 1.3);
-        particles.Emit(sparks, 3, {ex, ey});
-
-        scene.Draw(e.GetRenderer());
-        particles.Draw(e.GetRenderer().GetSpriteBatch());
-        const float title_w = e.GetRenderer().MeasureText(title, 0.8f);
-        e.GetRenderer().DrawText(title, 480.0f - title_w * 0.5f, 24.0f, 0.8f,
-                                 fake2d::Color::FromRGBA8(235, 240, 255));
-
-        if (!screenshot.empty() && e.FrameIndex() == 20) {
-            e.GetRenderer().GetSpriteBatch().Flush();
-            e.GetRenderer().SaveScreenshot(screenshot);
+void BlitArt(std::uint8_t *dst, int stride, int W, int H,
+             const std::vector<std::string> &art, const std::vector<Pix> &pal) {
+    for (int y = 0; y < H && y < static_cast<int>(art.size()); ++y) {
+        for (int x = 0; x < W && x < static_cast<int>(art[y].size()); ++x) {
+            const char c = art[y][x];
+            if (c == ' ' || c == '.') continue;
+            for (const auto &p : pal) {
+                if (p.ch == c) {
+                    std::uint8_t *q = dst + (static_cast<size_t>(y) * stride + x) * 4;
+                    q[0] = p.r; q[1] = p.g; q[2] = p.b; q[3] = 255;
+                    break;
+                }
+            }
         }
-    });
+    }
+}
 
-    return engine.Run(max_frames);
+void SheetArt(std::uint8_t *sheet, int id,
+              const std::vector<std::string> &art,
+              const std::vector<Pix> &pal) {
+    const int sheet_w = kMSheetCols * kMTile;
+    std::uint8_t *tile = sheet + (static_cast<size_t>(id / kMSheetCols) * kMTile *
+                                      sheet_w +
+                                  static_cast<size_t>(id % kMSheetCols) * kMTile) *
+                                 4;
+    // stride is the full sheet width, not the tile width: tiles share rows,
+    // so advancing by 32 would bleed the art across neighbouring tiles.
+    BlitArt(tile, sheet_w, kMTile, kMTile, art, pal);
+}
+
+void SheetFill(std::uint8_t *sheet, int id,
+               std::uint8_t r, std::uint8_t g, std::uint8_t b) {
+    for (int y = 0; y < kMTile; ++y)
+        for (int x = 0; x < kMTile; ++x)
+            MPut(sheet, id, x, y, r, g, b);
+}
+
+void PaintMarioSheet(std::uint8_t *sheet) {
+    // 1-2 ground: orange earth with brick-course mortar; the top tile gets a
+    // sunlit cap so the surface edge reads against the sky.
+    const auto ground = [&](int id, bool cap) {
+        SheetFill(sheet, id, 214, 128, 48);
+        for (int y = 0; y < kMTile; ++y) {
+            for (int x = 0; x < kMTile; ++x) {
+                const bool mortar = y == 6 || y == 17 || y == 28 ||
+                                    (y >= 7 && y <= 16 && x == 15) ||
+                                    (y >= 18 && y <= 27 && (x == 5 || x == 25));
+                if (mortar) MPut(sheet, id, x, y, 146, 72, 22);
+                if ((x + y * 3) % 11 == 0 && !mortar)
+                    MPut(sheet, id, x, y, 188, 104, 32);
+            }
+        }
+        if (cap) {
+            for (int x = 0; x < kMTile; ++x) {
+                MPut(sheet, id, x, 0, 255, 216, 134);
+                MPut(sheet, id, x, 1, 250, 192, 96);
+                for (int y = 2; y <= 4; ++y)
+                    MPut(sheet, id, x, y, 240, 172, 80);
+                MPut(sheet, id, x, 5, 226, 146, 60);
+            }
+            MPut(sheet, id, 3, 2, 255, 226, 158);
+            MPut(sheet, id, 20, 1, 255, 226, 158);
+            MPut(sheet, id, 27, 3, 255, 226, 158);
+        }
+    };
+    ground(0, true);
+    ground(1, false);
+
+    // 3 brick: classic red block, two half-courses per cell
+    SheetFill(sheet, 2, 214, 82, 50);
+    for (int y = 0; y < kMTile; ++y) {
+        for (int x = 0; x < kMTile; ++x) {
+            const bool edge = x == 0 || x == kMTile - 1 || y == 0 || y == kMTile - 1;
+            const bool mortar = y == 15 ||
+                                (y >= 1 && y <= 14 && x == 15) ||
+                                (y >= 16 && y <= 30 && (x == 7 || x == 23));
+            if (edge || mortar) {
+                MPut(sheet, 2, x, y, 96, 32, 20);
+            } else if (y == 1 || y == 2 || y == 16 || y == 17 ||
+                       (x == 1 && y < 14)) {
+                MPut(sheet, 2, x, y, 246, 138, 92);
+            } else if (y == 13 || y == 14 || y == 29) {
+                MPut(sheet, 2, x, y, 178, 60, 36);
+            }
+        }
+    }
+
+    // 4 question / 5 used: riveted panels with frame and bevel
+    const auto panel = [&](int id, std::uint8_t br, std::uint8_t bg,
+                           std::uint8_t bb, std::uint8_t dr, std::uint8_t dg,
+                           std::uint8_t db, std::uint8_t lr, std::uint8_t lg,
+                           std::uint8_t lb) {
+        SheetFill(sheet, id, br, bg, bb);
+        for (int y = 0; y < kMTile; ++y) {
+            for (int x = 0; x < kMTile; ++x) {
+                if (x < 2 || x > 29 || y < 2 || y > 29)
+                    MPut(sheet, id, x, y, dr, dg, db);
+                else if (x == 2 || y == 2)
+                    MPut(sheet, id, x, y, lr, lg, lb);
+                else if (x == 29 || y == 29)
+                    MPut(sheet, id, x, y, static_cast<std::uint8_t>((dr + br) / 2),
+                         static_cast<std::uint8_t>((dg + bg) / 2),
+                         static_cast<std::uint8_t>((db + bb) / 2));
+            }
+        }
+        const int riv[4][2] = {{4, 4}, {27, 4}, {4, 27}, {27, 27}};
+        for (auto &p : riv) {
+            MPut(sheet, id, p[0], p[1], dr, dg, db);
+            MPut(sheet, id, p[0] - 1, p[1] - 1, lr, lg, lb);
+        }
+    };
+    panel(3, 244, 176, 36, 122, 66, 12, 255, 222, 96);
+    panel(4, 170, 104, 38, 104, 60, 16, 214, 150, 82);
+    static const char *const kQ[] = {
+        "..####..",
+        ".##..##.",
+        "##....##",
+        ".....##.",
+        "....##..",
+        "...##...",
+        "..##....",
+        "..#.....",
+        "..#.....",
+        "...##...",
+        "....#...",
+        "........",
+        "..####..",
+    };
+    std::vector<std::string> qart;
+    for (const char *r : kQ) {
+        std::string row(r);
+        row = std::string((32 - static_cast<int>(row.size())) / 2, '.') + row;
+        while (static_cast<int>(row.size()) < 32) row.push_back('.');
+        qart.push_back(row);
+    }
+    std::vector<std::string> qfinal(32, std::string(32, '.'));
+    for (int y = 0; y < static_cast<int>(qart.size()); ++y)
+        qfinal[y + 9] = qart[y];
+    SheetArt(sheet, 3, qfinal, {{'#', 112, 60, 12}});
+    for (int i = 0; i < 5; ++i) MPut(sheet, 3, 6 + i, 5 - i, 255, 230, 140);
+
+    // 6-9 pipes: dark outer edges, lit left stripe, body stays continuous
+    // across the two-tile seam.
+    const auto pipe_body = [&](int id, bool left) {
+        SheetFill(sheet, id, 40, 180, 76);
+        for (int y = 0; y < kMTile; ++y) {
+            if (left) {
+                MPut(sheet, id, 0, y, 14, 84, 34);
+                MPut(sheet, id, 1, y, 14, 84, 34);
+                MPut(sheet, id, 2, y, 132, 236, 144);
+                MPut(sheet, id, 3, y, 176, 248, 180);
+                MPut(sheet, id, 4, y, 120, 228, 136);
+            } else {
+                MPut(sheet, id, 30, y, 14, 84, 34);
+                MPut(sheet, id, 31, y, 14, 84, 34);
+                MPut(sheet, id, 27, y, 84, 212, 108);
+                MPut(sheet, id, 28, y, 104, 222, 120);
+                MPut(sheet, id, 29, y, 84, 212, 108);
+            }
+        }
+    };
+    pipe_body(5, true);
+    pipe_body(6, false);
+    pipe_body(7, true);
+    pipe_body(8, false);
+    // lip caps on the top pair (band spans the seam)
+    for (int y = 0; y <= 9; ++y) {
+        for (int x = 0; x < kMTile; ++x) {
+            if (y <= 1) {
+                MPut(sheet, 5, x, y, 14, 84, 34);
+                MPut(sheet, 6, x, y, 14, 84, 34);
+            } else if (y >= 8) {
+                MPut(sheet, 5, x, y, 16, 96, 40);
+                MPut(sheet, 6, x, y, 16, 96, 40);
+            } else if (x >= 2 && x <= 7) {
+                MPut(sheet, 5, x, y, 150, 240, 158);
+            } else if (x >= 24 && x <= 29) {
+                MPut(sheet, 6, x, y, 116, 230, 132);
+            }
+        }
+    }
+    MPut(sheet, 5, 2, 2, 186, 250, 190);
+    MPut(sheet, 6, 29, 2, 186, 250, 190);
+
+    // 10 coin (centered oval, transparent corners)
+    static const char *const kCoin[] = {
+        "....kkkkkk....",
+        "..kkllllllkk..",
+        ".kllllllllllk.",
+        "kllllllllllllk",
+        "kloolllllllllk",
+        "kloooolllllolk",
+        "klooooollllolk",
+        "kloooooolllolk",
+        "kloooooolllolk",
+        "klooooollllolk",
+        "kloooolllllolk",
+        "kloolllllllllk",
+        "kllllllllllllk",
+        ".kllllllllllk.",
+        "..kkllllllkk..",
+        "....kkkkkk....",
+    };
+    std::vector<std::string> cart;
+    for (const char *r : kCoin) {
+        std::string row(r);
+        const int pad = (32 - static_cast<int>(row.size())) / 2;
+        row = std::string(pad, '.') + row;
+        while (static_cast<int>(row.size()) < 32) row.push_back('.');
+        cart.push_back(row);
+    }
+    std::vector<std::string> coin_final(32, std::string(32, '.'));
+    for (int y = 0; y < static_cast<int>(cart.size()); ++y)
+        coin_final[y + 8] = cart[y];
+    SheetArt(sheet, 9, coin_final,
+             {{'k', 126, 74, 0},
+              {'l', 252, 202, 44},
+              {'o', 202, 134, 18}});
+    for (int y = 3; y <= 12; ++y) {
+        MPut(sheet, 9, 11, y + 8, 255, 240, 160);
+        MPut(sheet, 9, 12, y + 8, 255, 232, 138);
+    }
+
+    // 11 pole top: shaft runs through, ball sits at the tile bottom
+    for (int y = 0; y < kMTile; ++y) {
+        MPut(sheet, 10, 13, y, 16, 96, 40);
+        MPut(sheet, 10, 14, y, 150, 230, 160);
+        MPut(sheet, 10, 15, y, 96, 214, 120);
+        MPut(sheet, 10, 16, y, 64, 196, 96);
+        MPut(sheet, 10, 17, y, 40, 172, 76);
+        MPut(sheet, 10, 18, y, 16, 96, 40);
+    }
+    for (int y = 16; y < kMTile; ++y) {
+        for (int x = 0; x < kMTile; ++x) {
+            const int dx = x - 16, dy = y - 24;
+            const int d2 = dx * dx + dy * dy;
+            if (d2 <= 42) MPut(sheet, 10, x, y, 40, 172, 76);
+            if (d2 <= 24 && dx <= 1 && dy <= 0)
+                MPut(sheet, 10, x, y, 150, 232, 160);
+            if (d2 > 42 && d2 <= 56) MPut(sheet, 10, x, y, 14, 80, 34);
+        }
+    }
+    // 12 pole shaft
+    for (int y = 0; y < kMTile; ++y) {
+        MPut(sheet, 11, 13, y, 16, 96, 40);
+        MPut(sheet, 11, 14, y, 150, 230, 160);
+        MPut(sheet, 11, 15, y, 96, 214, 120);
+        MPut(sheet, 11, 16, y, 64, 196, 96);
+        MPut(sheet, 11, 17, y, 40, 172, 76);
+        MPut(sheet, 11, 18, y, 16, 96, 40);
+    }
+    // 13 flag pennant (apex against the pole on the right)
+    static const char *const kFlag[] = {
+        "gggggggggggggggggggk",
+        "ggggggggggggggggggok",
+        "kggggggggggggggggok.",
+        ".kkkkkkwkkkkkkggok..",
+        "..kgggggggggggok....",
+        "...kggggggwgggok....",
+        "....kggggggggok.....",
+        ".....kggggggok......",
+        "......kggggok.......",
+        ".......kggok........",
+        "........kok.........",
+    };
+    std::vector<std::string> fart;
+    for (const char *r : kFlag) fart.emplace_back(r);
+    SheetArt(sheet, 12, fart,
+             {{'k', 22, 96, 40}, {'g', 58, 200, 96}, {'w', 238, 246, 238}});
+
+    // 14 stone stair block: beveled gray slab
+    SheetFill(sheet, 13, 172, 172, 184);
+    for (int y = 0; y < kMTile; ++y) {
+        for (int x = 0; x < kMTile; ++x) {
+            if (x <= 1 || y <= 1) MPut(sheet, 13, x, y, 224, 224, 236);
+            if (x >= 30 || y >= 30) MPut(sheet, 13, x, y, 104, 104, 118);
+        }
+    }
+    for (int i = 0; i < 4; ++i) {
+        MPut(sheet, 13, 6 + i * 7, 8, 146, 146, 160);
+        MPut(sheet, 13, 9 + i * 7, 22, 146, 146, 160);
+        MPut(sheet, 13, 6 + i * 7, 7, 196, 196, 208);
+    }
+
+    // 15 goomba spawn marker: never rendered; debug-only magenta X
+    for (int i = 4; i < kMTile - 4; ++i) {
+        MPut(sheet, 14, i, i, 220, 60, 200, 200);
+        MPut(sheet, 14, i, kMTile - 1 - i, 220, 60, 200, 200);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// character sprites (native resolution, transparent background)
+// ---------------------------------------------------------------------------
+void PaintArt(std::uint8_t *px, int w, int h,
+              const std::vector<std::string> &art, const std::vector<Pix> &pal) {
+    std::fill(px, px + static_cast<size_t>(w) * h * 4, 0);
+    BlitArt(px, w, w, h, art, pal);
+}
+
+void PaintMarioGoomba(std::uint8_t *px, int w, int h) {
+    // k outline, b body, d dark foot, h dome highlight, s skin, w eye white
+    static const char *const kG[] = {
+        "............................",
+        "............................",
+        ".........kkkkkk............",
+        ".......kkbbbbbbbk..........",
+        "......kbbbbhbbbbbk.........",
+        ".....kbbbbbbbbbbbk.........",
+        "....kbbbhhhhbbbbbbk........",
+        "...kbbbbbbbbbbbbbbbk.......",
+        "..kbbbbbbbbbbbbbbbbk.......",
+        "..kbbbbkkkbbbbkkkbbk.......",
+        ".kbbbbkwwwkbkwwwkbbbk......",
+        ".kbbbkkwwwkbbkwwwkkbbk.....",
+        ".kbbkwwbkkbbkkbwwkbbk......",
+        ".kbbwwbbwkbbkbkwbbwwbk.....",
+        ".kbwssswwkbbkwwsssswk......",
+        ".kbssssssssssssssssk.......",
+        ".kssssssssssssssssssk......",
+        "..kssssssssssssssssk.......",
+        "..kksssssssssssssskk.......",
+        "...kkkkkkkkkkkkkkkk........",
+        "............................",
+        "....kkkkkk...kkkkkk........",
+        "...kddddddk.kddddddk.......",
+        "..kdddddddd kddddddddk.....",
+        "..kddddddddd kddddddddk....",
+        ".kddddddddddkddddddddddk...",
+        ".kdddddddddddddddddddddk...",
+        "..kkkkkkkkkkkkkkkkkkkk.....",
+    };
+    std::vector<std::string> art;
+    for (const char *r : kG) art.emplace_back(r);
+    PaintArt(px, w, h, art,
+             {{'k', 64, 36, 16},
+              {'b', 158, 90, 34},
+              {'d', 78, 44, 18},
+              {'h', 200, 130, 66},
+              {'s', 236, 200, 152},
+              {'w', 248, 244, 232}});
+}
+
+void PaintMushroom(std::uint8_t *px, int w, int h) {
+    // k outline, R red, r dark red, w white spot, s stem, t eye slit
+    static const char *const kM[] = {
+        "........................",
+        ".........kkkk...........",
+        ".......kkRRRRkk.........",
+        "......kRRRRRRRRk........",
+        ".....kRwwwwRRRRRk.......",
+        "....kRwwwwwRRwwwwRk.....",
+        "...kRwwwwwRRwwwwwwRk....",
+        "...kRRRRRRRRRRRRRRk.....",
+        "..kRRRRRkRRRRkRRRRRk....",
+        "..kRRRRRkkwwkkRRRRRk....",
+        "..kRRRRRRkwwkRRRRRRk....",
+        "..kRRRRRkRRRRkRRRRRk....",
+        "..krrrrrrrrrrrrrrrrk....",
+        "...kkkkkkkkkkkkkkkk.....",
+        "....ksssssssssssk.......",
+        "....ksstkssskttsk.......",
+        "....ksttkksskkttsk......",
+        "....ksstkssskttsk.......",
+        "....ksssssssssssk.......",
+        "....ksssssssssssk.......",
+        ".....ksssssssssk........",
+        "......kkkkkkkkkk........",
+        "........................",
+        "........................",
+    };
+    std::vector<std::string> art;
+    for (const char *r : kM) art.emplace_back(r);
+    PaintArt(px, w, h, art,
+             {{'k', 168, 28, 24},
+              {'R', 226, 44, 32},
+              {'r', 178, 28, 24},
+              {'w', 250, 248, 240},
+              {'s', 248, 224, 176},
+              {'t', 34, 28, 20}});
+}
+
+void PaintMarioPlayer(std::uint8_t *px, int w, int h) {
+    // k outline, R red, S skin, H hair, B blue, b dark blue, Y button, W shoe
+    const std::vector<Pix> pal = {
+        {'k', 34, 26, 18}, {'R', 214, 44, 32},
+        {'S', 250, 196, 146}, {'H', 116, 64, 26},
+        {'B', 40, 88, 208}, {'b', 24, 52, 140},
+        {'Y', 244, 196, 40}, {'W', 122, 68, 28},
+    };
+    if (w == 20 && h == 28) {
+        static const char *const kS[] = {
+            "....................",
+            ".....RRRRRR.........",
+            "....RRRRRRRRR.......",
+            "...RRRRRRRRRRRR.....",
+            "..kRRRRRRRRRRRRRR...",
+            "..kHHHRRRRRRRRRRR...",
+            "..kHSHHSSSSSSSSS....",
+            "..kHSSSSkSSSSSSSS...",
+            "..kHSSSSSSSSSSSSSS..",
+            "..kHSSSSSSSSSSSSS...",
+            "..kHSSSSSSSSSSSSSS..",
+            "..kkkSSkkkkkkkkk....",
+            "...kkkkkkkkkkkkk....",
+            "....RRRRRRRRRR......",
+            "...SRRRRBRBRRRRS....",
+            "...SRRRRBYBRRRRS....",
+            "....BBBBBBBBBB......",
+            "....BBBBBBBBBB......",
+            "....BBBBBBBBBB......",
+            "....BBBBBBBBB.......",
+            ".....BBBBBBBB.......",
+            ".....BBbbBBB........",
+            ".....BB...BB........",
+            "....BBB...BBB.......",
+            "...WWWW...WWWW......",
+            "..WWWWWW.WWWWWW.....",
+            ".kWWWWWWkWWWWWWk....",
+            "..kkkkkk.kkkkkk.....",
+        };
+        std::vector<std::string> art;
+        for (const char *r : kS) art.emplace_back(r);
+        PaintArt(px, w, h, art, pal);
+        return;
+    }
+
+    // big: 24 x 44
+    static const char *const kB[] = {
+        "........................",
+        "........................",
+        ".......RRRRRRRR.........",
+        "......RRRRRRRRRRR.......",
+        ".....RRRRRRRRRRRRRR.....",
+        "....kRRRRRRRRRRRRRRR....",
+        "...kRRRRRRRRRRRRRRRRR...",
+        "...kHHHRRRRRRRRRRRRRR...",
+        "...kHSHHSSSSSSSSSS......",
+        "...kHSSSSkSSSSSSSSSS....",
+        "...kHSSSSSSSSSSSSSSSS...",
+        "...kHSSSSSSSSSSSSSSS....",
+        "...kHSSSSSSSSSSSSSSS....",
+        "...kHSSSSSSSSSSSSSS.....",
+        "...kkkSSkkkkkkkkkkk.....",
+        "....kkkkkkkkkkkkkkk.....",
+        ".....RRRRRRRRRRRR.......",
+        "....SRRRRRRRRRRRRS......",
+        "....SRRRRRRRRRRRRS......",
+        "...SRRRRBBBBRRRRRS......",
+        "...SRRRBBYBBBRRRS.......",
+        "....BBBBBBBBBBBB........",
+        "....BBBBBBBBBBBB........",
+        "....BBBBBBBBBBBB........",
+        "....BBBBBBBBBBBB........",
+        "....BBBBBBBBBBBB........",
+        "....BBBBBBBBBBBB........",
+        ".....BBBBBBBBBB.........",
+        ".....BBBBBBBBBB.........",
+        ".....BBBBBBBBBB.........",
+        ".....BBBBBBBBBB.........",
+        ".....BBBBBBBBBB.........",
+        ".....BBb....bBBB........",
+        ".....BB......BBB........",
+        ".....BB......BBB........",
+        "....BBB......BBBB.......",
+        "....BBB......BBBB.......",
+        "...WWWW......WWWWW......",
+        "..WWWWWW....WWWWWW......",
+        ".kWWWWWWk..kWWWWWWk.....",
+        ".kWWWWWWk..kWWWWWWk.....",
+        "..kkkkkkk..kkkkkkk......",
+        "........................",
+        "........................",
+    };
+    std::vector<std::string> art;
+    for (const char *r : kB) art.emplace_back(r);
+    PaintArt(px, w, h, art, pal);
+}
+
+void EnsureMarioAssets() {
+    const std::filesystem::path dir = "assets";
+    std::error_code ec;
+    std::filesystem::create_directory(dir, ec);
+
+    const std::filesystem::path sheet_path = dir / "m_tiles.png";
+    if (!std::filesystem::exists(sheet_path)) {
+        std::vector<std::uint8_t> sheet(
+            static_cast<size_t>(kMSheetCols * kMSheetRows) * kMTile * kMTile * 4, 0);
+        PaintMarioSheet(sheet.data());
+        stbi_write_png(sheet_path.string().c_str(), kMSheetCols * kMTile,
+                       kMSheetRows * kMTile, 4, sheet.data(),
+                       kMSheetCols * kMTile * 4);
+    }
+    const auto sprite = [&](const char *name, int w, int h,
+                           void (*paint)(std::uint8_t *, int, int)) {
+        const auto p = dir / name;
+        if (std::filesystem::exists(p)) return;
+        std::vector<std::uint8_t> buf(static_cast<size_t>(w) * h * 4, 0);
+        paint(buf.data(), w, h);
+        stbi_write_png(p.string().c_str(), w, h, 4, buf.data(), w * 4);
+    };
+    sprite("m_goomba.png", 28, 28, PaintMarioGoomba);
+    sprite("m_mushroom.png", 24, 24, PaintMushroom);
+    sprite("m_player_s.png", 20, 28, PaintMarioPlayer);
+    sprite("m_player_b.png", 24, 44, PaintMarioPlayer);
+
+    // ---- Level layout (112 x 15) -----------------------------------------
+    std::vector<std::uint32_t> gids(
+        static_cast<size_t>(kMCols) * kMRows, 0);
+    auto at = [&](int c, int r) -> std::uint32_t & {
+        return gids[static_cast<size_t>(r) * kMCols + c];
+    };
+    const auto is_gap = [&](int c) {
+        return (c >= 16 && c <= 17) || (c >= 74 && c <= 76);
+    };
+    for (int c = 0; c < kMCols; ++c) {
+        if (!is_gap(c)) {
+            at(c, 13) = kMGroundTop;
+            at(c, 14) = kMGroundFill;
+        }
+    }
+    // boundaries are open (no side walls in SMB)
+
+    // First ? block (coin), classic lone block
+    at(14, 9) = kMQuestion;
+    // brick/question cluster: brick ?(mushroom) brick ? brick
+    at(20, 9) = kMBrick;
+    at(21, 9) = kMQuestion; // mushroom block
+    at(22, 9) = kMBrick;
+    at(23, 9) = kMQuestion; // coin block
+    at(24, 9) = kMBrick;
+    // high brick row with coins on top row later
+    at(21, 5) = kMBrick;
+    at(22, 5) = kMCoin;
+    at(23, 5) = kMBrick;
+    // post-pipe question blocks
+    at(44, 9) = kMQuestion;
+    at(45, 9) = kMBrick;
+    at(62, 5) = kMBrick;
+    at(63, 5) = kMQuestion;
+    at(64, 5) = kMBrick;
+    at(63, 9) = kMQuestion;
+
+    // pipes: two-cell-wide bodies of increasing height
+    auto pipe = [&](int c, int top_row) {
+        at(c, top_row) = kMPipeTL;
+        at(c + 1, top_row) = kMPipeTR;
+        for (int r = top_row + 1; r <= 12; ++r) {
+            at(c, r) = kMPipeBL;
+            at(c + 1, r) = kMPipeBR;
+        }
+    };
+    pipe(28, 11); // height 2
+    pipe(38, 10); // height 3
+    pipe(48, 9);  // height 4
+
+    // loose coins arc over the second gap approach
+    if (at(55, 8) == 0) at(55, 8) = kMCoin;
+    if (at(56, 7) == 0) at(56, 7) = kMCoin;
+    if (at(57, 8) == 0) at(57, 8) = kMCoin;
+
+    // goomba spawn markers (swept into entities on the first frame)
+    at(22, 12) = kMGoomba;
+    at(40, 12) = kMGoomba;
+    at(51, 12) = kMGoomba;
+    at(53, 12) = kMGoomba;
+    at(66, 12) = kMGoomba;
+    at(84, 12) = kMGoomba;
+    at(86, 12) = kMGoomba;
+
+    // staircase up (91..94) then down (96..99); col 95 stays flat
+    for (int i = 0; i < 4; ++i) {
+        for (int r = 12 - i; r <= 12; ++r)
+            at(91 + i, r) = kMStone;
+    }
+    for (int i = 0; i < 4; ++i) {
+        for (int r = 12 - (3 - i); r <= 12; ++r)
+            at(96 + i, r) = kMStone;
+    }
+
+    // flagpole at col 102
+    at(102, 3) = kMPoleTop;
+    for (int r = 4; r <= 12; ++r)
+        at(102, r) = kMPole;
+    at(101, 4) = kMFlag;
+
+    // simple castle silhouette of stone beyond the pole
+    for (int c = 106; c <= 110; ++c)
+        at(c, 12) = kMStone;
+    for (int r = 9; r <= 12; ++r)
+        at(106, r) = kMStone;
+    for (int r = 9; r <= 12; ++r)
+        at(110, r) = kMStone;
+    for (int c = 107; c <= 109; ++c)
+        at(c, 11) = kMStone;
+    at(108, 9) = kMStone;
+    at(108, 10) = kMStone;
+
+    std::ostringstream json;
+    json << "{\n"
+         << "  \"orientation\": \"orthogonal\",\n"
+         << "  \"width\": " << kMCols << ", \"height\": " << kMRows << ",\n"
+         << "  \"tilewidth\": " << kMTile << ", \"tileheight\": " << kMTile << ",\n"
+         << "  \"tilesets\": [{\n"
+         << "    \"firstgid\": 1, \"name\": \"m_tiles\",\n"
+         << "    \"tilewidth\": " << kMTile << ", \"tileheight\": " << kMTile << ",\n"
+         << "    \"columns\": " << kMSheetCols
+         << ", \"tilecount\": " << kMSheetCols * kMSheetRows << ",\n"
+         << "    \"image\": \"m_tiles.png\",\n"
+         << "    \"imagewidth\": " << kMSheetCols * kMTile
+         << ", \"imageheight\": " << kMSheetRows * kMTile << ",\n"
+         << "    \"tiles\": [\n"
+         << "      {\"id\": 0, \"properties\": [{\"name\": \"solid\", \"type\": \"bool\", \"value\": true}]},\n"
+         << "      {\"id\": 1, \"properties\": [{\"name\": \"solid\", \"type\": \"bool\", \"value\": true}]},\n"
+         << "      {\"id\": 2, \"properties\": [{\"name\": \"solid\", \"type\": \"bool\", \"value\": true}]},\n"
+         << "      {\"id\": 3, \"properties\": [{\"name\": \"solid\", \"type\": \"bool\", \"value\": true}]},\n"
+         << "      {\"id\": 4, \"properties\": [{\"name\": \"solid\", \"type\": \"bool\", \"value\": true}]},\n"
+         << "      {\"id\": 5, \"properties\": [{\"name\": \"solid\", \"type\": \"bool\", \"value\": true}]},\n"
+         << "      {\"id\": 6, \"properties\": [{\"name\": \"solid\", \"type\": \"bool\", \"value\": true}]},\n"
+         << "      {\"id\": 7, \"properties\": [{\"name\": \"solid\", \"type\": \"bool\", \"value\": true}]},\n"
+         << "      {\"id\": 8, \"properties\": [{\"name\": \"solid\", \"type\": \"bool\", \"value\": true}]},\n"
+         << "      {\"id\": 13, \"properties\": [{\"name\": \"solid\", \"type\": \"bool\", \"value\": true}]}\n"
+         << "    ]\n"
+         << "  }],\n"
+         << "  \"layers\": [{\n"
+         << "    \"name\": \"world\", \"type\": \"tilelayer\", \"visible\": true,\n"
+         << "    \"opacity\": 1, \"data\": [";
+    for (std::size_t i = 0; i < gids.size(); ++i) {
+        if (i % kMCols == 0) json << "\n      ";
+        json << gids[i] << (i + 1 == gids.size() ? "\n" : ", ");
+    }
+    json << "  ]}]\n}\n";
+
+    const std::filesystem::path level_path = dir / "mario.json";
+    if (!std::filesystem::exists(level_path)) {
+        std::ofstream out(level_path, std::ios::binary);
+        out << json.str();
+    }
 }
 
 } // namespace
@@ -1269,12 +1504,13 @@ int main(int argc, char **argv) {
     cfg.height = 540;
     cfg.script_entry = "scripts/game.lua";
 
-    bool scene_demo = false;
     bool map_demo = false;
     bool platformer_demo = false;
+    bool mario_demo = false;
     bool bench = false;
     bool phys_bench = false;
     int max_frames = 0;
+    int shot_frame = 30;
     std::string screenshot;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg = argv[i];
@@ -1285,16 +1521,20 @@ int main(int argc, char **argv) {
         } else if (arg == "--hot-reload") {
             cfg.hot_reload = true;
         } else if (arg == "--scene-demo") {
-            scene_demo = true;
-            cfg.script_entry = "scripts/main.lua";
+            cfg.script_entry = "scripts/scene_demo.lua";
         } else if (arg == "--map-demo") {
             map_demo = true;
-            cfg.script_entry.clear();
+            cfg.script_entry = "scripts/map_demo.lua";
         } else if (arg == "--platformer-demo") {
             platformer_demo = true;
-            cfg.script_entry.clear();
+            cfg.script_entry = "scripts/platformer_demo.lua";
+        } else if (arg == "--mario-demo") {
+            mario_demo = true;
+            cfg.script_entry = "scripts/mario.lua";
         } else if (arg == "--screenshot" && i + 1 < argc) {
             screenshot = argv[++i];
+        } else if (arg == "--shot-frame" && i + 1 < argc) {
+            shot_frame = std::atoi(argv[++i]);
         } else if (arg == "--bench") {
             bench = true;
             cfg.script_entry.clear();
@@ -1303,6 +1543,9 @@ int main(int argc, char **argv) {
             phys_bench = true;
             cfg.script_entry.clear();
             cfg.vsync = false;
+        } else if (arg == "--entry" && i + 1 < argc) {
+            // Dev/test hook: run an arbitrary script instead of a demo.
+            cfg.script_entry = argv[++i];
         }
     }
 
@@ -1317,38 +1560,27 @@ int main(int argc, char **argv) {
     if (bench) {
         return RunBenchmark(engine, max_frames);
     }
-
     if (phys_bench) {
         return RunPhysicsBenchmark(engine);
     }
 
+    // All gameplay is pure Lua below; C++ only guarantees the binary asset
+    // scaffolding exists before the script's first frame.
     EnsureGameAssets();
-
+    if (mario_demo) {
+        EnsureMarioAssets();
+    }
     if (map_demo) {
-        return RunMapDemo(engine, max_frames, screenshot);
+        EnsureMapAssets();
     }
-
     if (platformer_demo) {
-        return RunPlatformerDemo(engine, max_frames, screenshot);
+        EnsurePlatformerAssets();
+        engine.GetAudio().AddClipWav("music", "assets/music.wav");
     }
-
-    if (scene_demo) {
-        std::vector<std::uint8_t> pixels(static_cast<size_t>(kSheetSize) * kSheetSize * 4);
-        PaintDemoSheet(pixels.data());
-        const fake2d::TextureHandle sheet =
-            engine.GetResources().CreateTexture("demo_sheet", kSheetSize, kSheetSize, pixels.data());
-        if (sheet == fake2d::kInvalidTextureHandle) {
-            std::fprintf(stderr, "fake2d_hello: failed to create demo sheet\n");
-            return 1;
-        }
-        return RunSceneDemo(engine, sheet, max_frames, screenshot);
-    }
-
-    // Frame 420: the attract-mode ball is in play, so HUD text, sprites and
-    // any debris are all on screen.
+    // Generic host-level screenshot hook (visual regression; not game logic).
     if (!screenshot.empty()) {
         engine.SetFrameCallback([&](fake2d::Engine &e) {
-            if (e.FrameIndex() == 420) {
+            if (e.FrameIndex() == static_cast<std::uint64_t>(shot_frame)) {
                 e.GetRenderer().GetSpriteBatch().Flush();
                 e.GetRenderer().SaveScreenshot(screenshot);
             }

@@ -2,11 +2,13 @@
 
 #include "fake2d/animation.h"
 #include "fake2d/audio.h"
+#include "fake2d/entity_store.h"
 #include "fake2d/input.h"
 #include "fake2d/particle.h"
 #include "fake2d/physics.h"
 #include "fake2d/renderer.h"
 #include "fake2d/resource_manager.h"
+#include "fake2d/save_store.h"
 #include "fake2d/tilemap.h"
 #include "fake2d/ui.h"
 #include "fake2d/version.h"
@@ -27,10 +29,12 @@ struct EngineConfig {
     int height = 720;
     bool vsync = true;
     bool headless = false;
-    /// Relative path to the FakeLua entry script (e.g. scripts/main.lua).
-    std::string script_entry = "scripts/main.lua";
+    /// Relative path to the FakeLua entry script (e.g. scripts/game.lua).
+    std::string script_entry = "scripts/game.lua";
     /// Watch the entry script's mtime and hot-reload it on change.
     bool hot_reload = false;
+    /// Directory (relative to the working directory) holding save slot JSONs.
+    std::string save_dir = "saves";
     /// Optional per-frame C++ hook, invoked after the script update and
     /// before the frame is flushed (e.g. to draw a scene graph).
     std::function<void(Engine &)> on_frame;
@@ -96,6 +100,16 @@ public:
     /// Anchored UI widgets; click/hover state is refreshed per frame.
     UISystem &GetUI();
     [[nodiscard]] const UISystem &GetUI() const;
+
+    /// Persistent save-slot key/value store (see save_dir).
+    SaveStore &GetSaves();
+    [[nodiscard]] const SaveStore &GetSaves() const;
+
+    /// C++-owned fixed-slot entity database for scripts.
+    EntityStore &GetEntities();
+    [[nodiscard]] const EntityStore &GetEntities() const;
+
+    [[nodiscard]] const std::string &SaveDir() const;
 
 private:
     struct Impl;
