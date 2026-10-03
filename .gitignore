@@ -54,3 +54,4 @@ coverage_html/
 assets/
 build/
 build-nofakelua/
+.trae/

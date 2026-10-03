@@ -9,6 +9,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -47,7 +48,16 @@ public:
     struct Layer {
         std::string name;
         bool visible = true;
+        bool image_layer = false; ///< Tiled image layer (gids unused)
         std::vector<std::uint32_t> gids; // row-major, 0 = empty, Tiled flags masked
+        // Tiled parallax/offset (defaults match the Tiled format).
+        float parallax_x = 1.0f;
+        float parallax_y = 1.0f;
+        float offset_x = 0.0f;
+        float offset_y = 0.0f;
+        bool repeat_x = false;
+        bool repeat_y = false;
+        TextureHandle image = kInvalidTextureHandle; // image layers only
     };
 
     [[nodiscard]] const std::vector<Layer> &Layers() const { return layers_; }
@@ -59,6 +69,13 @@ public:
     /// One-way platforms (`oneway` tile property): collide only when falling
     /// onto their top edge.
     [[nodiscard]] bool OneWayAt(int col, int row) const;
+    /// Slope direction at the cell from the `slope` tile property:
+    /// 0 = none, 1 = up (rises toward +x), 2 = down (lowers toward +x).
+    [[nodiscard]] int SlopeDirAt(int col, int row) const;
+    /// Highest walkable surface y at world x within one tile of reach_y.
+    /// Considers solid cell tops and interpolated slope surfaces; returns
+    /// -1.0f when no surface is in range.
+    [[nodiscard]] float GroundYAt(float world_x, float reach_y) const;
     /// Solid test in world (logical point) coordinates.
     [[nodiscard]] bool SolidAtPixel(float x, float y) const;
     /// Overwrite a cell in the first tile layer (used for collected coins).
@@ -83,6 +100,12 @@ private:
         TextureHandle texture = kInvalidTextureHandle;
         std::unordered_set<std::uint32_t> solid_gids;
         std::unordered_set<std::uint32_t> oneway_gids;
+        /// Slope tile metadata (Tiled `slope` + `slope_rise` tile properties).
+        struct SlopeInfo {
+            std::uint8_t dir = 0; ///< 1 = up toward +x, 2 = down toward +x
+            int rise = 0;         ///< triangle height in pixels (0 = tile height)
+        };
+        std::unordered_map<std::uint32_t, SlopeInfo> slope_gids;
     };
 
     bool ParseImpl(std::string_view json, std::string_view base_dir,

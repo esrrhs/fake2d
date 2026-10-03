@@ -5,6 +5,8 @@
 
 #include <cstdio>
 #include <cstring>
+#include <fstream>
+#include <iterator>
 #include <vector>
 
 namespace fake2d {
@@ -48,6 +50,7 @@ void Renderer::BeginFrame(float r, float g, float b, float a) {
     glClearColor(r, g, b, a);
     glClear(GL_COLOR_BUFFER_BIT);
 
+    active_shader_ = nullptr;
     batch_.ResetStats();
     batch_.Begin(camera_.ViewProjectionMatrix());
 }
@@ -58,10 +61,93 @@ void Renderer::BeginFrame(const Color &clear_color) {
 
 void Renderer::EndFrame() {
     batch_.End();
+    active_shader_ = nullptr;
+}
+
+int Renderer::LoadShaderFromFile(const std::string &vert_path,
+                                 const std::string &frag_path) {
+    std::ifstream vf(vert_path, std::ios::binary);
+    std::ifstream ff(frag_path, std::ios::binary);
+    if (!vf || !ff) {
+        return 0;
+    }
+    const std::string vs((std::istreambuf_iterator<char>(vf)),
+                         std::istreambuf_iterator<char>());
+    const std::string fs((std::istreambuf_iterator<char>(ff)),
+                         std::istreambuf_iterator<char>());
+    for (std::size_t i = 0; i < shaders_.size(); ++i) {
+        if (!shaders_[i].IsValid()) {
+            if (!shaders_[i].LoadFromSource(vs, fs)) {
+                shaders_[i].Destroy();
+                return 0;
+            }
+            shaders_[i].SetInt("u_texture", 0);
+            return static_cast<int>(i) + 1;
+        }
+    }
+    return 0;
+}
+
+void Renderer::DestroyShader(int id) {
+    if (id <= 0 || static_cast<std::size_t>(id) > shaders_.size()) {
+        return;
+    }
+    auto &slot = shaders_[static_cast<std::size_t>(id) - 1];
+    if (active_shader_ == &slot) {
+        UseShaderById(0);
+    }
+    slot.Destroy();
+}
+
+Shader *Renderer::GetShader(int id) {
+    if (id <= 0 || static_cast<std::size_t>(id) > shaders_.size()) {
+        return nullptr;
+    }
+    Shader *s = &shaders_[static_cast<std::size_t>(id) - 1];
+    return s->IsValid() ? s : nullptr;
+}
+
+void Renderer::SetShaderFloat(int id, std::string_view name, float v) {
+    if (Shader *s = GetShader(id)) s->SetFloat(name, v);
+}
+
+void Renderer::SetShaderInt(int id, std::string_view name, int v) {
+    if (Shader *s = GetShader(id)) s->SetInt(name, v);
+}
+
+void Renderer::SetShaderVec2(int id, std::string_view name, float x, float y) {
+    if (Shader *s = GetShader(id)) s->SetVec2(name, {x, y});
+}
+
+void Renderer::SetShaderVec4(int id, std::string_view name, const Color &v) {
+    if (Shader *s = GetShader(id)) s->SetVec4(name, v);
+}
+
+void Renderer::UseShaderById(int id) {
+    Shader *target = id == 0 ? nullptr : GetShader(id);
+    if (id != 0 && target == nullptr) {
+        return;
+    }
+    if (target == active_shader_) {
+        return;
+    }
+    // Restart the batch with the other program; switching resets the
+    // per-batch layer/z/blend state (same contract as Tilemap::Draw).
+    batch_.End();
+    batch_.Begin(camera_.ViewProjectionMatrix(),
+                 target ? target : Shader::GetDefault2D());
+    active_shader_ = target;
 }
 
 void Renderer::Shutdown() {
     if (ready_) {
+        // Release GPU resources while the GL context is still current.
+        for (Shader &s : shaders_) {
+            if (s.IsValid()) {
+                s.Destroy();
+            }
+        }
+        active_shader_ = nullptr;
         // Release the glyph atlas while the GL context is still current.
         font_.Reset();
         batch_.Shutdown();

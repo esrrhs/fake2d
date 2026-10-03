@@ -7,6 +7,7 @@
 #include "fake2d/sprite_batch.h"
 #include "fake2d/texture.h"
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -88,6 +89,25 @@ public:
     /// SwapBuffers. Intended for headless visual regression tests.
     bool SaveScreenshot(const std::string &path) const;
 
+    // --- custom shaders (per-draw scope) ---
+    /// Load a GLSL pair from files (attribute/uniform contract: a_pos,
+    /// a_uv, a_color, u_view_projection, u_texture). Returns a 1-based slot
+    /// id, or 0 on compile failure.
+    int LoadShaderFromFile(const std::string &vert_path, const std::string &frag_path);
+    void DestroyShader(int id);
+    [[nodiscard]] Shader *GetShader(int id);
+    void SetShaderFloat(int id, std::string_view name, float v);
+    void SetShaderInt(int id, std::string_view name, int v);
+    void SetShaderVec2(int id, std::string_view name, float x, float y);
+    void SetShaderVec4(int id, std::string_view name, const Color &v);
+    /// Route subsequent draws through shader `id`; 0 restores the default.
+    /// Flushes the current batch first, so no draw is lost. The override
+    /// resets to the default shader at the start of every frame.
+    void UseShaderById(int id);
+    /// Currently active override (nullptr = default shader). Lets subsystems
+    /// that run their own batching cycle (Tilemap::Draw) stay in scope.
+    [[nodiscard]] Shader *ActiveShader() const { return active_shader_; }
+
     [[nodiscard]] size_t DrawCallCount() const { return batch_.DrawCallCount(); }
     [[nodiscard]] size_t QuadCount() const { return batch_.QuadCount(); }
 
@@ -99,6 +119,10 @@ private:
     Camera2D camera_;
     SpriteBatch batch_;
     Font font_;
+
+    static constexpr std::size_t kMaxCustomShaders = 8;
+    std::array<Shader, kMaxCustomShaders> shaders_{};
+    Shader *active_shader_ = nullptr;
 };
 
 } // namespace fake2d
