@@ -375,22 +375,20 @@ implementation of this controller (`ground_hint`, `move_x`, `move_y`).
 
 A slope's surface spans `slope_rise` pixels, anchored at
 `cell_bottom + rise - tile`. With the default rise (one cell) that is just the
-cell bottom, so a ramp's surface stays inside its own cell — which means a run
-of ramps **cannot** form a continuous surface by itself:
+cell bottom, so a ramp's surface stays inside its own cell, and a run of ramps
+chains only if each column starts where the previous one ended: step the ramps
+**up one row per column** (col 19 on row 12 runs 416 → 384, col 20 on row 11
+runs 384 → 352, ...). The walkable surface is then a clean continuous diagonal.
+Ramps in the **same row** never chain: they all start at the same height and
+repeat one identical incline, whatever `slope_rise` is.
 
-- Ramps in the **same row** all start at the same height, so the run repeats
-  one identical incline.
-- Ramps **stepping up a row** per column do chain (col 19 on row 12 runs
-  416 → 384, col 20 on row 11 runs 384 → 352), but each cell then contributes a
-  visible square shoulder, and the hill reads as a staircase.
-
-To get one continuous face, set `slope_rise` taller than a cell — two cells is
-the practical choice — and lay the ramps out in a **single row**. Each ramp
-then spans two rows of height, consecutive columns hand off exactly, and
-`Tilemap::Draw` stretches the sprite over the same span the query reports, so
-art and physics agree. Cap the crest with one flat cell; an `up` ramp meeting a
-`down` ramp directly leaves a V-shaped notch. The crest's top must equal the
-upper end of the rising run.
+`slope_rise` taller than a cell steepens the ramp and stretches its sprite
+(`Tilemap::Draw` draws it over `rise` pixels so art and physics agree), but
+chaining scales with it: consecutive columns must step up `rise / tile_height`
+rows (two rows per column for `slope_rise = 64`). For a plain 45° hill the
+default rise with one-row-per-column is the simple, correct choice. Cap the
+crest with one flat cell; an `up` ramp meeting a `down` ramp directly leaves a
+V-shaped notch. The crest's top must equal the upper end of the rising run.
 
 **Never mark a slope cell `solid`.** The query keeps the *lowest* candidate in
 its window, and a solid cell's top (`row * tile_height`) sits below the
@@ -402,10 +400,12 @@ Two more things that decide how the hill looks:
   the cells it passes through need a body. Do not use a brick-patterned fill:
   a mortar course directly beneath the lit edge draws a square shoulder right
   beside the diagonal, which is most of what makes a hill look like steps.
-- **Match the artwork to the query's orientation.** For `up`, the surface runs
-  from the cell's bottom edge at `t=0` to its top edge at `t=1` — empty on the
-  left, solid on the right. Drawing the wedge the other way round puts the art
-  a full cell off the surface the player walks.
+- **Fill the sprite on the underside of the diagonal.** For `up`, the surface
+  runs from the cell's bottom edge at `t=0` to its top edge at `t=1`, so the
+  material is the lower-right triangle (larger tile-local y). Filling the sky
+  side instead leaves a see-through notch right under the walked surface and
+  makes the hill read as floating steps — this, not the geometry, is what
+  turned the first hill into a staircase.
 
 `GroundYAt` also only scans the rows within one tile of `reach_y` and rejects
 candidates outside `[reach_y - tile, reach_y + tile]`. A single query with

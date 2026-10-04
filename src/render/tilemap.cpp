@@ -116,7 +116,11 @@ bool Tilemap::ParseImpl(std::string_view json, std::string_view base_dir,
             if (image_path.is_relative() && !base_dir.empty()) {
                 image_path = std::filesystem::path(base_dir) / image_path;
             }
-            ts.texture = resources.LoadTexture(image_path.string());
+            // Tilesets are pixel art: nearest sampling keeps tile edges clean.
+            // Linear blending bleeds neighboring texels across every tile
+            // boundary (visible as a dark grid at fractional pixel scales).
+            ts.texture = resources.LoadTexture(image_path.string(),
+                                               TextureFilter::Nearest);
             if (ts.texture != kInvalidTextureHandle) {
                 pinned_textures_.push_back(ts.texture);
             }
@@ -199,7 +203,8 @@ bool Tilemap::ParseImpl(std::string_view json, std::string_view base_dir,
                 if (image_path.is_relative() && !base_dir.empty()) {
                     image_path = std::filesystem::path(base_dir) / image;
                 }
-                layer.image = resources.LoadTexture(image_path.string());
+                layer.image = resources.LoadTexture(image_path.string(),
+                                                    TextureFilter::Nearest);
                 if (layer.image != kInvalidTextureHandle) {
                     pinned_textures_.push_back(layer.image);
                     layers_.push_back(std::move(layer));
