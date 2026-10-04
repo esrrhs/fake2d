@@ -402,7 +402,17 @@ Art matters as much as the layout, and the two constraints pull opposite ways:
 Use a solid cell for the ramp *and* a thick lit lip along the hypotenuse: the
 fill below supplies the body, the solid cell keeps the silhouette solid, and
 the lip is what reads as the walkable incline. Put a single flat cell at the
-summit — an `up` cell meeting a `down` cell directly leaves a V-shaped notch.
+summit — an `up` cell meeting a `down` cell directly leaves a V-shaped notch,
+and the summit's top must equal the upper end of the rising ramp.
+
+**Match the artwork to the query's orientation.** `GroundYAt` anchors a slope
+at `(row + 1) * tile_height` and subtracts `t * rise`, so an `up` ramp's
+surface runs from the cell's **bottom** edge at `t=0` to its **top** edge at
+`t=1`: empty on the left, solid on the right. Drawing the wedge the other way
+round puts the art a full cell off the surface the player actually walks, and
+the hill reads as a staircase no matter how the surrounding level is arranged.
+Skip the mortar lines on the fill too — horizontal mortar draws a grid that
+reinforces the block reading.
 
 `GroundYAt` also only scans the rows within one tile of `reach_y` and rejects
 candidates outside `[reach_y - tile, reach_y + tile]`. A single query with
