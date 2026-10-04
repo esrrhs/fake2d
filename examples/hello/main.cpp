@@ -1165,17 +1165,34 @@ void PaintMarioSheet(std::uint8_t *sheet) {
     // landform and the lips are what the eye reads as the incline.
     const auto slope = [&](int id, bool rising) {
         for (int x = 0; x < kMTile; ++x) {
-            const int line = rising ? (x * (kMTile - 1)) / (kMTile - 1)
-                                    : ((kMTile - 1 - x) * (kMTile - 1)) / (kMTile - 1);
+            // `line` is the surface row, matching GroundYAt exactly:
+            //   slope=up    surface = (row+1)*tile - t*tile  -> (kMTile-1) at
+            //               t=0 falling to 0 at t=1, i.e. the surface starts at
+            //               the cell's BOTTOM edge and ends at its top.
+            //   slope=down  the mirror.
+            // Getting this backwards puts the artwork a full cell off the
+            // surface the player actually walks, which reads as a staircase.
+            const int line = rising ? ((kMTile - 1) - (x * (kMTile - 1)) / (kMTile - 1))
+                                    : ((x * (kMTile - 1)) / (kMTile - 1));
             for (int y = 0; y < kMTile; ++y) {
-                if (y >= line && y <= line + 2) {
-                    MPut(sheet, id, x, y, 255, 238, 180);  // walkable lip
-                } else {
-                    const bool mortar = (y % 8) == 0 || (x % 16) == 0;
+                const int below = line - y;  // depth under the surface
+                if (below >= 0 && below <= 2) {
+                    // Walkable lip: a bright band hugging the hypotenuse. This
+                    // is what the eye reads as the incline, so the fill below
+                    // stays quiet.
+                    MPut(sheet, id, x, y, 255, 240, 186);
+                } else if (below > 2) {
+                    // Plain dirt, no mortar lines: horizontal mortar would
+                    // draw a grid and make the hill read as stacked blocks.
+                    const int d = (below - 3) * 16 / kMTile;
                     MPut(sheet, id, x, y,
-                         static_cast<std::uint8_t>(mortar ? 150 : 196),
-                         static_cast<std::uint8_t>(mortar ? 82 : 132),
-                         static_cast<std::uint8_t>(mortar ? 34 : 58));
+                         static_cast<std::uint8_t>(200 - d),
+                         static_cast<std::uint8_t>(136 - d),
+                         static_cast<std::uint8_t>(62 - d));
+                } else {
+                    // Above the surface is sky. The level packs dirt under
+                    // every ramp cell, so no gap opens through the hill.
+                    MPut(sheet, id, x, y, 0, 0, 0, 0);
                 }
             }
         }
@@ -1479,8 +1496,9 @@ void EnsureMarioAssets() {
         at(23 + i, 10 + i) = kMSlopeDown;  // cols 23..25, rows 10..12
     }
     // One flat cell at the summit: two ramp cells meeting back to back leave a
-    // V-shaped notch, so the crest is a single solid cell instead.
-    at(22, 9) = kMGroundTop;
+    // V-shaped notch. Its top must sit at 320 (row 10) to meet the col-21
+    // ramp's upper end and the col-23 ramp's lower end.
+    at(22, 10) = kMGroundTop;
     // Pack dirt beneath each wedge. A slope cell's surface only spans its own
     // bottom-to-top range, and the next column's cell sits a row higher, so
     // without this the wedges hang in the air with a 32px gap under each one.
@@ -1492,7 +1510,7 @@ void EnsureMarioAssets() {
     for (int c = 19; c <= 25; ++c) {
         // Row holding this column's ramp cell (col 22 is the flat summit).
         const int wedge_row = c <= 21 ? 12 - (c - 19)
-                                      : (c == 22 ? 9 : 10 + (c - 23));
+                                      : (c == 22 ? 10 : 10 + (c - 23));
         for (int r = wedge_row + 1; r <= 12; ++r) {
             if (at(c, r) == 0) at(c, r) = kMGroundFill;
         }
