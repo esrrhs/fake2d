@@ -819,7 +819,7 @@ constexpr int kMTile = 32;
 constexpr int kMCols = 112;
 constexpr int kMRows = 15;
 constexpr int kMSheetCols = 8;
-constexpr int kMSheetRows = 3;
+constexpr int kMSheetRows = 4;
 
 constexpr std::uint32_t kMGroundTop = 1;
 constexpr std::uint32_t kMGroundFill = 2;
@@ -842,6 +842,12 @@ constexpr std::uint32_t kMGoomba = 15;
 // bright lip along the hypotenuse marking the walkable incline.
 constexpr std::uint32_t kMSlopeUp = 17;
 constexpr std::uint32_t kMSlopeDown = 18;
+// Plain dirt used to pack the body of the slope hill (gid 19/20). It carries
+// `solid` but no masonry pattern: the hill's silhouette is meant to be the
+// slope's diagonal, and a brick-textured fill would put a square shoulder
+// right under the ramp's lit edge and read as a staircase again.
+constexpr std::uint32_t kMHillFill = 19;
+constexpr std::uint32_t kMHillFillDeep = 20;
 
 void MPut(std::uint8_t *sheet, int id, int x, int y,
           std::uint8_t r, std::uint8_t g, std::uint8_t b, std::uint8_t a = 255) {
@@ -1163,42 +1169,59 @@ void PaintMarioSheet(std::uint8_t *sheet) {
     // transparent wedge would show sky through the hill and the silhouette
     // would break into loose triangles; filled, the cells stack into one solid
     // landform and the lips are what the eye reads as the incline.
+    // slope_rise is 64 (two cells) but a sheet cell is 32 tall, so a ramp's
+    // hypotenuse spans two rows: the surface enters at the cell's bottom-left
+    // and leaves at the top-right, a 45-degree line across the cell. The cell
+    // is solid below that line and open above it; the level packs dirt in the
+    // row above so the hill's body is continuous and only the lit line reads
+    // as its silhouette.
+    // Slope tiles: a 45-degree face from corner to corner with a lit band on
+    // the hypotenuse. `line` matches GroundYAt's `anchor - t * rise` for a
+    // one-cell rise: an `up` ramp's surface runs from the cell's bottom edge
+    // at t=0 to its top edge at t=1, `down` is the mirror. The cell is solid
+    // below the line and open above it; the level packs dirt in the rows the
+    // ramp does not cover, so the hill has a continuous body.
     const auto slope = [&](int id, bool rising) {
         for (int x = 0; x < kMTile; ++x) {
-            // `line` is the surface row, matching GroundYAt exactly:
-            //   slope=up    surface = (row+1)*tile - t*tile  -> (kMTile-1) at
-            //               t=0 falling to 0 at t=1, i.e. the surface starts at
-            //               the cell's BOTTOM edge and ends at its top.
-            //   slope=down  the mirror.
-            // Getting this backwards puts the artwork a full cell off the
-            // surface the player actually walks, which reads as a staircase.
             const int line = rising ? ((kMTile - 1) - (x * (kMTile - 1)) / (kMTile - 1))
                                     : ((x * (kMTile - 1)) / (kMTile - 1));
             for (int y = 0; y < kMTile; ++y) {
                 const int below = line - y;  // depth under the surface
-                if (below >= 0 && below <= 2) {
-                    // Walkable lip: a bright band hugging the hypotenuse. This
-                    // is what the eye reads as the incline, so the fill below
-                    // stays quiet.
-                    MPut(sheet, id, x, y, 255, 240, 186);
-                } else if (below > 2) {
-                    // Plain dirt, no mortar lines: horizontal mortar would
-                    // draw a grid and make the hill read as stacked blocks.
-                    const int d = (below - 3) * 16 / kMTile;
+                if (below >= 0 && below <= 1) {
+                    MPut(sheet, id, x, y, 255, 242, 192);  // walkable lip
+                } else if (below > 1) {
+                    const int d = (below - 2) * 20 / kMTile;
                     MPut(sheet, id, x, y,
-                         static_cast<std::uint8_t>(200 - d),
-                         static_cast<std::uint8_t>(136 - d),
-                         static_cast<std::uint8_t>(62 - d));
+                         static_cast<std::uint8_t>(176 - d),
+                         static_cast<std::uint8_t>(118 - d),
+                         static_cast<std::uint8_t>(54 - d));
                 } else {
-                    // Above the surface is sky. The level packs dirt under
-                    // every ramp cell, so no gap opens through the hill.
-                    MPut(sheet, id, x, y, 0, 0, 0, 0);
+                    MPut(sheet, id, x, y, 0, 0, 0, 0);  // open above the face
                 }
             }
         }
     };
     slope(16, true);   // tile id 16 -> gid 17 — `slope=up`
     slope(17, false);  // tile id 17 -> gid 18 — `slope=down`
+
+    // 18/19 hill fill (gid 19/20): unpatterned dirt, two tones so the packed
+    // body still reads as depth. Deliberately free of mortar lines — the hill
+    // silhouette has to be the ramp's diagonal, and brick courses directly
+    // under the lit edge turn it back into a staircase.
+    for (int i = 0; i < 2; ++i) {
+        const std::uint8_t base = i == 0 ? 176 : 150;
+        for (int y = 0; y < kMTile; ++y) {
+            for (int x = 0; x < kMTile; ++x) {
+                // Faint speckle so the fill is not a flat slab, but no lines.
+                const bool grit = ((x * 7 + y * 13 + i * 5) % 11) == 0;
+                const int d = grit ? 12 : 0;
+                MPut(sheet, 18 + i, x, y,
+                     static_cast<std::uint8_t>(base - d),
+                     static_cast<std::uint8_t>((base - d) * 68 / 100),
+                     static_cast<std::uint8_t>((base - d) * 31 / 100));
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1480,39 +1503,37 @@ void EnsureMarioAssets() {
     at(84, 12) = kMGoomba;
     at(86, 12) = kMGoomba;
 
-    // Slope hill (19..24): the Phase 8 tilemap-slope showcase. Each cell
-    // steps up one row, which is what makes GroundYAt's interpolation chain
-    // into a continuous surface (416 -> 384 -> 352 on the
-    // way up, then mirrored back down) instead of repeating the same 32px
-    // ramp per cell. Placed early in the level so the attract AI reaches it
-    // within the first few seconds of an unattended run.
+    // Slope hill (19..24): the Phase 8 tilemap-slope showcase.
     //
-    // The slope tiles carry ONLY the `slope` property, never `solid`:
-    // GroundYAt keeps the lowest candidate in its window, and a solid cell
-    // top (row * tile_height) would always undercut the slope surface and
-    // pin the query to the flat ground.
+    // A ramp's surface spans exactly one cell, so a run of ramps has to step
+    // up a row per column for the surfaces to chain: col19 (row 12) runs
+    // 416 -> 384, col20 (row 11) runs 384 -> 352. The walkable surface is then
+    // continuous even though each cell is a single 32px incline.
+    //
+    // The slope tiles carry ONLY `slope`, never `solid`: the query keeps the
+    // lowest candidate in its window, and a solid cell top (row *
+    // tile_height) would undercut the slope surface and pin the answer to
+    // flat ground.
     for (int i = 0; i < 3; ++i) {
         at(19 + i, 12 - i) = kMSlopeUp;    // cols 19..21, rows 12..10
         at(23 + i, 10 + i) = kMSlopeDown;  // cols 23..25, rows 10..12
     }
-    // One flat cell at the summit: two ramp cells meeting back to back leave a
-    // V-shaped notch. Its top must sit at 320 (row 10) to meet the col-21
-    // ramp's upper end and the col-23 ramp's lower end.
+    // Flat crest: its top must be 320 to meet the col-21 ramp's upper end and
+    // the col-23 ramp's lower end. Two ramps meeting back to back leave a
+    // V-shaped notch, so the crest is a solid cell instead.
     at(22, 10) = kMGroundTop;
-    // Pack dirt beneath each wedge. A slope cell's surface only spans its own
-    // bottom-to-top range, and the next column's cell sits a row higher, so
-    // without this the wedges hang in the air with a 32px gap under each one.
-    // Only the rows strictly below the wedge are filled; the wedge row itself
-    // keeps its sky above the hypotenuse, which is what makes the silhouette a
-    // diagonal. The fill is solid, but its top always lies below the slope
-    // surface above it, and GroundYAt keeps the lowest candidate, so the
-    // interpolated incline still wins.
+    // Body of the hill: every cell from just under each ramp's surface down
+    // to the ground, filled with unpatterned dirt. Unpatterned because a
+    // brick course directly under the lit edge draws a square shoulder right
+    // beside the diagonal. The fill's top always lies below the slope surface
+    // above it and GroundYAt keeps the lowest candidate, so the incline wins.
     for (int c = 19; c <= 25; ++c) {
-        // Row holding this column's ramp cell (col 22 is the flat summit).
         const int wedge_row = c <= 21 ? 12 - (c - 19)
                                       : (c == 22 ? 10 : 10 + (c - 23));
         for (int r = wedge_row + 1; r <= 12; ++r) {
-            if (at(c, r) == 0) at(c, r) = kMGroundFill;
+            if (at(c, r) == 0) {
+                at(c, r) = (r >= 11) ? kMHillFill : kMHillFillDeep;
+            }
         }
     }
 
@@ -1569,7 +1590,9 @@ void EnsureMarioAssets() {
          << "      {\"id\": 8, \"properties\": [{\"name\": \"solid\", \"type\": \"bool\", \"value\": true}]},\n"
          << "      {\"id\": 13, \"properties\": [{\"name\": \"solid\", \"type\": \"bool\", \"value\": true}]},\n"
          << "      {\"id\": 16, \"properties\": [{\"name\": \"slope\", \"type\": \"string\", \"value\": \"up\"}]},\n"
-         << "      {\"id\": 17, \"properties\": [{\"name\": \"slope\", \"type\": \"string\", \"value\": \"down\"}]}\n"
+         << "      {\"id\": 17, \"properties\": [{\"name\": \"slope\", \"type\": \"string\", \"value\": \"down\"}]},\n"
+         << "      {\"id\": 18, \"properties\": [{\"name\": \"solid\", \"type\": \"bool\", \"value\": true}]},\n"
+         << "      {\"id\": 19, \"properties\": [{\"name\": \"solid\", \"type\": \"bool\", \"value\": true}]}\n"
          << "    ]\n"
          << "  }],\n"
          << "  \"layers\": [{\n"
