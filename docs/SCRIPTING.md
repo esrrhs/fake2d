@@ -374,7 +374,9 @@ implementation of this controller (`ground_hint`, `move_x`, `move_y`).
 ##### Building a multi-cell hill
 
 `GroundYAt` evaluates a slope as `(row + 1) * tile_height - t * rise`, where
-`t` is the fraction across the column. Two consequences decide the tile layout:
+`t` is the fraction across the column. Because the anchor is always the cell's
+*own* bottom edge, a slope's surface spans exactly one cell height — no matter
+how large `slope_rise` is. Two consequences decide the tile layout:
 
 - **Cells in the same row repeat the same ramp.** Four `up` tiles side by side
   give four identical 32px inclines, not a hill. Step each cell up one row
@@ -383,6 +385,24 @@ implementation of this controller (`ground_hint`, `move_x`, `move_y`).
 - **Never mark a slope cell `solid`.** The query keeps the *lowest* candidate
   in its window, and a solid cell's top (`row * tile_height`) is always below
   the interpolated surface, so it wins and pins the answer to flat ground.
+- **Pack a solid cell under every ramp cell.** A wedge only covers its own
+  cell, and the next column's ramp cell sits a row higher, so an unsupported
+  wedge hangs in mid-air with a one-cell gap beneath it. Filling the rows below
+  each ramp turns the ramp and its fill into one landform. The fill's top always
+  lies below the slope surface above it, so "lowest candidate wins" keeps the
+  interpolated incline.
+
+Art matters as much as the layout, and the two constraints pull opposite ways:
+
+- A slope cell drawn as a **full solid square** makes a stepped hill read as a
+  staircase — the eye follows the square tops, not the incline.
+- A slope cell drawn as a **wedge** (transparent above the hypotenuse) lets the
+  sky show through the hill, because the cell above the wedge is empty there.
+
+Use a solid cell for the ramp *and* a thick lit lip along the hypotenuse: the
+fill below supplies the body, the solid cell keeps the silhouette solid, and
+the lip is what reads as the walkable incline. Put a single flat cell at the
+summit — an `up` cell meeting a `down` cell directly leaves a V-shaped notch.
 
 `GroundYAt` also only scans the rows within one tile of `reach_y` and rejects
 candidates outside `[reach_y - tile, reach_y + tile]`. A single query with
