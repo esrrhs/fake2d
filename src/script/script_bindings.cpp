@@ -1177,6 +1177,29 @@ void RegisterShaderApi(fakelua::State *state, Engine *engine) {
 
     fakelua::RegisterNativeFunction(
         state, "shader_set_vec2", false,
+        std::function<void(fakelua::State *, std::int64_t, std::string_view, double,
+                           double)>(
+            [engine](fakelua::State *, std::int64_t id, std::string_view name,
+                     double x, double y) {
+                engine->GetRenderer().SetShaderVec2(static_cast<int>(id), name,
+                                                    static_cast<float>(x),
+                                                    static_cast<float>(y));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "shader_set_vec4", false,
+        std::function<void(fakelua::State *, std::int64_t, std::string_view, double,
+                           double, double, double)>(
+            [engine](fakelua::State *, std::int64_t id, std::string_view name,
+                     double r, double g, double b, double a) {
+                engine->GetRenderer().SetShaderVec4(
+                    static_cast<int>(id), name,
+                    fake2d::Color{static_cast<float>(r), static_cast<float>(g),
+                                  static_cast<float>(b), static_cast<float>(a)});
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "shader_set_vec2", false,
         std::function<void(fakelua::State *, std::int64_t, std::string_view, double, double)>(
             [engine](fakelua::State *, std::int64_t id, std::string_view name, double x,
                      double y) {

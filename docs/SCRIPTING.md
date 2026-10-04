@@ -454,6 +454,25 @@ Switching restarts the batch, which resets blend/layer/z draw state — set
 across frames (each frame starts on the default shader). There is no
 fullscreen post-processing (no render targets); apply effects per object.
 
+A worked example lives in `assets/flag_shimmer.{vert,frag}` and is used by
+`scripts/mario.lua` to make the goal pole shimmer: the fragment stage computes
+a wrapped distance to a band that travels along the quad diagonal, driven by
+`u_time` / `u_speed` / `u_width`, and re-tintable per level via `u_tint`.
+
+```lua
+local fx = shader_load("assets/flag_shimmer.vert", "assets/flag_shimmer.frag")
+shader_set_float(fx, "u_speed", 0.35)
+shader_set_float(fx, "u_width", 0.14)
+shader_set_vec4(fx, "u_tint", 1.0, 0.96, 0.78, 1.0)
+
+function update(dt)
+    shader_set_float(fx, "u_time", time_frame())
+    draw_use_shader(fx)
+    draw_quad(px, py, 6.0, 288.0, 1.0, 1.0, 1.0, 0.55)
+    draw_use_shader(0)   -- back to the default program
+end
+```
+
 ### UI
 
 Anchored immediate widgets. Anchor ids: `0` top-left, `1` top-right,

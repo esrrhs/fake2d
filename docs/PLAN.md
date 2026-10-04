@@ -105,7 +105,7 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 - [x] Tiled parallax & Image Layer: parse `parallaxx`/`parallaxy`, `offsetx`/`offsety`, and `imagelayer` with `repeatx`/`repeaty`; interleaving layers sorted in JSON order; `map_layer_count` / `map_layer_parallax_x/y` queries
 - [x] SaveStore KV persistence: JSON-based key/value storage in engine-managed save directory (`saves/`); slot validation against path traversal; `storage_load`, `storage_save`, `storage_get/set_num`, `storage_get/set_str`, `storage_has`, `storage_delete`, `storage_reset`
 - [x] EntityStore native fixed-slot storage: 256 C++-owned entity slots surviving FakeLua arena resets; tag + 8 double slots + 4 string slots; generation handles; `ent_create`, `ent_destroy`, `ent_num`, `ent_str`, `ent_count`, `ent_at`, `ent_clear`
-- [x] Custom GLSL shader slots: 8 slots; per-object `draw_use_shader(id)` batch switching with automatic per-frame restoration; `shader_load`, `shader_destroy`, `shader_set_float/int/vec2/vec4`
+- [x] Custom GLSL shader slots: 8 slots; per-object `draw_use_shader(id)` batch switching with automatic per-frame restoration; `shader_load`, `shader_destroy`, `shader_set_float/int/vec2/vec4` (float/int/vec2/vec4 all bound to Lua)
 - [x] Super Mario Bros 1-1 demo (`scripts/mario.lua` + `--mario-demo`): procedural retro pixel art (ground, brick, ?, used, pipes, coin, flag, stone, Goomba, mushroom, small & big Mario); dual-form player with variable jump / coyote / buffer; Goombas with patrol / squashing / bonk death; ? blocks and brick breaking with debris particles; mushroom growth & walk; lives/score/coins/timer HUD; flagpole sequence; deterministic attract AI with looping clears
 
 ---
