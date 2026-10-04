@@ -1157,36 +1157,23 @@ void PaintMarioSheet(std::uint8_t *sheet) {
         MPut(sheet, 14, i, kMTile - 1 - i, 220, 60, 200, 200);
     }
 
-    // 16/17 slope tiles (gid 17/18). The cell is bricked solid and the
-    // walkable surface is marked by a lit lip along the hypotenuse that
-    // `slope=up` (bottom-left to top-right) and `slope=down` (the mirror)
-    // describe.
+    // 16/17 slope tiles (gid 17/18). A 45-degree walkable face from the
+    // cell's bottom-left corner to its top-right corner (`down` is the
+    // mirror), matching GroundYAt's `anchor - t * rise` for the default
+    // one-cell rise: the surface leaves the cell's bottom edge at t=0 and its
+    // top edge at t=1.
     //
-    // Filling the whole cell is deliberate. A slope has to step up one row per
-    // column — GroundYAt anchors every slope at `(row + 1) * tile_height`, so
-    // two cells in the same row would repeat the identical ramp — which means
-    // each cell's surface only covers its own bottom-to-top span. A
-    // transparent wedge would show sky through the hill and the silhouette
-    // would break into loose triangles; filled, the cells stack into one solid
-    // landform and the lips are what the eye reads as the incline.
-    // slope_rise is 64 (two cells) but a sheet cell is 32 tall, so a ramp's
-    // hypotenuse spans two rows: the surface enters at the cell's bottom-left
-    // and leaves at the top-right, a 45-degree line across the cell. The cell
-    // is solid below that line and open above it; the level packs dirt in the
-    // row above so the hill's body is continuous and only the lit line reads
-    // as its silhouette.
-    // Slope tiles: a 45-degree face from corner to corner with a lit band on
-    // the hypotenuse. `line` matches GroundYAt's `anchor - t * rise` for a
-    // one-cell rise: an `up` ramp's surface runs from the cell's bottom edge
-    // at t=0 to its top edge at t=1, `down` is the mirror. The cell is solid
-    // below the line and open above it; the level packs dirt in the rows the
-    // ramp does not cover, so the hill has a continuous body.
+    // The cell is SOLID BELOW the diagonal and open above it. Getting the
+    // side wrong is the classic trap — filling the sky side leaves a
+    // see-through notch right under the walked surface, and the packed dirt
+    // body behind it reads as steps. `below = y - line` (not `line - y`)
+    // because tile-local y grows downward, like world y.
     const auto slope = [&](int id, bool rising) {
         for (int x = 0; x < kMTile; ++x) {
             const int line = rising ? ((kMTile - 1) - (x * (kMTile - 1)) / (kMTile - 1))
                                     : ((x * (kMTile - 1)) / (kMTile - 1));
             for (int y = 0; y < kMTile; ++y) {
-                const int below = line - y;  // depth under the surface
+                const int below = y - line;  // depth under the surface
                 if (below >= 0 && below <= 1) {
                     MPut(sheet, id, x, y, 255, 242, 192);  // walkable lip
                 } else if (below > 1) {
@@ -1412,13 +1399,18 @@ void PaintMarioPlayer(std::uint8_t *px, int w, int h) {
     PaintArt(px, w, h, art, pal);
 }
 
-void EnsureMarioAssets() {
+// `regen` forces the generated assets to be rewritten even when they already
+// exist on disk. They are written once and then reused, which keeps start-up
+// fast — but it also means an edit to the painters or the level layout below
+// has no effect until the stale file is deleted. Pass --regen-assets after
+// changing either.
+void EnsureMarioAssets(bool regen = false) {
     const std::filesystem::path dir = "assets";
     std::error_code ec;
     std::filesystem::create_directory(dir, ec);
 
     const std::filesystem::path sheet_path = dir / "m_tiles.png";
-    if (!std::filesystem::exists(sheet_path)) {
+    if (regen || !std::filesystem::exists(sheet_path)) {
         std::vector<std::uint8_t> sheet(
             static_cast<size_t>(kMSheetCols * kMSheetRows) * kMTile * kMTile * 4, 0);
         PaintMarioSheet(sheet.data());
@@ -1429,7 +1421,7 @@ void EnsureMarioAssets() {
     const auto sprite = [&](const char *name, int w, int h,
                            void (*paint)(std::uint8_t *, int, int)) {
         const auto p = dir / name;
-        if (std::filesystem::exists(p)) return;
+        if (!regen && std::filesystem::exists(p)) return;
         std::vector<std::uint8_t> buf(static_cast<size_t>(w) * h * 4, 0);
         paint(buf.data(), w, h);
         stbi_write_png(p.string().c_str(), w, h, 4, buf.data(), w * 4);
@@ -1495,7 +1487,12 @@ void EnsureMarioAssets() {
     if (at(57, 8) == 0) at(57, 8) = kMCoin;
 
     // goomba spawn markers (swept into entities on the first frame)
-    at(22, 12) = kMGoomba;
+    // Goomba markers sit on the flat ground beside the hill (row 12 is air
+    // there). One used to sit at (22,12) — inside the hill body — which both
+    // trapped the goomba in the hill and left a sky hole: the fill loop only
+    // packs empty cells, so the marker cell kept no dirt, and the script
+    // clears the marker to 0 at runtime.
+    at(27, 12) = kMGoomba;
     at(40, 12) = kMGoomba;
     at(51, 12) = kMGoomba;
     at(53, 12) = kMGoomba;
@@ -1507,8 +1504,10 @@ void EnsureMarioAssets() {
     //
     // A ramp's surface spans exactly one cell, so a run of ramps has to step
     // up a row per column for the surfaces to chain: col19 (row 12) runs
-    // 416 -> 384, col20 (row 11) runs 384 -> 352. The walkable surface is then
-    // continuous even though each cell is a single 32px incline.
+    // 416 -> 384, col20 (row 11) runs 384 -> 352. The walkable surface is
+    // then continuous even though each cell is a single 32px incline — and
+    // once the ramp sprites are filled on the underside of their diagonal,
+    // the run renders as one smooth triangle rather than steps.
     //
     // The slope tiles carry ONLY `slope`, never `solid`: the query keeps the
     // lowest candidate in its window, and a solid cell top (row *
@@ -1605,7 +1604,7 @@ void EnsureMarioAssets() {
     json << "  ]}]\n}\n";
 
     const std::filesystem::path level_path = dir / "mario.json";
-    if (!std::filesystem::exists(level_path)) {
+    if (regen || !std::filesystem::exists(level_path)) {
         std::ofstream out(level_path, std::ios::binary);
         out << json.str();
     }
@@ -1628,6 +1627,7 @@ int main(int argc, char **argv) {
     int max_frames = 0;
     int shot_frame = 30;
     std::string screenshot;
+    bool regen_assets = false;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg = argv[i];
         if (arg == "--headless") {
@@ -1651,6 +1651,10 @@ int main(int argc, char **argv) {
             screenshot = argv[++i];
         } else if (arg == "--shot-frame" && i + 1 < argc) {
             shot_frame = std::atoi(argv[++i]);
+        } else if (arg == "--regen-assets") {
+            // Rewrite the generated sheets/levels even if they exist, so
+            // painter or layout edits actually reach the screen.
+            regen_assets = true;
         } else if (arg == "--bench") {
             bench = true;
             cfg.script_entry.clear();
@@ -1684,7 +1688,7 @@ int main(int argc, char **argv) {
     // scaffolding exists before the script's first frame.
     EnsureGameAssets();
     if (mario_demo) {
-        EnsureMarioAssets();
+        EnsureMarioAssets(regen_assets);
     }
     if (map_demo) {
         EnsureMapAssets();
