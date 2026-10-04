@@ -819,7 +819,7 @@ constexpr int kMTile = 32;
 constexpr int kMCols = 112;
 constexpr int kMRows = 15;
 constexpr int kMSheetCols = 8;
-constexpr int kMSheetRows = 2;
+constexpr int kMSheetRows = 3;
 
 constexpr std::uint32_t kMGroundTop = 1;
 constexpr std::uint32_t kMGroundFill = 2;
@@ -836,6 +836,12 @@ constexpr std::uint32_t kMPole = 12;
 constexpr std::uint32_t kMFlag = 13;
 constexpr std::uint32_t kMStone = 14;
 constexpr std::uint32_t kMGoomba = 15;
+// Slope tiles (Phase 8). The hill at cols 33..40 is the only mario terrain
+// the script reads back through map_slope_dir / map_ground_y. They reuse the
+// ground's brick palette so the hill reads as part of the level, with a
+// bright lip along the hypotenuse marking the walkable incline.
+constexpr std::uint32_t kMSlopeUp = 17;
+constexpr std::uint32_t kMSlopeDown = 18;
 
 void MPut(std::uint8_t *sheet, int id, int x, int y,
           std::uint8_t r, std::uint8_t g, std::uint8_t b, std::uint8_t a = 255) {
@@ -1144,6 +1150,33 @@ void PaintMarioSheet(std::uint8_t *sheet) {
         MPut(sheet, 14, i, i, 220, 60, 200, 200);
         MPut(sheet, 14, i, kMTile - 1 - i, 220, 60, 200, 200);
     }
+
+    // 16/17 slope tiles (gid 17/18). The whole cell is bricked and the
+    // walkable surface is a bright lip along the hypotenuse that `slope=up`
+    // (bottom-left to top-right) and `slope=down` (the mirror) describe.
+    // Filling the cell rather than only the wedge is what makes a run of ramp
+    // cells read as one hill: each cell steps up a row, so the bodies stack
+    // into a solid landform while the lips trace the surface GroundYAt walks.
+    const auto slope = [&](int id, bool rising) {
+        for (int x = 0; x < kMTile; ++x) {
+            const int line = rising ? (x * (kMTile - 1)) / (kMTile - 1)
+                                    : ((kMTile - 1 - x) * (kMTile - 1)) / (kMTile - 1);
+            for (int y = 0; y < kMTile; ++y) {
+                if (y >= line && y <= line + 2) {
+                    MPut(sheet, id, x, y, 252, 226, 150);  // walkable lip
+                } else {
+                    // Same brick palette as the ground rows.
+                    const bool mortar = (y % 8) == 0 || (x % 16) == 0;
+                    MPut(sheet, id, x, y,
+                         static_cast<std::uint8_t>(mortar ? 150 : 196),
+                         static_cast<std::uint8_t>(mortar ? 82 : 132),
+                         static_cast<std::uint8_t>(mortar ? 34 : 58));
+                }
+            }
+        }
+    };
+    slope(16, true);   // tile id 16 -> gid 17 — `slope=up`
+    slope(17, false);  // tile id 17 -> gid 18 — `slope=down`
 }
 
 // ---------------------------------------------------------------------------
@@ -1425,6 +1458,23 @@ void EnsureMarioAssets() {
     at(84, 12) = kMGoomba;
     at(86, 12) = kMGoomba;
 
+    // Slope hill (19..24): the Phase 8 tilemap-slope showcase. Each cell
+    // steps up one row, which is what makes GroundYAt's interpolation chain
+    // into a continuous 45-degree surface (416 -> 384 -> 352 -> 320 on the
+    // way up, then mirrored back down) instead of repeating the same 32px
+    // ramp per cell. Placed early in the level so the attract AI reaches it
+    // within the first few seconds of an unattended run.
+    //
+    // The slope tiles carry ONLY the `slope` property, never `solid`:
+    // GroundYAt keeps the lowest candidate in its window, and a solid cell
+    // top (row * tile_height) would always undercut the slope surface and
+    // pin the query to the flat ground. Row 13 stays solid underneath so the
+    // player has a floor either side of the hill.
+    for (int i = 0; i < 3; ++i) {
+        at(19 + i, 12 - i) = kMSlopeUp;    // cols 19..21, rows 12..10
+        at(22 + i, 10 + i) = kMSlopeDown;  // cols 22..24, rows 10..12
+    }
+
     // staircase up (91..94) then down (96..99); col 95 stays flat
     for (int i = 0; i < 4; ++i) {
         for (int r = 12 - i; r <= 12; ++r)
@@ -1476,7 +1526,9 @@ void EnsureMarioAssets() {
          << "      {\"id\": 6, \"properties\": [{\"name\": \"solid\", \"type\": \"bool\", \"value\": true}]},\n"
          << "      {\"id\": 7, \"properties\": [{\"name\": \"solid\", \"type\": \"bool\", \"value\": true}]},\n"
          << "      {\"id\": 8, \"properties\": [{\"name\": \"solid\", \"type\": \"bool\", \"value\": true}]},\n"
-         << "      {\"id\": 13, \"properties\": [{\"name\": \"solid\", \"type\": \"bool\", \"value\": true}]}\n"
+         << "      {\"id\": 13, \"properties\": [{\"name\": \"solid\", \"type\": \"bool\", \"value\": true}]},\n"
+         << "      {\"id\": 16, \"properties\": [{\"name\": \"slope\", \"type\": \"string\", \"value\": \"up\"}]},\n"
+         << "      {\"id\": 17, \"properties\": [{\"name\": \"slope\", \"type\": \"string\", \"value\": \"down\"}]}\n"
          << "    ]\n"
          << "  }],\n"
          << "  \"layers\": [{\n"

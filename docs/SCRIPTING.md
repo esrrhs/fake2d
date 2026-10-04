@@ -371,6 +371,44 @@ row r; pair it with a `down` tile at the next cell for a pyramid bump. The
 platformer demo (`scripts/platformer_demo.lua`) ships a complete, tested
 implementation of this controller (`ground_hint`, `move_x`, `move_y`).
 
+##### Building a multi-cell hill
+
+`GroundYAt` evaluates a slope as `(row + 1) * tile_height - t * rise`, where
+`t` is the fraction across the column. Two consequences decide the tile layout:
+
+- **Cells in the same row repeat the same ramp.** Four `up` tiles side by side
+  give four identical 32px inclines, not a hill. Step each cell up one row
+  (`col 19 @ row 12`, `col 20 @ row 11`, `col 21 @ row 10`) and the surfaces
+  chain exactly: the row-12 cell ends at 384 where the row-11 cell begins.
+- **Never mark a slope cell `solid`.** The query keeps the *lowest* candidate
+  in its window, and a solid cell's top (`row * tile_height`) is always below
+  the interpolated surface, so it wins and pins the answer to flat ground.
+
+`GroundYAt` also only scans the rows within one tile of `reach_y` and rejects
+candidates outside `[reach_y - tile, reach_y + tile]`. A single query with
+`reach_y` at the feet therefore misses a ramp cell one row up — which is
+exactly the cell you are climbing onto. Probe both sides and keep the nearer
+answer:
+
+```lua
+local function ground_probe(wx, feet)
+    local lo = map_ground_y(map_id, wx, feet - TILE)   -- ramp above the feet
+    local hi = map_ground_y(map_id, wx, feet + TILE)   -- ground below
+    if lo >= 0.0 and hi >= 0.0 then
+        if hi < lo then return hi end
+        return lo
+    end
+    if lo >= 0.0 then return lo end
+    return hi
+end
+```
+
+A reach far from the feet (e.g. `feet + 96`) puts the real surface outside the
+window and returns -1 for every column, which reads as "no ground" rather than
+as a bug. Keep the reach within a tile or two. The mario demo
+(`scripts/mario.lua`, `ground_probe` / `snap_to_slope`) uses this to walk the
+hill at cols 19..24 in both directions.
+
 #### Parallax and image layers
 
 Tiled layer properties are honored automatically by `map_draw`:
