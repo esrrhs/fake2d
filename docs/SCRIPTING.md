@@ -373,46 +373,39 @@ implementation of this controller (`ground_hint`, `move_x`, `move_y`).
 
 ##### Building a multi-cell hill
 
-`GroundYAt` evaluates a slope as `(row + 1) * tile_height - t * rise`, where
-`t` is the fraction across the column. Because the anchor is always the cell's
-*own* bottom edge, a slope's surface spans exactly one cell height — no matter
-how large `slope_rise` is. Two consequences decide the tile layout:
+A slope's surface spans `slope_rise` pixels, anchored at
+`cell_bottom + rise - tile`. With the default rise (one cell) that is just the
+cell bottom, so a ramp's surface stays inside its own cell — which means a run
+of ramps **cannot** form a continuous surface by itself:
 
-- **Cells in the same row repeat the same ramp.** Four `up` tiles side by side
-  give four identical 32px inclines, not a hill. Step each cell up one row
-  (`col 19 @ row 12`, `col 20 @ row 11`, `col 21 @ row 10`) and the surfaces
-  chain exactly: the row-12 cell ends at 384 where the row-11 cell begins.
-- **Never mark a slope cell `solid`.** The query keeps the *lowest* candidate
-  in its window, and a solid cell's top (`row * tile_height`) is always below
-  the interpolated surface, so it wins and pins the answer to flat ground.
-- **Pack a solid cell under every ramp cell.** A wedge only covers its own
-  cell, and the next column's ramp cell sits a row higher, so an unsupported
-  wedge hangs in mid-air with a one-cell gap beneath it. Filling the rows below
-  each ramp turns the ramp and its fill into one landform. The fill's top always
-  lies below the slope surface above it, so "lowest candidate wins" keeps the
-  interpolated incline.
+- Ramps in the **same row** all start at the same height, so the run repeats
+  one identical incline.
+- Ramps **stepping up a row** per column do chain (col 19 on row 12 runs
+  416 → 384, col 20 on row 11 runs 384 → 352), but each cell then contributes a
+  visible square shoulder, and the hill reads as a staircase.
 
-Art matters as much as the layout, and the two constraints pull opposite ways:
+To get one continuous face, set `slope_rise` taller than a cell — two cells is
+the practical choice — and lay the ramps out in a **single row**. Each ramp
+then spans two rows of height, consecutive columns hand off exactly, and
+`Tilemap::Draw` stretches the sprite over the same span the query reports, so
+art and physics agree. Cap the crest with one flat cell; an `up` ramp meeting a
+`down` ramp directly leaves a V-shaped notch. The crest's top must equal the
+upper end of the rising run.
 
-- A slope cell drawn as a **full solid square** makes a stepped hill read as a
-  staircase — the eye follows the square tops, not the incline.
-- A slope cell drawn as a **wedge** (transparent above the hypotenuse) lets the
-  sky show through the hill, because the cell above the wedge is empty there.
+**Never mark a slope cell `solid`.** The query keeps the *lowest* candidate in
+its window, and a solid cell's top (`row * tile_height`) sits below the
+interpolated surface, so it wins and pins the answer to flat ground.
 
-Use a solid cell for the ramp *and* a thick lit lip along the hypotenuse: the
-fill below supplies the body, the solid cell keeps the silhouette solid, and
-the lip is what reads as the walkable incline. Put a single flat cell at the
-summit — an `up` cell meeting a `down` cell directly leaves a V-shaped notch,
-and the summit's top must equal the upper end of the rising ramp.
+Two more things that decide how the hill looks:
 
-**Match the artwork to the query's orientation.** `GroundYAt` anchors a slope
-at `(row + 1) * tile_height` and subtracts `t * rise`, so an `up` ramp's
-surface runs from the cell's **bottom** edge at `t=0` to its **top** edge at
-`t=1`: empty on the left, solid on the right. Drawing the wedge the other way
-round puts the art a full cell off the surface the player actually walks, and
-the hill reads as a staircase no matter how the surrounding level is arranged.
-Skip the mortar lines on the fill too — horizontal mortar draws a grid that
-reinforces the block reading.
+- **Pack the body with unpatterned dirt.** A ramp only covers its own span, so
+  the cells it passes through need a body. Do not use a brick-patterned fill:
+  a mortar course directly beneath the lit edge draws a square shoulder right
+  beside the diagonal, which is most of what makes a hill look like steps.
+- **Match the artwork to the query's orientation.** For `up`, the surface runs
+  from the cell's bottom edge at `t=0` to its top edge at `t=1` — empty on the
+  left, solid on the right. Drawing the wedge the other way round puts the art
+  a full cell off the surface the player walks.
 
 `GroundYAt` also only scans the rows within one tile of `reach_y` and rejects
 candidates outside `[reach_y - tile, reach_y + tile]`. A single query with
@@ -437,7 +430,8 @@ A reach far from the feet (e.g. `feet + 96`) puts the real surface outside the
 window and returns -1 for every column, which reads as "no ground" rather than
 as a bug. Keep the reach within a tile or two. The mario demo
 (`scripts/mario.lua`, `ground_probe` / `snap_to_slope`) uses this to walk the
-hill at cols 19..24 in both directions.
+hill at cols 19..24 in both directions, and the platformer demo
+(`scripts/platformer_demo.lua`, `ground_hint`) is the reference controller.
 
 #### Parallax and image layers
 
