@@ -356,12 +356,21 @@ float Tilemap::GroundYAt(float world_x, float reach_y) const {
                 const int rise = slope_it->second.rise > 0
                                      ? slope_it->second.rise
                                      : tile_height_;
-                const float base =
-                    static_cast<float>((row + 1) * tile_height_);
+                // Anchor the ramp at the bottom of the span it actually
+                // covers: `cell_bottom + rise - tile`. With the default
+                // one-cell rise this is exactly the cell bottom, so nothing
+                // changes. With a taller rise the low end drops below the
+                // cell, which is what lets two adjacent columns hand off
+                // instead of both starting from the same height and reading
+                // as a staircase. The renderer stretches the sprite to match
+                // (see Draw), so art and query agree.
+                const float anchor =
+                    static_cast<float>((row + 1) * tile_height_) +
+                    static_cast<float>(rise - tile_height_);
                 const float surface_y =
                     slope_it->second.dir == 1
-                        ? base - t * static_cast<float>(rise)
-                        : base - (1.0f - t) * static_cast<float>(rise);
+                        ? anchor - t * static_cast<float>(rise)
+                        : anchor - (1.0f - t) * static_cast<float>(rise);
                 consider(surface_y);
             }
         }
@@ -503,11 +512,22 @@ void Tilemap::Draw(Renderer &renderer) const {
                     static_cast<float>(sheet_row * ts->tile_height),
                     static_cast<float>(ts->tile_width),
                     static_cast<float>(ts->tile_height)};
-                const Rect dst{
-                    static_cast<float>(col * tile_width_),
-                    static_cast<float>(row * tile_height_),
-                    static_cast<float>(tile_width_),
-                    static_cast<float>(tile_height_)};
+                float dst_x = static_cast<float>(col * tile_width_);
+                float dst_y = static_cast<float>(row * tile_height_);
+                float dst_h = static_cast<float>(tile_height_);
+                // A slope whose `slope_rise` is taller than one cell covers a
+                // vertical span larger than its own cell, so the sprite is
+                // stretched downward to cover the whole span. The surface is
+                // anchored at the cell's bottom edge, so a rise of N pixels
+                // reaches from there up to `rise` above it; the sprite has to
+                // fill that band or the artwork sits above the surface the
+                // player walks.
+                auto slope_at = ts->slope_gids.find(gid);
+                if (slope_at != ts->slope_gids.end() &&
+                    slope_at->second.rise > static_cast<int>(tile_height_)) {
+                    dst_h = static_cast<float>(slope_at->second.rise);
+                }
+                const Rect dst{dst_x, dst_y, static_cast<float>(tile_width_), dst_h};
                 if (!shifted) {
                     batch.DrawSprite(*texture, src, dst);
                 } else {
