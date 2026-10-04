@@ -2,6 +2,17 @@
 -- Pure Lua game logic over engine primitives; enemies/items/effects live in
 -- the C++ entity store (ent_*) so they survive FakeLua's per-frame reset.
 --
+-- Phase 8 systems on show here:
+--   * EntityStore  — every goomba, mushroom, block bump, score popup and
+--                     tile-restore record is an ent_* slot, which is what
+--                     makes them survive the per-frame arena reset.
+--   * SaveStore     — the high score and best remaining time are banked to
+--                     saves/mario.json on clear and re-read on the next run
+--                     (storage_*), shown as "BEST" in the HUD.
+--   * Custom shader — the goal pole runs through a per-draw GLSL slot
+--                     (shader_load / shader_set_* / draw_use_shader); the band
+--                     travels down it as the frame counter advances.
+--
 -- Controls: Left/Right or A/D move, Shift run, Space/W/Up jump.
 -- Headless: deterministic attract AI plays automatically (runs, clears
 -- gaps/pipes and long-hops goombas); clear/game-over screens auto-reopen
@@ -53,6 +64,15 @@ local tex_sheet, tex_goomba, tex_mush = 0 + 0, 0 + 0, 0 + 0
 local tex_ps, tex_pb = 0 + 0, 0 + 0
 local fx_debris = 0 + 0
 local inited = false
+
+-- Phase 8: per-draw custom GLSL shader slot. The level-clear flag gets a
+-- travelling highlight; everything else stays on the default program.
+local fx_flag_shader = 0 + 0
+-- Phase 8: SaveStore slot for the persistent high score / best time.
+local SAVE_SLOT = "mario"
+local best_score = 0 + 0
+local best_time = 0 + 0
+local new_record = false
 
 local px, py = 0.0 + 0.0, 0.0 + 0.0
 local vx, vy = 0.0 + 0.0, 0.0 + 0.0
@@ -145,6 +165,22 @@ end
 -- ---------------------------------------------------------------------------
 -- score / coins
 -- ---------------------------------------------------------------------------
+
+-- Phase 8 SaveStore: the best score and the best remaining time survive a
+-- process restart. storage_save/load take a slot name, so each run writes one
+-- JSON file under the engine save directory.
+local function load_records()
+    if not storage_load(SAVE_SLOT) then return end
+    best_score = storage_get_num("best_score", 0)
+    best_time = storage_get_num("best_time", 0)
+end
+
+local function save_records()
+    storage_set_num("best_score", best_score)
+    storage_set_num("best_time", best_time)
+    storage_set_str("version", "1.3")
+    storage_save(SAVE_SLOT)
+end
 
 local function add_score(points, wx, wy)
     score = score + points
@@ -630,8 +666,20 @@ local function start_win()
     vx = 0.0
     px = POLE_COL * TILE - box_w - 3.0
     audio_play("win", 0.5)
+    -- Phase 8 SaveStore: bank the run's score and the time left on the clock.
+    -- time_left is still counting down here, so it is the bonus that decides
+    -- whether this run beat the record.
+    new_record = false
+    local final_score = score + win_bonus
+    if final_score > best_score then
+        best_score = final_score
+        new_record = true
+    end
+    if time_left > best_time then best_time = time_left end
+    save_records()
     log_number(300005)
     log_number(300020)
+    log_number(300030 + best_score)
 end
 
 local function finish_death()
@@ -974,6 +1022,21 @@ local function draw_world()
     draw_quad(cam_x, cam_y, cam_vw, cam_vh, 0.36, 0.58, 0.95, 1.0)
     map_draw(map_id)
 
+    -- Phase 8 per-draw custom shader: a shimmer band travels down the goal
+    -- pole. draw_use_shader switches the batcher onto slot 1 for the calls
+    -- that follow and 0 restores the default program, so only these quads pay
+    -- for the extra pass. The pole is re-drawn here (it is part of the tilemap
+    -- above) with the shader applied, giving a visible highlight on approach.
+    if fx_flag_shader > 0 and mode ~= M_CLEAR then
+        shader_set_float(fx_flag_shader, "u_time", time_frame())
+        draw_use_shader(fx_flag_shader)
+        local pole_x = POLE_COL * TILE
+        -- the pole shaft spans rows 4..12, with the ball on row 3
+        draw_quad(pole_x + 11.0, 4 * TILE, 6.0, 9 * TILE, 1.0, 1.0, 1.0, 0.55)
+        draw_quad(pole_x + 6.0, 3 * TILE, 16.0, 16.0, 1.0, 1.0, 1.0, 0.75)
+        draw_use_shader(0)
+    end
+
     -- block bump re-draw (the original tile has already changed for ?, so
     -- draw the current tile sprite at the bumped offset)
     local bn = ent_count(TAG_BUMP)
@@ -1060,6 +1123,11 @@ local function draw_hud()
                   1.0, 1.0, 1.0)
     draw_text_str("LIVES x" .. istr(lives), sx + 830.0, sy + 12.0, 0.6,
                   1.0, 1.0, 1.0)
+    -- Phase 8 SaveStore: the record banked on the previous run.
+    if best_score > 0 then
+        draw_text_str("BEST " .. istr(best_score), sx + 16.0, sy + 34.0, 0.45,
+                      1.0, 0.92, 0.55)
+    end
 end
 
 local function draw_banner(title, sub)
@@ -1351,6 +1419,14 @@ function update(dt)
         tex_mush = sprite_load("assets/m_mushroom.png")
         tex_ps = sprite_load("assets/m_player_s.png")
         tex_pb = sprite_load("assets/m_player_b.png")
+        -- Phase 8: custom GLSL slot for the flag shimmer, plus the saved
+        -- high score from the previous run.
+        fx_flag_shader = shader_load("assets/flag_shimmer.vert",
+                                     "assets/flag_shimmer.frag")
+        shader_set_float(fx_flag_shader, "u_speed", 0.35)
+        shader_set_float(fx_flag_shader, "u_width", 0.14)
+        shader_set_vec4(fx_flag_shader, "u_tint", 1.0, 0.96, 0.78, 1.0)
+        load_records()
         fx_debris = part_create()
         part_set_lifetime(fx_debris, 0.35, 0.7)
         part_set_speed(fx_debris, 60.0, 200.0)
