@@ -3,15 +3,15 @@
 | 项目 | 内容 |
 |---|---|
 | 组件 | FakeLua — https://github.com/esrrhs/fakelua |
-| 当前版本 | 2.0.0，本机源码 `/Users/mingming/project/fakelua` @ `ef43eae` |
-| 已安装 | `/usr/local/lib/libfakelua.2.0.0.dylib`（2026-10-02 20:44 构建，源码路径字符串为 `/Users/mingming/project/fakelua/src`） |
+| 当前版本 | 2.0.0，本机源码 `/Users/mingming/project/fakelua` @ `a55a4bf`（`master`，已与 `origin/master` 同步） |
+| 已安装 | `/usr/local/lib/libfakelua.2.0.0.dylib`（2026-10-04 20:05 由 `a55a4bf` 构建安装） |
 | 平台 | macOS / arm64，Apple Clang；后端：TCC JIT、GCC JIT、解释器 |
-| 文档日期 | 2026-10-02 |
+| 文档日期 | 2026-10-02；2026-10-04 复测 + 升级到 `a55a4bf` |
 
 ## 结论
 
-历史上共记录 5 个缺陷。**缺陷 1–4 已在 `ef43eae` 修复并在本机实测通过，无需再处理**；
-**缺陷 5 尚未修复，是本文档唯一的修复目标。**
+历史上共记录 5 个缺陷。**截至 2026-10-04，5 个缺陷全部已在上游修复并在本机实测通过，
+本文档转为纯回归基线，无待修复项。**
 
 | # | 缺陷 | 状态 | 修复提交 |
 |---|---|---|---|
@@ -19,11 +19,65 @@
 | 2 | 尾参数展开把语句宏拼进表达式位置 | 已修复 | `ef43eae` |
 | 3 | `FlMakeClosure` 用 `bool` 充当 `va_start` 锚点（C17 UB） | 已修复 | `236a757` |
 | 4 | Lua 函数名 `main` 与宿主 C `main` 符号冲突 | 已修复 | `236a757` |
-| 5 | 未声明的全局变量被误编译为对常量 `kNil` 的读写 | **待修复** | — |
+| 5 | 未声明的全局变量被误编译为对常量 `kNil` 的读写 | **已修复（2026-10-04 复测确认）** | `b83f574`（方案 A） |
+
+> 缺陷 5 的修复提交 `b83f574 fix: reject undeclared variables at semantic analysis (bug5) (#23)`
+> 已随 2026-10-04 的 `master` 升级一并安装。下方「缺陷 5 根因 / 修复方案」小节保留为历史记录，
+> **不要按其中的方案 A/B 再改一遍**。
 
 ---
 
-## 待修复：缺陷 5 — 未声明变量被编译为 `kNil` 读写
+## 版本沿革与升级记录
+
+| 日期 | 提交 | 内容 | 状态 |
+|---|---|---|---|
+| — | `ef43eae` | 缺陷 1/2 修复基线 | 曾安装 |
+| 2026-10-03 | `b83f574` (#23) | 缺陷 5 修复（方案 A：语义分析拒绝未声明变量） | 曾安装 |
+| 2026-10-04 | `a55a4bf` (#24) | P1-5b Lua 5.4 标准模式匹配；P1-9 while 条件重求值 | **当前安装** |
+
+### 升级到 `a55a4bf` 新增的两项能力
+
+1. **P1-5b：Lua 5.4 标准模式匹配**。`src/native/string/lua_pattern.{h,cpp}` 自带字节级匹配器
+   （移植自 Lua 5.4 `lstrlib.c`），**替换了原先的 `boost::regex` ECMAScript 引擎**。
+   `string.find/match/gmatch/gsub` 现支持 `%` 转义、字符类（`%a %d %w %s %u %l` 等）、
+   自定义集合与范围（`[%a-z]`）、量词（`* + - ?`）、捕获 `()`、反向引用 `%1-%9`、
+   平衡匹配 `%b()`、前向断言 `%f[set]`，以及 gsub 替换模板（`%0-%9`、`%%`、函数/表分派）。
+   ⚠️ 语义与旧 ECMAScript 引擎不同（集合/转义规则更严格），升级后如有脚本依赖旧宽松行为需复查。
+2. **P1-9：while 条件重求值**。`IsPureNativeNumericExp` 阻止把非纯数值表达式
+   （如 `#t` 这类需发射 `FlLenInt` 语句的运算）提升为单次求值的原生快路径 `while`；
+   纯数值条件（字面量、局部变量、纯二元运算）仍走快路径。
+
+   实测：`while #t > 0 do t[#t] = nil; n = n + 1 end` 正确迭代 3 次
+   （`newfeat_while.lua`；修复前会被提升为单次求值，只跑 1 次）。
+
+### 升级操作与验证（2026-10-04 实测）
+
+```bash
+cd /Users/mingming/project/fakelua
+git checkout master && git merge --ff-only origin/master   # b83f574 → a55a4bf
+cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local \
+         -DFAKELUA_BUILD_TESTS=OFF -DFAKELUA_BUILD_BENCHMARKS=OFF
+make -j"$(sysctl -n hw.ncpu)" && make install
+```
+
+⚠️ 两个必须注意的点：
+
+- **旧库先备份**：`cp /usr/local/lib/libfakelua.2.0.0.dylib /tmp/fakelua_backup/`。
+  2026-10-04 备份位于 `/tmp/fakelua_backup/libfakelua.2.0.0.dylib.bak-20261004-200538`
+  （旧库 sha256 `69c63cd4…`，新库 `acf90432…`）。
+- **重装 dylib 后必须重新链接测试 runner**。`/tmp/flua_verify/runner_installed` 是静态链接
+  旧 dylib 的产物，不重新 `clang++` 就会测到旧库而误判（2026-10-04 首次复测即踩此坑）。
+
+本次升级后实测全绿：新特性 2 项 PASS、旧缺陷 1/2/4/5 回归 PASS、fake2d 5 脚本 × 1200 帧
+5/5 `exit=0` 且 0 条 `[ERROR]`。
+
+---
+
+## 已修复：缺陷 5 — 未声明变量被编译为 `kNil` 读写（2026-10-04 复测确认）
+
+> 本节为历史档案。上游选择了**方案 A**（语义分析阶段拒绝未声明变量）并已合入 `b83f574`。
+> 下文的现象、根因、方案对比仅供理解，**修复工作已结束**。
 
 ### 现象
 
@@ -116,13 +170,57 @@ unknown variable 'flag' at bug.lua:3:21; declare it with 'local' first
 
 所有变量先 `local` 声明。fake2d 的 5 个脚本已全部按此修正。
 
-### 验收标准
+### 验收结果（2026-10-04 实测，方案 A 全部满足）
 
-1. `bug5_implicit_global.lua`：
-   - 方案 A：编译期报出指向 `flag` 具体行列的明确错误；
-   - 方案 B：三后端（TCC / GCC / 解释器）运行通过，`flag` 写入/读取符合 Lua 全局语义。
-2. 已声明变量的脚本行为不回归：fake2d 的 5 个脚本各跑 1200 帧保持零错误（命令见下）。
-3. 建议新增回归用例：未声明变量的读（期望 nil）、写、先写后读三个场景。
+| 场景 | 用例 | 实测结果 |
+|---|---|---|
+| 写未声明全局 | `bug5_implicit_global.lua` | ❌ 预期拒绝 → `undeclared variable 'flag' on the left side of assignment … at bug5_implicit_global.lua:3:20` |
+| 只读未声明全局 | `b5_read_only.lua` | ❌ 预期拒绝 → `unknown variable 'readonly_global' … at b5_read_only.lua:3:26` |
+| 先写后读 | `b5_read_after_write.lua` | ❌ 预期拒绝 → 指向首次赋值 `at b5_read_after_write.lua:2:5` |
+| 文件级裸赋值 | `b5_filelevel.lua` | ❌ 预期拒绝 → `unsupported file-level statement Assign … at b5_filelevel.lua:1:8` |
+| 已 `local` 声明后赋值 | `b5_ok_declared.lua` | ✅ PASS（GCC + 解释器） |
+| fake2d 5 个脚本 × 1200 帧 | `fake2d_hello --headless` | ✅ 5/5 `exit=0`，0 条 `[ERROR]` |
+
+GCC JIT 与解释器两条路径表现一致（预编译在加载阶段发生，故后端不影响判定）。
+`scripts/*.lua` 无需再改——fake2d 早已全部显式 `local` 声明。
+
+---
+
+## 工作区绕过的还原（2026-10-04）
+
+fakelua 修好之后，fake2d 里为绕开缺陷 1/2 而写的代码就可以还原了。逐项实测后**只还原了
+`scripts/platformer_demo.lua` 的 3 处**，其余写法属于 FakeLua 2.0 的**现行语义**（不是 bug），
+必须保留 —— 完整分类见 [SCRIPTING.md](SCRIPTING.md) 的 "Not a bug" 与 "Reverted" 小节。
+
+### 已还原（确认不再需要）
+
+| 位置 | 原绕过写法 | 还原为 | 依据 |
+|---|---|---|---|
+| `platformer_demo.lua:270` | `build_intent()` 无参 + 函数内 `local frame = time_frame()`，注释称「typed-arg 特化多返回值会 codegen 失败」 | `build_intent(frame)`，调用点 `build_intent(time_frame())` | 缺陷 1 已由 `598632f` 修（返回形态资格检查） |
+| `platformer_demo.lua:355` | 提升 `shake_amt` 局部量再 `camera_shake(shake_amt)` | `camera_shake(math.min(0.5, impact / 1200.0))` | 缺陷 2 已由 `ef43eae` 修（`CompileExp` 先求值入局部再输出） |
+| `platformer_demo.lua:278` | 预计算 `up_row` / `down_row` 局部量 | 直接写 `map_solid(map_id, ahead, feet_row - 1)` 等 | 同上 |
+
+验证：`--platformer-demo` 在 frames=1 / 100 / 1200 三档下均 `exit=0`、0 条 `[ERROR]`；
+其余 4 个脚本 1200 帧同样全绿。游戏逻辑等价（`frame` 仍驱动 AI 跳跃节拍 `frame % 80 == 0`）。
+
+> 还原时的一个教训：`build_intent` 里的 `frame` **确实被使用**（函数体内
+> `frame % 80 == 0` 控制 attract AI 跳跃），不能因为看着像残留就删掉。
+> 中途尝试过「彻底删参数」，结果 `unknown variable 'frame'` 直接编译失败 ——
+> 这正是缺陷 5 修复后的正常报错。正确做法是恢复传参。
+
+### 必须保留（不是 bug，是现行语义）
+
+| 写法 | 出现量 | 实测行为 |
+|---|---|---|
+| 可变数值用 `0 + 0` 表达式初始化 | 60 处 / 5 脚本 | `local x = 0` 后赋值 → `cannot reassign file-level constant 'x'` |
+| 持久状态用扁平数值而非表 | 全面 | 空表 `{}` 后**字段**赋值 → `attempt to modify a const table` |
+| 文件级 `local` 必须有初值 | — | 无初值 → `global constant must be initialized` |
+| 全部变量显式 `local` | 全部脚本 | 未声明 → `unknown variable 'x'; fakelua has no implicit globals` |
+
+⚠️ 一个文档与实现的偏差（已在 SCRIPTING.md 记录）：「每帧表是免费的」这条**只对部分形态成立**。
+`local t = {}` 后做**下标写入**（`t[i] = v`）或**原生写入**（`table.insert`）是 mutable 的，
+但后做**字段写入**（`t.hp = 10`）即使在 `update` 内部也会被判 const —— 这是类型推断的产物。
+`scripts/game.lua:build_powers()` 用的正是 `t[i] = v` 形态，正确，不要「修正」成字段写入。
 
 ---
 

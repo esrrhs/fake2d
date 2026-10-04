@@ -55,3 +55,4 @@ assets/
 build/
 build-nofakelua/
 .trae/
+.workbuddy/

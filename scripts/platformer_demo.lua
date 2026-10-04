@@ -267,11 +267,7 @@ local function step_player(dt, intent_x, jump_pressed, jump_held)
     return jumped, impact
 end
 
--- No frame parameter on purpose: FakeLua JIT specializes local functions by
--- argument type, and a typed-arg specialization of a multi-value return fails
--- codegen. time_frame() is read inside so the function stays generic.
-local function build_intent()
-    local frame = time_frame()
+local function build_intent(frame)
     local move = 1.0
     if input_key_down("left") or input_key_down("a") then move = -1.0 end
     if input_key_down("right") or input_key_down("d") then move = 1.0 end
@@ -280,14 +276,10 @@ local function build_intent()
     local feet_row = math.floor((cy + HALF_H + 4.0) / tile)
     local ahead = math.floor((cx + HALF_W + 20.0) / tile)
 
-    -- Tile coordinates for probes are precomputed: arithmetic sitting
-    -- directly in a call's last-argument slot hits a JIT codegen bug.
-    local up_row = feet_row - 1
-    local down_row = feet_row + 1
     local wall = map_solid(map_id, ahead, feet_row)
-    if map_solid(map_id, ahead, up_row) then wall = true end
-    local gap = not map_solid(map_id, ahead, down_row)
-    local below_oneway = map_oneway(map_id, ahead, down_row)
+    if map_solid(map_id, ahead, feet_row - 1) then wall = true end
+    local gap = not map_solid(map_id, ahead, feet_row + 1)
+    local below_oneway = map_oneway(map_id, ahead, feet_row + 1)
     if below_oneway then gap = false end
     local coin_ahead = false
     for dc = 0, 3 do
@@ -360,16 +352,12 @@ function update(dt)
         audio_music("music", 0.22)
     end
 
-    local intent_x, jump_pressed, jump_held = build_intent()
+    local intent_x, jump_pressed, jump_held = build_intent(time_frame())
 
     local jumped, impact = step_player(dt, intent_x, jump_pressed, jump_held)
     if jumped then audio_play("jump", 0.12) end
     if impact > 220.0 then
-        -- Hoisted out of the camera_shake() argument: a slow-path binop in a
-        -- call's last-argument slot hits a JIT codegen bug.
-        local shake_amt = impact / 1200.0
-        if shake_amt > 0.5 then shake_amt = 0.5 end
-        camera_shake(shake_amt)
+        camera_shake(math.min(0.5, impact / 1200.0))
     end
 
     local cx, cy = center()
@@ -390,7 +378,9 @@ function update(dt)
         if win_timer > 180 then spawn() end
     end
 
-    -- follow camera (clamp bounds precomputed, same reason as shake_amt)
+    -- follow camera (clamped to map bounds; the clamp bounds are computed
+    -- here because map_w/map_h depend on cols*rows*tile, not because of any
+    -- codegen constraint)
     local vw, vh = camera_viewport_w(), camera_viewport_h()
     local map_w, map_h = cols * tile, rows * tile
     local max_x = map_w - vw
