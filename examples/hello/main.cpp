@@ -1151,21 +1151,26 @@ void PaintMarioSheet(std::uint8_t *sheet) {
         MPut(sheet, 14, i, kMTile - 1 - i, 220, 60, 200, 200);
     }
 
-    // 16/17 slope tiles (gid 17/18). The whole cell is bricked and the
-    // walkable surface is a bright lip along the hypotenuse that `slope=up`
-    // (bottom-left to top-right) and `slope=down` (the mirror) describe.
-    // Filling the cell rather than only the wedge is what makes a run of ramp
-    // cells read as one hill: each cell steps up a row, so the bodies stack
-    // into a solid landform while the lips trace the surface GroundYAt walks.
+    // 16/17 slope tiles (gid 17/18). The cell is bricked solid and the
+    // walkable surface is marked by a lit lip along the hypotenuse that
+    // `slope=up` (bottom-left to top-right) and `slope=down` (the mirror)
+    // describe.
+    //
+    // Filling the whole cell is deliberate. A slope has to step up one row per
+    // column — GroundYAt anchors every slope at `(row + 1) * tile_height`, so
+    // two cells in the same row would repeat the identical ramp — which means
+    // each cell's surface only covers its own bottom-to-top span. A
+    // transparent wedge would show sky through the hill and the silhouette
+    // would break into loose triangles; filled, the cells stack into one solid
+    // landform and the lips are what the eye reads as the incline.
     const auto slope = [&](int id, bool rising) {
         for (int x = 0; x < kMTile; ++x) {
             const int line = rising ? (x * (kMTile - 1)) / (kMTile - 1)
                                     : ((kMTile - 1 - x) * (kMTile - 1)) / (kMTile - 1);
             for (int y = 0; y < kMTile; ++y) {
                 if (y >= line && y <= line + 2) {
-                    MPut(sheet, id, x, y, 252, 226, 150);  // walkable lip
+                    MPut(sheet, id, x, y, 255, 238, 180);  // walkable lip
                 } else {
-                    // Same brick palette as the ground rows.
                     const bool mortar = (y % 8) == 0 || (x % 16) == 0;
                     MPut(sheet, id, x, y,
                          static_cast<std::uint8_t>(mortar ? 150 : 196),
@@ -1460,7 +1465,7 @@ void EnsureMarioAssets() {
 
     // Slope hill (19..24): the Phase 8 tilemap-slope showcase. Each cell
     // steps up one row, which is what makes GroundYAt's interpolation chain
-    // into a continuous 45-degree surface (416 -> 384 -> 352 -> 320 on the
+    // into a continuous surface (416 -> 384 -> 352 on the
     // way up, then mirrored back down) instead of repeating the same 32px
     // ramp per cell. Placed early in the level so the attract AI reaches it
     // within the first few seconds of an unattended run.
@@ -1468,11 +1473,29 @@ void EnsureMarioAssets() {
     // The slope tiles carry ONLY the `slope` property, never `solid`:
     // GroundYAt keeps the lowest candidate in its window, and a solid cell
     // top (row * tile_height) would always undercut the slope surface and
-    // pin the query to the flat ground. Row 13 stays solid underneath so the
-    // player has a floor either side of the hill.
+    // pin the query to the flat ground.
     for (int i = 0; i < 3; ++i) {
         at(19 + i, 12 - i) = kMSlopeUp;    // cols 19..21, rows 12..10
-        at(22 + i, 10 + i) = kMSlopeDown;  // cols 22..24, rows 10..12
+        at(23 + i, 10 + i) = kMSlopeDown;  // cols 23..25, rows 10..12
+    }
+    // One flat cell at the summit: two ramp cells meeting back to back leave a
+    // V-shaped notch, so the crest is a single solid cell instead.
+    at(22, 9) = kMGroundTop;
+    // Pack dirt beneath each wedge. A slope cell's surface only spans its own
+    // bottom-to-top range, and the next column's cell sits a row higher, so
+    // without this the wedges hang in the air with a 32px gap under each one.
+    // Only the rows strictly below the wedge are filled; the wedge row itself
+    // keeps its sky above the hypotenuse, which is what makes the silhouette a
+    // diagonal. The fill is solid, but its top always lies below the slope
+    // surface above it, and GroundYAt keeps the lowest candidate, so the
+    // interpolated incline still wins.
+    for (int c = 19; c <= 25; ++c) {
+        // Row holding this column's ramp cell (col 22 is the flat summit).
+        const int wedge_row = c <= 21 ? 12 - (c - 19)
+                                      : (c == 22 ? 9 : 10 + (c - 23));
+        for (int r = wedge_row + 1; r <= 12; ++r) {
+            if (at(c, r) == 0) at(c, r) = kMGroundFill;
+        }
     }
 
     // staircase up (91..94) then down (96..99); col 95 stays flat
