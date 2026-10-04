@@ -49,9 +49,9 @@ Each rule below was verified empirically against the installed FakeLua 2.0.0:
 3. **Never initialize a mutable numeric with a bare literal.**
    A literal initializer (`local score = 0`) makes the JIT declare the
    variable `static const int64_t` in generated C; assigning it from a
-   function then fails the GCC compile with "cannot assign to variable ...
-   with const-qualified type". Initialize from an expression instead —
-   the `+ 0` idiom used throughout `scripts/game.lua`:
+   function is rejected by semantic analysis with
+   `cannot reassign file-level constant 'score'`. Initialize from an
+   expression instead — the `+ 0` idiom used throughout `scripts/game.lua`:
 
    ```lua
    local score = 0 + 0      -- mutable (expression initializer)
@@ -59,14 +59,19 @@ Each rule below was verified empirically against the installed FakeLua 2.0.0:
    local MAX  = 640         -- never reassigned: a literal is fine
    ```
 
-   Assigning a function *parameter* to a literal-initialized local happens to
-   work, but do not rely on it; the expression initializer is the uniform,
-   always-correct idiom. Booleans are safe as literals (`local done = false`).
+   This is **current FakeLua 2.0 semantics, not a stale bug workaround** —
+   re-verified against `a55a4bf`. Booleans are safe as literals
+   (`local done = false`, then `done = true` works).
 
 4. **File-level tables are runtime-const.** `local S = {}` followed by
    `S.hp = 10` inside a function throws "attempt to modify a const table".
    Persistent structured state must be flattened into scalars (e.g. a bitmask
    number, as `brick_mask` does) or live on the C++ side.
+   ⚠️ The const-ness depends on the table's *shape*, not just its scope — an
+   empty constructor followed by a **field** write is const even inside
+   `update`, while an **index** write (`t[i] = v`) or a constructor with
+   contents is mutable. Rule 7's "per-frame tables are free" only applies to the
+   mutable forms. See "Not a bug" in Known FakeLua pitfalls for the full matrix.
 
 5. **Globals are not supported.** Assignments to undeclared names fail the
    JIT compile. Everything is a file-level `local` (upvalue).
@@ -509,12 +514,21 @@ of a shipped demo (dev/test hook), e.g.
 
 ## Known FakeLua pitfalls (engine version 2.0.0)
 
-> **Status (2026-10-02):** the multi-return specialization and trailing-argument
-> codegen issues below, plus the `bool`/`va_start` UB and the `main` symbol clash,
-> are fixed in fakelua commit `ef43eae` (installed locally). The workarounds still
-> work and remain recommended style. One issue remains: undeclared globals are
-> miscompiled to `kNil` reads/writes — always `local` your variables. Full details
-> in [FAKELUA_JIT_BUG_REPORT.md](FAKELUA_JIT_BUG_REPORT.md).
+> **Status (2026-10-04, fakelua `a55a4bf` installed):** all five previously
+> recorded codegen bugs are fixed upstream, and the two workarounds that existed
+> only to dodge them have been **reverted** in `scripts/platformer_demo.lua`:
+> `build_intent(frame)` now takes its frame argument again (the multi-return
+> type-specialization bug is gone), and the hoisted `shake_amt` / `up_row` /
+> `down_row` temporaries are gone (the trailing-argument codegen bug is gone).
+> The `bool`/`va_start` UB and the `main` symbol clash were fixed earlier.
+> Full history and verification in
+> [FAKELUA_JIT_BUG_REPORT.md](FAKELUA_JIT_BUG_REPORT.md).
+>
+> The persistence rules 1–4 below are **not** bug workarounds — they are current
+> FakeLua 2.0 semantics and still required. In particular the `+ 0` idiom
+> remains necessary: `local x = 0` compiles to a `static const` and reassigning
+> it is rejected with "cannot reassign file-level constant". See
+> "Not a bug" below for the full classification.
 
 Collected while building the samples, so you don't have to rediscover them:
 
@@ -528,36 +542,6 @@ Collected while building the samples, so you don't have to rediscover them:
 - Compile errors from the JIT point at generated temp files
   (`/tmp/.../fakelua_jit_*.c`); the accompanying `.gcc.log` name in the
   error message is the useful one.
-- **Multi-value returns and type specialization.** The JIT emits typed
-  specializations of a `local function` for each argument-type combination
-  it sees at call sites; a specialized variant is declared with one typed
-  scalar return, so `return a, b, c` inside it emits `FlMakeMulti` into a
-  `double` function and fails the GCC compile ("returning 'CVar' from a
-  function with incompatible result type"). The generic (untyped) variant
-  handles multi-return fine. Keep multi-return helpers un-specializable:
-  take no typed parameters (`build_intent()` in
-  `scripts/platformer_demo.lua` reads `time_frame()` itself), or pass their
-  results through file-level scalars.
-- **Arithmetic in the trailing call-argument slot.** When an operand has an
-  inferred-dynamic type (values unpacked from a multi-return, native call
-  results, degraded locals), `a + b` compiles to a *statement* macro
-  (`OpAdd(a, b, tmp);`). Lua expands a trailing function-call argument into
-  multiple receivers, and that codegen embeds the statement where an
-  expression is legal — producing `x = OpAdd(...)` and an "expected
-  expression" GCC error. Hoist the inner expression into a local first:
-
-  ```lua
-  -- bad: math.min(...) is the trailing arg and impact/1200 is a slow-path op
-  camera_shake(math.min(0.5, impact / 1200.0))
-  -- good:
-  local shake_amt = impact / 1200.0
-  if shake_amt > 0.5 then shake_amt = 0.5 end
-  camera_shake(shake_amt)
-  ```
-
-  Literal/int-typed operands use the native inline fast path and do not
-  trigger this; it only bites with dynamic types (see
-  `scripts/platformer_demo.lua` for the full set of hoists).
 - **`math.floor`/`math.ceil` return floats.** Tile indices derived from
   pixel coordinates are therefore doubles; every `map_*` cell binding
   accepts floats and truncates natively, but a Lua-side `for r = r0, r1 do`
@@ -565,3 +549,54 @@ Collected while building the samples, so you don't have to rediscover them:
 - Semantics differ from stock Lua where listed above; when in doubt, test
   the pattern headlessly first:
   `./build/bin/fake2d_hello --headless --frames 100` plus `log_number`.
+
+### Not a bug: current FakeLua 2.0 semantics
+
+These look like workarounds and get mistaken for stale bug fixes, so they carry
+their own heading. **All verified against `a55a4bf` on 2026-10-04 — do not
+"clean them up".**
+
+- **A literal `local x` at file level is a read-only constant.** Reassigning it
+  fails with `cannot reassign file-level constant 'x'`, *not* the older GCC
+  `const-qualified type` error. Use an expression initializer (`0 + 0`) for
+  anything mutable. This is why the `+ 0` idiom appears on every mutable
+  numeric in the samples — 60 occurrences across the 5 scripts.
+- **A table built from an empty constructor and then field-assigned is
+  const.** `local t = {}` followed by `t.hp = 10` throws
+  `attempt to modify a const table`, *including inside* `update` — so this is
+  not the "per-frame tables are free" case (rule 7). It is a type-inference
+  artifact, and the shape matters:
+
+  ```lua
+  local t = {}          ; t.hp = 10     -- ERROR: const table
+  local t = {a = 1}     ; t.b = 2       -- ok
+  local t = {}          ; t[1] = 5      -- ok (index write)
+  local t = {}          ; table.insert(t, 7)  -- ok (native write)
+  ```
+
+  `scripts/game.lua:build_powers()` relies on the `t[i] = v` form and is
+  correct — do not "fix" it to a field write.
+- **A file-level `local` with no initializer is rejected**
+  ("global constant must be initialized").
+- **Undeclared names are a hard compile error** now
+  (`unknown variable 'x'; fakelua has no implicit globals`) rather than
+  silently miscompiling to `kNil`. This is the intended fix for the old
+  bug 5, so the sample scripts' universal `local` discipline is required
+  style, not a workaround.
+- **The `+ 0` idiom is not needed for bools** — `local done = false` and
+  then `done = true` works.
+
+### Reverted (were bug workarounds, no longer needed)
+
+Kept for reference so the old code is recognizable in review or in older
+branches:
+
+- ~~Multi-return helpers must take no typed parameters.~~ **Reverted** —
+  `598632f` added return-shape eligibility checks, so a multi-return local
+  function with typed parameters is safe again. `build_intent(frame)` in
+  `scripts/platformer_demo.lua` now takes the argument.
+- ~~Hoist arithmetic out of a call's trailing-argument slot.~~ **Reverted** —
+  `ef43eae` made `CompileExp` evaluate into a local before emitting, so
+  `camera_shake(math.min(0.5, impact / 1200.0))` and
+  `map_solid(map_id, ahead, feet_row - 1)` both compile fine again.
+
