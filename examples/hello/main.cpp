@@ -819,7 +819,7 @@ constexpr int kMTile = 32;
 constexpr int kMCols = 112;
 constexpr int kMRows = 15;
 constexpr int kMSheetCols = 8;
-constexpr int kMSheetRows = 4;
+constexpr int kMSheetRows = 3;
 
 constexpr std::uint32_t kMGroundTop = 1;
 constexpr std::uint32_t kMGroundFill = 2;
@@ -836,18 +836,6 @@ constexpr std::uint32_t kMPole = 12;
 constexpr std::uint32_t kMFlag = 13;
 constexpr std::uint32_t kMStone = 14;
 constexpr std::uint32_t kMGoomba = 15;
-// Slope tiles (Phase 8). The hill at cols 33..40 is the only mario terrain
-// the script reads back through map_slope_dir / map_ground_y. They reuse the
-// ground's brick palette so the hill reads as part of the level, with a
-// bright lip along the hypotenuse marking the walkable incline.
-constexpr std::uint32_t kMSlopeUp = 17;
-constexpr std::uint32_t kMSlopeDown = 18;
-// Plain dirt used to pack the body of the slope hill (gid 19/20). It carries
-// `solid` but no masonry pattern: the hill's silhouette is meant to be the
-// slope's diagonal, and a brick-textured fill would put a square shoulder
-// right under the ramp's lit edge and read as a staircase again.
-constexpr std::uint32_t kMHillFill = 19;
-constexpr std::uint32_t kMHillFillDeep = 20;
 
 void MPut(std::uint8_t *sheet, int id, int x, int y,
           std::uint8_t r, std::uint8_t g, std::uint8_t b, std::uint8_t a = 255) {
@@ -1157,58 +1145,6 @@ void PaintMarioSheet(std::uint8_t *sheet) {
         MPut(sheet, 14, i, kMTile - 1 - i, 220, 60, 200, 200);
     }
 
-    // 16/17 slope tiles (gid 17/18). A 45-degree walkable face from the
-    // cell's bottom-left corner to its top-right corner (`down` is the
-    // mirror), matching GroundYAt's `anchor - t * rise` for the default
-    // one-cell rise: the surface leaves the cell's bottom edge at t=0 and its
-    // top edge at t=1.
-    //
-    // The cell is SOLID BELOW the diagonal and open above it. Getting the
-    // side wrong is the classic trap — filling the sky side leaves a
-    // see-through notch right under the walked surface, and the packed dirt
-    // body behind it reads as steps. `below = y - line` (not `line - y`)
-    // because tile-local y grows downward, like world y.
-    const auto slope = [&](int id, bool rising) {
-        for (int x = 0; x < kMTile; ++x) {
-            const int line = rising ? ((kMTile - 1) - (x * (kMTile - 1)) / (kMTile - 1))
-                                    : ((x * (kMTile - 1)) / (kMTile - 1));
-            for (int y = 0; y < kMTile; ++y) {
-                const int below = y - line;  // depth under the surface
-                if (below >= 0 && below <= 1) {
-                    MPut(sheet, id, x, y, 255, 242, 192);  // walkable lip
-                } else if (below > 1) {
-                    const int d = (below - 2) * 20 / kMTile;
-                    MPut(sheet, id, x, y,
-                         static_cast<std::uint8_t>(176 - d),
-                         static_cast<std::uint8_t>(118 - d),
-                         static_cast<std::uint8_t>(54 - d));
-                } else {
-                    MPut(sheet, id, x, y, 0, 0, 0, 0);  // open above the face
-                }
-            }
-        }
-    };
-    slope(16, true);   // tile id 16 -> gid 17 — `slope=up`
-    slope(17, false);  // tile id 17 -> gid 18 — `slope=down`
-
-    // 18/19 hill fill (gid 19/20): unpatterned dirt, two tones so the packed
-    // body still reads as depth. Deliberately free of mortar lines — the hill
-    // silhouette has to be the ramp's diagonal, and brick courses directly
-    // under the lit edge turn it back into a staircase.
-    for (int i = 0; i < 2; ++i) {
-        const std::uint8_t base = i == 0 ? 176 : 150;
-        for (int y = 0; y < kMTile; ++y) {
-            for (int x = 0; x < kMTile; ++x) {
-                // Faint speckle so the fill is not a flat slab, but no lines.
-                const bool grit = ((x * 7 + y * 13 + i * 5) % 11) == 0;
-                const int d = grit ? 12 : 0;
-                MPut(sheet, 18 + i, x, y,
-                     static_cast<std::uint8_t>(base - d),
-                     static_cast<std::uint8_t>((base - d) * 68 / 100),
-                     static_cast<std::uint8_t>((base - d) * 31 / 100));
-            }
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1487,54 +1423,13 @@ void EnsureMarioAssets(bool regen = false) {
     if (at(57, 8) == 0) at(57, 8) = kMCoin;
 
     // goomba spawn markers (swept into entities on the first frame)
-    // Goomba markers sit on the flat ground beside the hill (row 12 is air
-    // there). One used to sit at (22,12) — inside the hill body — which both
-    // trapped the goomba in the hill and left a sky hole: the fill loop only
-    // packs empty cells, so the marker cell kept no dirt, and the script
-    // clears the marker to 0 at runtime.
-    at(27, 12) = kMGoomba;
+    at(22, 12) = kMGoomba;
     at(40, 12) = kMGoomba;
     at(51, 12) = kMGoomba;
     at(53, 12) = kMGoomba;
     at(66, 12) = kMGoomba;
     at(84, 12) = kMGoomba;
     at(86, 12) = kMGoomba;
-
-    // Slope hill (19..24): the Phase 8 tilemap-slope showcase.
-    //
-    // A ramp's surface spans exactly one cell, so a run of ramps has to step
-    // up a row per column for the surfaces to chain: col19 (row 12) runs
-    // 416 -> 384, col20 (row 11) runs 384 -> 352. The walkable surface is
-    // then continuous even though each cell is a single 32px incline — and
-    // once the ramp sprites are filled on the underside of their diagonal,
-    // the run renders as one smooth triangle rather than steps.
-    //
-    // The slope tiles carry ONLY `slope`, never `solid`: the query keeps the
-    // lowest candidate in its window, and a solid cell top (row *
-    // tile_height) would undercut the slope surface and pin the answer to
-    // flat ground.
-    for (int i = 0; i < 3; ++i) {
-        at(19 + i, 12 - i) = kMSlopeUp;    // cols 19..21, rows 12..10
-        at(23 + i, 10 + i) = kMSlopeDown;  // cols 23..25, rows 10..12
-    }
-    // Flat crest: its top must be 320 to meet the col-21 ramp's upper end and
-    // the col-23 ramp's lower end. Two ramps meeting back to back leave a
-    // V-shaped notch, so the crest is a solid cell instead.
-    at(22, 10) = kMGroundTop;
-    // Body of the hill: every cell from just under each ramp's surface down
-    // to the ground, filled with unpatterned dirt. Unpatterned because a
-    // brick course directly under the lit edge draws a square shoulder right
-    // beside the diagonal. The fill's top always lies below the slope surface
-    // above it and GroundYAt keeps the lowest candidate, so the incline wins.
-    for (int c = 19; c <= 25; ++c) {
-        const int wedge_row = c <= 21 ? 12 - (c - 19)
-                                      : (c == 22 ? 10 : 10 + (c - 23));
-        for (int r = wedge_row + 1; r <= 12; ++r) {
-            if (at(c, r) == 0) {
-                at(c, r) = (r >= 11) ? kMHillFill : kMHillFillDeep;
-            }
-        }
-    }
 
     // staircase up (91..94) then down (96..99); col 95 stays flat
     for (int i = 0; i < 4; ++i) {
@@ -1587,11 +1482,7 @@ void EnsureMarioAssets(bool regen = false) {
          << "      {\"id\": 6, \"properties\": [{\"name\": \"solid\", \"type\": \"bool\", \"value\": true}]},\n"
          << "      {\"id\": 7, \"properties\": [{\"name\": \"solid\", \"type\": \"bool\", \"value\": true}]},\n"
          << "      {\"id\": 8, \"properties\": [{\"name\": \"solid\", \"type\": \"bool\", \"value\": true}]},\n"
-         << "      {\"id\": 13, \"properties\": [{\"name\": \"solid\", \"type\": \"bool\", \"value\": true}]},\n"
-         << "      {\"id\": 16, \"properties\": [{\"name\": \"slope\", \"type\": \"string\", \"value\": \"up\"}]},\n"
-         << "      {\"id\": 17, \"properties\": [{\"name\": \"slope\", \"type\": \"string\", \"value\": \"down\"}]},\n"
-         << "      {\"id\": 18, \"properties\": [{\"name\": \"solid\", \"type\": \"bool\", \"value\": true}]},\n"
-         << "      {\"id\": 19, \"properties\": [{\"name\": \"solid\", \"type\": \"bool\", \"value\": true}]}\n"
+         << "      {\"id\": 13, \"properties\": [{\"name\": \"solid\", \"type\": \"bool\", \"value\": true}]}\n"
          << "    ]\n"
          << "  }],\n"
          << "  \"layers\": [{\n"
@@ -1610,6 +1501,253 @@ void EnsureMarioAssets(bool regen = false) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// slope demo assets
+//
+// A small "slope lab" instead of a game: three hills that exercise the three
+// things worth showing about Tiled slope tiles, side by side on flat ground.
+//
+//   A  rise 32 (default)  45-degree hill, one row up per column
+//   B  rise 64           steep hill, two rows up per column
+//   C  rise 32           long hill, to show the surface stays smooth
+//
+// The body of every hill is packed with DECORATIVE dirt that carries no
+// `solid`. That is the whole trick to making a ramp walkable: a solid cell
+// under the ramp blocks the player's horizontal sweep (box_hits_solid sees the
+// body), so the player gets stuck at the first column boundary instead of
+// climbing. Support on a ramp comes from map_ground_y, not from solid tiles.
+// ---------------------------------------------------------------------------
+
+constexpr int kSlopeCols = 48;
+constexpr int kSlopeRows = 15;
+constexpr int kSlopeSheetCols = 8;
+constexpr int kSlopeSheetRows = 1;
+// tile ids (gid = id + 1)
+constexpr std::uint32_t kSGrass = 0;
+constexpr std::uint32_t kSDirt = 1;
+constexpr std::uint32_t kSSlopeUp32 = 2;
+constexpr std::uint32_t kSSlopeDown32 = 3;
+constexpr std::uint32_t kSSlopeUp64 = 4;
+constexpr std::uint32_t kSSlopeDown64 = 5;
+constexpr std::uint32_t kSFill = 6;
+constexpr std::uint32_t kSFillDeep = 7;
+
+void PaintSlopeSheet(std::uint8_t *sheet) {
+    const int sw = kSlopeSheetCols * kMTile;
+    const auto put = [&](int id, int x, int y, std::uint8_t r, std::uint8_t g,
+                         std::uint8_t b, std::uint8_t a) {
+        const int ox = (id % kSlopeSheetCols) * kMTile;
+        const int oy = (id / kSlopeSheetCols) * kMTile;
+        std::uint8_t *px = sheet + (static_cast<std::size_t>(oy + y) * sw + ox + x) * 4;
+        px[0] = r;
+        px[1] = g;
+        px[2] = b;
+        px[3] = a;
+    };
+
+    for (int x = 0; x < kMTile; ++x) {
+        for (int y = 0; y < kMTile; ++y) {
+            // grass cap over dirt
+            const bool cap = y < 6;
+            const int d = (x + (cap ? 0 : 6)) % 16 < 2 ? 18 : 0;
+            put(kSGrass, x, y, static_cast<std::uint8_t>(96 - d + (cap ? 70 : 0)),
+                static_cast<std::uint8_t>(168 - d), static_cast<std::uint8_t>(72 - d), 255);
+            put(kSDirt, x, y, static_cast<std::uint8_t>(150 - d),
+                static_cast<std::uint8_t>(98 - d), static_cast<std::uint8_t>(52 - d), 255);
+        }
+    }
+
+    // Ramp art. A 45-degree face from one corner to the other with a lit lip
+    // on the hypotenuse, SOLID BELOW the line and open above it. `line`
+    // matches GroundYAt's `anchor - t * rise`: an `up` ramp's surface leaves
+    // the cell's bottom edge at t=0 and reaches its top edge at t=1. Tile-local
+    // y grows downward like world y, so the material is at `y - line`; filling
+    // the sky side instead leaves a notch under the walked surface and the
+    // hill reads as floating steps. A `rise=64` tile reuses this same cell —
+    // Tilemap::Draw stretches the sprite over the rise so art and query agree.
+    const auto wedge = [&](int id, bool rising) {
+        for (int x = 0; x < kMTile; ++x) {
+            const int line = rising
+                                 ? ((kMTile - 1) - (x * (kMTile - 1)) / (kMTile - 1))
+                                 : ((x * (kMTile - 1)) / (kMTile - 1));
+            for (int y = 0; y < kMTile; ++y) {
+                const int below = y - line;
+                if (below >= 0 && below <= 1) {
+                    put(id, x, y, 255, 242, 192, 255);  // walkable lip
+                } else if (below > 1) {
+                    const int d = (below - 2) * 22 / kMTile;
+                    put(id, x, y, static_cast<std::uint8_t>(150 - d),
+                        static_cast<std::uint8_t>(104 - d),
+                        static_cast<std::uint8_t>(58 - d), 255);
+                } else {
+                    put(id, x, y, 0, 0, 0, 0);  // open above the face
+                }
+            }
+        }
+    };
+    wedge(kSSlopeUp32, true);
+    wedge(kSSlopeDown32, false);
+    wedge(kSSlopeUp64, true);
+    wedge(kSSlopeDown64, false);
+
+    // Decorative body dirt: no mortar lines. A brick course right under the lit
+    // edge draws a square shoulder beside the diagonal and the hill reads as a
+    // staircase again.
+    for (int i = 0; i < 2; ++i) {
+        const int id = kSFill + i;
+        for (int x = 0; x < kMTile; ++x) {
+            for (int y = 0; y < kMTile; ++y) {
+                const int grit = ((x * 7 + y * 13 + i * 5) % 11) == 0 ? 14 : 0;
+                const int base = i == 0 ? 150 : 132;
+                put(id, x, y, static_cast<std::uint8_t>(base - grit),
+                    static_cast<std::uint8_t>((base - grit) * 70 / 100),
+                    static_cast<std::uint8_t>((base - grit) * 33 / 100), 255);
+            }
+        }
+    }
+}
+
+void EnsureSlopeAssets(bool regen) {
+    const std::filesystem::path dir = "assets";
+    std::error_code ec;
+    std::filesystem::create_directory(dir, ec);
+
+    const std::filesystem::path sheet_path = dir / "s_tiles.png";
+    if (regen || !std::filesystem::exists(sheet_path)) {
+        std::vector<std::uint8_t> sheet(
+            static_cast<std::size_t>(kSlopeSheetCols * kSlopeSheetRows) * kMTile * kMTile *
+                4,
+            0);
+        PaintSlopeSheet(sheet.data());
+        stbi_write_png(sheet_path.string().c_str(), kSlopeSheetCols * kMTile,
+                       kSlopeSheetRows * kMTile, 4, sheet.data(),
+                       kSlopeSheetCols * kMTile * 4);
+    }
+    {
+        const std::filesystem::path p = dir / "s_player.png";
+        if (regen || !std::filesystem::exists(p)) {
+            std::vector<std::uint8_t> buf(20 * 28 * 4, 0);
+            PaintMarioPlayer(buf.data(), 20, 28);
+            stbi_write_png(p.string().c_str(), 20, 28, 4, buf.data(), 20 * 4);
+        }
+    }
+
+    std::vector<std::uint32_t> gids(
+        static_cast<std::size_t>(kSlopeCols) * kSlopeRows, 0);
+    auto at = [&](int c, int r) -> std::uint32_t & {
+        return gids[static_cast<std::size_t>(r) * kSlopeCols + c];
+    };
+    for (int c = 0; c < kSlopeCols; ++c) {
+        at(c, 13) = kSGrass + 1;
+        at(c, 14) = kSDirt + 1;
+    }
+
+    // A: 45 degrees. Chaining rule: each column starts where the previous one
+    // ended, so with the default rise that means stepping up one row per column.
+    // col3 (row 12) runs 416 -> 384, col4 (row 11) runs 384 -> 352, and so on.
+    // No solid crest cell: an `up` ramp's upper end and the `down` ramp's lower
+    // end meet exactly (col5 ends at 320, col6 starts at 320), so the surface is
+    // continuous across the column boundary. Putting a solid grass cell there
+    // instead is what stalls a walker — the box is 28px tall and the slope only
+    // lifts it 1px per px, so the body still covers the crest's row when the
+    // feet are at ramp height, and the horizontal sweep is blocked by the very
+    // cell it is standing on.
+    at(3, 12) = kSSlopeUp32 + 1;
+    at(4, 11) = kSSlopeUp32 + 1;
+    at(5, 10) = kSSlopeUp32 + 1;
+    at(6, 10) = kSSlopeDown32 + 1;
+    at(7, 11) = kSSlopeDown32 + 1;
+    at(8, 12) = kSSlopeDown32 + 1;
+
+    // B: rise 64. The chaining rule scales with the rise, so each column steps
+    // up rise/tile_height = 2 rows. col14 (row 12) runs 448 -> 384 with its
+    // low end buried in the ground, col15 (row 10) runs 384 -> 320.
+    // col14 runs 448 -> 384, col15 runs 384 -> 320, col16 back down 320 -> 384.
+    // A solid cap at col16 was tried here and removed: the step from the
+    // steep ramp up to a 320 crest is 20px, more than the 16px step-up
+    // assist, so the player stalled on the ramp. The ramps already meet
+    // exactly at 320 across the boundary.
+    at(14, 12) = kSSlopeUp64 + 1;
+    at(15, 10) = kSSlopeUp64 + 1;
+    at(16, 10) = kSSlopeDown64 + 1;
+    at(17, 12) = kSSlopeDown64 + 1;
+
+    // C: a long 45-degree hill, to show the interpolated surface stays smooth
+    // over many cells instead of drifting.
+    for (int i = 0; i < 5; ++i) {
+        at(22 + i, 12 - i) = kSSlopeUp32 + 1;
+        at(27 + i, 8 + i) = kSSlopeDown32 + 1;
+    }
+
+
+    // Pack the body of every hill with DECORATIVE dirt (no `solid` — see the
+    // note above), starting below the whole span the ramp covers. A rise-64
+    // ramp is drawn over two rows, so filling from `top + 1` would overdraw its
+    // lower half and cut a horizontal seam across the hill — that is what made
+    // the steep section look like a tower with a spike on it instead of a
+    // clean 63-degree ramp.
+    const auto ramp_span = [](std::uint32_t gid) -> int {
+        if (gid == kSSlopeUp32 + 1 || gid == kSSlopeDown32 + 1) return 1;
+        if (gid == kSSlopeUp64 + 1 || gid == kSSlopeDown64 + 1) return 2;
+        return 1;
+    };
+    for (int c = 0; c < kSlopeCols; ++c) {
+        int top = -1;
+        for (int r = 0; r < 13; ++r) {
+            if (at(c, r) != 0) {
+                top = r;
+                break;
+            }
+        }
+        if (top < 0) continue;
+        for (int r = top + ramp_span(at(c, top)); r <= 12; ++r) {
+            if (at(c, r) == 0) {
+                // darker with depth, so a tall fill still reads as a solid body
+                at(c, r) = (r >= 11 ? kSFillDeep : kSFill) + 1;
+            }
+        }
+    }
+
+    std::ostringstream json;
+    json << "{\n"
+         << "  \"orientation\": \"orthogonal\",\n"
+         << "  \"width\": " << kSlopeCols << ", \"height\": " << kSlopeRows << ",\n"
+         << "  \"tilewidth\": " << kMTile << ", \"tileheight\": " << kMTile << ",\n"
+         << "  \"tilesets\": [{\n"
+         << "    \"firstgid\": 1, \"name\": \"s_tiles\",\n"
+         << "    \"tilewidth\": " << kMTile << ", \"tileheight\": " << kMTile << ",\n"
+         << "    \"columns\": " << kSlopeSheetCols
+         << ", \"tilecount\": " << kSlopeSheetCols * kSlopeSheetRows << ",\n"
+         << "    \"image\": \"s_tiles.png\",\n"
+         << "    \"imagewidth\": " << kSlopeSheetCols * kMTile
+         << ", \"imageheight\": " << kSlopeSheetRows * kMTile << ",\n"
+         << "    \"tiles\": [\n"
+         << "      {\"id\": 0, \"properties\": [{\"name\": \"solid\", \"type\": \"bool\", \"value\": true}]},\n"
+         << "      {\"id\": 1, \"properties\": [{\"name\": \"solid\", \"type\": \"bool\", \"value\": true}]},\n"
+         << "      {\"id\": 2, \"properties\": [{\"name\": \"slope\", \"type\": \"string\", \"value\": \"up\"}]},\n"
+         << "      {\"id\": 3, \"properties\": [{\"name\": \"slope\", \"type\": \"string\", \"value\": \"down\"}]},\n"
+         << "      {\"id\": 4, \"properties\": [{\"name\": \"slope\", \"type\": \"string\", \"value\": \"up\"},"
+            "{\"name\": \"slope_rise\", \"type\": \"int\", \"value\": 64}]},\n"
+         << "      {\"id\": 5, \"properties\": [{\"name\": \"slope\", \"type\": \"string\", \"value\": \"down\"},"
+            "{\"name\": \"slope_rise\", \"type\": \"int\", \"value\": 64}]}\n"
+         << "    ]\n"
+         << "  }],\n"
+         << "  \"layers\": [{\n"
+         << "    \"name\": \"world\", \"type\": \"tilelayer\", \"visible\": true,\n"
+         << "    \"opacity\": 1, \"data\": [";
+    for (std::size_t i = 0; i < gids.size(); ++i) {
+        if (i % kSlopeCols == 0) json << "\n      ";
+        json << gids[i] << (i + 1 == gids.size() ? "\n" : ", ");
+    }
+    json << "  ]}]\n}\n";
+
+    const std::filesystem::path level_path = dir / "slope.json";
+    if (regen || !std::filesystem::exists(level_path)) {
+        std::ofstream out(level_path, std::ios::binary);
+        out << json.str();
+    }
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -1622,6 +1760,7 @@ int main(int argc, char **argv) {
     bool map_demo = false;
     bool platformer_demo = false;
     bool mario_demo = false;
+    bool slope_demo = false;
     bool bench = false;
     bool phys_bench = false;
     int max_frames = 0;
@@ -1647,6 +1786,9 @@ int main(int argc, char **argv) {
         } else if (arg == "--mario-demo") {
             mario_demo = true;
             cfg.script_entry = "scripts/mario.lua";
+        } else if (arg == "--slope-demo") {
+            slope_demo = true;
+            cfg.script_entry = "scripts/slope_demo.lua";
         } else if (arg == "--screenshot" && i + 1 < argc) {
             screenshot = argv[++i];
         } else if (arg == "--shot-frame" && i + 1 < argc) {
@@ -1689,6 +1831,9 @@ int main(int argc, char **argv) {
     EnsureGameAssets();
     if (mario_demo) {
         EnsureMarioAssets(regen_assets);
+    }
+    if (slope_demo) {
+        EnsureSlopeAssets(regen_assets);
     }
     if (map_demo) {
         EnsureMapAssets();

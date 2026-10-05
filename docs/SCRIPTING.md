@@ -377,29 +377,47 @@ A slope's surface spans `slope_rise` pixels, anchored at
 `cell_bottom + rise - tile`. With the default rise (one cell) that is just the
 cell bottom, so a ramp's surface stays inside its own cell, and a run of ramps
 chains only if each column starts where the previous one ended: step the ramps
-**up one row per column** (col 19 on row 12 runs 416 → 384, col 20 on row 11
-runs 384 → 352, ...). The walkable surface is then a clean continuous diagonal.
+**up one row per column** (col 3 on row 12 runs 416 → 384, col 4 on row 11 runs
+384 → 352, ...). The walkable surface is then a clean continuous diagonal.
 Ramps in the **same row** never chain: they all start at the same height and
 repeat one identical incline, whatever `slope_rise` is.
 
 `slope_rise` taller than a cell steepens the ramp and stretches its sprite
 (`Tilemap::Draw` draws it over `rise` pixels so art and physics agree), but
 chaining scales with it: consecutive columns must step up `rise / tile_height`
-rows (two rows per column for `slope_rise = 64`). For a plain 45° hill the
-default rise with one-row-per-column is the simple, correct choice. Cap the
-crest with one flat cell; an `up` ramp meeting a `down` ramp directly leaves a
-V-shaped notch. The crest's top must equal the upper end of the rising run.
+rows (two rows per column for `slope_rise = 64`). `map_slope_rise(id, col, row)`
+returns the span so a script can check it. For a plain 45° hill the default rise
+with one-row-per-column is the simple, correct choice.
 
-**Never mark a slope cell `solid`.** The query keeps the *lowest* candidate in
-its window, and a solid cell's top (`row * tile_height`) sits below the
-interpolated surface, so it wins and pins the answer to flat ground.
+**Do not cap the crest with a solid cell.** An `up` ramp's upper end and the
+`down` ramp's lower end already meet exactly across a column boundary (col 5
+ends at 320, col 6 starts at 320), so no cap is needed. A cap is actively
+harmful: the player's box is 28px tall and the ramp only lifts it 1px per px, so
+the body still covers the crest's row when the feet are at ramp height, and the
+horizontal sweep is blocked by the very cell it is standing on. On a 45° hill
+the resulting step is ~10px and a step-up assist can carry it; on a `rise = 64`
+hill it is 20px, which a 16px assist cannot, and the player stops dead halfway
+up. (A cap *within one cell* — `up` then `down` in the same column — is the
+V-notched pyramid and does need a flat top.)
+
+**Never mark a slope cell `solid`, and never mark the fill under one either.**
+The query keeps the *lowest* candidate in its window, so a solid cell's top
+(`row * tile_height`) both pins `map_ground_y` to flat ground and — because
+`box_hits_solid` sees it too — blocks the player's horizontal sweep at the first
+column boundary. A hill whose body is packed with solid dirt is unwalkable: the
+player walks two steps and stalls. Pack the body with **decorative** dirt (no
+`solid` property at all) and let `map_ground_y` carry the player's weight.
 
 Two more things that decide how the hill looks:
 
-- **Pack the body with unpatterned dirt.** A ramp only covers its own span, so
-  the cells it passes through need a body. Do not use a brick-patterned fill:
-  a mortar course directly beneath the lit edge draws a square shoulder right
-  beside the diagonal, which is most of what makes a hill look like steps.
+- **Pack the body with unpatterned dirt, starting below the ramp's whole span.**
+  A ramp only covers its own span, so the cells it passes through need a body,
+  and the pack must start `rise / tile_height` rows below the ramp's row — a
+  `rise = 64` ramp is drawn over two rows, so packing from one row below
+  overdraws its lower half and cuts a horizontal seam across the hill. Do not
+  use a brick-patterned fill either: a mortar course directly beneath the lit
+  edge draws a square shoulder right beside the diagonal, which is most of what
+  makes a hill look like steps.
 - **Fill the sprite on the underside of the diagonal.** For `up`, the surface
   runs from the cell's bottom edge at `t=0` to its top edge at `t=1`, so the
   material is the lower-right triangle (larger tile-local y). Filling the sky
@@ -428,9 +446,19 @@ end
 
 A reach far from the feet (e.g. `feet + 96`) puts the real surface outside the
 window and returns -1 for every column, which reads as "no ground" rather than
-as a bug. Keep the reach within a tile or two. The mario demo
-(`scripts/mario.lua`, `ground_probe` / `snap_to_slope`) uses this to walk the
-hill at cols 19..24 in both directions, and the platformer demo
+as a bug. Keep the reach within a tile or two. The snap that consumes this probe
+should be gated on the **window only**, not on "is there a slope cell in the
+feet's row": a `rise = 64` ramp's cell sits two rows *above* the feet while the
+player is still at the bottom of the climb, so a slope-cell check silently
+disables the snap and the hill cannot be climbed at all.
+
+`--slope-demo` (`scripts/slope_demo.lua`) is the reference implementation and a
+walkthrough: three hills (45°, `rise = 64`, and a long 45°), a HUD that shows
+the live `col / feet / slope / rise` readout, and **V** to overlay the surface
+the engine reports — red dots sampled straight from `map_ground_y`, which makes
+the interpolation visible along each diagonal. `SLOPE_TEST_RIGHT=1` drives it
+headless and logs the feet height every 30 frames so a climb can be verified
+without a keyboard. The platformer demo
 (`scripts/platformer_demo.lua`, `ground_hint`) is the reference controller.
 
 #### Parallax and image layers
