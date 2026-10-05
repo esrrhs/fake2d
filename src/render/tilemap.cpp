@@ -306,6 +306,32 @@ int Tilemap::SlopeDirAt(int col, int row) const {
     return 0;
 }
 
+int Tilemap::SlopeRiseAt(int col, int row) const {
+    if (col < 0 || row < 0 || col >= cols_ || row >= rows_) {
+        return 0;
+    }
+
+    for (const Layer &layer : layers_) {
+        if (!layer.visible || layer.image_layer) {
+            continue;
+        }
+        const std::uint32_t gid =
+            layer.gids[static_cast<std::size_t>(row) * cols_ + col];
+        if (gid == 0) {
+            continue;
+        }
+        const Tileset *ts = FindTileset(gid);
+        if (ts == nullptr) {
+            continue;
+        }
+        const auto it = ts->slope_gids.find(gid);
+        if (it != ts->slope_gids.end()) {
+            return it->second.rise > 0 ? it->second.rise : tile_height_;
+        }
+    }
+    return 0;
+}
+
 float Tilemap::GroundYAt(float world_x, float reach_y) const {
     if (!IsValid() || world_x < 0.0f) {
         return -1.0f;

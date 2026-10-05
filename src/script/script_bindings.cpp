@@ -356,6 +356,17 @@ void RegisterTilemapApi(fakelua::State *state, Engine *engine) {
             }));
 
     fakelua::RegisterNativeFunction(
+        state, "map_slope_rise", false,
+        std::function<std::int64_t(fakelua::State *, std::int64_t, double, double)>(
+            [engine](fakelua::State *, std::int64_t id, double col,
+                     double row) -> std::int64_t {
+                const Tilemap *map = engine->GetTilemaps().Get(static_cast<int>(id));
+                return map ? map->SlopeRiseAt(static_cast<int>(col),
+                                              static_cast<int>(row))
+                           : 0;
+            }));
+
+    fakelua::RegisterNativeFunction(
         state, "map_ground_y", false,
         std::function<double(fakelua::State *, std::int64_t, double, double)>(
             [engine](fakelua::State *, std::int64_t id, double world_x,

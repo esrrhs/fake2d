@@ -101,7 +101,7 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 
 ## Phase 8 — Engine gaps & Super Mario gameplay (1.3.x) — done
 
-- [x] Tilemap slopes: parse `slope` ("up"/"down") and `slope_rise` tile properties; `map_slope_dir` query; `map_ground_y` linear surface height query; kinematic slope-walking controller support (showcased in `--mario-demo` as a Tiled-slope hill at cols 19..24)
+- [x] Tilemap slopes: parse `slope` ("up"/"down") and `slope_rise` tile properties; `map_slope_dir` query; `map_ground_y` linear surface height query; kinematic slope-walking controller support (showcased in `--slope-demo`: three Tiled-slope hills, a live surface overlay, and `map_slope_rise`)
 - [x] Tiled parallax & Image Layer: parse `parallaxx`/`parallaxy`, `offsetx`/`offsety`, and `imagelayer` with `repeatx`/`repeaty`; interleaving layers sorted in JSON order; `map_layer_count` / `map_layer_parallax_x/y` queries
 - [x] SaveStore KV persistence: JSON-based key/value storage in engine-managed save directory (`saves/`); slot validation against path traversal; `storage_load`, `storage_save`, `storage_get/set_num`, `storage_get/set_str`, `storage_has`, `storage_delete`, `storage_reset`
 - [x] EntityStore native fixed-slot storage: 256 C++-owned entity slots surviving FakeLua arena resets; tag + 8 double slots + 4 string slots; generation handles; `ent_create`, `ent_destroy`, `ent_num`, `ent_str`, `ent_count`, `ent_at`, `ent_clear`

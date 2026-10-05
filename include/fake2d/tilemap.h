@@ -72,6 +72,11 @@ public:
     /// Slope direction at the cell from the `slope` tile property:
     /// 0 = none, 1 = up (rises toward +x), 2 = down (lowers toward +x).
     [[nodiscard]] int SlopeDirAt(int col, int row) const;
+    /// Surface span of the slope cell in pixels (`slope_rise`, defaulting to
+    /// the tile height). 0 when the cell is not a slope. A script needs this
+    /// to reason about how steep a ramp is; the chaining rule for a run of
+    /// ramps is that each column steps up `rise / tile_height` rows.
+    [[nodiscard]] int SlopeRiseAt(int col, int row) const;
     /// Highest walkable surface y at world x within one tile of reach_y.
     /// Considers solid cell tops and interpolated slope surfaces; returns
     /// -1.0f when no surface is in range.

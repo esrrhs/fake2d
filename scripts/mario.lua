@@ -160,62 +160,6 @@ local function solid_at(c, r)
     return map_solid(map_id, c, r)
 end
 
--- Phase 8 tilemap slopes. The hill at cols 33..40 carries the Tiled `slope`
--- property on cells that step up one row each, which is what makes
--- GroundYAt's interpolation chain into one continuous incline.
---
--- A slope cell is deliberately NOT solid, so it never appears in map_solid
--- and never blocks a move on its own. These helpers exist so the rest of the
--- controller can tell "there is a ramp here" apart from "there is a wall".
-local function is_slope(c, r)
-    if map_slope_dir(map_id, c, r) ~= 0 then return true end
-    if map_slope_dir(map_id, c, r + 1) ~= 0 then return true end
-    if map_slope_dir(map_id, c, r + 2) ~= 0 then return true end
-    return false
-end
-
--- Walkable surface under a world x, or -1 for none. GroundYAt only scans the
--- rows within one tile of `reach_y` and returns the lowest candidate in that
--- window, so a single query can miss a ramp cell that sits a row above (or
--- below) the feet. Probing one tile up and one tile down and taking the
--- nearer result covers both the climb and the descent.
-local function ground_probe(wx, feet)
-    local lo = map_ground_y(map_id, wx, feet - TILE)
-    local hi = map_ground_y(map_id, wx, feet + TILE)
-    if lo >= 0.0 and hi >= 0.0 then
-        if hi < lo then return hi end
-        return lo
-    end
-    if lo >= 0.0 then return lo end
-    return hi
-end
-
--- Follow the ramp. Called every frame while grounded: it reads the
--- interpolated surface and places the feet on it, so walking right carries the
--- player up the near side and down the far side with no per-tile math. vy is
--- zeroed so leftover fall speed does not fight the snap.
-local function snap_to_slope()
-    local feet = py + box_h
-    -- Only the ramp's own column counts as ground here. Requiring the slope to
-    -- be in the row the feet occupy (or the row just above, where the surface
-    -- sits when climbing) keeps a jump that passes over the hill from being
-    -- dragged back down onto it.
-    local col = math.floor((px + box_w * 0.5) / TILE)
-    local r_now = math.floor(feet / TILE)
-    if map_slope_dir(map_id, col, r_now) == 0
-        and map_slope_dir(map_id, col, r_now - 1) == 0 then
-        if not on_ground then return end
-    end
-    local g = ground_probe(px + box_w * 0.5, feet)
-    if g < 0.0 then return end
-    -- Bounded follow: a surface far above or below the feet is a wall or a
-    -- pit, not the ramp being walked.
-    if g <= feet - 24.0 or g >= feet + 34.0 then return end
-    py = g - box_h
-    if vy > 0.0 then vy = 0.0 end
-    on_ground = true
-end
-
 local function box_hits_solid(nx, ny, w, h)
     local c0 = math.floor(nx / TILE)
     local c1 = math.floor((nx + w - 0.01) / TILE)
@@ -792,7 +736,7 @@ local function ai_wall_ahead(toes, sr)
     local base = math.floor(toes / TILE) + 1
     for dc = 0, 5 do
         local cc = base + dc
-        if solid_at(cc, sr) or is_slope(cc, sr) then
+        if solid_at(cc, sr) then
             local h = 1
             for up = 1, 5 do
                 if solid_at(cc, sr - up) then h = h + 1 else break end
@@ -1031,11 +975,6 @@ local function step_player(dt, intent_x, running, jump_pressed, jumbox_held)
         on_ground = true
         cut_used = false
     end
-
-    -- Phase 8: follow the slope surface. On the ramp the ground probe above
-    -- finds nothing (a slope cell is not solid), so this is what keeps the
-    -- player attached to the incline instead of sliding off it.
-    snap_to_slope()
 
     -- SMB edge rule: the player cannot walk left past the camera's left edge
     local left_bound = cam_x
