@@ -18,14 +18,16 @@
 --                     (shader_load / shader_set_* / draw_use_shader); the band
 --                     travels down it as the frame counter advances.
 --
--- Controls: Left/Right or A/D move, Shift run, Space/W/Up jump.
--- Headless: deterministic attract AI plays automatically (runs, clears
--- gaps/pipes and long-hops goombas); clear/game-over screens auto-reopen
--- after a few seconds so an unattended attract run loops forever.
+-- Controls: Left/Right or A/D move, Shift run, Space/W/Up jump, P toggles the
+--   attract AI.
+-- The attract AI (runs right on its own and hops walls/pits/goombas) is OFF
+-- by default so a human keeps full control of the controller. Press P to
+-- switch it back on for an unattended attract run. Headless runs that want
+-- the AI drive it with MARIO_TEST_AI=1.
 -- Debug hooks (test only): MARIO_TEST_DEATH=<frame>, MARIO_TEST_BIG=1,
 --   MARIO_TEST_WIN=<frame>, MARIO_TEST_RIGHT=1, MARIO_TEST_JUMP=1,
 --   MARIO_TEST_DIE3=1, MARIO_TEST_TP=<px>, MARIO_TEST_MUSH=1,
---   MARIO_TEST_PHYS=1, MARIO_TEST_BLOCKS=1.
+--   MARIO_TEST_PHYS=1, MARIO_TEST_BLOCKS=1, MARIO_TEST_AI=1.
 
 -- gids (must match the host-generated assets/mario.json)
 local G_GROUND, G_DIRT, G_BRICK, G_QUESTION, G_USED = 1, 2, 3, 4, 5
@@ -89,6 +91,10 @@ local coyote_t, buffer_t = 0.0 + 0.0, 0.0 + 0.0
 local cut_used = false
 local jump_hold = 0 + 0
 local ai_cd_t = 0.0 + 0.0
+-- Attract AI toggle. 0 = human has the controller (default), 1 = the AI
+-- drives. The AI used to be unconditional whenever no horizontal key was
+-- held, which meant it grabbed the controller the moment the player let go.
+local ai_enabled = 0 + 0
 local human_seen = 0 + 0
 local invinc = 0.0 + 0.0
 local mode = M_PLAY + 0
@@ -845,17 +851,30 @@ local function build_intent(dt)
         or input_key_down("up")
     if move ~= 0.0 or key_jump or real_held then human_seen = 1 end
 
+    -- P toggles the attract AI so a human keeps the controller by default.
+    if input_key_pressed("p") then
+        ai_enabled = 1 - ai_enabled
+        ai_cd_t = 0.0
+        log_number(860000 + ai_enabled)
+    end
+
     if test_jump == 1 then key_jump = true end
     local key_held = real_held
     if test_jump == 1 then key_held = true end
-    local running = input_key_down("shift")
+    -- The engine's key table spells the modifiers left_shift/right_shift;
+    -- "shift" resolves to nothing, so it silently never ran.
+    local running = input_key_down("left_shift")
+        or input_key_down("right_shift")
     if test_right == 1 then
         move = 1.0
         running = true
     end
 
-    -- attract AI when there is no human horizontal input. The scripted TP
-    -- hook disables it so deterministic fixtures can hold their position.
+    -- Attract AI, only while it is switched on and the human is not steering.
+    -- It used to engage on `move == 0` alone, so letting go of the keys handed
+    -- the controller to an AI that runs right and jumps on its own. P toggles
+    -- it; the scripted TP hook disables it so deterministic fixtures can hold
+    -- their position.
     --
     -- The planner only commits to jumps while grounded: it classifies the
     -- nearest threat (wall height / pit width / goomba gap) and jumps inside
@@ -863,7 +882,7 @@ local function build_intent(dt)
     -- ~196px horizontal arc). Airborne frames never queue jumps, so there is
     -- no buffered re-hop when landing. All timing is in seconds so the
     -- behaviour is identical at 60fps and under the headless fast clock.
-    if move == 0.0 and test_tp < 0.0 then
+    if ai_enabled == 1 and move == 0.0 and test_tp < 0.0 then
         ai_active = true
         move = 1.0
         running = true
@@ -1198,6 +1217,12 @@ local function draw_hud()
         draw_text_str("BEST " .. istr(best_score), sx + 16.0, sy + 34.0, 0.45,
                       1.0, 0.92, 0.55)
     end
+    -- Only shown while the attract AI actually has the controller, so the
+    -- default view stays clean.
+    if ai_enabled == 1 then
+        draw_text_str("DEMO AI ON  (P)", sx + 700.0, sy + 34.0, 0.45,
+                      0.6, 1.0, 0.6)
+    end
 end
 
 local function draw_banner(title, sub)
@@ -1471,6 +1496,7 @@ function update(dt)
         if td ~= nil then test_death = tonumber(td) + 0 end
         if tw ~= nil then test_win = tonumber(tw) + 0 end
         if os.getenv("MARIO_TEST_BIG") ~= nil then test_big = 1 end
+        if os.getenv("MARIO_TEST_AI") ~= nil then ai_enabled = 1 end
         if os.getenv("MARIO_TEST_RIGHT") ~= nil then test_right = 1 end
         if os.getenv("MARIO_TEST_JUMP") ~= nil then test_jump = 1 end
         local ttp = os.getenv("MARIO_TEST_TP")
