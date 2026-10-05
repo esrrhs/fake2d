@@ -9,9 +9,9 @@
 --   V              toggle the surface overlay
 --
 -- Headless hooks: SLOPE_TEST_RIGHT=1 holds right, SLOPE_TEST_JUMP=1 holds jump,
--- SLOPE_TEST_SURFACE=1 starts with the overlay on; the feet height is logged as
--- 900xxx every 30 frames so a climb can be verified without a human at the
--- keyboard.
+-- SLOPE_TEST_SURFACE=1 starts with the overlay on. The feet height is logged as
+-- 900xxx every 30 frames and each jump launch as 910xxx + px, so a climb (or a
+-- "cannot jump" regression) can be verified without a human at the keyboard.
 --
 -- Two rules decide whether a hill is walkable, and both were learned the hard
 -- way by the first slope terrain that shipped in the mario demo:
@@ -149,6 +149,12 @@ end
 -- feet is a wall, not a ramp.
 local function snap_to_slope()
     local feet = py + box_h
+    -- Never snap while rising. The surface below is still inside the +40px
+    -- window for the first frames of a jump, so without this the snap drags the
+    -- player straight back down and zeroes vy — the jump is cancelled before it
+    -- gets anywhere, which is what "cannot jump" looks like. Slope walking is
+    -- unaffected: there the snap itself moves the feet up, so vy stays 0.
+    if vy < 0.0 then return end
     local cx = px + box_w * 0.5
     local col = math.floor(cx / TILE)
     local r_now = math.floor(feet / TILE)
@@ -168,6 +174,10 @@ local function snap_to_slope()
     py = g - box_h
     if vy > 0.0 then vy = 0.0 end
     on_ground = true
+    -- Slope contact is ground contact: re-arm the variable-jump cut here too.
+    -- The solid probe below only fires on real tiles, so on a ramp cut_used
+    -- stayed true after the first jump and every later jump was refused.
+    cut_used = false
     snap_count = snap_count + 1
 end
 
@@ -262,6 +272,7 @@ local function step_player(dt, intent_x, running, jump_pressed, jump_held)
         buffer_t = 0.0
         cut_used = true
         launched = true
+        log_number(910000 + math.floor(px))
     end
     if not launched and not jump_held and vy < 0.0 and cut_used then
         vy = vy * JUMP_CUT
@@ -381,7 +392,16 @@ function update(dt)
     if cam_x > max_cam then cam_x = max_cam end
     if cam_x < 0.0 then cam_x = 0.0 end
     cam_y = 0.0
+    -- The engine camera has to be told where we are looking. Without this it
+    -- stays at the origin while the sky quad, the map and the HUD are all drawn
+    -- in world coordinates, so the view never scrolls and an unpainted strip
+    -- shows along the top and left edges.
+    camera_set_position(cam_x, cam_y)
+    -- Both ends are walls. Without the right one the player walks off the
+    -- level, falls out of the world, gets teleported back to the start, and the
+    -- whole view jumps with them.
     if px < cam_x then px = cam_x end
+    if px > MAP_W - box_w then px = MAP_W - box_w end
 
     -- headless climb trace: feet height every 30 frames
     if imod(frame_n, 30.0) == 0.0 then
