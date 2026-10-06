@@ -81,6 +81,21 @@ void AnimationSystem::Stop(int id) {
     }
 }
 
+void AnimationSystem::Pause(int id) {
+    if (Animation *a = Get(id)) {
+        a->playing = false;
+    }
+}
+
+void AnimationSystem::Resume(int id) {
+    if (Animation *a = Get(id)) {
+        if (a->frame_count > 0) {
+            a->playing = true;
+            a->finished = false;
+        }
+    }
+}
+
 bool AnimationSystem::IsPlaying(int id) const {
     const Animation *a = Get(id);
     return a != nullptr && a->playing;
@@ -89,6 +104,25 @@ bool AnimationSystem::IsPlaying(int id) const {
 bool AnimationSystem::Finished(int id) const {
     const Animation *a = Get(id);
     return a != nullptr && a->finished;
+}
+
+void AnimationSystem::SetFrameIndex(int id, int index) {
+    Animation *a = Get(id);
+    if (a == nullptr || a->frame_count == 0 || index < 0) {
+        return;
+    }
+    const auto clipped = static_cast<std::size_t>(
+        std::min(index, static_cast<int>(a->frame_count) - 1));
+    a->time = static_cast<float>(clipped) / a->fps;
+}
+
+int AnimationSystem::FrameIndex(int id) const {
+    const Animation *a = Get(id);
+    if (a == nullptr || a->frame_count == 0) {
+        return -1;
+    }
+    return static_cast<int>(std::min(
+        static_cast<std::size_t>(a->time * a->fps), a->frame_count - 1));
 }
 
 void AnimationSystem::Update(float dt) {
@@ -138,6 +172,16 @@ void AnimationSystem::Draw(int id, const ResourceManager &resources, SpriteBatch
     Rect src;
     if (CurrentFrame(id, resources, texture, src)) {
         batch.DrawSprite(*texture, src, dst, tint);
+    }
+}
+
+void AnimationSystem::DrawFlipped(int id, const ResourceManager &resources,
+                                  SpriteBatch &batch, const Rect &dst,
+                                  bool flip_x, bool flip_y, const Color &tint) const {
+    const Texture2D *texture = nullptr;
+    Rect src;
+    if (CurrentFrame(id, resources, texture, src)) {
+        batch.DrawSpriteFlipped(*texture, src, dst, flip_x, flip_y, tint);
     }
 }
 

@@ -26,6 +26,7 @@ local COYOTE, JUMP_BUFFER = 0.09, 0.12
 
 local map_id = 0 + 0
 local player_tex = 0 + 0
+local player_anim = 0 + 0
 local inited = false
 
 local px, py = 0.0 + 0.0, 0.0 + 0.0   -- top-left of the player box
@@ -354,6 +355,16 @@ function update(dt)
         inited = true
         map_id = map_load("assets/platformer.json")
         player_tex = sprite_load("assets/player.png")
+        -- 4-frame blob strip (idle / squash / stretch / airborne); state
+        -- logic pins the frame, the engine only stores/advances the clip.
+        player_anim = anim_create()
+        anim_frame(player_anim, player_tex, 0.0, 0.0, 20.0, 30.0)
+        anim_frame(player_anim, player_tex, 20.0, 0.0, 20.0, 30.0)
+        anim_frame(player_anim, player_tex, 40.0, 0.0, 20.0, 30.0)
+        anim_frame(player_anim, player_tex, 60.0, 0.0, 20.0, 30.0)
+        anim_fps(player_anim, 10.0)
+        anim_loop(player_anim, true)
+        anim_pause(player_anim)
         cols = map_cols(map_id)
         rows = map_rows(map_id)
         tile = map_tilew(map_id)
@@ -404,9 +415,9 @@ function update(dt)
     camera_set_position(cam_x, cam_y)
 
     map_draw(map_id)
-    -- Phase 9: mirror the right-facing art when walking left; the blob
-    -- strip is idle / squash / stretch / airborne, sampled as a 2-pose
-    -- gait while grounded.
+    -- mirror the right-facing art when walking left; the engine clip is
+    -- idle / squash / stretch / airborne, sampled as a 2-pose gait while
+    -- grounded.
     local pframe = 0 + 0
     if not on_ground then
         pframe = 3
@@ -415,10 +426,9 @@ function update(dt)
         local phase = math.floor(walk_t) - math.floor(math.floor(walk_t) / 4.0) * 4.0
         if phase == 0.0 or phase == 2.0 then pframe = 1 else pframe = 2 end
     end
-    local flip_x = 0.0
-    if facing < 0 then flip_x = 1.0 end
-    sprite_draw_flip(player_tex, pframe * 20.0, 0, 20, 30,
-                     px - 2.0, py - 2.0, 24.0, 34.0, flip_x, 0.0)
+    anim_set_frame(player_anim, pframe)
+    anim_draw_flip(player_anim, px - 2.0, py - 2.0, 24.0, 34.0,
+                   facing < 0, false)
     draw_debug(cam_x, cam_y, vw, vh)
 
     -- world-anchored HUD

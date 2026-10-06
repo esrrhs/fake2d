@@ -353,9 +353,37 @@ for i = 0, phys_contact_count() - 1 do ... end
 | `anim_frame(id, tex, sx, sy, sw, sh)` | Append a texture sub-rectangle frame. |
 | `anim_fps(id, fps)` | Playback rate. |
 | `anim_loop(id, bool)` | Loop, or freeze on the last frame. |
-| `anim_play(id)` / `anim_stop(id)` | Restart at frame 0 / halt. |
+| `anim_play(id)` / `anim_stop(id)` | Restart at frame 0 / halt and rewind to frame 0. |
+| `anim_pause(id)` / `anim_resume(id)` | Freeze keeping the current frame/clock / continue without rewinding. |
+| `anim_set_frame(id, i)` | Pin the clip to an explicit frame (clipped to the clip). |
+| `anim_frame_index(id) -> int` | Current frame index (-1 when invalid/empty). |
 | `anim_finished(id) -> bool` | One-shot clip ran to completion. |
 | `anim_draw(id, x, y, w, h)` | Draw the current frame; the engine advances time itself. |
+| `anim_draw_flip(id, x, y, w, h, flip_x, flip_y)` | Same, mirrored in UV space (character facing). |
+
+Two usage styles:
+
+```lua
+-- 1) decorative auto-loop: build once, the engine advances forever
+coin = anim_create()
+anim_frame(coin, tex, 0, 0, 16, 16); anim_frame(coin, tex, 16, 0, 16, 16)
+anim_fps(coin, 9); anim_loop(coin, true); anim_play(coin)
+anim_draw(coin, x, y, 20, 20)
+
+-- 2) stateful character: paused clip, gameplay picks the frame each update
+hero = anim_create()                       -- idle / step A / step B / airborne
+for f = 0, 3 do anim_frame(hero, tex, f * fw, 0, fw, fh) end
+anim_pause(hero)
+...
+local fr = airborne and 3 or (moving and gait_frame() or 0)
+anim_set_frame(hero, fr)
+anim_draw_flip(hero, px, py, fw, fh, facing < 0, false)
+```
+
+Animations live in a fixed C++ pool (like `ent_*`), so they survive the
+per-frame Lua arena reset; pair every `anim_create` with an `anim_destroy`
+when the owner despawns. The mario demo stores the goomba's anim id in
+entity number slot 7 and destroys both together.
 
 ### Tilemap
 

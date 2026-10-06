@@ -60,6 +60,7 @@ local STEP_UP = 16.0
 
 local map_id = 0 + 0
 local tex_player = 0 + 0
+local anim_player = 0 + 0
 local inited = false
 
 local px, py = 0.0 + 0.0, 0.0 + 0.0
@@ -376,6 +377,15 @@ function update(dt)
         inited = true
         map_id = map_load("assets/slope.json")
         tex_player = sprite_load("assets/s_player.png")
+        -- 4-frame walk strip (idle / stride A / stride B / airborne)
+        anim_player = anim_create()
+        anim_frame(anim_player, tex_player, 0.0, 0.0, box_w, box_h)
+        anim_frame(anim_player, tex_player, box_w, 0.0, box_w, box_h)
+        anim_frame(anim_player, tex_player, box_w * 2.0, 0.0, box_w, box_h)
+        anim_frame(anim_player, tex_player, box_w * 3.0, 0.0, box_w, box_h)
+        anim_fps(anim_player, 10.0)
+        anim_loop(anim_player, true)
+        anim_pause(anim_player)
         test_right = os.getenv("SLOPE_TEST_RIGHT") ~= nil
         test_jump = os.getenv("SLOPE_TEST_JUMP") ~= nil
         show_surface = os.getenv("SLOPE_TEST_SURFACE") ~= nil
@@ -428,8 +438,8 @@ function update(dt)
     draw_quad(cam_x, cam_y, cam_vw, cam_vh, 0.36, 0.58, 0.95, 1.0)
     map_draw(map_id)
     if show_surface then draw_surface() end
-    -- Phase 9: face the direction of travel and play the walk strip
-    -- (idle / stride A / stride B / airborne).
+    -- face the direction of travel; the engine clip plays the walk strip
+    -- (idle / stride A / stride B / airborne), state logic pins the frame.
     local pframe = 0 + 0
     if not on_ground then
         pframe = 3
@@ -438,9 +448,8 @@ function update(dt)
         local phase = math.floor(walk_t) - math.floor(math.floor(walk_t) / 4.0) * 4.0
         if phase == 0.0 or phase == 2.0 then pframe = 1 else pframe = 2 end
     end
-    sprite_draw_flip(tex_player, pframe * box_w, 0, box_w, box_h,
-                     px, py, box_w, box_h,
-                     facing < 0 and 1.0 or 0.0, 0.0)
+    anim_set_frame(anim_player, pframe)
+    anim_draw_flip(anim_player, px, py, box_w, box_h, facing < 0, false)
     draw_labels()
     draw_hud()
     return 0

@@ -37,9 +37,20 @@ public:
     /// Restart playback at frame 0.
     void Play(int id);
     void Stop(int id);
+    /// Freeze playback on the current frame; the frame and clock are kept.
+    void Pause(int id);
+    /// Continue from the paused frame without restarting (unlike Play()).
+    void Resume(int id);
     [[nodiscard]] bool IsPlaying(int id) const;
     /// True for a stopped non-looping clip that has run to its last frame.
     [[nodiscard]] bool Finished(int id) const;
+
+    /// Pin the playback clock to an explicit frame (clipped to the clip).
+    /// Lets game logic drive stateful characters (idle/airborne poses)
+    /// while the clip stays a normal animation. No-op for invalid indices.
+    void SetFrameIndex(int id, int index);
+    /// Current frame index; -1 when the id is invalid or the clip is empty.
+    [[nodiscard]] int FrameIndex(int id) const;
 
     /// Advanced automatically by the engine once per frame.
     void Update(float dt);
@@ -51,6 +62,11 @@ public:
     /// Convenience: draw the current frame mapped to dst (0 rotation).
     void Draw(int id, const ResourceManager &resources, SpriteBatch &batch,
               const Rect &dst, const Color &tint = Color::White()) const;
+
+    /// Same as Draw, mirroring the frame in UV space when flip_x/flip_y.
+    void DrawFlipped(int id, const ResourceManager &resources, SpriteBatch &batch,
+                     const Rect &dst, bool flip_x, bool flip_y,
+                     const Color &tint = Color::White()) const;
 
     void Clear();
     [[nodiscard]] std::size_t AnimationCount() const;
