@@ -66,6 +66,11 @@ public:
     /// Draw sub-region (src) of texture mapped to dst rect.
     void DrawSprite(const Texture2D &texture, const Rect &src, const Rect &dst, const Color &tint = Color::White());
 
+    /// Draw sub-region (src) of texture mapped to dst rect, optionally
+    /// mirroring it horizontally (flip_x) and/or vertically (flip_y).
+    void DrawSpriteFlipped(const Texture2D &texture, const Rect &src, const Rect &dst,
+                           bool flip_x, bool flip_y, const Color &tint = Color::White());
+
     /// Draw rotated sprite with rotation origin.
     void DrawSpriteRotated(const Texture2D &texture, const Rect &src, const Rect &dst,
                            float angle_rad, const Vec2 &origin, const Color &tint = Color::White());

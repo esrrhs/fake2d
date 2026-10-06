@@ -32,6 +32,8 @@ local px, py = 0.0 + 0.0, 0.0 + 0.0   -- top-left of the player box
 local vx, vy = 0.0 + 0.0, 0.0 + 0.0
 local on_ground = false
 local facing = 1 + 0
+-- squash-and-stretch walk phase for the 4-frame blob strip
+local walk_t = 0.0 + 0.0
 local coyote_t = 0.0 + 0.0
 local buffer_t = 0.0 + 0.0
 local cut_used = false
@@ -271,6 +273,13 @@ local function build_intent(frame)
     local move = 1.0
     if input_key_down("left") or input_key_down("a") then move = -1.0 end
     if input_key_down("right") or input_key_down("d") then move = 1.0 end
+    -- Phase 9: gamepad steering overrides the attract-AI default whenever a
+    -- pad is plugged in and deflected past the digital threshold.
+    if input_pad_connected(0) then
+        local lx = input_pad_axis(0, "left_x")
+        if lx < -0.5 or input_pad_down(0, "dpad_left") then move = -1.0 end
+        if lx > 0.5 or input_pad_down(0, "dpad_right") then move = 1.0 end
+    end
 
     local cx, cy = center()
     local feet_row = math.floor((cy + HALF_H + 4.0) / tile)
@@ -294,6 +303,7 @@ local function build_intent(frame)
 
     local key_jump = input_key_pressed("space") or input_key_pressed("w")
         or input_key_pressed("up")
+    if input_pad_connected(0) and input_pad_pressed(0, "a") then key_jump = true end
     local ai_jump = wall or (on_ground and gap) or coin_ahead or (frame % 80 == 0)
     local pressed = key_jump or (ai_jump and jump_hold == 0)
     if pressed then jump_hold = 12 end
@@ -394,7 +404,21 @@ function update(dt)
     camera_set_position(cam_x, cam_y)
 
     map_draw(map_id)
-    sprite_draw(player_tex, px - 2.0, py - 2.0, 24.0, 34.0)
+    -- Phase 9: mirror the right-facing art when walking left; the blob
+    -- strip is idle / squash / stretch / airborne, sampled as a 2-pose
+    -- gait while grounded.
+    local pframe = 0 + 0
+    if not on_ground then
+        pframe = 3
+    elseif math.abs(vx) > 12.0 then
+        walk_t = walk_t + dt * 8.0
+        local phase = math.floor(walk_t) - math.floor(math.floor(walk_t) / 4.0) * 4.0
+        if phase == 0.0 or phase == 2.0 then pframe = 1 else pframe = 2 end
+    end
+    local flip_x = 0.0
+    if facing < 0 then flip_x = 1.0 end
+    sprite_draw_flip(player_tex, pframe * 20.0, 0, 20, 30,
+                     px - 2.0, py - 2.0, 24.0, 34.0, flip_x, 0.0)
     draw_debug(cam_x, cam_y, vw, vh)
 
     -- world-anchored HUD

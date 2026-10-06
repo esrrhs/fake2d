@@ -68,6 +68,9 @@ public:
 
     void DrawSprite(const Texture2D &texture, float x, float y, float w = 0.0f, float h = 0.0f, const Color &tint = Color::White());
     void DrawSprite(const Texture2D &texture, const Rect &src, const Rect &dst, const Color &tint = Color::White());
+    /// Mirrored variant: flip_x/flip_y mirror the source region via UV swap.
+    void DrawSpriteFlipped(const Texture2D &texture, const Rect &src, const Rect &dst,
+                           bool flip_x, bool flip_y, const Color &tint = Color::White());
     void DrawSpriteRotated(const Texture2D &texture, const Rect &src, const Rect &dst,
                            float angle_rad, const Vec2 &origin, const Color &tint = Color::White());
 

@@ -162,6 +162,22 @@ void Engine::SetFrameCallback(std::function<void(Engine &)> callback) {
     impl_->config.on_frame = std::move(callback);
 }
 
+void Engine::RequestQuit() {
+    impl_->window.SetShouldClose(true);
+}
+
+void Engine::SetWindowTitle(std::string_view title) {
+    impl_->window.SetTitle(std::string(title).c_str());
+}
+
+void Engine::SetFullscreen(bool fullscreen) {
+    impl_->window.SetFullscreen(fullscreen);
+}
+
+bool Engine::IsFullscreen() const {
+    return impl_ && impl_->window.IsFullscreen();
+}
+
 bool Engine::IsRunning() const {
     return impl_ && impl_->running;
 }

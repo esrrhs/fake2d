@@ -119,6 +119,7 @@ function says otherwise.
 | `sprite_draw_tinted(handle, x, y, w, h, r, g, b, a)` | Sprite multiplied by a tint color (white texture + color = tinted shapes). |
 | `sprite_draw_region(handle, sx, sy, sw, sh, dx, dy, dw, dh)` | Sub-rectangle of the texture. |
 | `sprite_draw_rotated(handle, sx, sy, sw, sh, dx, dy, dw, dh, angle_rad, ox, oy)` | Region drawn rotated; `(ox, oy)` is the rotation origin inside the destination quad. |
+| `sprite_draw_flip(handle, sx, sy, sw, sh, dx, dy, dw, dh, flip_x, flip_y)` | Region mirrored horizontally/vertically (pass `1`/`0`). Mirroring only swaps UVs — one right-facing asset covers both walk directions without breaking the batch. |
 
 Draw calls are batched into one vertex stream; texture switches flush the
 batch, so grouping draws by texture keeps draw calls low.
@@ -272,6 +273,37 @@ Key names: `"a"`–`"z"`, `"0"`–`"9"`, `"f1"`–`"f12"`, `"space"`, `"enter"`,
 `"caps_lock"`, `"left_shift"`, `"right_shift"`, `"left_control"`,
 `"right_control"`, `"left_alt"`, `"right_alt"`, `"left_super"`,
 `"right_super"`, `"menu"`, and punctuation `"-" "=" "[" "]" "\\" ";" "'" "\`" "," "." "/"`.
+
+#### Gamepad
+
+Polled every frame through GLFW's standard gamepad mapping (Xbox layout);
+`pad` is a 0-based slot (`0` is the first controller). A disconnected pad
+reads as fully neutral, so no guard beyond `input_pad_connected` is needed.
+
+| Function | Description |
+|---|---|
+| `input_pad_connected(pad) -> bool` | A gamepad with a recognized mapping is present. |
+| `input_pad_down(pad, button) -> bool` / `input_pad_pressed(...)` / `input_pad_released(...)` | Button held / edge-down / edge-up. |
+| `input_pad_axis(pad, axis) -> number` | Stick axes return `-1..1` (radial dead-zone 0.20 removed, rescaled); triggers return `0..1`. |
+| `input_pad_name(pad) -> string` | OS/driver-reported controller name (`""` when absent). |
+
+Buttons: `"a"`, `"b"`, `"x"`, `"y"`, `"left_bumper"`, `"right_bumper"`,
+`"back"`, `"start"`, `"guide"`, `"left_thumb"`, `"right_thumb"`,
+`"dpad_up"`, `"dpad_right"`, `"dpad_down"`, `"dpad_left"`.
+Axes: `"left_x"`, `"left_y"`, `"right_x"`, `"right_y"`,
+`"left_trigger"`, `"right_trigger"`. Hot-unplug mid-frame simply reads
+neutral; pressed/released edges are produced against the previous snapshot.
+
+### Window
+
+| Function | Description |
+|---|---|
+| `window_quit()` | Ask the host window to close after the current frame; ends `Run()`. |
+| `window_set_title(text)` | Update the OS title bar text. |
+| `window_set_fullscreen(flag)` | Enter/leave borderless fullscreen on the primary monitor; the windowed geometry is saved and restored on exit. |
+| `window_fullscreen() -> bool` | Current fullscreen state. |
+
+All four are safe no-ops in headless/CI runs (no window surface exists).
 
 ### Time
 
@@ -685,6 +717,23 @@ their own heading. **All verified against `a55a4bf` on 2026-10-04 — do not
 
   `scripts/game.lua:build_powers()` relies on the `t[i] = v` form and is
   correct — do not "fix" it to a field write.
+
+  Additional file-level findings (GCC JIT, verified 2026-10-06 while building
+  a native-API test harness): when a file-level empty table is mutated from
+  another function (an upvalue), only a **dynamic key** write is allowed:
+
+  ```lua
+  local t = {}
+  function set(k, v) t[k] = v end     -- ok: k is a variable
+  set("a", 1)                         -- ok
+  function bad()  t["a"] = 1  end     -- ERROR: string-literal bracket key
+                                      -- is the same as t.a = 1 (field write)
+  function del(k) t[k] = nil end     -- ERROR: deleting also modifies const
+  ```
+
+  Use numeric/boolean marker values (e.g. store a frame id, compare later)
+  instead of inserting/deleting keys, or keep the state in C++ slots
+  (`ent_set_num` / `SaveStore`).
 - **A file-level `local` with no initializer is rejected**
   ("global constant must be initialized").
 - **Undeclared names are a hard compile error** now

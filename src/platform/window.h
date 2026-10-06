@@ -25,6 +25,14 @@ public:
     void PollEvents();
     void SwapBuffers();
     [[nodiscard]] bool ShouldClose() const;
+    /// Programmatic close request (equivalent to the user clicking the X).
+    void SetShouldClose(bool close = true);
+    /// Update the OS window title bar text.
+    void SetTitle(const char *title);
+    /// Toggle borderless fullscreen on the primary monitor; restoring
+    /// returns to the windowed geometry captured at enter time.
+    void SetFullscreen(bool fullscreen);
+    [[nodiscard]] bool IsFullscreen() const { return fullscreen_; }
     [[nodiscard]] GLFWwindow *Handle() const { return handle_; }
     /// Logical window size in points.
     [[nodiscard]] int Width() const { return width_; }
@@ -44,6 +52,12 @@ private:
     int fb_width_ = 0;
     int fb_height_ = 0;
     float content_scale_ = 1.0f;
+    bool fullscreen_ = false;
+    // Windowed geometry saved when entering fullscreen for a clean restore.
+    int windowed_x_ = 0;
+    int windowed_y_ = 0;
+    int windowed_w_ = 0;
+    int windowed_h_ = 0;
 };
 
 } // namespace fake2d::platform

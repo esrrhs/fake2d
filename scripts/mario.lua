@@ -38,7 +38,7 @@ local G_POLEBALL, G_POLE, G_FLAG, G_STONE, G_GOOMBA_MARK = 11, 12, 13, 14, 15
 local TAG_GOOMBA, TAG_MUSH = 1, 2
 local TAG_BUMP, TAG_POPUP, TAG_RESTORE = 10, 11, 20
 -- goomba/mushroom number slots
-local S_X, S_Y, S_VX, S_VY, S_STATE, S_T, S_DIR = 0, 1, 2, 3, 4, 5, 6
+local S_X, S_Y, S_VX, S_VY, S_STATE, S_T, S_DIR, S_ANIM = 0, 1, 2, 3, 4, 5, 6, 7
 local GOOMBA_WALK, GOOMBA_SQUASH, GOOMBA_DEAD = 1, 2, 3
 local MUSH_EMERGE, MUSH_WALK = 0, 1
 
@@ -87,6 +87,10 @@ local box_w, box_h = 20.0 + 0.0, 28.0 + 0.0
 local big = 0 + 0
 local on_ground = false
 local facing = 1 + 0
+-- Walk-cycle phase accumulator (seconds of actual ground movement). The
+-- 4-frame strip is idle / stride A / stride B / airborne, sampled as the
+-- classic 3-pose loop step-idle-step while grounded.
+local walk_t = 0.0 + 0.0
 local coyote_t, buffer_t = 0.0 + 0.0, 0.0 + 0.0
 local cut_used = false
 local jump_hold = 0 + 0
@@ -541,6 +545,8 @@ local function update_goombas(dt)
                 for _ = 1, steps do
                     body_move(id, 26.0, 26.0, dt / steps)
                 end
+                -- waddle phase for the 2-frame strip
+                ent_set_num(id, S_ANIM, ent_num(id, S_ANIM) + dt)
                 local y = ent_num(id, S_Y)
                 local gxx = ent_num(id, S_X)
                 if y > GROUND_TOP + 120.0 or gxx < cam_x - 80.0
@@ -786,13 +792,26 @@ local function build_intent(dt)
     local pressed = false
     local held = false
     local ai_active = false
+    local pad = input_pad_connected(0)
     if input_key_down("left") or input_key_down("a") then move = -1.0 end
     if input_key_down("right") or input_key_down("d") then move = 1.0 end
+    -- Phase 9: gamepad left stick / dpad steer (the axis already has its
+    -- dead zone removed; 0.5 is the digital-engagement threshold).
+    if pad then
+        local lx = input_pad_axis(0, "left_x")
+        if lx < -0.5 or input_pad_down(0, "dpad_left") then move = -1.0 end
+        if lx > 0.5 or input_pad_down(0, "dpad_right") then move = 1.0 end
+    end
 
     local key_jump = input_key_pressed("space") or input_key_pressed("w")
         or input_key_pressed("up")
     local real_held = input_key_down("space") or input_key_down("w")
         or input_key_down("up")
+    -- A jumps (edge + hold, mirroring the keyboard semantics).
+    if pad then
+        if input_pad_pressed(0, "a") then key_jump = true end
+        if input_pad_down(0, "a") then real_held = true end
+    end
     if move ~= 0.0 or key_jump or real_held then human_seen = 1 end
 
     -- P toggles the attract AI so a human keeps the controller by default.
@@ -809,6 +828,10 @@ local function build_intent(dt)
     -- "shift" resolves to nothing, so it silently never ran.
     local running = input_key_down("left_shift")
         or input_key_down("right_shift")
+    -- X (or either shoulder trigger) is the run button on a gamepad.
+    if pad and (input_pad_down(0, "x") or input_pad_axis(0, "right_trigger") > 0.5) then
+        running = true
+    end
     if test_right == 1 then
         move = 1.0
         running = true
@@ -1046,7 +1069,27 @@ local function bump_offset(c, r)
     return 0.0
 end
 
-local function draw_world()
+-- Pick a frame from the 4-frame strip:
+-- 0 idle, 1/2 strides, 3 airborne. Ground movement advances walk_t at a
+-- cadence proportional to speed, cycling step-A -> idle -> step-B -> idle
+-- (the SMB three-pose walk); standing still holds frame 0.
+local function player_frame(dt)
+    if not on_ground then
+        return 3
+    end
+    local speed = math.abs(vx)
+    if speed < 12.0 then
+        return 0
+    end
+    walk_t = walk_t + dt * (6.0 + 5.0 * speed / RUN_SPEED)
+    local p = imod(math.floor(walk_t), 4.0)
+    if p == 0.0 or p == 2.0 then
+        return 1
+    end
+    return 2
+end
+
+local function draw_world(dt)
     draw_quad(cam_x, cam_y, cam_vw, cam_vh, 0.36, 0.58, 0.95, 1.0)
     map_draw(map_id)
 
@@ -1108,19 +1151,34 @@ local function draw_world()
             local gx = ent_num(id, S_X)
             local gy = ent_num(id, S_Y)
             if st == GOOMBA_SQUASH then
-                sprite_draw(tex_goomba, gx - 1.0, gy + 16.0, 28, 12)
+                -- squashed: frame 0 squished vertically into the lower half
+                sprite_draw_flip(tex_goomba, 0, 0, 28, 28,
+                                 gx - 1.0, gy + 16.0, 28, 12, 0.0, 0.0)
             else
-                sprite_draw(tex_goomba, gx, gy, 28, 28)
+                -- 2-frame waddle; mirror against the patrol direction
+                local wf = imod(math.floor(ent_num(id, S_ANIM) * 8.0), 2.0)
+                local gflip = 0.0
+                if ent_num(id, S_VX) < 0.0 then gflip = 1.0 end
+                sprite_draw_flip(tex_goomba, wf * 28.0, 0, 28, 28,
+                                 gx, gy, 28, 28, gflip, 0.0)
             end
         end
     end
 
-    -- player (blinks while invincible)
+    -- player (blinks while invincible); face the movement direction.
+    -- Phase 9: sprite_draw_flip mirrors the texture in UV space, so the
+    -- single right-facing piece of art works for both directions. The src
+    -- rect walks across a 4-frame strip (idle/stride/stride/airborne).
     local blink = invinc <= 0.0 or imod(math.floor(invinc * 12.0), 2.0) == 0.0
     if blink and mode ~= M_GAMEOVER then
         local tex = tex_ps
-        if big == 1 then tex = tex_pb end
-        sprite_draw(tex, px, py, box_w, box_h)
+        local fw, fh = 20.0, 28.0
+        if big == 1 then tex = tex_pb; fw, fh = 24.0, 44.0 end
+        local flip_x = 0.0
+        if facing < 0 then flip_x = 1.0 end
+        local fr = player_frame(dt)
+        sprite_draw_flip(tex, fr * fw, 0, fw, fh,
+                         px, py, box_w, box_h, flip_x, 0.0)
     end
 
     -- score popups
@@ -1490,6 +1548,10 @@ function update(dt)
     end
 
     mtime = mtime + sdt
+    -- Esc or the gamepad Back/Select button leaves the game from any mode.
+    if input_key_pressed("escape") or input_pad_pressed(0, "back") then
+        window_quit()
+    end
     if invinc > 0.0 then invinc = math.max(0.0, invinc - sdt) end
     if buffer_t > 0.0 then buffer_t = math.max(0.0, buffer_t - sdt) end
     if coyote_t > 0.0 then coyote_t = math.max(0.0, coyote_t - sdt) end
@@ -1548,7 +1610,8 @@ function update(dt)
         end
     elseif mode == M_GAMEOVER then
         if input_key_pressed("space") or input_key_pressed("w")
-            or input_key_pressed("up") or test_jump == 1 then
+            or input_key_pressed("up") or input_pad_pressed(0, "a")
+            or test_jump == 1 then
             full_reset()
         elseif human_seen == 0 and mtime > 4.5 then
             -- unattended attract: loop forever
@@ -1557,7 +1620,7 @@ function update(dt)
         end
     elseif mode == M_CLEAR then
         if input_key_pressed("space") or input_key_pressed("w")
-            or input_key_pressed("up") then
+            or input_key_pressed("up") or input_pad_pressed(0, "a") then
             reset_level()
         elseif human_seen == 0 and mtime > 4.5 then
             reset_level()
@@ -1610,14 +1673,16 @@ function update(dt)
     cam_x = clampf(cam_x, 0.0, cam_hi)
     camera_set_position(cam_x, 0.0)
 
-    draw_world()
+    draw_world(sdt)
     draw_hud()
 
     if frame_n < 200 and mode == M_PLAY then
         local hx = cam_x + 150.0
         local hy = cam_y + 500.0
-        draw_text_str("ARROWS/A/D MOVE   SHIFT RUN   SPACE JUMP",
+        draw_text_str("ARROWS/A/D MOVE   SHIFT RUN   SPACE JUMP   ESC QUIT",
                       hx, hy, 0.6, 1.0, 1.0, 1.0)
+        draw_text_str("GAMEPAD: STICK/D-PAD MOVE   X RUN   A JUMP   BACK QUIT",
+                      hx, hy + 22.0, 0.5, 0.85, 0.9, 1.0)
     end
 
     if mode == M_GAMEOVER then

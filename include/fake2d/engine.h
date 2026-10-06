@@ -61,6 +61,15 @@ public:
     /// Set/replace the per-frame C++ hook (usable any time, including after Init).
     void SetFrameCallback(std::function<void(Engine &)> callback);
 
+    // --- window control (safe no-ops in headless runs) ---
+    /// Ask the host window to close after this frame; ends Run().
+    void RequestQuit();
+    /// Replace the OS title bar text.
+    void SetWindowTitle(std::string_view title);
+    /// Enter/leave borderless fullscreen on the primary monitor.
+    void SetFullscreen(bool fullscreen);
+    [[nodiscard]] bool IsFullscreen() const;
+
     [[nodiscard]] bool IsRunning() const;
     [[nodiscard]] double DeltaTime() const;
     /// Seconds since Init (sum of frame deltas).
