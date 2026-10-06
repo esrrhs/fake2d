@@ -108,6 +108,13 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 - [x] Custom GLSL shader slots: 8 slots; per-object `draw_use_shader(id)` batch switching with automatic per-frame restoration; `shader_load`, `shader_destroy`, `shader_set_float/int/vec2/vec4` (float/int/vec2/vec4 all bound to Lua)
 - [x] Super Mario Bros 1-1 demo (`scripts/mario.lua` + `--mario-demo`): procedural retro pixel art (ground, brick, ?, used, pipes, coin, flag, stone, Goomba, mushroom, small & big Mario); dual-form player with variable jump / coyote / buffer; Goombas with patrol / squashing / bonk death; ? blocks and brick breaking with debris particles; mushroom growth & walk; lives/score/coins/timer HUD; flagpole sequence; deterministic attract AI with looping clears
 
+## Phase 9 — Gamepad, sprite mirroring & window control (1.4.x) — done
+
+- [x] Sprite UV mirroring: `SpriteBatch::DrawSpriteFlipped` (flip_x/flip_y swap UVs only — geometry and the batching key are unchanged), Renderer passthrough, `sprite_draw_flip(handle, sx, sy, sw, sh, dx, dy, dw, dh, flip_x, flip_y)` Lua binding; mario/platformer/slope demos now face the actual movement direction (the player art previously tracked `facing` but was never mirrored)
+- [x] GLFW gamepad input: per-frame poll of all 16 joystick slots via the standard gamepad mapping, edge-detected buttons (`down/pressed/released`), six axes with radial stick dead-zone (0.20, rescaled) and triggers remapped to 0..1, hot-unplug reads neutral; Lua API `input_pad_connected/down/pressed/released/axis/name`; mario/platformer/slope demos playable with a controller (left stick/dpad, A jump, X/trigger run)
+- [x] Window control from scripts: `window_quit` (programmatic close), `window_set_title`, `window_set_fullscreen` / `window_fullscreen` (borderless primary-monitor fullscreen with saved windowed geometry restore), backed by Engine + platform::Window; Esc / gamepad Back exits all three gameplay demos
+- [x] Character walk-cycle animation: procedural multi-frame sprite strips generated from the single standing pose (no new art assets to maintain) — player strips are 4 frames (idle / stride A / stride B / airborne) at 80x28 (small) and 96x44 (big), derived by pixel-shifting the two leg/foot halves; the platformer blob gets an 80x30 squash-and-stretch strip via CPU resampling; Goombas get a 56x28 two-foot waddle strip with direction-aware mirroring. Scripts select frames from grounded/speed/air state (`walk_t` phase, SMB step-idle-step gait); mario/platformer/slope demos all animate now — the player art was previously a static pose in every state
+
 ---
 
 ## Non-goals (for now)

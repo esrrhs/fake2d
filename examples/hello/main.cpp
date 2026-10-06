@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -616,6 +617,43 @@ void PaintPlayer(std::uint8_t *px, int w, int h) {
     }
 }
 
+/// Blob walk cycle (80x30, 4 x 20): idle / squash / stretch / airborne
+/// stretch. The circle is nearest-neighbour resampled around a vertical
+/// center, so the feet stay planted during the squash (cartoon-style).
+void PaintPlayerSheet(std::uint8_t *px, int sheet_w, int h) {
+    const int W = sheet_w / 4;
+    std::vector<std::uint8_t> base(static_cast<size_t>(W) * h * 4, 0);
+    PaintPlayer(base.data(), W, h);
+
+    // horizontal scale, vertical scale, vertical center of the transform
+    const float kFrames[4][3] = {
+        {1.0f, 1.0f, 15.0f},
+        {1.16f, 0.82f, 18.0f}, // squash: planted contact
+        {0.90f, 1.10f, 14.0f}, // stretch: push-off
+        {0.84f, 1.18f, 13.0f}  // airborne
+    };
+
+    std::fill(px, px + static_cast<size_t>(sheet_w) * h * 4, 0);
+    for (int f = 0; f < 4; ++f) {
+        const float sx = kFrames[f][0];
+        const float sy = kFrames[f][1];
+        const float cyc = kFrames[f][2];
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < W; ++x) {
+                int src_x = static_cast<int>(std::lround(W * 0.5f + (x - W * 0.5f) / sx));
+                int src_y = static_cast<int>(std::lround(cyc + (y - cyc) / sy));
+                src_x = std::clamp(src_x, 0, W - 1);
+                src_y = std::clamp(src_y, 0, h - 1);
+                const std::uint8_t *s =
+                    base.data() + (static_cast<size_t>(src_y) * W + src_x) * 4;
+                std::uint8_t *d =
+                    px + (static_cast<size_t>(y) * sheet_w + f * W + x) * 4;
+                d[0] = s[0]; d[1] = s[1]; d[2] = s[2]; d[3] = s[3];
+            }
+        }
+    }
+}
+
 void PaintPlatformerSheet(std::uint8_t *sheet) {
     auto fill = [&](int id, std::uint8_t r, std::uint8_t g, std::uint8_t b) {
         for (int y = 0; y < kPTile; ++y) {
@@ -713,10 +751,10 @@ void EnsurePlatformerAssets() {
     }
     const std::filesystem::path player_path = dir / "player.png";
     if (!std::filesystem::exists(player_path)) {
-        std::vector<std::uint8_t> player(20 * 30 * 4, 0);
-        PaintPlayer(player.data(), 20, 30);
-        stbi_write_png(player_path.string().c_str(), 20, 30, 4,
-                       player.data(), 20 * 4);
+        std::vector<std::uint8_t> player(80 * 30 * 4, 0);
+        PaintPlayerSheet(player.data(), 80, 30);
+        stbi_write_png(player_path.string().c_str(), 80, 30, 4,
+                       player.data(), 80 * 4);
     }
     const std::filesystem::path music_path = dir / "music.wav";
     if (!std::filesystem::exists(music_path)) {
@@ -1335,6 +1373,113 @@ void PaintMarioPlayer(std::uint8_t *px, int w, int h) {
     PaintArt(px, w, h, art, pal);
 }
 
+// --- walk-cycle sprite sheets ----------------------------------------------
+// Only the standing pose is hand-painted (PaintMarioPlayer /
+// PaintMarioGoomba). The moving frames are derived by shifting the opaque
+// pixels of the two leg/foot halves, so the art stays a single source of
+// truth and the frames always line up pixel-perfectly.
+
+/// Erase every opaque pixel in columns [x0,x1) from row y0 down.
+void EraseLegRegion(std::vector<std::uint8_t> &frame,
+                    int W, int H, int x0, int x1, int y0) {
+    for (int y = y0; y < H; ++y) {
+        for (int x = x0; x < x1; ++x) {
+            frame[(static_cast<size_t>(y) * W + x) * 4 + 3] = 0;
+        }
+    }
+}
+
+/// Copy opaque pixels of base's columns [x0,x1) (from row y0) offset by
+/// (dx,dy) into frame. Pixels leaving the frame are clipped.
+void StampShiftedRegion(const std::vector<std::uint8_t> &base,
+                        std::vector<std::uint8_t> &frame,
+                        int W, int H, int x0, int x1, int y0, int dx, int dy) {
+    for (int y = y0; y < H; ++y) {
+        for (int x = x0; x < x1; ++x) {
+            const size_t si = (static_cast<size_t>(y) * W + x) * 4;
+            if (base[si + 3] == 0) continue;
+            const int nx = x + dx;
+            const int ny = y + dy;
+            if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
+            const size_t di = (static_cast<size_t>(ny) * W + nx) * 4;
+            frame[di + 0] = base[si + 0];
+            frame[di + 1] = base[si + 1];
+            frame[di + 2] = base[si + 2];
+            frame[di + 3] = 255;
+        }
+    }
+}
+
+/// Horizontal 4-frame strip: 0 idle, 1/2 alternating strides, 3 airborne.
+/// small form is 80x28 (4 x 20), big form 96x44 (4 x 24).
+void PaintMarioPlayerSheet(std::uint8_t *px, int sheet_w, int h) {
+    const int W = sheet_w / 4;
+    std::vector<std::uint8_t> base(static_cast<size_t>(W) * h * 4, 0);
+    PaintMarioPlayer(base.data(), W, h);
+
+    // Split the legs down the middle gap; shifts below are in pixels.
+    const int split = (W == 24) ? 11 : 9;
+    const int y0 = (W == 24) ? 32 : 20;
+    struct Shift {
+        int lx, ly, rx, ry; // left half, right half
+    };
+    // front (right half, art faces right) swings forward +2; back lifts -1.
+    const Shift kFrames[4] = {
+        {0, 0, 0, 0},   // idle
+        {-2, -1, 2, 0}, // stride A: back foot lifts, front foot plants
+        {2, 0, -2, -1}, // stride B
+        {-1, -2, 2, -1} // airborne: back leg tucked, front leg extended
+    };
+
+    std::fill(px, px + static_cast<size_t>(sheet_w) * h * 4, 0);
+    for (int f = 0; f < 4; ++f) {
+        std::vector<std::uint8_t> frame = base;
+        if (f != 0) {
+            // Erase both halves before stamping either, so a foot swinging
+            // across the middle is not wiped by the other half's erase.
+            EraseLegRegion(frame, W, h, 0, split, y0);
+            EraseLegRegion(frame, W, h, split, W, y0);
+            // Back half first: a crossing front foot wins overlap pixels.
+            StampShiftedRegion(base, frame, W, h, split, W, y0,
+                               kFrames[f].rx, kFrames[f].ry);
+            StampShiftedRegion(base, frame, W, h, 0, split, y0,
+                               kFrames[f].lx, kFrames[f].ly);
+        }
+        for (int y = 0; y < h; ++y) {
+            std::memcpy(px + (static_cast<size_t>(y) * sheet_w + f * W) * 4,
+                        frame.data() + static_cast<size_t>(y) * W * 4,
+                        static_cast<size_t>(W) * 4);
+        }
+    }
+}
+
+/// Horizontal 2-frame goomba strip (56x28): standing/waddle. Frame 1 lifts
+/// the rear foot one pixel — enough for a readable side-to-side waddle.
+void PaintMarioGoombaSheet(std::uint8_t *px, int sheet_w, int h) {
+    const int W = sheet_w / 2;
+    std::vector<std::uint8_t> base(static_cast<size_t>(W) * h * 4, 0);
+    PaintMarioGoomba(base.data(), W, h);
+
+    constexpr int kSplit = 12;
+    constexpr int kFeetTop = 22;
+
+    std::fill(px, px + static_cast<size_t>(sheet_w) * h * 4, 0);
+    for (int f = 0; f < 2; ++f) {
+        std::vector<std::uint8_t> frame = base;
+        if (f == 1) {
+            EraseLegRegion(frame, W, h, 0, kSplit, kFeetTop);
+            EraseLegRegion(frame, W, h, kSplit, W, kFeetTop);
+            StampShiftedRegion(base, frame, W, h, kSplit, W, kFeetTop, 1, 0);
+            StampShiftedRegion(base, frame, W, h, 0, kSplit, kFeetTop, -1, -1);
+        }
+        for (int y = 0; y < h; ++y) {
+            std::memcpy(px + (static_cast<size_t>(y) * sheet_w + f * W) * 4,
+                        frame.data() + static_cast<size_t>(y) * W * 4,
+                        static_cast<size_t>(W) * 4);
+        }
+    }
+}
+
 // `regen` forces the generated assets to be rewritten even when they already
 // exist on disk. They are written once and then reused, which keeps start-up
 // fast — but it also means an edit to the painters or the level layout below
@@ -1362,10 +1507,10 @@ void EnsureMarioAssets(bool regen = false) {
         paint(buf.data(), w, h);
         stbi_write_png(p.string().c_str(), w, h, 4, buf.data(), w * 4);
     };
-    sprite("m_goomba.png", 28, 28, PaintMarioGoomba);
+    sprite("m_goomba.png", 56, 28, PaintMarioGoombaSheet);
     sprite("m_mushroom.png", 24, 24, PaintMushroom);
-    sprite("m_player_s.png", 20, 28, PaintMarioPlayer);
-    sprite("m_player_b.png", 24, 44, PaintMarioPlayer);
+    sprite("m_player_s.png", 80, 28, PaintMarioPlayerSheet);
+    sprite("m_player_b.png", 96, 44, PaintMarioPlayerSheet);
 
     // ---- Level layout (112 x 15) -----------------------------------------
     std::vector<std::uint32_t> gids(
@@ -1626,9 +1771,10 @@ void EnsureSlopeAssets(bool regen) {
     {
         const std::filesystem::path p = dir / "s_player.png";
         if (regen || !std::filesystem::exists(p)) {
-            std::vector<std::uint8_t> buf(20 * 28 * 4, 0);
-            PaintMarioPlayer(buf.data(), 20, 28);
-            stbi_write_png(p.string().c_str(), 20, 28, 4, buf.data(), 20 * 4);
+            // Same 4-frame walk strip as the small Mario form.
+            std::vector<std::uint8_t> buf(80 * 28 * 4, 0);
+            PaintMarioPlayerSheet(buf.data(), 80, 28);
+            stbi_write_png(p.string().c_str(), 80, 28, 4, buf.data(), 80 * 4);
         }
     }
 

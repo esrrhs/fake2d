@@ -65,6 +65,9 @@ local inited = false
 local px, py = 0.0 + 0.0, 0.0 + 0.0
 local vx, vy = 0.0 + 0.0, 0.0 + 0.0
 local box_w, box_h = 20.0 + 0.0, 28.0 + 0.0
+local facing = 1 + 0
+-- walk-cycle phase for the 4-frame strip (idle/stride/stride/airborne)
+local walk_t = 0.0 + 0.0
 local on_ground = false
 local coyote_t, buffer_t = 0.0 + 0.0, 0.0 + 0.0
 local cut_used = false
@@ -299,6 +302,15 @@ local function read_input()
     local jp = input_key_pressed("space") or input_key_pressed("w")
         or input_key_pressed("up")
     local jh = input_key_down("space") or input_key_down("w") or input_key_down("up")
+    -- Phase 9: gamepad controls mirror the keyboard layout.
+    if input_pad_connected(0) then
+        local lx = input_pad_axis(0, "left_x")
+        if lx < -0.5 or input_pad_down(0, "dpad_left") then move = -1.0 end
+        if lx > 0.5 or input_pad_down(0, "dpad_right") then move = 1.0 end
+        if input_pad_down(0, "x") then running = true end
+        if input_pad_pressed(0, "a") then jp = true end
+        if input_pad_down(0, "a") then jh = true end
+    end
     if test_right then
         move = 1.0
         running = true
@@ -379,8 +391,14 @@ function update(dt)
         reset_player()
         log_number(900200)
     end
+    -- Esc / gamepad Back leaves the lab.
+    if input_key_pressed("escape") or input_pad_pressed(0, "back") then
+        window_quit()
+    end
 
     local mx, run, jp, jh = read_input()
+    if mx > 0.1 then facing = 1 end
+    if mx < -0.1 then facing = -1 end
     step_player(sdt, mx, run, jp, jh)
 
     cam_vw = camera_viewport_w()
@@ -410,7 +428,19 @@ function update(dt)
     draw_quad(cam_x, cam_y, cam_vw, cam_vh, 0.36, 0.58, 0.95, 1.0)
     map_draw(map_id)
     if show_surface then draw_surface() end
-    sprite_draw(tex_player, px, py, box_w, box_h)
+    -- Phase 9: face the direction of travel and play the walk strip
+    -- (idle / stride A / stride B / airborne).
+    local pframe = 0 + 0
+    if not on_ground then
+        pframe = 3
+    elseif math.abs(vx) > 12.0 then
+        walk_t = walk_t + sdt * 8.0
+        local phase = math.floor(walk_t) - math.floor(math.floor(walk_t) / 4.0) * 4.0
+        if phase == 0.0 or phase == 2.0 then pframe = 1 else pframe = 2 end
+    end
+    sprite_draw_flip(tex_player, pframe * box_w, 0, box_w, box_h,
+                     px, py, box_w, box_h,
+                     facing < 0 and 1.0 or 0.0, 0.0)
     draw_labels()
     draw_hud()
     return 0

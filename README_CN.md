@@ -7,7 +7,7 @@
 
 **Fake2D** 是基于 [FakeLua](https://github.com/esrrhs/fakelua) 的现代化轻量 2D 游戏渲染引擎：C++ 宿主掌控窗口、GPU 资源与场景数据；FakeLua 脚本负责编排玩法与实体逻辑，并在每帧边界执行 Arena 线性重置（**零 GC 停顿**）。
 
-> 当前状态：**1.3 — Phase 8 马里奥 Demo 已完成** — 在 1.2（渲染、音频、粒子、物理、动画、瓦片、UI、平台控制器）基础上，新增瓦片斜坡、Tiled 视差背景与图片层、SaveStore 存档 KV 存储、EntityStore 原生实体存储槽位、逐物体自定义 Shader 槽位，以及完整的经典 SMB 1-1 式 `--mario-demo`（复古像素贴图、大小马里奥双形态、栗宝宝、问号/砖块弹动破碎、蘑菇道具、旗杆滑降通关流程）。详见下方[实现计划](#实现计划)、[docs/PLAN.md](docs/PLAN.md)、[脚本编写指南](docs/SCRIPTING.md) 与[跨平台打包说明](docs/PACKAGING.md)。
+> 当前状态：**1.4 — Phase 9 手柄 / 镜像 / 窗口控制 / 角色动画已完成** — 在 1.3（斜坡、视差层、存档、实体槽、自定义 Shader、马里奥 Demo）基础上，新增精灵 UV 镜像（`sprite_draw_flip`）、GLFW 标准映射手柄输入（`input_pad_*`，摇杆径向死区 + 扳机 0..1 重映射、热插拔）、脚本侧窗口控制（`window_quit` / 标题 / 全屏切换），以及角色行走动画：玩家待机/迈腿/跳跃 4 帧精灵表（小马里奥 80x28、大马里奥 96x44，由单张站立像素质变派生）、平台软胶球挤压拉伸帧、栗宝宝双脚摇摆帧，脚本依据落地/速度/空中状态选帧。马里奥、平台跳跃与斜坡三个 Demo 的角色现在会面向移动方向、走路迈腿、起跳收腿，并可用手柄游玩，Esc / Back 随时退出。详见下方[实现计划](#实现计划)、[docs/PLAN.md](docs/PLAN.md)、[脚本编写指南](docs/SCRIPTING.md) 与[跨平台打包说明](docs/PACKAGING.md)。
 
 ---
 
@@ -194,6 +194,7 @@ end
 | **6 — 玩法基础 (1.1)** | 游戏系统 | 内置 AABB/圆形物理与传感器接触事件、精灵帧动画、Tiled JSON 瓦片地图（含固体碰撞体导出）、锚点 UI 面板/标签/按钮；`--map-demo` | **已完成** |
 | **7 — 平台跳跃与规模 (1.2)** | 控制器与性能 | 空间哈希宽相（`--phys-bench` 约 6 倍）、线条/调试图元、Trauma 相机震动、WAV 与循环音乐、瓦片平台跳跃控制器（土狼/缓冲/单向平台）+ `--platformer-demo` | **已完成** |
 | **8 — 引擎短板与马里奥 (1.3)** | 完整度 | 瓦片斜坡（`map_ground_y`）、Tiled 视差与图片层、`SaveStore` 存档（`storage_*`）、`EntityStore` 原生实体槽位（`ent_*`）、自定义 Shader 槽位（`shader_*`）、SMB 1-1 `--mario-demo` | **已完成** |
+| **9 — 手柄 / 镜像 / 窗口 / 角色动画 (1.4)** | 可玩性 | 精灵 UV 镜像（`sprite_draw_flip`）、GLFW 标准映射手柄（`input_pad_*`，死区/扳机重映射/热插拔）、`window_quit` / 标题 / 全屏；程序化派生的待机/迈腿/跳跃精灵表与栗宝宝摇摆帧，三个玩法 Demo 朝向修正、走路动画与手柄支持 | **已完成** |
 
 详细任务清单见 [docs/PLAN.md](docs/PLAN.md)。
 

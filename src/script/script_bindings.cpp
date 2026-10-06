@@ -914,6 +914,26 @@ void RegisterSpriteApi(fakelua::State *state, Engine *engine) {
                                                 {static_cast<float>(ox), static_cast<float>(oy)});
                 }
             }));
+
+    fakelua::RegisterNativeFunction(
+        state, "sprite_draw_flip", false,
+        std::function<void(fakelua::State *, std::int64_t, double, double, double, double,
+                           double, double, double, double, double, double)>(
+            [resources, renderer](fakelua::State *, std::int64_t handle,
+                                  double sx, double sy, double sw, double sh,
+                                  double dx, double dy, double dw, double dh,
+                                  double flip_x, double flip_y) {
+                const Texture2D *texture = resources->GetTexture(ResolveTexture(handle));
+                if (texture) {
+                    renderer->DrawSpriteFlipped(
+                        *texture,
+                        {static_cast<float>(sx), static_cast<float>(sy),
+                         static_cast<float>(sw), static_cast<float>(sh)},
+                        {static_cast<float>(dx), static_cast<float>(dy),
+                         static_cast<float>(dw), static_cast<float>(dh)},
+                        flip_x != 0.0, flip_y != 0.0);
+                }
+            }));
 }
 
 void RegisterInputApi(fakelua::State *state, Engine *engine) {
@@ -958,6 +978,48 @@ void RegisterInputApi(fakelua::State *state, Engine *engine) {
         state, "input_mouse_wheel", false,
         std::function<double(fakelua::State *)>(
             [input](fakelua::State *) { return input->MouseWheel(); }));
+
+    fakelua::RegisterNativeFunction(
+        state, "input_pad_connected", false,
+        std::function<bool(fakelua::State *, std::int64_t)>(
+            [input](fakelua::State *, std::int64_t pad) {
+                return input->GamepadConnected(static_cast<int>(pad));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "input_pad_down", false,
+        std::function<bool(fakelua::State *, std::int64_t, std::string_view)>(
+            [input](fakelua::State *, std::int64_t pad, std::string_view button) {
+                return input->GamepadButtonDown(static_cast<int>(pad), button);
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "input_pad_pressed", false,
+        std::function<bool(fakelua::State *, std::int64_t, std::string_view)>(
+            [input](fakelua::State *, std::int64_t pad, std::string_view button) {
+                return input->GamepadButtonPressed(static_cast<int>(pad), button);
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "input_pad_released", false,
+        std::function<bool(fakelua::State *, std::int64_t, std::string_view)>(
+            [input](fakelua::State *, std::int64_t pad, std::string_view button) {
+                return input->GamepadButtonReleased(static_cast<int>(pad), button);
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "input_pad_axis", false,
+        std::function<double(fakelua::State *, std::int64_t, std::string_view)>(
+            [input](fakelua::State *, std::int64_t pad, std::string_view axis) -> double {
+                return static_cast<double>(input->GamepadAxis(static_cast<int>(pad), axis));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "input_pad_name", false,
+        std::function<std::string(fakelua::State *, std::int64_t)>(
+            [input](fakelua::State *, std::int64_t pad) -> std::string {
+                return std::string(input->GamepadName(static_cast<int>(pad)));
+            }));
 }
 
 void RegisterTimeApi(fakelua::State *state, Engine *engine) {
@@ -1239,6 +1301,30 @@ void RegisterShaderApi(fakelua::State *state, Engine *engine) {
             }));
 }
 
+void RegisterWindowApi(fakelua::State *state, Engine *engine) {
+    fakelua::RegisterNativeFunction(
+        state, "window_quit", false,
+        std::function<void(fakelua::State *)>(
+            [engine](fakelua::State *) { engine->RequestQuit(); }));
+
+    fakelua::RegisterNativeFunction(
+        state, "window_set_title", false,
+        std::function<void(fakelua::State *, std::string_view)>(
+            [engine](fakelua::State *, std::string_view title) { engine->SetWindowTitle(title); }));
+
+    fakelua::RegisterNativeFunction(
+        state, "window_set_fullscreen", false,
+        std::function<void(fakelua::State *, double)>(
+            [engine](fakelua::State *, double fullscreen) {
+                engine->SetFullscreen(fullscreen != 0.0);
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "window_fullscreen", false,
+        std::function<bool(fakelua::State *)>(
+            [engine](fakelua::State *) { return engine->IsFullscreen(); }));
+}
+
 void RegisterDebugApi(fakelua::State *state) {
     fakelua::RegisterNativeFunction(
         state, "log_number", false,
@@ -1269,6 +1355,7 @@ void RegisterScriptApi(fakelua::State *state, Engine *engine) {
     RegisterStorageApi(state, engine);
     RegisterEntityApi(state, engine);
     RegisterShaderApi(state, engine);
+    RegisterWindowApi(state, engine);
     RegisterDebugApi(state);
 }
 

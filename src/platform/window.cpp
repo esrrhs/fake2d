@@ -11,6 +11,10 @@ Window::~Window() {
 }
 
 bool Window::Create(const WindowDesc &desc) {
+    glfwSetErrorCallback([](int code, const char *message) {
+        std::fprintf(stderr, "fake2d: GLFW error %d: %s\n", code,
+                     message ? message : "(no message)");
+    });
     if (!glfwInit()) {
         std::fprintf(stderr, "fake2d: glfwInit failed\n");
         return false;
@@ -98,6 +102,41 @@ void Window::SwapBuffers() {
 
 bool Window::ShouldClose() const {
     return handle_ == nullptr || glfwWindowShouldClose(handle_);
+}
+
+void Window::SetShouldClose(bool close) {
+    if (handle_) {
+        glfwSetWindowShouldClose(handle_, close ? GLFW_TRUE : GLFW_FALSE);
+    }
+}
+
+void Window::SetTitle(const char *title) {
+    if (handle_ && title != nullptr) {
+        glfwSetWindowTitle(handle_, title);
+    }
+}
+
+void Window::SetFullscreen(bool fullscreen) {
+    if (!handle_ || fullscreen == fullscreen_) {
+        return;
+    }
+    if (fullscreen) {
+        glfwGetWindowPos(handle_, &windowed_x_, &windowed_y_);
+        glfwGetWindowSize(handle_, &windowed_w_, &windowed_h_);
+        GLFWmonitor *monitor = glfwGetPrimaryMonitor();
+        if (!monitor) {
+            return;
+        }
+        const GLFWvidmode *mode = glfwGetVideoMode(monitor);
+        glfwSetWindowMonitor(handle_, monitor, 0, 0, mode->width, mode->height,
+                             mode->refreshRate);
+        fullscreen_ = true;
+    } else {
+        glfwSetWindowMonitor(handle_, nullptr, windowed_x_, windowed_y_,
+                             windowed_w_ > 0 ? windowed_w_ : width_,
+                             windowed_h_ > 0 ? windowed_h_ : height_, GLFW_DONT_CARE);
+        fullscreen_ = false;
+    }
 }
 
 } // namespace fake2d::platform

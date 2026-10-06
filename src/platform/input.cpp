@@ -3,6 +3,8 @@
 #include <GLFW/glfw3.h>
 
 #include <algorithm>
+#include <cmath>
+#include <cstring>
 #include <unordered_map>
 
 namespace fake2d {
@@ -67,6 +69,56 @@ int KeyToGlfw(std::string_view key) {
     return it != KeyNameTable().end() ? it->second : -1;
 }
 
+int PadButtonToGlfw(std::string_view button) {
+    static const std::unordered_map<std::string_view, int> table = {
+        {"a", GLFW_GAMEPAD_BUTTON_A},
+        {"b", GLFW_GAMEPAD_BUTTON_B},
+        {"x", GLFW_GAMEPAD_BUTTON_X},
+        {"y", GLFW_GAMEPAD_BUTTON_Y},
+        {"left_bumper", GLFW_GAMEPAD_BUTTON_LEFT_BUMPER},
+        {"right_bumper", GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER},
+        {"back", GLFW_GAMEPAD_BUTTON_BACK},
+        {"start", GLFW_GAMEPAD_BUTTON_START},
+        {"guide", GLFW_GAMEPAD_BUTTON_GUIDE},
+        {"left_thumb", GLFW_GAMEPAD_BUTTON_LEFT_THUMB},
+        {"right_thumb", GLFW_GAMEPAD_BUTTON_RIGHT_THUMB},
+        {"dpad_up", GLFW_GAMEPAD_BUTTON_DPAD_UP},
+        {"dpad_right", GLFW_GAMEPAD_BUTTON_DPAD_RIGHT},
+        {"dpad_down", GLFW_GAMEPAD_BUTTON_DPAD_DOWN},
+        {"dpad_left", GLFW_GAMEPAD_BUTTON_DPAD_LEFT},
+    };
+    const auto it = table.find(button);
+    return it != table.end() ? it->second : -1;
+}
+
+int PadAxisToGlfw(std::string_view axis) {
+    static const std::unordered_map<std::string_view, int> table = {
+        {"left_x", GLFW_GAMEPAD_AXIS_LEFT_X},
+        {"left_y", GLFW_GAMEPAD_AXIS_LEFT_Y},
+        {"right_x", GLFW_GAMEPAD_AXIS_RIGHT_X},
+        {"right_y", GLFW_GAMEPAD_AXIS_RIGHT_Y},
+        {"left_trigger", GLFW_GAMEPAD_AXIS_LEFT_TRIGGER},
+        {"right_trigger", GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER},
+    };
+    const auto it = table.find(axis);
+    return it != table.end() ? it->second : -1;
+}
+
+constexpr float kStickDeadzone = 0.20f;
+
+/// Radial dead zone on a stick pair, rescaled so full deflection still
+/// reaches 1.0. `other` is the sibling axis (x for y and vice versa).
+float ApplyStickDeadzone(const float axes[6], int axis, int other) {
+    const float x = axes[axis];
+    const float y = axes[other];
+    const float magnitude = std::sqrt(x * x + y * y);
+    if (!(magnitude > kStickDeadzone)) {
+        return 0.0f;
+    }
+    const float scale = (magnitude - kStickDeadzone) / ((1.0f - kStickDeadzone) * magnitude);
+    return x * scale;
+}
+
 } // namespace
 
 void Input::Attach(void *native_window) {
@@ -107,6 +159,26 @@ void Input::NewFrame(void *native_window) {
 
     wheel_ = wheel_pending_;
     wheel_pending_ = 0.0;
+
+    // Gamepads: poll every joystick slot. Hot-unplug simply reads neutral.
+    for (int pad = 0; pad < kPadCount; ++pad) {
+        std::copy(pad_buttons_[pad], pad_buttons_[pad] + kPadButtonCount, prev_pad_buttons_[pad]);
+        pad_connected_[pad] = 0;
+        std::memset(pad_buttons_[pad], 0, sizeof(pad_buttons_[pad]));
+        std::memset(pad_axes_[pad], 0, sizeof(pad_axes_[pad]));
+        if (glfwJoystickIsGamepad(GLFW_JOYSTICK_1 + pad)) {
+            GLFWgamepadstate state{};
+            if (glfwGetGamepadState(GLFW_JOYSTICK_1 + pad, &state)) {
+                pad_connected_[pad] = 1;
+                for (int b = 0; b < kPadButtonCount; ++b) {
+                    pad_buttons_[pad][b] = static_cast<std::uint8_t>(state.buttons[b] == GLFW_PRESS);
+                }
+                for (int a = 0; a < kPadAxisCount; ++a) {
+                    pad_axes_[pad][a] = state.axes[a];
+                }
+            }
+        }
+    }
 }
 
 bool Input::KeyDown(std::string_view key) const {
@@ -136,6 +208,59 @@ bool Input::MousePressed(std::int64_t button) const {
 bool Input::MouseReleased(std::int64_t button) const {
     return button >= 0 && button < static_cast<std::int64_t>(kButtonCount) && buttons_[button] == 0 &&
            prev_buttons_[button] != 0;
+}
+
+bool Input::GamepadConnected(int pad) const {
+    return pad >= 0 && pad < kPadCount && pad_connected_[pad] != 0;
+}
+
+bool Input::GamepadButtonDown(int pad, std::string_view button) const {
+    const int b = PadButtonToGlfw(button);
+    return GamepadConnected(pad) && b >= 0 && pad_buttons_[pad][b] != 0;
+}
+
+bool Input::GamepadButtonPressed(int pad, std::string_view button) const {
+    const int b = PadButtonToGlfw(button);
+    return GamepadConnected(pad) && b >= 0 &&
+           pad_buttons_[pad][b] != 0 && prev_pad_buttons_[pad][b] == 0;
+}
+
+bool Input::GamepadButtonReleased(int pad, std::string_view button) const {
+    const int b = PadButtonToGlfw(button);
+    return b >= 0 && pad >= 0 && pad < kPadCount &&
+           pad_buttons_[pad][b] == 0 && prev_pad_buttons_[pad][b] != 0;
+}
+
+float Input::GamepadAxis(int pad, std::string_view axis) const {
+    const int a = PadAxisToGlfw(axis);
+    if (!GamepadConnected(pad) || a < 0) {
+        return 0.0f;
+    }
+    switch (a) {
+    case GLFW_GAMEPAD_AXIS_LEFT_X:
+        return ApplyStickDeadzone(pad_axes_[pad], GLFW_GAMEPAD_AXIS_LEFT_X,
+                                  GLFW_GAMEPAD_AXIS_LEFT_Y);
+    case GLFW_GAMEPAD_AXIS_LEFT_Y:
+        return ApplyStickDeadzone(pad_axes_[pad], GLFW_GAMEPAD_AXIS_LEFT_Y,
+                                  GLFW_GAMEPAD_AXIS_LEFT_X);
+    case GLFW_GAMEPAD_AXIS_RIGHT_X:
+        return ApplyStickDeadzone(pad_axes_[pad], GLFW_GAMEPAD_AXIS_RIGHT_X,
+                                  GLFW_GAMEPAD_AXIS_RIGHT_Y);
+    case GLFW_GAMEPAD_AXIS_RIGHT_Y:
+        return ApplyStickDeadzone(pad_axes_[pad], GLFW_GAMEPAD_AXIS_RIGHT_Y,
+                                  GLFW_GAMEPAD_AXIS_RIGHT_X);
+    default:
+        // Triggers rest at -1; remap the full travel to 0..1.
+        return std::clamp((pad_axes_[pad][a] + 1.0f) * 0.5f, 0.0f, 1.0f);
+    }
+}
+
+std::string_view Input::GamepadName(int pad) const {
+    if (!GamepadConnected(pad) || window_ == nullptr) {
+        return {};
+    }
+    const char *name = glfwGetGamepadName(GLFW_JOYSTICK_1 + pad);
+    return name ? std::string_view{name} : std::string_view{};
 }
 
 } // namespace fake2d

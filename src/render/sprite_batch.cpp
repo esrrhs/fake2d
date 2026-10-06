@@ -353,6 +353,37 @@ void SpriteBatch::DrawSprite(const Texture2D &texture, const Rect &src, const Re
     ++current_quads_;
 }
 
+void SpriteBatch::DrawSpriteFlipped(const Texture2D &texture, const Rect &src, const Rect &dst,
+                                    bool flip_x, bool flip_y, const Color &tint) {
+    if (!texture.IsValid()) return;
+    EnsureCapacity(1, texture.Id());
+
+    const size_t v_idx = current_quads_ * 4;
+    const float l = dst.x;
+    const float t = dst.y;
+    const float r = dst.x + dst.width;
+    const float b = dst.y + dst.height;
+
+    const float tw = static_cast<float>(texture.Width());
+    const float th = static_cast<float>(texture.Height());
+    float u0 = src.x / tw;
+    float v0 = src.y / th;
+    float u1 = (src.x + src.width) / tw;
+    float v1 = (src.y + src.height) / th;
+    // Mirroring only rewrites UVs — geometry stays put, so flipped sprites
+    // keep the exact same footprint and batching key.
+    if (flip_x) std::swap(u0, u1);
+    if (flip_y) std::swap(v0, v1);
+
+    vertices_[v_idx + 0] = {{l, t}, {u0, v0}, tint};
+    vertices_[v_idx + 1] = {{r, t}, {u1, v0}, tint};
+    vertices_[v_idx + 2] = {{r, b}, {u1, v1}, tint};
+    vertices_[v_idx + 3] = {{l, b}, {u0, v1}, tint};
+
+    RecordCommand(texture.Id());
+    ++current_quads_;
+}
+
 void SpriteBatch::DrawSpriteRotated(const Texture2D &texture, const Rect &src, const Rect &dst,
                                    float angle_rad, const Vec2 &origin, const Color &tint) {
     if (!texture.IsValid()) return;

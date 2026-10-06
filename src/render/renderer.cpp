@@ -186,6 +186,11 @@ void Renderer::DrawSprite(const Texture2D &texture, const Rect &src, const Rect 
     batch_.DrawSprite(texture, src, dst, tint);
 }
 
+void Renderer::DrawSpriteFlipped(const Texture2D &texture, const Rect &src, const Rect &dst,
+                                 bool flip_x, bool flip_y, const Color &tint) {
+    batch_.DrawSpriteFlipped(texture, src, dst, flip_x, flip_y, tint);
+}
+
 void Renderer::DrawSpriteRotated(const Texture2D &texture, const Rect &src, const Rect &dst,
                                 float angle_rad, const Vec2 &origin, const Color &tint) {
     batch_.DrawSpriteRotated(texture, src, dst, angle_rad, origin, tint);
