@@ -240,6 +240,35 @@ void RegisterAnimationApi(fakelua::State *state, Engine *engine) {
             }));
 
     fakelua::RegisterNativeFunction(
+        state, "anim_pause", false,
+        std::function<void(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id) {
+                engine->GetAnimations().Pause(static_cast<int>(id));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "anim_resume", false,
+        std::function<void(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id) {
+                engine->GetAnimations().Resume(static_cast<int>(id));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "anim_set_frame", false,
+        std::function<void(fakelua::State *, std::int64_t, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id, std::int64_t index) {
+                engine->GetAnimations().SetFrameIndex(
+                    static_cast<int>(id), static_cast<int>(index));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "anim_frame_index", false,
+        std::function<std::int64_t(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id) -> std::int64_t {
+                return engine->GetAnimations().FrameIndex(static_cast<int>(id));
+            }));
+
+    fakelua::RegisterNativeFunction(
         state, "anim_draw", false,
         std::function<void(fakelua::State *, std::int64_t, double, double, double, double)>(
             [engine](fakelua::State *, std::int64_t id, double x, double y, double w, double h) {
@@ -248,6 +277,20 @@ void RegisterAnimationApi(fakelua::State *state, Engine *engine) {
                     engine->GetRenderer().GetSpriteBatch(),
                     {static_cast<float>(x), static_cast<float>(y),
                      static_cast<float>(w), static_cast<float>(h)});
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "anim_draw_flip", false,
+        std::function<void(fakelua::State *, std::int64_t, double, double, double, double,
+                           bool, bool)>(
+            [engine](fakelua::State *, std::int64_t id, double x, double y, double w,
+                     double h, bool flip_x, bool flip_y) {
+                engine->GetAnimations().DrawFlipped(
+                    static_cast<int>(id), engine->GetResources(),
+                    engine->GetRenderer().GetSpriteBatch(),
+                    {static_cast<float>(x), static_cast<float>(y),
+                     static_cast<float>(w), static_cast<float>(h)},
+                    flip_x, flip_y);
             }));
 }
 

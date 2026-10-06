@@ -69,6 +69,10 @@ local WALK_OUT_SPEED = 95.0
 local map_id = 0 + 0
 local tex_sheet, tex_goomba, tex_mush = 0 + 0, 0 + 0, 0 + 0
 local tex_ps, tex_pb = 0 + 0, 0 + 0
+-- Engine-owned frame clips (AnimationSystem) for the player forms and the
+-- per-goomba waddle. Clips live in C++, so they survive the per-frame Lua
+-- arena reset without an EntityStore slot for phase.
+local anim_ps, anim_pb = 0 + 0, 0 + 0
 local fx_debris = 0 + 0
 local inited = false
 
@@ -222,6 +226,13 @@ end
 -- level reset / entity spawning
 -- ---------------------------------------------------------------------------
 
+local function destroy_goomba(id)
+    -- release the engine animation slot paired with the entity
+    local aid = ent_num(id, S_ANIM)
+    if aid > 0 then anim_destroy(aid) end
+    ent_destroy(id)
+end
+
 local function spawn_goomba(c, r)
     local id = ent_create(TAG_GOOMBA)
     ent_set_num(id, S_X, c * TILE + 2.0)
@@ -231,6 +242,15 @@ local function spawn_goomba(c, r)
     ent_set_num(id, S_STATE, GOOMBA_WALK)
     ent_set_num(id, S_T, 0.0)
     ent_set_num(id, S_DIR, -1.0)
+    -- 2-frame waddle clip owned by the engine (8 fps, looping); slot 7
+    -- holds the anim id instead of a Lua-side phase accumulator.
+    local aid = anim_create()
+    anim_frame(aid, tex_goomba, 0.0, 0.0, 28.0, 28.0)
+    anim_frame(aid, tex_goomba, 28.0, 0.0, 28.0, 28.0)
+    anim_fps(aid, 8.0)
+    anim_loop(aid, true)
+    anim_play(aid)
+    ent_set_num(id, S_ANIM, aid)
     return id
 end
 
@@ -296,6 +316,15 @@ local function reset_level()
             local r = ent_num(id, 1)
             local g = ent_num(id, 2)
             map_set_tile(map_id, c, r, g)
+        end
+    end
+    -- goombas own engine animation slots; release them before the entities
+    local gn0 = ent_count(TAG_GOOMBA)
+    for i = 0, gn0 - 1 do
+        local gid = ent_at(i, TAG_GOOMBA)
+        if gid ~= 0 then
+            local aid = ent_num(gid, S_ANIM)
+            if aid > 0 then anim_destroy(aid) end
         end
     end
     clear_tag(TAG_GOOMBA)
@@ -528,13 +557,13 @@ local function update_goombas(dt)
             if st == GOOMBA_SQUASH then
                 local t = ent_num(id, S_T) + dt
                 ent_set_num(id, S_T, t)
-                if t >= 0.5 then ent_destroy(id) end
+                if t >= 0.5 then destroy_goomba(id) end
             elseif st == GOOMBA_DEAD then
                 local y = ent_num(id, S_Y)
                 local evy = ent_num(id, S_VY) + GRAV * dt
                 ent_set_num(id, S_VY, evy)
                 ent_set_num(id, S_Y, y + evy * dt)
-                if y > GROUND_TOP + 96.0 then ent_destroy(id) end
+                if y > GROUND_TOP + 96.0 then destroy_goomba(id) end
             else
                 -- substep to match the player's integration granularity
                 local evx = ent_num(id, S_VX)
@@ -545,13 +574,12 @@ local function update_goombas(dt)
                 for _ = 1, steps do
                     body_move(id, 26.0, 26.0, dt / steps)
                 end
-                -- waddle phase for the 2-frame strip
-                ent_set_num(id, S_ANIM, ent_num(id, S_ANIM) + dt)
+                -- the 2-frame waddle is advanced by the engine animator
                 local y = ent_num(id, S_Y)
                 local gxx = ent_num(id, S_X)
                 if y > GROUND_TOP + 120.0 or gxx < cam_x - 80.0
                     or gxx > MAP_W + 80.0 then
-                    ent_destroy(id)
+                    destroy_goomba(id)
                 end
             end
         end
@@ -1155,30 +1183,25 @@ local function draw_world(dt)
                 sprite_draw_flip(tex_goomba, 0, 0, 28, 28,
                                  gx - 1.0, gy + 16.0, 28, 12, 0.0, 0.0)
             else
-                -- 2-frame waddle; mirror against the patrol direction
-                local wf = imod(math.floor(ent_num(id, S_ANIM) * 8.0), 2.0)
-                local gflip = 0.0
-                if ent_num(id, S_VX) < 0.0 then gflip = 1.0 end
-                sprite_draw_flip(tex_goomba, wf * 28.0, 0, 28, 28,
-                                 gx, gy, 28, 28, gflip, 0.0)
+                -- engine advances the 2-frame waddle; mirror against the
+                -- patrol direction
+                anim_draw_flip(ent_num(id, S_ANIM), gx, gy, 28.0, 28.0,
+                               ent_num(id, S_VX) < 0.0, false)
             end
         end
     end
 
     -- player (blinks while invincible); face the movement direction.
-    -- Phase 9: sprite_draw_flip mirrors the texture in UV space, so the
-    -- single right-facing piece of art works for both directions. The src
-    -- rect walks across a 4-frame strip (idle/stride/stride/airborne).
+    -- The engine clip holds idle/stride/stride/airborne frames; gameplay
+    -- state (ground/air/speed via player_frame) pins the current frame,
+    -- and anim_draw_flip mirrors in UV space for the facing direction.
     local blink = invinc <= 0.0 or imod(math.floor(invinc * 12.0), 2.0) == 0.0
     if blink and mode ~= M_GAMEOVER then
-        local tex = tex_ps
-        local fw, fh = 20.0, 28.0
-        if big == 1 then tex = tex_pb; fw, fh = 24.0, 44.0 end
-        local flip_x = 0.0
-        if facing < 0 then flip_x = 1.0 end
+        local panim = anim_ps
+        if big == 1 then panim = anim_pb end
         local fr = player_frame(dt)
-        sprite_draw_flip(tex, fr * fw, 0, fw, fh,
-                         px, py, box_w, box_h, flip_x, 0.0)
+        anim_set_frame(panim, fr)
+        anim_draw_flip(panim, px, py, box_w, box_h, facing < 0, false)
     end
 
     -- score popups
@@ -1512,6 +1535,26 @@ function update(dt)
         tex_mush = sprite_load("assets/m_mushroom.png")
         tex_ps = sprite_load("assets/m_player_s.png")
         tex_pb = sprite_load("assets/m_player_b.png")
+        -- Player clips: 4 frames each (idle / stride A / stride B / airborne).
+        -- Gameplay state selects the frame every draw via anim_set_frame
+        -- (paused clip), so the engine owns the clip while the script owns
+        -- the state machine.
+        anim_ps = anim_create()
+        anim_frame(anim_ps, tex_ps, 0.0, 0.0, 20.0, 28.0)
+        anim_frame(anim_ps, tex_ps, 20.0, 0.0, 20.0, 28.0)
+        anim_frame(anim_ps, tex_ps, 40.0, 0.0, 20.0, 28.0)
+        anim_frame(anim_ps, tex_ps, 60.0, 0.0, 20.0, 28.0)
+        anim_fps(anim_ps, 10.0)
+        anim_loop(anim_ps, true)
+        anim_pause(anim_ps)
+        anim_pb = anim_create()
+        anim_frame(anim_pb, tex_pb, 0.0, 0.0, 24.0, 44.0)
+        anim_frame(anim_pb, tex_pb, 24.0, 0.0, 24.0, 44.0)
+        anim_frame(anim_pb, tex_pb, 48.0, 0.0, 24.0, 44.0)
+        anim_frame(anim_pb, tex_pb, 72.0, 0.0, 24.0, 44.0)
+        anim_fps(anim_pb, 10.0)
+        anim_loop(anim_pb, true)
+        anim_pause(anim_pb)
         -- Phase 8: custom GLSL slot for the flag shimmer, plus the saved
         -- high score from the previous run.
         fx_flag_shader = shader_load("assets/flag_shimmer.vert",

@@ -115,6 +115,13 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 - [x] Window control from scripts: `window_quit` (programmatic close), `window_set_title`, `window_set_fullscreen` / `window_fullscreen` (borderless primary-monitor fullscreen with saved windowed geometry restore), backed by Engine + platform::Window; Esc / gamepad Back exits all three gameplay demos
 - [x] Character walk-cycle animation: procedural multi-frame sprite strips generated from the single standing pose (no new art assets to maintain) — player strips are 4 frames (idle / stride A / stride B / airborne) at 80x28 (small) and 96x44 (big), derived by pixel-shifting the two leg/foot halves; the platformer blob gets an 80x30 squash-and-stretch strip via CPU resampling; Goombas get a 56x28 two-foot waddle strip with direction-aware mirroring. Scripts select frames from grounded/speed/air state (`walk_t` phase, SMB step-idle-step gait); mario/platformer/slope demos all animate now — the player art was previously a static pose in every state
 
+## Phase 10 — Character clips in the engine animator (1.5.x) — done
+
+- [x] AnimationSystem script control: `anim_pause` / `anim_resume` (freeze/continue without rewinding, unlike play/stop), `anim_set_frame(id, i)` pins the playback clock to an explicit frame, `anim_frame_index(id)` queries it; clips stay normal engine animations while gameplay owns the state machine
+- [x] Flipped clip drawing: `AnimationSystem::DrawFlipped` + `anim_draw_flip(id, x, y, w, h, flip_x, flip_y)` mirroring via the same UV-swap path as `sprite_draw_flip` (no extra draw call)
+- [x] Character migration off hand-rolled strip math: mario builds the two player clips once (small/big, 4 frames each, paused + per-frame `anim_set_frame`) and one looping 8 fps waddle clip per Goomba (anim id in entity slot 7, destroyed on every despawn path); platformer/slope players use the same paused-clip pattern. Lua scripts no longer compute source rectangles themselves — the animator owns clips and frame timing
+- [x] SCRIPTING.md documents both styles (auto-loop decoration vs state-driven characters) and the C++-pool lifecycle rule (pair create/destroy, survives the per-frame arena reset)
+
 ---
 
 ## Non-goals (for now)
