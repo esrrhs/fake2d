@@ -14,6 +14,7 @@ set(FAKE2D_SOURCES
     render/font.cpp
     render/particle.cpp
     render/animation.cpp
+    render/gl_loader.cpp
     render/tilemap.cpp
     render/image_write.cpp
     scene/node.cpp

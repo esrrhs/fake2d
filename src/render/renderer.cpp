@@ -21,6 +21,10 @@ bool Renderer::Init(int logical_width, int logical_height) {
     width_ = logical_width;
     height_ = logical_height;
 
+    // Resolve GL 1.2+ entry points (Windows only; no-op elsewhere). The GLFW
+    // window/context is already current when Renderer::Init runs.
+    fake2d_gl_load_functions();
+
     camera_.SetViewport(static_cast<float>(logical_width), static_cast<float>(logical_height));
     camera_.SetContentScale(1.0f);
 
