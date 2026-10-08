@@ -199,6 +199,40 @@ jobs:
           fi
           echo "binary ok"
 
+      # ---- Generate assets (PNGs/JSON maps are produced on first run) ----
+      - name: (linux) generate demo assets
+        if: runner.os == 'Linux'
+        run: |
+          export LD_LIBRARY_PATH="$FLINSTALL/lib:${LD_LIBRARY_PATH:-}"
+          for demo in mario platformer slope; do
+            xvfb-run -a -s '-screen 0 1024x768x24' \
+              env LIBGL_ALWAYS_SOFTWARE=1 \
+              ./build/bin/fake2d_hello --headless --frames 1 "--$demo-demo"
+          done
+          test -s assets/mario.json && test -s assets/platformer.json \
+            && test -s assets/slope.json
+
+      - name: (macos) generate demo assets
+        if: runner.os == 'macOS'
+        run: |
+          for demo in mario platformer slope; do
+            ./build/bin/fake2d_hello --headless --frames 1 "--$demo-demo"
+          done
+          test -s assets/mario.json && test -s assets/platformer.json \
+            && test -s assets/slope.json
+
+      - name: (windows) generate demo assets
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          set -eux
+          export PATH="$(cygpath -u "$FLINSTALL")/bin:$PATH"
+          for demo in mario platformer slope; do
+            ./build/bin/fake2d_hello.exe --headless --frames 1 "--$demo-demo"
+          done
+          test -s assets/mario.json && test -s assets/platformer.json \
+            && test -s assets/slope.json
+
       # ----------------------- Lua gameplay logic (all platforms/backends)
       - name: Headless Lua gameplay fixtures tcc/gcc/interp (linux/mac)
         if: runner.os != 'Windows'
