@@ -124,7 +124,7 @@ def main():
             case_failed = ("FAILURES 0" not in summary) or bool(bad)
             if case_failed:
                 failures += 1
-                print(f"BAD  {name} (rc={rc}) chunk={chunk}")
+                print(f"BAD  {name} (rc={rc}) chunk={chunk_paths[script]}")
                 for ln in marks:
                     print("     " + ln)
                 # Surface the full compiler/runtime diagnostics (the

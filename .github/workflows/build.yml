@@ -16,16 +16,126 @@ env:
   FAKELUA_REF: 608154182155ab34216d20ad3fad624ae65004cf
 
 jobs:
+  # Linux owns GPU coverage (xvfb + llvmpipe) and produces the generated
+  # demo maps that the other OSes consume for their Lua logic runs.
+  assets:
+    name: linux build + assets + tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build pkg-config ccache xvfb \
+            libssl-dev libgl1-mesa-dev libx11-dev libxrandr-dev libxi-dev \
+            libxcursor-dev libxinerama-dev
+
+      - uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: linux-fakelua
+          max-size: 2G
+
+      - name: Cache paths
+        run: |
+          echo "CPM_SOURCE_CACHE=$HOME/.cache/CPM" >> "$GITHUB_ENV"
+          echo "FLINSTALL=$RUNNER_TEMP/flinstall" >> "$GITHUB_ENV"
+          mkdir -p "$HOME/.cache/CPM"
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/CPM
+          key: Linux-cpm-v2
+          restore-keys: |
+            Linux-cpm-
+
+      - name: Checkout fakelua
+        run: |
+          git clone --no-checkout https://github.com/esrrhs/fakelua "$RUNNER_TEMP/fakelua-src"
+          git -C "$RUNNER_TEMP/fakelua-src" fetch --depth 1 origin "$FAKELUA_REF"
+          git -C "$RUNNER_TEMP/fakelua-src" checkout FETCH_HEAD
+
+      - name: Build + install fakelua
+        run: |
+          set -eux
+          cmake -S "$RUNNER_TEMP/fakelua-src" -B "$RUNNER_TEMP/flbuild" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DFAKELUA_BUILD_TESTS=OFF \
+            -DFAKELUA_BUILD_BENCHMARKS=OFF \
+            -DCMAKE_INSTALL_PREFIX="$FLINSTALL"
+          cmake --build "$RUNNER_TEMP/flbuild" --parallel
+          cmake --install "$RUNNER_TEMP/flbuild"
+          ccache -s || true
+
+      - name: Configure fake2d
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -Dfakelua_DIR="$FLINSTALL/lib/cmake/fakelua"
+
+      - name: Build fake2d
+        run: cmake --build build --parallel
+
+      - name: Binary smoke
+        run: test -x build/bin/fake2d_hello
+
+      - name: Generate demo assets
+        run: |
+          export LD_LIBRARY_PATH="$FLINSTALL/lib:${LD_LIBRARY_PATH:-}"
+          for demo in mario platformer slope; do
+            xvfb-run -a -s '-screen 0 1024x768x24' \
+              env LIBGL_ALWAYS_SOFTWARE=1 \
+              ./build/bin/fake2d_hello --headless --frames 1 "--$demo-demo"
+          done
+          test -s assets/mario.json && test -s assets/platformer.json \
+            && test -s assets/slope.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: demo-assets
+          path: |
+            assets/mario.json
+            assets/platformer.json
+            assets/slope.json
+
+      - name: Headless Lua gameplay fixtures (tcc/gcc/interp)
+        run: |
+          python3 tests/headless/run_headless.py \
+            --flua "$FLINSTALL/bin/flua"
+
+      - name: Headless demo + benchmark smoke
+        run: |
+          export LD_LIBRARY_PATH="$FLINSTALL/lib:${LD_LIBRARY_PATH:-}"
+          run_xvfb() {
+            xvfb-run -a -s '-screen 0 1024x768x24' env LIBGL_ALWAYS_SOFTWARE=1 "$@"
+          }
+          run_xvfb ./build/bin/fake2d_hello --headless --frames 30 --scene-demo
+          run_xvfb ./build/bin/fake2d_hello --headless --frames 40 --scene-demo \
+            --screenshot scene.png
+          test -s scene.png
+          run_xvfb ./build/bin/fake2d_hello --headless --bench
+          run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --map-demo
+          run_xvfb ./build/bin/fake2d_hello --headless --frames 180 --platformer-demo
+          run_xvfb ./build/bin/fake2d_hello --headless --frames 180 --mario-demo
+          run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --slope-demo
+          run_xvfb ./build/bin/fake2d_hello --headless --phys-bench
+
+  # macOS and Windows build the full fakelua-enabled engine and run the 24
+  # Lua logic cases against Linux-produced maps. GitHub macOS VMs have no
+  # NSOpenGL pixel format (GLFW 65545), so no engine runs there; Windows
+  # hidden-context GL is attempted but non-blocking (host-dependent).
   engine:
     name: engine (${{ matrix.label }})
+    needs: assets
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-24.04
-            label: linux
           - os: macos-15
             label: macos
           - os: windows-2022
@@ -34,43 +144,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # ------------------------------------------------------------ Linux
-      - name: (linux) packages
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build pkg-config ccache xvfb \
-            libssl-dev libgl1-mesa-dev libx11-dev libxrandr-dev libxi-dev \
-            libxcursor-dev libxinerama-dev
-
-      - name: (linux) ccache
-        if: runner.os == 'Linux'
-        uses: hendrikmuhs/ccache-action@v1.2
-        with:
-          key: ${{ matrix.label }}-fakelua
-          max-size: 2G
-
-      - name: (linux/mac) caches + paths
-        if: runner.os != 'Windows'
-        run: |
-          echo "CPM_SOURCE_CACHE=$HOME/.cache/CPM" >> "$GITHUB_ENV"
-          echo "FLINSTALL=$RUNNER_TEMP/flinstall" >> "$GITHUB_ENV"
-          mkdir -p "$HOME/.cache/CPM"
-
-      - name: (linux/mac) cache CPM
-        if: runner.os != 'Windows'
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/CPM
-          key: ${{ runner.os }}-cpm-v2
-          restore-keys: |
-            ${{ runner.os }}-cpm-
-
       - name: (macos) packages
         if: runner.os == 'macOS'
         run: |
-          brew --version
           HOMEBREW_NO_AUTO_UPDATE=1 brew install ninja ccache openssl@3 || true
           echo "OPENSSL_PREFIX=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
 
@@ -78,10 +154,25 @@ jobs:
         if: runner.os == 'macOS'
         uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: ${{ matrix.label }}-fakelua
+          key: macos-fakelua
           max-size: 2G
 
-      # ---------------------------------------------------------- Windows
+      - name: (macos) cache paths
+        if: runner.os == 'macOS'
+        run: |
+          echo "CPM_SOURCE_CACHE=$HOME/.cache/CPM" >> "$GITHUB_ENV"
+          echo "FLINSTALL=$RUNNER_TEMP/flinstall" >> "$GITHUB_ENV"
+          mkdir -p "$HOME/.cache/CPM"
+
+      - name: (macos) cache CPM
+        if: runner.os == 'macOS'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/CPM
+          key: macOS-cpm-v2
+          restore-keys: |
+            macOS-cpm-
+
       - name: (windows) MSYS2 toolchain
         if: runner.os == 'Windows'
         uses: msys2/setup-msys2@v2
@@ -117,33 +208,27 @@ jobs:
           restore-keys: |
             windows-cpm-ccache-
 
-      # -------------------------------------------------- fakelua (linux/mac)
-      - name: (linux/mac) checkout fakelua
-        if: runner.os != 'Windows'
+      - name: (macos) checkout fakelua
+        if: runner.os == 'macOS'
         run: |
           git clone --no-checkout https://github.com/esrrhs/fakelua "$RUNNER_TEMP/fakelua-src"
           git -C "$RUNNER_TEMP/fakelua-src" fetch --depth 1 origin "$FAKELUA_REF"
           git -C "$RUNNER_TEMP/fakelua-src" checkout FETCH_HEAD
 
-      - name: (linux/mac) build + install fakelua
-        if: runner.os != 'Windows'
+      - name: (macos) build + install fakelua
+        if: runner.os == 'macOS'
         run: |
           set -eux
-          common="-S $RUNNER_TEMP/fakelua-src -B $RUNNER_TEMP/flbuild -G Ninja
-                  -DCMAKE_BUILD_TYPE=Release
-                  -DFAKELUA_BUILD_TESTS=OFF
-                  -DFAKELUA_BUILD_BENCHMARKS=OFF
-                  -DCMAKE_INSTALL_PREFIX=$FLINSTALL"
-          if [ "${{ runner.os }}" = "macOS" ]; then
-            cmake $common -DCMAKE_PREFIX_PATH="$OPENSSL_PREFIX"
-          else
-            cmake $common
-          fi
+          cmake -S "$RUNNER_TEMP/fakelua-src" -B "$RUNNER_TEMP/flbuild" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DFAKELUA_BUILD_TESTS=OFF \
+            -DFAKELUA_BUILD_BENCHMARKS=OFF \
+            -DCMAKE_PREFIX_PATH="$OPENSSL_PREFIX" \
+            -DCMAKE_INSTALL_PREFIX="$FLINSTALL"
           cmake --build "$RUNNER_TEMP/flbuild" --parallel
           cmake --install "$RUNNER_TEMP/flbuild"
           ccache -s || true
 
-      # ------------------------------------------------ fakelua (windows)
       - name: (windows) checkout + build fakelua
         if: runner.os == 'Windows'
         shell: msys2 {0}
@@ -162,11 +247,9 @@ jobs:
           cmake --install ../flbuild
           ccache -s || true
 
-      # ------------------------------------------------------------- fake2d
-      - name: Configure fake2d (linux/mac)
-        if: runner.os != 'Windows'
+      - name: Configure fake2d (macos)
+        if: runner.os == 'macOS'
         run: |
-          set -eux
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -Dfakelua_DIR="$FLINSTALL/lib/cmake/fakelua"
@@ -180,8 +263,8 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -Dfakelua_DIR="$FLINSTALL/lib/cmake/fakelua"
 
-      - name: Build fake2d (linux/mac)
-        if: runner.os != 'Windows'
+      - name: Build fake2d (macos)
+        if: runner.os == 'macOS'
         run: cmake --build build --parallel
 
       - name: (windows) build fake2d
@@ -197,50 +280,20 @@ jobs:
           else
             test -x build/bin/fake2d_hello
           fi
-          echo "binary ok"
-
-      # ---- Generate assets (PNGs/JSON maps are produced on first run) ----
-      - name: (linux) generate demo assets
-        if: runner.os == 'Linux'
-        run: |
-          export LD_LIBRARY_PATH="$FLINSTALL/lib:${LD_LIBRARY_PATH:-}"
-          for demo in mario platformer slope; do
-            xvfb-run -a -s '-screen 0 1024x768x24' \
-              env LIBGL_ALWAYS_SOFTWARE=1 \
-              ./build/bin/fake2d_hello --headless --frames 1 "--$demo-demo"
-          done
-          test -s assets/mario.json && test -s assets/platformer.json \
-            && test -s assets/slope.json
-
-      # GitHub's macOS runners expose no OpenGL pixel format (NSGL 65545),
-      # and Windows VMs may lack a GL 3.3 WGL pixel format, so the JSON
-      # levels are produced once on Linux (llvmpipe) and shared as an
-      # artifact for the fixture-only runs on the other two OSes.
-      - name: Upload generated demo maps
-        if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v4
-        with:
-          name: demo-assets
-          path: |
-            assets/mario.json
-            assets/platformer.json
-            assets/slope.json
 
       - name: Download generated demo maps
-        if: runner.os != 'Linux'
         uses: actions/download-artifact@v4
         with:
           name: demo-assets
           path: assets
 
-      # ----------------------- Lua gameplay logic (all platforms/backends)
-      - name: Headless Lua gameplay fixtures tcc/gcc/interp (linux/mac)
-        if: runner.os != 'Windows'
+      - name: Headless Lua fixtures (macos)
+        if: runner.os == 'macOS'
         run: |
           python3 tests/headless/run_headless.py \
             --flua "$FLINSTALL/bin/flua"
 
-      - name: (windows) headless Lua gameplay fixtures tcc/gcc/interp
+      - name: (windows) headless Lua fixtures
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
@@ -250,44 +303,7 @@ jobs:
           FLBIN="$(cygpath -u "$FLINSTALL")/bin"
           export PATH="$FLBIN:$PATH"
           python tests/headless/run_headless.py \
-            --flua "$(cygpath -w "$FLBIN/flua.exe")" \
-            --jit 2 --scenario mario_smoke
-
-      # ------------------------- GPU/demo smoke (hidden/software contexts)
-      - name: (linux) headless demo + benchmark smoke
-        if: runner.os == 'Linux'
-        run: |
-          export LD_LIBRARY_PATH="$FLINSTALL/lib:${LD_LIBRARY_PATH:-}"
-          xvfb-run -a -s '-screen 0 1024x768x24' \
-            env LIBGL_ALWAYS_SOFTWARE=1 \
-            ./build/bin/fake2d_hello --headless --frames 30 --scene-demo
-          xvfb-run -a -s '-screen 0 1024x768x24' \
-            env LIBGL_ALWAYS_SOFTWARE=1 \
-            ./build/bin/fake2d_hello --headless --frames 40 --scene-demo \
-              --screenshot scene.png
-          test -s scene.png
-          xvfb-run -a -s '-screen 0 1024x768x24' \
-            env LIBGL_ALWAYS_SOFTWARE=1 \
-            ./build/bin/fake2d_hello --headless --bench
-          xvfb-run -a -s '-screen 0 1024x768x24' \
-            env LIBGL_ALWAYS_SOFTWARE=1 \
-            ./build/bin/fake2d_hello --headless --frames 120 --map-demo
-          xvfb-run -a -s '-screen 0 1024x768x24' \
-            env LIBGL_ALWAYS_SOFTWARE=1 \
-            ./build/bin/fake2d_hello --headless --frames 180 --platformer-demo
-          xvfb-run -a -s '-screen 0 1024x768x24' \
-            env LIBGL_ALWAYS_SOFTWARE=1 \
-            ./build/bin/fake2d_hello --headless --frames 180 --mario-demo
-          xvfb-run -a -s '-screen 0 1024x768x24' \
-            env LIBGL_ALWAYS_SOFTWARE=1 \
-            ./build/bin/fake2d_hello --headless --frames 120 --slope-demo
-          xvfb-run -a -s '-screen 0 1024x768x24' \
-            env LIBGL_ALWAYS_SOFTWARE=1 \
-            ./build/bin/fake2d_hello --headless --phys-bench
-
-      # macOS: no GPU smoke — GitHub macOS VMs cannot create an NSOpenGL
-      # pixel format (GLFW 65545), same class of limitation as local
-      # virtualization. Build + the 24 Lua logic cases are the gate there.
+            --flua "$(cygpath -w "$FLBIN/flua.exe")"
 
       - name: (windows) hidden-context GPU smoke (non-blocking)
         if: runner.os == 'Windows'
