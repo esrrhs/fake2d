@@ -303,8 +303,13 @@ jobs:
           while read -r d; do
             [ -d "$d" ] && cp -rf "$d/." "$FLBIN/include/" || true
           done
+          # tcc's win32/include shims (vadefs.h, _mingw.h, assert.h, ...)
+          # must override the current MinGW CRT headers, then the tcc root
+          # overrides (stdarg/stddef/tcclib) last.
+          cp -rf "$BLD/win32/include/." "$FLBIN/include/"
+          cp -f "$TCC/include/"*.h "$FLBIN/include/"
           ls "$FLBIN/include/assert.h" "$FLBIN/include/stdio.h" \
-             "$FLBIN/include/stdarg.h"
+             "$FLBIN/include/stdarg.h" "$FLBIN/include/vadefs.h"
           test -f "$FLBIN/include/windows.h" -o \
                -f "$FLBIN/include/winapi/windows.h"
           cp -f "$BLD/win32/lib/"*.def "$FLBIN/lib/"
