@@ -286,29 +286,28 @@ jobs:
         shell: msys2 {0}
         run: |
           set -eux
-          # libtcc was compiled with CONFIG_TCCDIR=<prefix>/win32, but the
-          # native MSYS build only installs <prefix>/include + /libtcc
-          # (the win32/ cross layout is skipped). Build it ourselves from
-          # tcc's own headers plus the MinGW/GCC runtime headers and libs.
+          # Statically-linked libtcc has no CONFIG_TCCDIR on win32: at
+          # runtime it resolves {B} to the executable's directory
+          # (flua.exe), searching ./include, ./include/winapi and ./lib.
+          # Populate those from the tinycc install + MinGW/GCC runtime.
           TCC=../flbuild/third_party/tinycc
           BLD=../flbuild/third_party/tinycc_build
-          mkdir -p "$TCC/win32/include" "$TCC/win32/lib"
-          cp -f "$TCC/include/"*.h "$TCC/win32/include/"
-          cp -f "$BLD/tcclib.h" "$TCC/win32/include/" 2>/dev/null || true
-          # Pull every system include dir gcc itself reports (unified CRT
-          # headers live in /mingw64/include; compiler-provided stdarg.h
-          # etc. under lib/gcc/.../include).
+          FLBIN="$(cygpath -u "$FLINSTALL")/bin"
+          mkdir -p "$FLBIN/include" "$FLBIN/lib"
+          cp -f "$TCC/include/"*.h "$FLBIN/include/"
+          cp -f "$BLD/tcclib.h" "$FLBIN/include/" 2>/dev/null || true
+          # Every system include dir gcc itself reports (CRT headers in
+          # /mingw64/include incl. winapi/, compiler stdarg/stddef under
+          # lib/gcc/.../include).
           gcc -E -Wp,-v -xc /dev/null 2>&1 | sed -n 's/^ \(.*\)/\1/p' | \
           while read -r d; do
-            [ -d "$d" ] && cp -rf "$d/." "$TCC/win32/include/" || true
+            [ -d "$d" ] && cp -rf "$d/." "$FLBIN/include/" || true
           done
-          ls "$TCC/win32/include/stdio.h" "$TCC/win32/include/stdarg.h"
-          cp -f "$BLD/win32/lib/"*.def "$TCC/win32/lib/"
-          find "$BLD" -maxdepth 2 -name "*libtcc1*.a" -exec cp -f {} "$TCC/win32/lib/" \;
-          find "$BLD" -maxdepth 3 \( -name "crt*.o" -o -name "*.o" \) -path "*win32*" \
-            -exec cp -f {} "$TCC/win32/lib/" \; 2>/dev/null || true
-          ls "$TCC/win32/include/assert.h" "$TCC/win32/include/stdio.h"
-          ls "$TCC/win32/lib" | head -20
+          ls "$FLBIN/include/assert.h" "$FLBIN/include/stdio.h" \
+             "$FLBIN/include/stdarg.h" "$FLBIN/include/winapi/windows.h"
+          cp -f "$BLD/win32/lib/"*.def "$FLBIN/lib/"
+          find "$BLD" -maxdepth 2 -name "*libtcc1*.a" -exec cp -f {} "$FLBIN/lib/" \;
+          ls "$FLBIN/lib" | head -20
 
       - name: Download generated demo maps
         uses: actions/download-artifact@v4
