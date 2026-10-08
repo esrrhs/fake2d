@@ -281,17 +281,29 @@ jobs:
             test -x build/bin/fake2d_hello
           fi
 
-      - name: (windows) diagnose tinycc install
+      - name: (windows) assemble tinycc win32 support tree
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
           set -eux
-          echo "== CONFIG_TCCDIR compiled into tcc:"
-          grep -E "CONFIG_TCCDIR|CONFIG_TCC_LIBPATHS" ../flbuild/third_party/tinycc_build/config.h || true
-          echo "== tinycc prefix tree:"
-          ls -R ../flbuild/third_party/tinycc | head -40 || true
-          echo "== assert.h present?"
-          ls -l ../flbuild/third_party/tinycc/include/assert.h || true
+          # libtcc was compiled with CONFIG_TCCDIR=<prefix>/win32, but the
+          # native MSYS build only installs <prefix>/include + /libtcc
+          # (the win32/ cross layout is skipped). Build it ourselves from
+          # tcc's own headers plus the MinGW/GCC runtime headers and libs.
+          TCC=../flbuild/third_party/tinycc
+          BLD=../flbuild/third_party/tinycc_build
+          mkdir -p "$TCC/win32/include" "$TCC/win32/lib"
+          cp -f "$TCC/include/"*.h "$TCC/win32/include/"
+          cp -f "$BLD/tcclib.h" "$TCC/win32/include/" 2>/dev/null || true
+          cp -rf /mingw64/x86_64-w64-mingw32/include/. "$TCC/win32/include/"
+          GCCINC=$(ls -d /mingw64/lib/gcc/x86_64-w64-mingw32/*/include 2>/dev/null | head -1)
+          cp -rf "$GCCINC/." "$TCC/win32/include/"
+          cp -f "$BLD/win32/lib/"*.def "$TCC/win32/lib/"
+          find "$BLD" -maxdepth 2 -name "*libtcc1*.a" -exec cp -f {} "$TCC/win32/lib/" \;
+          find "$BLD" -maxdepth 3 \( -name "crt*.o" -o -name "*.o" \) -path "*win32*" \
+            -exec cp -f {} "$TCC/win32/lib/" \; 2>/dev/null || true
+          ls "$TCC/win32/include/assert.h" "$TCC/win32/include/stdio.h"
+          ls "$TCC/win32/lib" | head -20
 
       - name: Download generated demo maps
         uses: actions/download-artifact@v4
