@@ -250,7 +250,8 @@ jobs:
           FLBIN="$(cygpath -u "$FLINSTALL")/bin"
           export PATH="$FLBIN:$PATH"
           python tests/headless/run_headless.py \
-            --flua "$(cygpath -w "$FLBIN/flua.exe")"
+            --flua "$(cygpath -w "$FLBIN/flua.exe")" \
+            --jit 2 --scenario mario_smoke
 
       # ------------------------- GPU/demo smoke (hidden/software contexts)
       - name: (linux) headless demo + benchmark smoke
