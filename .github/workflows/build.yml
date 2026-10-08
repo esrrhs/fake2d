@@ -281,6 +281,18 @@ jobs:
             test -x build/bin/fake2d_hello
           fi
 
+      - name: (windows) diagnose tinycc install
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          set -eux
+          echo "== CONFIG_TCCDIR compiled into tcc:"
+          grep -E "CONFIG_TCCDIR|CONFIG_TCC_LIBPATHS" ../flbuild/third_party/tinycc_build/config.h || true
+          echo "== tinycc prefix tree:"
+          ls -R ../flbuild/third_party/tinycc | head -40 || true
+          echo "== assert.h present?"
+          ls -l ../flbuild/third_party/tinycc/include/assert.h || true
+
       - name: Download generated demo maps
         uses: actions/download-artifact@v4
         with:
