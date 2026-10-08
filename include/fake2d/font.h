@@ -8,6 +8,11 @@
 #include <string_view>
 #include <unordered_map>
 
+#if defined(_WIN32) && defined(DrawText)
+// wingdi.h DrawText macro (windows.h may precede this header); Font owns it.
+#undef DrawText
+#endif
+
 namespace fake2d {
 
 /// Bitmap font rasterized into a single glyph atlas; glyph quads are

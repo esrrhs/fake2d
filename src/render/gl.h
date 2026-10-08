@@ -10,3 +10,11 @@
 #include <GL/gl.h>
 #include <GL/glext.h>
 #endif
+
+#if defined(_WIN32)
+// MinGW's GL/gl.h pulls in windows.h; wingdi.h #defines DrawText to
+// DrawTextA/DrawTextW, which collides with the Renderer/Font DrawText API.
+#ifdef DrawText
+#undef DrawText
+#endif
+#endif

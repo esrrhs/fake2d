@@ -13,6 +13,12 @@
 #include <string>
 #include <string_view>
 
+#if defined(_WIN32) && defined(DrawText)
+// windows.h may have been included before this header (e.g. via GL or
+// fakelua); drop the wingdi.h DrawText macro that masks the renderer API.
+#undef DrawText
+#endif
+
 namespace fake2d {
 
 /// 2D Renderer managing camera, sprite batching, texture rendering, and OpenGL state.
