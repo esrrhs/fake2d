@@ -9,70 +9,258 @@ on:
 permissions:
   contents: read
 
+# Pinned fakelua commit (post-v2.0.0 master). Heavy deps (boost, libevent,
+# hiredis, mariadb connector, tinycc, ...) are fetched by CPM; only OpenSSL
+# and a C++23 compiler are expected from the runner/system packages.
+env:
+  FAKELUA_REF: 6081541
+
 jobs:
-  build:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
+  engine:
+    name: engine (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            label: linux
+          - os: macos-15
+            label: macos
+          - os: windows-2022
+            label: windows
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install system packages
+      # ------------------------------------------------------------ Linux
+      - name: (linux) packages
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build pkg-config xvfb \
-            libgl1-mesa-dev libx11-dev libxrandr-dev libxi-dev \
-            libxcursor-dev libxinerama-dev libwayland-dev libxkbcommon-dev
+            build-essential cmake ninja-build pkg-config ccache xvfb \
+            libssl-dev libgl1-mesa-dev libx11-dev libxrandr-dev libxi-dev \
+            libxcursor-dev libxinerama-dev
 
-      - name: Configure (window skeleton, FakeLua optional)
+      - name: (linux) ccache
+        if: runner.os == 'Linux'
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ matrix.label }}-fakelua
+          max-size: 2G
+
+      - name: (linux/mac) caches + paths
+        if: runner.os != 'Windows'
         run: |
+          echo "CPM_SOURCE_CACHE=$HOME/.cache/CPM" >> "$GITHUB_ENV"
+          echo "FLINSTALL=$RUNNER_TEMP/flinstall" >> "$GITHUB_ENV"
+          mkdir -p "$CPM_SOURCE_CACHE"
+
+      - name: (linux/mac) cache CPM
+        if: runner.os != 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/CPM
+          key: ${{ runner.os }}-cpm-${{ env.FAKELUA_REF }}
+          restore-keys: |
+            ${{ runner.os }}-cpm-
+
+      - name: (macos) packages
+        if: runner.os == 'macOS'
+        run: |
+          brew --version
+          HOMEBREW_NO_AUTO_UPDATE=1 brew install ninja ccache openssl@3 || true
+          echo "OPENSSL_PREFIX=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
+
+      - name: (macos) ccache
+        if: runner.os == 'macOS'
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ matrix.label }}-fakelua
+          max-size: 2G
+
+      # ---------------------------------------------------------- Windows
+      - name: (windows) MSYS2 toolchain
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            git
+            make
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-openssl
+            mingw-w64-x86_64-ccache
+            mingw-w64-x86_64-python
+
+      - name: (windows) paths
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          set -eux
+          mkdir -p .cache/CPM .cache/ccache
+          echo "CPM_SOURCE_CACHE=$(cygpath -w "$GITHUB_WORKSPACE/.cache/CPM")" >> "$GITHUB_ENV"
+          echo "FLINSTALL=$(cygpath -w "$GITHUB_WORKSPACE/../flinstall")" >> "$GITHUB_ENV"
+          echo "CCACHE_DIR=$(cygpath -w "$GITHUB_WORKSPACE/.cache/ccache")" >> "$GITHUB_ENV"
+
+      - name: (windows) cache CPM/ccache
+        if: runner.os == 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: windows-cpm-ccache-${{ env.FAKELUA_REF }}
+          restore-keys: |
+            windows-cpm-ccache-
+
+      # -------------------------------------------------- fakelua (linux/mac)
+      - name: (linux/mac) checkout fakelua
+        if: runner.os != 'Windows'
+        run: |
+          git clone --no-checkout https://github.com/esrrhs/fakelua "$RUNNER_TEMP/fakelua-src"
+          git -C "$RUNNER_TEMP/fakelua-src" fetch --depth 1 origin "$FAKELUA_REF"
+          git -C "$RUNNER_TEMP/fakelua-src" checkout FETCH_HEAD
+
+      - name: (linux/mac) build + install fakelua
+        if: runner.os != 'Windows'
+        run: |
+          set -eux
+          common="-S $RUNNER_TEMP/fakelua-src -B $RUNNER_TEMP/flbuild -G Ninja
+                  -DCMAKE_BUILD_TYPE=Release
+                  -DFAKELUA_BUILD_TESTS=OFF
+                  -DFAKELUA_BUILD_BENCHMARKS=OFF
+                  -DCMAKE_INSTALL_PREFIX=$FLINSTALL"
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            cmake $common -DCMAKE_PREFIX_PATH="$OPENSSL_PREFIX"
+          else
+            cmake $common
+          fi
+          cmake --build "$RUNNER_TEMP/flbuild" --parallel
+          cmake --install "$RUNNER_TEMP/flbuild"
+          ccache -s || true
+
+      # ------------------------------------------------ fakelua (windows)
+      - name: (windows) checkout + build fakelua
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          set -eux
+          ccache --max-size=2G || true
+          git clone --no-checkout https://github.com/esrrhs/fakelua ../fakelua-src
+          git -C ../fakelua-src fetch --depth 1 origin "$FAKELUA_REF"
+          git -C ../fakelua-src checkout FETCH_HEAD
+          cmake -S ../fakelua-src -B ../flbuild -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DFAKELUA_BUILD_TESTS=OFF \
+            -DFAKELUA_BUILD_BENCHMARKS=OFF \
+            -DCMAKE_INSTALL_PREFIX="$FLINSTALL"
+          cmake --build ../flbuild --parallel
+          cmake --install ../flbuild
+          ccache -s || true
+
+      # ------------------------------------------------------------- fake2d
+      - name: Configure fake2d (linux/mac)
+        if: runner.os != 'Windows'
+        run: |
+          set -eux
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DFAKE2D_WITH_FAKELUA=OFF
+            -Dfakelua_DIR="$FLINSTALL/lib/cmake/fakelua"
 
-      - name: Build
+      - name: (windows) configure fake2d
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          set -eux
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -Dfakelua_DIR="$FLINSTALL/lib/cmake/fakelua"
+
+      - name: Build fake2d (linux/mac)
+        if: runner.os != 'Windows'
         run: cmake --build build --parallel
 
-      - name: Smoke
+      - name: (windows) build fake2d
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: cmake --build build --parallel
+
+      - name: Binary smoke
+        shell: bash
         run: |
-          test -x build/bin/fake2d_hello
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            test -f build/bin/fake2d_hello.exe
+          else
+            test -x build/bin/fake2d_hello
+          fi
           echo "binary ok"
 
-      - name: "Headless run (scene demo: scene graph, font, particles)"
+      # ----------------------- Lua gameplay logic (all platforms/backends)
+      - name: Headless Lua gameplay fixtures tcc/gcc/interp (linux/mac)
+        if: runner.os != 'Windows'
         run: |
+          python3 tests/headless/run_headless.py \
+            --flua "$FLINSTALL/bin/flua"
+
+      - name: (windows) headless Lua gameplay fixtures tcc/gcc/interp
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          set -eux
+          # mingw64/bin on PATH gives the gcc jit backend its compiler;
+          # flinstall/bin provides libfakelua.dll next to flua.exe.
+          FLBIN="$(cygpath -u "$FLINSTALL")/bin"
+          export PATH="$FLBIN:$PATH"
+          python tests/headless/run_headless.py \
+            --flua "$(cygpath -w "$FLBIN/flua.exe")"
+
+      # ------------------------- GPU/demo smoke (hidden/software contexts)
+      - name: (linux) headless demo + benchmark smoke
+        if: runner.os == 'Linux'
+        run: |
+          export LD_LIBRARY_PATH="$FLINSTALL/lib:${LD_LIBRARY_PATH:-}"
           xvfb-run -a -s '-screen 0 1024x768x24' \
             env LIBGL_ALWAYS_SOFTWARE=1 \
             ./build/bin/fake2d_hello --headless --frames 30 --scene-demo
-
-      - name: Headless screenshot (visual smoke)
-        run: |
           xvfb-run -a -s '-screen 0 1024x768x24' \
             env LIBGL_ALWAYS_SOFTWARE=1 \
             ./build/bin/fake2d_hello --headless --frames 40 --scene-demo \
               --screenshot scene.png
           test -s scene.png
-
-      - name: Sprite batch benchmark (immediate vs sorted)
-        run: |
           xvfb-run -a -s '-screen 0 1024x768x24' \
             env LIBGL_ALWAYS_SOFTWARE=1 \
             ./build/bin/fake2d_hello --headless --bench
-
-      - name: Tilemap/physics/UI demo
-        run: |
           xvfb-run -a -s '-screen 0 1024x768x24' \
             env LIBGL_ALWAYS_SOFTWARE=1 \
             ./build/bin/fake2d_hello --headless --frames 120 --map-demo
-
-      - name: Platformer demo (controller, one-way, coins, follow cam)
-        run: |
           xvfb-run -a -s '-screen 0 1024x768x24' \
             env LIBGL_ALWAYS_SOFTWARE=1 \
             ./build/bin/fake2d_hello --headless --frames 180 --platformer-demo
-
-      - name: Physics broadphase benchmark
-        run: |
+          xvfb-run -a -s '-screen 0 1024x768x24' \
+            env LIBGL_ALWAYS_SOFTWARE=1 \
+            ./build/bin/fake2d_hello --headless --frames 180 --mario-demo
+          xvfb-run -a -s '-screen 0 1024x768x24' \
+            env LIBGL_ALWAYS_SOFTWARE=1 \
+            ./build/bin/fake2d_hello --headless --frames 120 --slope-demo
           xvfb-run -a -s '-screen 0 1024x768x24' \
             env LIBGL_ALWAYS_SOFTWARE=1 \
             ./build/bin/fake2d_hello --headless --phys-bench
+
+      - name: (macos) hidden-context GPU smoke
+        if: runner.os == 'macOS'
+        run: |
+          ./build/bin/fake2d_hello --headless --frames 30 --scene-demo
+          ./build/bin/fake2d_hello --headless --frames 180 --mario-demo
+
+      - name: (windows) hidden-context GPU smoke
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          set -eux
+          export PATH="$(cygpath -u "$FLINSTALL")/bin:$PATH"
+          ./build/bin/fake2d_hello.exe --headless --frames 30 --scene-demo
+          ./build/bin/fake2d_hello.exe --headless --frames 180 --mario-demo
