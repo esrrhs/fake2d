@@ -124,12 +124,17 @@ def main():
             case_failed = ("FAILURES 0" not in summary) or bool(bad)
             if case_failed:
                 failures += 1
-                print(f"BAD  {name} (rc={rc})")
+                print(f"BAD  {name} (rc={rc}) chunk={chunk}")
                 for ln in marks:
                     print("     " + ln)
-                tail_err = "\n".join(stderr.splitlines()[-12:])
-                if tail_err:
-                    print(tail_err)
+                # Surface the full compiler/runtime diagnostics (the
+                # exception message line precedes the stack trace).
+                for stream_name, text in (("stdout", stdout), ("stderr", stderr)):
+                    diag = [l for l in text.splitlines() if l.strip()]
+                    if diag:
+                        print(f"     --- {stream_name} ---")
+                        for ln in diag[:25]:
+                            print("     " + ln.strip()[:300])
             else:
                 print(f"OK   {name}")
 
