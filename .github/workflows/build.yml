@@ -13,7 +13,7 @@ permissions:
 # hiredis, mariadb connector, tinycc, ...) are fetched by CPM; only OpenSSL
 # and a C++23 compiler are expected from the runner/system packages.
 env:
-  FAKELUA_REF: 6081541
+  FAKELUA_REF: 608154182155ab34216d20ad3fad624ae65004cf
 
 jobs:
   engine:
@@ -63,7 +63,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/CPM
-          key: ${{ runner.os }}-cpm-${{ env.FAKELUA_REF }}
+          key: ${{ runner.os }}-cpm-v2
           restore-keys: |
             ${{ runner.os }}-cpm-
 
@@ -113,7 +113,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .cache
-          key: windows-cpm-ccache-${{ env.FAKELUA_REF }}
+          key: windows-cpm-ccache-v2
           restore-keys: |
             windows-cpm-ccache-
 
