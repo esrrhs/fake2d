@@ -295,9 +295,14 @@ jobs:
           mkdir -p "$TCC/win32/include" "$TCC/win32/lib"
           cp -f "$TCC/include/"*.h "$TCC/win32/include/"
           cp -f "$BLD/tcclib.h" "$TCC/win32/include/" 2>/dev/null || true
-          cp -rf /mingw64/x86_64-w64-mingw32/include/. "$TCC/win32/include/"
-          GCCINC=$(ls -d /mingw64/lib/gcc/x86_64-w64-mingw32/*/include 2>/dev/null | head -1)
-          cp -rf "$GCCINC/." "$TCC/win32/include/"
+          # Pull every system include dir gcc itself reports (unified CRT
+          # headers live in /mingw64/include; compiler-provided stdarg.h
+          # etc. under lib/gcc/.../include).
+          gcc -E -Wp,-v -xc /dev/null 2>&1 | sed -n 's/^ \(.*\)/\1/p' | \
+          while read -r d; do
+            [ -d "$d" ] && cp -rf "$d/." "$TCC/win32/include/" || true
+          done
+          ls "$TCC/win32/include/stdio.h" "$TCC/win32/include/stdarg.h"
           cp -f "$BLD/win32/lib/"*.def "$TCC/win32/lib/"
           find "$BLD" -maxdepth 2 -name "*libtcc1*.a" -exec cp -f {} "$TCC/win32/lib/" \;
           find "$BLD" -maxdepth 3 \( -name "crt*.o" -o -name "*.o" \) -path "*win32*" \
