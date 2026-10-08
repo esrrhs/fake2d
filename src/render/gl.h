@@ -17,4 +17,8 @@
 #ifdef DrawText
 #undef DrawText
 #endif
+// opengl32 only exports GL 1.1; pull in the runtime function-pointer layer.
+#include "render/gl_loader.h"
+#else
+static inline void fake2d_gl_load_functions() {}
 #endif
