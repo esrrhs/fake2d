@@ -126,7 +126,7 @@ jobs:
   # macOS and Windows build the full fakelua-enabled engine and run the 24
   # Lua logic cases against Linux-produced maps. GitHub macOS VMs have no
   # NSOpenGL pixel format (GLFW 65545), so no engine runs there; Windows
-  # hidden-context GL is attempted but non-blocking (host-dependent).
+  # installs Mesa llvmpipe (tools/setup-mesa-windows.ps1) for software GL.
   engine:
     name: engine (${{ matrix.label }})
     needs: assets
@@ -340,12 +340,30 @@ jobs:
           python tests/headless/run_headless.py \
             --flua "$(cygpath -w "$FLBIN/flua.exe")"
 
-      - name: (windows) hidden-context GPU smoke (non-blocking)
+      # Software OpenGL (llvmpipe): GitHub Windows VMs expose no hardware GL.
+      - name: (windows) install Mesa llvmpipe next to the binary
         if: runner.os == 'Windows'
-        continue-on-error: true
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy Bypass -File tools/setup-mesa-windows.ps1 `
+            -TargetDir build/bin
+
+      - name: (windows) headless GPU smoke via llvmpipe
+        if: runner.os == 'Windows'
         shell: msys2 {0}
+        env:
+          GALLIUM_DRIVER: llvmpipe
+          LIBGL_ALWAYS_SOFTWARE: "1"
         run: |
           set -eux
           export PATH="$(cygpath -u "$FLINSTALL")/bin:$PATH"
           ./build/bin/fake2d_hello.exe --headless --frames 30 --scene-demo
+          ./build/bin/fake2d_hello.exe --headless --frames 40 --scene-demo \
+            --screenshot scene.png
+          test -s scene.png
+          ./build/bin/fake2d_hello.exe --headless --frames 120 --map-demo
+          ./build/bin/fake2d_hello.exe --headless --frames 180 --platformer-demo
           ./build/bin/fake2d_hello.exe --headless --frames 180 --mario-demo
+          ./build/bin/fake2d_hello.exe --headless --frames 120 --slope-demo
+          ./build/bin/fake2d_hello.exe --headless --bench
+          ./build/bin/fake2d_hello.exe --headless --phys-bench
