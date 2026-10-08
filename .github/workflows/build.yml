@@ -56,7 +56,7 @@ jobs:
         run: |
           echo "CPM_SOURCE_CACHE=$HOME/.cache/CPM" >> "$GITHUB_ENV"
           echo "FLINSTALL=$RUNNER_TEMP/flinstall" >> "$GITHUB_ENV"
-          mkdir -p "$CPM_SOURCE_CACHE"
+          mkdir -p "$HOME/.cache/CPM"
 
       - name: (linux/mac) cache CPM
         if: runner.os != 'Windows'
