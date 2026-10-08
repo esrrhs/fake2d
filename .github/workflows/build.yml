@@ -304,7 +304,9 @@ jobs:
             [ -d "$d" ] && cp -rf "$d/." "$FLBIN/include/" || true
           done
           ls "$FLBIN/include/assert.h" "$FLBIN/include/stdio.h" \
-             "$FLBIN/include/stdarg.h" "$FLBIN/include/winapi/windows.h"
+             "$FLBIN/include/stdarg.h"
+          test -f "$FLBIN/include/windows.h" -o \
+               -f "$FLBIN/include/winapi/windows.h"
           cp -f "$BLD/win32/lib/"*.def "$FLBIN/lib/"
           find "$BLD" -maxdepth 2 -name "*libtcc1*.a" -exec cp -f {} "$FLBIN/lib/" \;
           ls "$FLBIN/lib" | head -20
