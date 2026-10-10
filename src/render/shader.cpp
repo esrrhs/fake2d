@@ -61,6 +61,43 @@ void main() {
 }
 )";
 
+// GL 2.1 (legacy) variants: attribute/varying syntax, no layout qualifiers
+// (locations are pinned with glBindAttribLocation before linking), and
+// texture2D + gl_FragColor instead of texture() and out variables.
+const char *kDefaultVertexShader120 = R"(#version 120
+attribute vec2 a_pos;
+attribute vec2 a_uv;
+attribute vec4 a_color;
+
+uniform mat4 u_view_projection;
+
+varying vec2 v_uv;
+varying vec4 v_color;
+
+void main() {
+    v_uv = a_uv;
+    v_color = a_color;
+    gl_Position = u_view_projection * vec4(a_pos, 0.0, 1.0);
+}
+)";
+
+const char *kDefaultFragmentShader120 = R"(#version 120
+varying vec2 v_uv;
+varying vec4 v_color;
+
+uniform sampler2D u_texture;
+
+void main() {
+    gl_FragColor = texture2D(u_texture, v_uv) * v_color;
+}
+)";
+
+void BindDefaultAttribLocations(GLuint program) {
+    glBindAttribLocation(program, 0, "a_pos");
+    glBindAttribLocation(program, 1, "a_uv");
+    glBindAttribLocation(program, 2, "a_color");
+}
+
 } // namespace
 
 Shader::Shader() = default;
@@ -100,6 +137,11 @@ bool Shader::LoadFromSource(std::string_view vert_src, std::string_view frag_src
     GLuint prog = glCreateProgram();
     glAttachShader(prog, vert);
     glAttachShader(prog, frag);
+    // Legacy GLSL 120 shaders carry no layout() qualifiers; pin the attribute
+    // locations explicitly so they match the VAO/attrib-pointer setup.
+    if (glcaps::legacy_mode) {
+        BindDefaultAttribLocations(prog);
+    }
     glLinkProgram(prog);
 
     glDeleteShader(vert);
@@ -195,7 +237,13 @@ Shader *Shader::GetDefault2D() {
     static Shader default_shader;
     static bool initialized = false;
     if (!initialized) {
-        initialized = default_shader.LoadFromSource(kDefaultVertexShader, kDefaultFragmentShader);
+        if (glcaps::legacy_mode) {
+            initialized = default_shader.LoadFromSource(kDefaultVertexShader120,
+                                                        kDefaultFragmentShader120);
+        } else {
+            initialized = default_shader.LoadFromSource(kDefaultVertexShader,
+                                                        kDefaultFragmentShader);
+        }
         if (initialized) {
             default_shader.SetInt("u_texture", 0);
         }

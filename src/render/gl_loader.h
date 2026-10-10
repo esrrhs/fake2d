@@ -16,8 +16,9 @@ void fake2d_gl_load_functions();
 
 #define FAKE2D_GL_PROCS(X)                                                     \
     X(ActiveTexture, PFNGLACTIVETEXTUREPROC)                                   \
-    X(AttachShader, PFNGLATTACHSHADERPROC)                                     \
-    X(BindBuffer, PFNGLBINDBUFFERPROC)                                         \
+    X(AttachShader, PFNGLATTACHSHADERPROC)                                   \
+    X(BindAttribLocation, PFNGLBINDATTRIBLOCATIONPROC)                       \
+    X(BindBuffer, PFNGLBINDBUFFERPROC)                                        \
     X(BindVertexArray, PFNGLBINDVERTEXARRAYPROC)                               \
     X(BufferData, PFNGLBUFFERDATAPROC)                                         \
     X(BufferSubData, PFNGLBUFFERSUBDATAPROC)                                   \
@@ -54,6 +55,7 @@ FAKE2D_GL_PROCS(FAKE2D_GL_DECL)
 // Route every source-level glFoo call to its loaded function pointer.
 #define glActiveTexture           p_glActiveTexture
 #define glAttachShader            p_glAttachShader
+#define glBindAttribLocation      p_glBindAttribLocation
 #define glBindBuffer              p_glBindBuffer
 #define glBindVertexArray         p_glBindVertexArray
 #define glBufferData              p_glBufferData

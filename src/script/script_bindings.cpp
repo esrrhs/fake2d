@@ -270,8 +270,11 @@ void RegisterAnimationApi(fakelua::State *state, Engine *engine) {
 
     fakelua::RegisterNativeFunction(
         state, "anim_draw", false,
-        std::function<void(fakelua::State *, std::int64_t, double, double, double, double)>(
-            [engine](fakelua::State *, std::int64_t id, double x, double y, double w, double h) {
+        std::function<void(fakelua::State *, double, double, double, double, double)>(
+            [engine](fakelua::State *, double id, double x, double y, double w, double h) {
+                // id is double on purpose: anim handles stored in EntityStore
+                // slots arrive as floats and a long long param would reject
+                // them (FakeluaToNativeLonglong).
                 engine->GetAnimations().Draw(
                     static_cast<int>(id), engine->GetResources(),
                     engine->GetRenderer().GetSpriteBatch(),
@@ -281,9 +284,9 @@ void RegisterAnimationApi(fakelua::State *state, Engine *engine) {
 
     fakelua::RegisterNativeFunction(
         state, "anim_draw_flip", false,
-        std::function<void(fakelua::State *, std::int64_t, double, double, double, double,
+        std::function<void(fakelua::State *, double, double, double, double, double,
                            bool, bool)>(
-            [engine](fakelua::State *, std::int64_t id, double x, double y, double w,
+            [engine](fakelua::State *, double id, double x, double y, double w,
                      double h, bool flip_x, bool flip_y) {
                 engine->GetAnimations().DrawFlipped(
                     static_cast<int>(id), engine->GetResources(),

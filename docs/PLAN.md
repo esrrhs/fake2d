@@ -122,6 +122,22 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 - [x] Character migration off hand-rolled strip math: mario builds the two player clips once (small/big, 4 frames each, paused + per-frame `anim_set_frame`) and one looping 8 fps waddle clip per Goomba (anim id in entity slot 7, destroyed on every despawn path); platformer/slope players use the same paused-clip pattern. Lua scripts no longer compute source rectangles themselves — the animator owns clips and frame timing
 - [x] SCRIPTING.md documents both styles (auto-loop decoration vs state-driven characters) and the C++-pool lifecycle rule (pair create/destroy, survives the per-frame arena reset)
 
+## Phase 11 — Self-contained release pipeline (1.5.x)
+
+- [x] Replace the engine-only (`FAKE2D_WITH_FAKELUA=OFF`) tag build in `.github/workflows/release.yml` with full-FakeLua self-contained archives on Linux / macOS / Windows: bundled libfakelua + OpenSSL, `scripts/`, shaders, pre-generated demo maps, and a per-platform launcher
+- [x] Reusable packaging scripts under `tools/`: `package-macos.sh` (otool-driven dylib copy, `@executable_path/../lib`, real files only, ad-hoc codesign), `package-linux.sh` (ldd-resolved libs + patchelf `$ORIGIN` rpath), `package-windows.sh` (MSYS2 copy of MinGW runtime DLLs next to the exe); a dedicated Linux job generates the demo maps shared by all three packages
+- [x] The shipped engine needs no compiler — TCC is disabled in `script_host.cpp` and the interpreter is the automatic fallback when GCC JIT is absent, so the packages deliberately exclude the tinycc support tree that CI's `flua` logic runs require
+- [~] Verification: macOS packager validated locally on Apple Silicon (3 dylibs resolve from `@executable_path/../lib`, process reaches the GL layer); Linux/Windows packagers are syntax-checked and mirror the proven build.yml steps, pending end-to-end confirmation on the first release tag
+
+## Phase 12 — GL2 compatibility rendering path (1.6.x)
+
+- [x] Runtime context ladder in `platform::Window`: GLFW 3.3 core → GLFW 2.1 legacy → (macOS headless only) drawable-less CGL context + offscreen FBO, for VMs whose only renderer is the Apple Software Renderer and which expose no NSGL pixel format at all (GLFW 65545)
+- [x] GL2 legacy render path selected at runtime via `glGetString(GL_VERSION)` (`glcaps::legacy_mode`): GLSL 120 default-shader variants with `glBindAttribLocation`-pinned attribute locations, no VAO (fixed-layout attribute pointers re-specified per flush, element buffer rebound explicitly), `GL_LUMINANCE` uploads for single-channel textures, forced clamp wrap for NPOT+repeat
+- [x] Probe-verified on the software renderer: unsuffixed core FBO entry points dispatch correctly on legacy 2.1 contexts (FRAMEBUFFER_COMPLETE + exact-color `glReadPixels`), so `gl3.h` headers stay unchanged
+- [x] Script binding fix surfaced by the new path: `anim_draw` / `anim_draw_flip` take the clip id as double — anim handles stored in EntityStore slots arrive as floats and were rejected by the previous `long long` parameter (`FakeluaToNativeLonglong failed`), which silently aborted the update mid-frame in goomba view
+- [x] CI: the macOS engine job gains a real GPU smoke (scene/map/platformer/mario/slope headless runs + screenshot) through the CGL FBO path on the Apple Software Renderer, `continue-on-error` until proven stable on runners
+- [x] Verification in the NSGL-restricted VM: all five demos render headless with zero `[ERROR]` lines, screenshot pixel-verified (tiles, sprites, goomba, HUD glyph atlas, lines); 24/24 headless Lua logic cases still green after the binding signature change
+
 ---
 
 ## Non-goals (for now)

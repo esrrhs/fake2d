@@ -108,6 +108,10 @@ private:
     void FlushImmediate();
     void FlushSorted();
     static void ApplyBlend(BlendMode mode);
+    // GL2 (no-VAO) paths: re-specify the fixed-layout attribute pointers
+    // with the matching vertex buffer already bound to GL_ARRAY_BUFFER.
+    void ConfigureQuadAttribs();
+    void ConfigureLineAttribs();
 
     std::uint32_t vao_ = 0;
     std::uint32_t vbo_ = 0;

@@ -19,6 +19,10 @@ namespace fake2d {
 
 namespace {
 
+// gl3.h ships core-profile enums only; legacy contexts still accept the
+// classic luminance format (0x1909).
+constexpr GLenum kLegacyLuminance = 0x1909;
+
 GLenum ToGLFilter(TextureFilter f) {
     switch (f) {
         case TextureFilter::Nearest: return GL_NEAREST;
@@ -80,8 +84,16 @@ bool Texture2D::Create(int width, int height, const std::uint8_t *data, int chan
     GLenum internal_format = GL_RGBA8;
     GLenum format = GL_RGBA;
     if (channels == 1) {
-        internal_format = GL_R8;
-        format = GL_RED;
+        if (glcaps::legacy_mode) {
+            // GL_R8/GL_RED are 3.0-core; legacy contexts take luminance.
+            // The default shader multiplies texel.rgb by the tint, so the
+            // coverage value landing in rgb is what the mask math expects.
+            internal_format = kLegacyLuminance;
+            format = kLegacyLuminance;
+        } else {
+            internal_format = GL_R8;
+            format = GL_RED;
+        }
     } else if (channels == 3) {
         internal_format = GL_RGB8;
         format = GL_RGB;
@@ -97,7 +109,13 @@ bool Texture2D::Create(int width, int height, const std::uint8_t *data, int chan
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, gl_filter);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, gl_filter);
 
-    const GLenum gl_wrap = ToGLWrap(wrap);
+    GLenum gl_wrap = ToGLWrap(wrap);
+    // Legacy NPOT textures only honor CLAMP_TO_EDGE wrap (no mipmaps); REPEAT
+    // on a non-power-of-two size would sample black.
+    if (glcaps::legacy_mode && gl_wrap == GL_REPEAT &&
+        ((width & (width - 1)) != 0 || (height & (height - 1)) != 0)) {
+        gl_wrap = GL_CLAMP_TO_EDGE;
+    }
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, gl_wrap);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, gl_wrap);
 

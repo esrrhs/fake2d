@@ -328,6 +328,24 @@ jobs:
           python3 tests/headless/run_headless.py \
             --flua "$FLINSTALL/bin/flua"
 
+      # macOS runners expose no NSGL pixel format (GLFW 65545), but the CGL
+      # headless fallback (no-drawable context + offscreen FBO, GL 2.1 legacy
+      # path) renders for real on the Apple Software Renderer. Start
+      # continue-on-error; promote to a required gate once proven stable.
+      - name: (macos) headless GPU smoke via CGL FBO
+        if: runner.os == 'macOS'
+        continue-on-error: true
+        run: |
+          set -eux
+          export DYLD_LIBRARY_PATH="$FLINSTALL/lib:${DYLD_LIBRARY_PATH:-}"
+          ./build/bin/fake2d_hello --headless --frames 90 --scene-demo \
+            --screenshot scene-mac.png
+          test -s scene-mac.png
+          ./build/bin/fake2d_hello --headless --frames 120 --map-demo
+          ./build/bin/fake2d_hello --headless --frames 180 --platformer-demo
+          ./build/bin/fake2d_hello --headless --frames 180 --mario-demo
+          ./build/bin/fake2d_hello --headless --frames 120 --slope-demo
+
       - name: (windows) headless Lua fixtures
         if: runner.os == 'Windows'
         shell: msys2 {0}
