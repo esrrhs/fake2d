@@ -175,6 +175,128 @@ void RegisterPhysicsApi(fakelua::State *state, Engine *engine) {
     fakelua::RegisterNativeFunction(state, "phys_contact_user_b", false,
         std::function<std::int64_t(fakelua::State *, std::int64_t)>(
             [contact_user](fakelua::State *, std::int64_t i) { return contact_user(i, true); }));
+
+    // ---- Queries: ray casts -------------------------------------------------
+    fakelua::RegisterNativeFunction(
+        state, "phys_raycast", false,
+        std::function<bool(fakelua::State *, double, double, double, double)>(
+            [engine](fakelua::State *, double x1, double y1, double x2, double y2) -> bool {
+                return engine->GetPhysics().RayCast(
+                    {static_cast<float>(x1), static_cast<float>(y1)},
+                    {static_cast<float>(x2), static_cast<float>(y2)});
+            }));
+
+    const auto ray_reader = [engine](int field) -> double {
+        if (!engine->GetPhysics().HasRayHit()) {
+            return 0.0;
+        }
+        const RayHit &hit = engine->GetPhysics().LastRayHit();
+        switch (field) {
+            case 0: return hit.point.x;
+            case 1: return hit.point.y;
+            case 2: return hit.normal.x;
+            case 3: return hit.normal.y;
+            case 4: return hit.distance;
+            default: return static_cast<double>(hit.user_id);
+        }
+    };
+    fakelua::RegisterNativeFunction(state, "phys_ray_hit_x", false,
+        std::function<double(fakelua::State *)>(
+            [ray_reader](fakelua::State *) { return ray_reader(0); }));
+    fakelua::RegisterNativeFunction(state, "phys_ray_hit_y", false,
+        std::function<double(fakelua::State *)>(
+            [ray_reader](fakelua::State *) { return ray_reader(1); }));
+    fakelua::RegisterNativeFunction(state, "phys_ray_hit_nx", false,
+        std::function<double(fakelua::State *)>(
+            [ray_reader](fakelua::State *) { return ray_reader(2); }));
+    fakelua::RegisterNativeFunction(state, "phys_ray_hit_ny", false,
+        std::function<double(fakelua::State *)>(
+            [ray_reader](fakelua::State *) { return ray_reader(3); }));
+    fakelua::RegisterNativeFunction(state, "phys_ray_hit_dist", false,
+        std::function<double(fakelua::State *)>(
+            [ray_reader](fakelua::State *) { return ray_reader(4); }));
+    fakelua::RegisterNativeFunction(state, "phys_ray_hit_user", false,
+        std::function<std::int64_t(fakelua::State *)>(
+            [ray_reader](fakelua::State *) {
+                return static_cast<std::int64_t>(ray_reader(5));
+            }));
+
+    // ---- Queries: shape overlaps (buffered) ---------------------------------
+    fakelua::RegisterNativeFunction(
+        state, "phys_overlap_circle", false,
+        std::function<std::int64_t(fakelua::State *, double, double, double)>(
+            [engine](fakelua::State *, double x, double y, double r) -> std::int64_t {
+                return static_cast<std::int64_t>(engine->GetPhysics().OverlapCircle(
+                    {static_cast<float>(x), static_cast<float>(y)},
+                    static_cast<float>(r)));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "phys_overlap_box", false,
+        std::function<std::int64_t(fakelua::State *, double, double, double, double)>(
+            [engine](fakelua::State *, double x, double y, double hw, double hh) -> std::int64_t {
+                return static_cast<std::int64_t>(engine->GetPhysics().OverlapBox(
+                    {static_cast<float>(x), static_cast<float>(y)},
+                    {static_cast<float>(hw), static_cast<float>(hh)}));
+            }));
+    fakelua::RegisterNativeFunction(state, "phys_overlap_id", false,
+        std::function<std::int64_t(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t i) -> std::int64_t {
+                const BodyId id = i >= 0
+                    ? engine->GetPhysics().OverlapBody(static_cast<std::size_t>(i))
+                    : kInvalidBody;
+                return static_cast<std::int64_t>(static_cast<std::uint64_t>(id));
+            }));
+    fakelua::RegisterNativeFunction(state, "phys_overlap_user", false,
+        std::function<std::int64_t(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t i) -> std::int64_t {
+                return i >= 0
+                    ? engine->GetPhysics().OverlapUser(static_cast<std::size_t>(i))
+                    : 0;
+            }));
+
+    // ---- Contact lifecycle: stayed / ended ----------------------------------
+    fakelua::RegisterNativeFunction(state, "phys_stay_count", false,
+        std::function<std::int64_t(fakelua::State *)>(
+            [engine](fakelua::State *) -> std::int64_t {
+                return static_cast<std::int64_t>(
+                    engine->GetPhysics().StayedContacts().size());
+            }));
+    fakelua::RegisterNativeFunction(state, "phys_end_count", false,
+        std::function<std::int64_t(fakelua::State *)>(
+            [engine](fakelua::State *) -> std::int64_t {
+                return static_cast<std::int64_t>(
+                    engine->GetPhysics().EndedContacts().size());
+            }));
+
+    const auto lifecycle_user = [engine](std::int64_t index, bool ended, bool b_side) -> std::int64_t {
+        const auto &events = ended ? engine->GetPhysics().EndedContacts()
+                                   : engine->GetPhysics().StayedContacts();
+        if (index < 0 || static_cast<std::size_t>(index) >= events.size()) {
+            return 0;
+        }
+        return b_side ? events[static_cast<std::size_t>(index)].user_b
+                      : events[static_cast<std::size_t>(index)].user_a;
+    };
+    fakelua::RegisterNativeFunction(state, "phys_stay_user_a", false,
+        std::function<std::int64_t(fakelua::State *, std::int64_t)>(
+            [lifecycle_user](fakelua::State *, std::int64_t i) {
+                return lifecycle_user(i, false, false);
+            }));
+    fakelua::RegisterNativeFunction(state, "phys_stay_user_b", false,
+        std::function<std::int64_t(fakelua::State *, std::int64_t)>(
+            [lifecycle_user](fakelua::State *, std::int64_t i) {
+                return lifecycle_user(i, false, true);
+            }));
+    fakelua::RegisterNativeFunction(state, "phys_end_user_a", false,
+        std::function<std::int64_t(fakelua::State *, std::int64_t)>(
+            [lifecycle_user](fakelua::State *, std::int64_t i) {
+                return lifecycle_user(i, true, false);
+            }));
+    fakelua::RegisterNativeFunction(state, "phys_end_user_b", false,
+        std::function<std::int64_t(fakelua::State *, std::int64_t)>(
+            [lifecycle_user](fakelua::State *, std::int64_t i) {
+                return lifecycle_user(i, true, true);
+            }));
 }
 
 void RegisterAnimationApi(fakelua::State *state, Engine *engine) {

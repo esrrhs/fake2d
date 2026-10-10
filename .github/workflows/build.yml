@@ -123,6 +123,17 @@ jobs:
           run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --slope-demo
           run_xvfb ./build/bin/fake2d_hello --headless --phys-bench
 
+      - name: Physics query self-test + Lua binding test
+        run: |
+          export LD_LIBRARY_PATH="$FLINSTALL/lib:${LD_LIBRARY_PATH:-}"
+          # Pure CPU: ray casts / overlaps / contact lifecycle, exit code gate.
+          ./build/bin/fake2d_hello --phys-query-test
+          # Same surface through the Lua bindings; PASS is the [script] 0 line.
+          ./build/bin/fake2d_hello --headless --frames 200 \
+            --entry scripts/phys_test.lua 2> phys_test.log
+          grep -F "[script] 0" phys_test.log
+          ! grep -E "\[script\] (10[0-9][0-9]|200[0-9])" phys_test.log
+
   # macOS and Windows build the full fakelua-enabled engine and run the 24
   # Lua logic cases against Linux-produced maps. GitHub macOS VMs have no
   # NSOpenGL pixel format (GLFW 65545), so no engine runs there; Windows
@@ -328,6 +339,20 @@ jobs:
           python3 tests/headless/run_headless.py \
             --flua "$FLINSTALL/bin/flua"
 
+      # Pure-CPU physics queries (no GL needed): C++ exit-code self-test plus
+      # the Lua binding test through the CGL headless path.
+      - name: (macos) physics query tests
+        if: runner.os == 'macOS'
+        run: |
+          set -eux
+          export DYLD_LIBRARY_PATH="$FLINSTALL/lib:${DYLD_LIBRARY_PATH:-}"
+          ./build/bin/fake2d_hello --phys-query-test
+          ./build/bin/fake2d_hello --headless --phys-bench
+          ./build/bin/fake2d_hello --headless --frames 200 \
+            --entry scripts/phys_test.lua 2> phys_test.log
+          grep -F "[script] 0" phys_test.log
+          ! grep -E "\[script\] (10[0-9][0-9]|200[0-9])" phys_test.log
+
       # macOS runners expose no NSGL pixel format (GLFW 65545), but the CGL
       # headless fallback (no-drawable context + offscreen FBO, GL 2.1 legacy
       # path) renders for real on the Apple Software Renderer. Start
@@ -375,6 +400,12 @@ jobs:
         run: |
           set -eux
           export PATH="$(cygpath -u "$FLINSTALL")/bin:$PATH"
+          # Pure-CPU physics query self-test (exit code) + Lua binding test.
+          ./build/bin/fake2d_hello.exe --phys-query-test
+          ./build/bin/fake2d_hello.exe --headless --frames 200 \
+            --entry scripts/phys_test.lua 2> phys_test.log
+          grep -F "[script] 0" phys_test.log
+          ! grep -E "\[script\] (10[0-9][0-9]|200[0-9])" phys_test.log
           ./build/bin/fake2d_hello.exe --headless --frames 30 --scene-demo
           ./build/bin/fake2d_hello.exe --headless --frames 40 --scene-demo \
             --screenshot scene.png

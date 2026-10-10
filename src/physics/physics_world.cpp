@@ -23,12 +23,143 @@ bool ContainsCircle(const BodyConfig &b, const Vec2 &p) {
     return dx * dx + dy * dy <= b.radius * b.radius;
 }
 
+// Segment vs circle, t in [0,1] along the segment. An external hit reports
+// the outward surface normal; a segment starting inside reports t=0 with the
+// normal opposing the ray direction.
+bool SegmentCircle(const Vec2 &from, const Vec2 &delta, const Vec2 &c, float r,
+                   float &t_out, Vec2 &n_out) {
+    const float a = delta.x * delta.x + delta.y * delta.y;
+    if (a < 1e-12f) {
+        return false; // degenerate segment
+    }
+    const float ox = from.x - c.x;
+    const float oy = from.y - c.y;
+    const float b = ox * delta.x + oy * delta.y;
+    const float cc = ox * ox + oy * oy - r * r;
+    const float disc = b * b - a * cc;
+    if (disc < 0.0f) {
+        return false;
+    }
+    const float sq = std::sqrt(disc);
+    const float t1 = (-b - sq) / a;
+    const float t2 = (-b + sq) / a;
+    if (t1 >= 0.0f && t1 <= 1.0f) {
+        t_out = t1;
+        const float px = from.x + delta.x * t1 - c.x;
+        const float py = from.y + delta.y * t1 - c.y;
+        const float plen = std::sqrt(px * px + py * py);
+        if (plen > 1e-9f) {
+            n_out = {px / plen, py / plen};
+        } else {
+            n_out = {0.0f, -1.0f};
+        }
+        return true;
+    }
+    if (t2 >= 0.0f && t2 <= 1.0f) {
+        // Ray start inside the circle.
+        t_out = 0.0f;
+        const float inv = 1.0f / std::sqrt(a);
+        n_out = {-delta.x * inv, -delta.y * inv};
+        return true;
+    }
+    return false;
+}
+
+// Segment vs axis-aligned box via the slab method, t in [0,1]. Face normal
+// comes from the entering slab axis; start-inside reports t=0, normal=-dir.
+bool SegmentBox(const Vec2 &from, const Vec2 &delta, const Vec2 &c, const Vec2 &h,
+                float &t_out, Vec2 &n_out) {
+    const float len = std::sqrt(delta.x * delta.x + delta.y * delta.y);
+    if (len < 1e-9f) {
+        return false; // degenerate segment
+    }
+    float tmin = -1e30f;
+    float tmax = 1e30f;
+    int axis = -1;
+    float sign = 0.0f;
+    const float mn[2] = {c.x - h.x, c.y - h.y};
+    const float mx[2] = {c.x + h.x, c.y + h.y};
+    const float o[2] = {from.x, from.y};
+    const float d[2] = {delta.x, delta.y};
+    for (int k = 0; k < 2; ++k) {
+        if (std::fabs(d[k]) < 1e-9f) {
+            if (o[k] < mn[k] || o[k] > mx[k]) {
+                return false;
+            }
+            continue;
+        }
+        const float inv = 1.0f / d[k];
+        float t1 = (mn[k] - o[k]) * inv;
+        float t2 = (mx[k] - o[k]) * inv;
+        if (t1 > t2) {
+            std::swap(t1, t2);
+        }
+        if (t1 > tmin) {
+            tmin = t1;
+            axis = k;
+            sign = d[k] > 0.0f ? -1.0f : 1.0f;
+        }
+        if (t2 < tmax) {
+            tmax = t2;
+        }
+        if (tmin > tmax) {
+            return false;
+        }
+    }
+    if (tmax < 0.0f || tmin > 1.0f) {
+        return false;
+    }
+    if (tmin >= 0.0f) {
+        t_out = tmin;
+        n_out = axis == 0 ? Vec2{sign, 0.0f} : Vec2{0.0f, sign};
+    } else {
+        // Segment starts inside the box.
+        t_out = 0.0f;
+        const float inv = 1.0f / len;
+        n_out = {-delta.x * inv, -delta.y * inv};
+    }
+    return true;
+}
+
+bool OverlapsCircleShape(const Vec2 &c, float r, const BodyConfig &b) {
+    if (b.radius > 0.0f) {
+        const float dx = c.x - b.position.x;
+        const float dy = c.y - b.position.y;
+        const float rr = r + b.radius;
+        return dx * dx + dy * dy <= rr * rr;
+    }
+    const float cx = std::clamp(c.x, b.position.x - b.half_extents.x,
+                                b.position.x + b.half_extents.x);
+    const float cy = std::clamp(c.y, b.position.y - b.half_extents.y,
+                                b.position.y + b.half_extents.y);
+    const float dx = c.x - cx;
+    const float dy = c.y - cy;
+    return dx * dx + dy * dy <= r * r;
+}
+
+bool OverlapsBoxShape(const Vec2 &c, const Vec2 &h, const BodyConfig &b) {
+    if (b.radius > 0.0f) {
+        const float cx = std::clamp(b.position.x, c.x - h.x, c.x + h.x);
+        const float cy = std::clamp(b.position.y, c.y - h.y, c.y + h.y);
+        const float dx = b.position.x - cx;
+        const float dy = b.position.y - cy;
+        return dx * dx + dy * dy <= b.radius * b.radius;
+    }
+    return std::fabs(c.x - b.position.x) <= h.x + b.half_extents.x &&
+           std::fabs(c.y - b.position.y) <= h.y + b.half_extents.y;
+}
+
 } // namespace
 
 PhysicsWorld::PhysicsWorld() {
     bodies_.reserve(kMaxBodies);
-    active_pairs_.reserve(256);
+    prev_touching_.reserve(256);
+    curr_touching_.reserve(256);
     contacts_.reserve(64);
+    stayed_contacts_.reserve(64);
+    ended_contacts_.reserve(64);
+    overlap_result_.reserve(64);
+    overlap_users_.reserve(64);
 }
 
 BodyId PhysicsWorld::CreateBody(const BodyConfig &config) {
@@ -347,14 +478,15 @@ void PhysicsWorld::GatherPairs() {
 
 void PhysicsWorld::Step(float dt) {
     contacts_.clear();
+    stayed_contacts_.clear();
+    ended_contacts_.clear();
     if (dt <= 0.0f) {
-        return;
+        return; // prev_touching_ is preserved for the next real step
     }
     const float h = dt / static_cast<float>(kSubsteps);
 
-    // Track still-touching pairs so events fire only on the first frame.
-    std::vector<Pair> still_touching;
-    still_touching.reserve(active_pairs_.size());
+    // Track touching pairs so the lifecycle fires only on transitions.
+    curr_touching_.clear();
 
     for (int sub = 0; sub < kSubsteps; ++sub) {
         for (Body &body : bodies_) {
@@ -378,29 +510,62 @@ void PhysicsWorld::Step(float dt) {
                 continue;
             }
             if (sub == 0) {
-                const bool began = std::find(active_pairs_.begin(),
-                                             active_pairs_.end(), candidate) ==
-                                   active_pairs_.end();
+                const TouchRecord key{candidate.a, candidate.b};
+                const bool began = !std::binary_search(
+                    prev_touching_.begin(), prev_touching_.end(), key, TouchLess);
                 if (began) {
                     contacts_.push_back(ContactEvent{
                         static_cast<BodyId>(Encode(candidate.a, a.generation)),
                         static_cast<BodyId>(Encode(candidate.b, b.generation)),
                         a.cfg.user_id, b.cfg.user_id, normal});
                 }
-                still_touching.push_back(candidate);
+                curr_touching_.push_back(TouchRecord{
+                    candidate.a, candidate.b,
+                    static_cast<BodyId>(Encode(candidate.a, a.generation)),
+                    static_cast<BodyId>(Encode(candidate.b, b.generation)),
+                    a.cfg.user_id, b.cfg.user_id});
             }
             SolvePair(a, b, normal, penetration);
         }
     }
 
-    active_pairs_.swap(still_touching);
     // A pair may be recorded once per substep-0 sweep only; dedupe defensively.
-    std::sort(active_pairs_.begin(), active_pairs_.end(),
-              [](const Pair &x, const Pair &y) {
-                  return x.a != y.a ? x.a < y.a : x.b < y.b;
-              });
-    active_pairs_.erase(std::unique(active_pairs_.begin(), active_pairs_.end()),
-                        active_pairs_.end());
+    std::sort(curr_touching_.begin(), curr_touching_.end(), TouchLess);
+    curr_touching_.erase(
+        std::unique(curr_touching_.begin(), curr_touching_.end(),
+                    [](const TouchRecord &x, const TouchRecord &y) {
+                        return x.a == y.a && x.b == y.b;
+                    }),
+        curr_touching_.end());
+
+    // Merge current against previous touches: stays live in both (snapshot
+    // from curr, ids/users current), ends were only in prev (snapshot from
+    // prev, so destroyed bodies still report).
+    std::size_t i = 0;
+    std::size_t j = 0;
+    while (i < curr_touching_.size() && j < prev_touching_.size()) {
+        const TouchRecord &cur = curr_touching_[i];
+        const TouchRecord &prev = prev_touching_[j];
+        if (TouchLess(cur, prev)) {
+            ++i;
+        } else if (TouchLess(prev, cur)) {
+            ended_contacts_.push_back(ContactEvent{
+                prev.id_a, prev.id_b, prev.user_a, prev.user_b, {0.0f, 0.0f}});
+            ++j;
+        } else {
+            stayed_contacts_.push_back(ContactEvent{
+                cur.id_a, cur.id_b, cur.user_a, cur.user_b, {0.0f, 0.0f}});
+            ++i;
+            ++j;
+        }
+    }
+    for (; j < prev_touching_.size(); ++j) {
+        const TouchRecord &prev = prev_touching_[j];
+        ended_contacts_.push_back(ContactEvent{
+            prev.id_a, prev.id_b, prev.user_a, prev.user_b, {0.0f, 0.0f}});
+    }
+
+    prev_touching_.swap(curr_touching_);
 }
 
 BodyId PhysicsWorld::PointTest(const Vec2 &p) const {
@@ -421,9 +586,105 @@ BodyId PhysicsWorld::PointTest(const Vec2 &p) const {
 void PhysicsWorld::Clear() {
     bodies_.clear();
     free_list_.clear();
-    active_pairs_.clear();
+    prev_touching_.clear();
+    curr_touching_.clear();
     contacts_.clear();
+    stayed_contacts_.clear();
+    ended_contacts_.clear();
+    has_ray_hit_ = false;
+    last_ray_hit_ = RayHit{};
+    overlap_result_.clear();
+    overlap_users_.clear();
     live_ = 0;
+}
+
+bool PhysicsWorld::RayCast(const Vec2 &from, const Vec2 &to, RayHit &out) const {
+    const Vec2 delta{to.x - from.x, to.y - from.y};
+    bool found = false;
+    float best_t = 0.0f;
+    for (std::size_t idx = 0; idx < bodies_.size(); ++idx) {
+        const Body &body = bodies_[idx];
+        if (!body.alive) {
+            continue;
+        }
+        float t = 0.0f;
+        Vec2 normal{0.0f, 0.0f};
+        const bool hit = body.cfg.radius > 0.0f
+            ? SegmentCircle(from, delta, body.cfg.position, body.cfg.radius, t, normal)
+            : SegmentBox(from, delta, body.cfg.position, body.cfg.half_extents, t, normal);
+        if (hit && (!found || t < best_t)) {
+            found = true;
+            best_t = t;
+            out.body = static_cast<BodyId>(
+                Encode(static_cast<std::uint32_t>(idx), body.generation));
+            out.user_id = body.cfg.user_id;
+            out.point = {from.x + delta.x * t, from.y + delta.y * t};
+            out.normal = normal;
+            out.distance = t * std::sqrt(delta.x * delta.x + delta.y * delta.y);
+        }
+    }
+    return found;
+}
+
+bool PhysicsWorld::RayCast(const Vec2 &from, const Vec2 &to) {
+    has_ray_hit_ = RayCast(from, to, last_ray_hit_);
+    return has_ray_hit_;
+}
+
+std::size_t PhysicsWorld::OverlapCircle(const Vec2 &center, float radius,
+                                        std::vector<BodyId> &out) const {
+    out.clear();
+    for (std::size_t idx = 0; idx < bodies_.size(); ++idx) {
+        const Body &body = bodies_[idx];
+        if (body.alive && OverlapsCircleShape(center, radius, body.cfg)) {
+            out.push_back(static_cast<BodyId>(
+                Encode(static_cast<std::uint32_t>(idx), body.generation)));
+        }
+    }
+    return out.size();
+}
+
+std::size_t PhysicsWorld::OverlapBox(const Vec2 &center, const Vec2 &half_extents,
+                                     std::vector<BodyId> &out) const {
+    out.clear();
+    for (std::size_t idx = 0; idx < bodies_.size(); ++idx) {
+        const Body &body = bodies_[idx];
+        if (body.alive && OverlapsBoxShape(center, half_extents, body.cfg)) {
+            out.push_back(static_cast<BodyId>(
+                Encode(static_cast<std::uint32_t>(idx), body.generation)));
+        }
+    }
+    return out.size();
+}
+
+std::size_t PhysicsWorld::OverlapCircle(const Vec2 &center, float radius) {
+    OverlapCircle(center, radius, overlap_result_);
+    overlap_users_.clear();
+    overlap_users_.reserve(overlap_result_.size());
+    for (const BodyId id : overlap_result_) {
+        const BodyConfig *cfg = Get(id);
+        overlap_users_.push_back(cfg ? cfg->user_id : 0);
+    }
+    return overlap_result_.size();
+}
+
+std::size_t PhysicsWorld::OverlapBox(const Vec2 &center, const Vec2 &half_extents) {
+    OverlapBox(center, half_extents, overlap_result_);
+    overlap_users_.clear();
+    overlap_users_.reserve(overlap_result_.size());
+    for (const BodyId id : overlap_result_) {
+        const BodyConfig *cfg = Get(id);
+        overlap_users_.push_back(cfg ? cfg->user_id : 0);
+    }
+    return overlap_result_.size();
+}
+
+BodyId PhysicsWorld::OverlapBody(std::size_t index) const {
+    return index < overlap_result_.size() ? overlap_result_[index] : kInvalidBody;
+}
+
+std::int64_t PhysicsWorld::OverlapUser(std::size_t index) const {
+    return index < overlap_users_.size() ? overlap_users_[index] : 0;
 }
 
 } // namespace fake2d
