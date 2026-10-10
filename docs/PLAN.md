@@ -138,6 +138,15 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 - [x] CI: the macOS engine job gains a real GPU smoke (scene/map/platformer/mario/slope headless runs + screenshot) through the CGL FBO path on the Apple Software Renderer, `continue-on-error` until proven stable on runners
 - [x] Verification in the NSGL-restricted VM: all five demos render headless with zero `[ERROR]` lines, screenshot pixel-verified (tiles, sprites, goomba, HUD glyph atlas, lines); 24/24 headless Lua logic cases still green after the binding signature change
 
+## Phase 13 — Physics query surface (1.7.x)
+
+- [x] Ray casts: `PhysicsWorld::RayCast(from, to)` segment intersection against circles (quadratic, nearest root) and AABBs (slab method, entry-axis face normal); a segment starting inside a collider reports t=0 with the normal opposing the ray; nearest hit over all alive bodies returns body id, user tag, point, normal and distance, plus a buffered overload read back via `HasRayHit()`/`LastRayHit()`
+- [x] Shape overlaps: `OverlapCircle` / `OverlapBox` against every alive body regardless of type or sensor flag (circle-circle, circle-box nearest-point, box-box AABB), with caller-vector and buffered overloads (`OverlapBody(i)` / `OverlapUser(i)`, safe out-of-range reads)
+- [x] Full contact lifecycle: the per-step pair list becomes began / stayed / ended event streams — `StayedContacts()` and `EndedContacts()` join sorted touch snapshots via merge; ended events snapshot ids/user tags from the previous step so a destroyed body's last contacts still report; began lookup switched from linear scan to binary search
+- [x] 17 Lua bindings: `phys_raycast` + 6 hit readers, `phys_overlap_circle/box` + id/user readers, `phys_stay_count/end_count` and the four stayed/ended user-tag readers; the headless fixture generator picks the new signatures up automatically (24/24 cases green)
+- [x] `--phys-query-test`: headless C++ self-test with exact-value assertions (face points/normals/distances both ray directions, interior-start hits, misses, buffered readers, overlap counts incl. both-body and far-away cases, began→stayed→ended incl. the destroyed-body ended event); `--phys-bench` additionally reports per-frame raycast/overlap cost
+- [x] `scripts/phys_test.lua` exercises the same surface through real bindings end to end; bodies are placed initially touching because headless frames advance by wall-clock dt and an empty scene renders in microseconds (collision response is positional and frame-deterministic); CI runs both gates on Linux, macOS (CGL headless) and Windows (Mesa llvmpipe)
+
 ---
 
 ## Non-goals (for now)

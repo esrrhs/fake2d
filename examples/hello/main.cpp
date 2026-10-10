@@ -361,13 +361,21 @@ int RunBenchmark(fake2d::Engine &engine, int max_frames) {
 }
 
 // Physics broadphase benchmark: a tiled static floor plus many dynamic
-// circles, compared brute force vs spatial hash grid.
+// circles, compared brute force vs spatial hash grid. Each frame also runs
+// one ray cast and one circle overlap over the full body set for reference
+// query costs (pure CPU; informational only).
 int RunPhysicsBenchmark(fake2d::Engine &engine) {
     constexpr int kFrames = 300;
     constexpr int kWarmup = 60;
     constexpr int kDynamic = 600;
 
-    auto run_phase = [&](bool grid) {
+    struct PhaseResult {
+        double step_ms = 0.0;
+        double ray_ms = 0.0;
+        double overlap_ms = 0.0;
+    };
+
+    auto run_phase = [&](bool grid) -> PhaseResult {
         fake2d::PhysicsWorld world;
         world.SetGravity({0.0f, 900.0f});
         world.SetUseSpatialGrid(grid);
@@ -398,29 +406,160 @@ int RunPhysicsBenchmark(fake2d::Engine &engine) {
             world.CreateBody(cfg);
         }
 
-        double step_ms = 0.0;
+        PhaseResult result;
         int samples = 0;
+        std::vector<fake2d::BodyId> overlaps;
         for (int frame = 0; frame < kFrames; ++frame) {
             const auto t0 = std::chrono::steady_clock::now();
             world.Step(1.0f / 60.0f);
             const auto t1 = std::chrono::steady_clock::now();
+            fake2d::RayHit ray;
+            world.RayCast({480.0f, 40.0f}, {480.0f, 515.0f}, ray);
+            const auto t2 = std::chrono::steady_clock::now();
+            world.OverlapCircle({480.0f, 300.0f}, 60.0f, overlaps);
+            const auto t3 = std::chrono::steady_clock::now();
             if (frame >= kWarmup) {
-                step_ms += std::chrono::duration<double, std::milli>(t1 - t0).count();
+                result.step_ms += std::chrono::duration<double, std::milli>(t1 - t0).count();
+                result.ray_ms += std::chrono::duration<double, std::milli>(t2 - t1).count();
+                result.overlap_ms += std::chrono::duration<double, std::milli>(t3 - t2).count();
                 ++samples;
             }
         }
-        return step_ms / samples;
+        result.step_ms /= samples;
+        result.ray_ms /= samples;
+        result.overlap_ms /= samples;
+        return result;
     };
 
-    const double brute_ms = run_phase(false);
-    const double grid_ms = run_phase(true);
+    const PhaseResult brute = run_phase(false);
+    const PhaseResult grid = run_phase(true);
     std::printf("== fake2d physics broadphase benchmark ==\n");
     std::printf("bodies: %d (dynamics) + 9 statics, samples: %d\n",
                 kDynamic, kFrames - kWarmup);
-    std::printf("brute-force O(n^2)  avg step %7.3f ms\n", brute_ms);
+    std::printf("brute-force O(n^2)  avg step %7.3f ms\n", brute.step_ms);
     std::printf("spatial hash grid   avg step %7.3f ms  (%.1fx)\n",
-                grid_ms, brute_ms / grid_ms);
+                grid.step_ms, brute.step_ms / grid.step_ms);
+    std::printf("queries per frame: raycast %7.3f ms, overlap circle %7.3f ms\n",
+                grid.ray_ms, grid.overlap_ms);
     return 0;
+}
+
+// Physics query self-test: ray casts, shape overlaps and the contact
+// lifecycle (began/stayed/ended) against a hand-built scene with exact
+// expected values. Prints [phys-query] lines; exits non-zero on failure.
+// Headless-safe: never touches the window or renderer.
+int RunPhysicsQueryTest(fake2d::Engine &engine) {
+    (void)engine;
+    fake2d::PhysicsWorld world;
+    world.SetGravity({0.0f, 900.0f});
+
+    fake2d::BodyConfig box_cfg;
+    box_cfg.type = fake2d::BodyType::Static;
+    box_cfg.position = {200.0f, 300.0f};
+    box_cfg.half_extents = {40.0f, 20.0f}; // spans x[160,240] y[280,320]
+    box_cfg.user_id = 1;
+    const fake2d::BodyId box = world.CreateBody(box_cfg);
+
+    fake2d::BodyConfig ball_cfg;
+    ball_cfg.radius = 10.0f;
+    ball_cfg.half_extents = {10.0f, 10.0f};
+    ball_cfg.position = {200.0f, 100.0f};
+    ball_cfg.restitution = 0.0f;
+    ball_cfg.user_id = 2;
+    const fake2d::BodyId ball = world.CreateBody(ball_cfg);
+
+    int failures = 0;
+    int checks = 0;
+    auto check = [&](bool ok, const char *what) {
+        ++checks;
+        if (!ok) {
+            ++failures;
+            std::printf("[phys-query] FAIL %s\n", what);
+        }
+    };
+    auto near = [](float a, float b) { return std::fabs(a - b) < 0.01f; };
+    auto pair_touch = [](const fake2d::ContactEvent &ev) {
+        return (ev.user_a == 2 && ev.user_b == 1) || (ev.user_a == 1 && ev.user_b == 2);
+    };
+
+    // -- Ray casts ------------------------------------------------------------
+    fake2d::RayHit hit;
+    check(world.RayCast({100.0f, 300.0f}, {400.0f, 300.0f}, hit), "raycast hits box");
+    check(hit.body == box && hit.user_id == 1, "raycast hit body/user");
+    check(near(hit.point.x, 160.0f) && near(hit.point.y, 300.0f), "raycast hit point (left face)");
+    check(near(hit.normal.x, -1.0f) && near(hit.normal.y, 0.0f), "raycast left-face normal");
+    check(near(hit.distance, 60.0f), "raycast distance 60");
+
+    check(world.RayCast({400.0f, 300.0f}, {100.0f, 300.0f}, hit), "reverse raycast hits box");
+    check(near(hit.point.x, 240.0f) && near(hit.normal.x, 1.0f) && near(hit.distance, 160.0f),
+          "reverse hit right face, distance 160");
+
+    check(!world.RayCast({100.0f, 500.0f}, {400.0f, 500.0f}, hit), "raycast misses below the scene");
+
+    check(world.RayCast({200.0f, 100.0f}, {200.0f, 20.0f}, hit), "ray from inside the ball");
+    check(hit.body == ball && near(hit.distance, 0.0f) && near(hit.normal.x, 0.0f) &&
+              near(hit.normal.y, 1.0f),
+          "inside hit: t=0, normal opposes ray");
+
+    check(world.RayCast({100.0f, 300.0f}, {400.0f, 300.0f}), "buffered raycast");
+    check(world.HasRayHit() && world.LastRayHit().body == box && world.LastRayHit().user_id == 1,
+          "buffered raycast readers");
+
+    // -- Shape overlaps ---------------------------------------------------------
+    std::vector<fake2d::BodyId> ids;
+    check(world.OverlapCircle({200.0f, 300.0f}, 5.0f, ids) == 1 && ids[0] == box,
+          "overlap circle hits the box only");
+    check(world.OverlapCircle({200.0f, 200.0f}, 110.0f, ids) == 2,
+          "overlap circle hits both bodies");
+    check(world.OverlapBox({200.0f, 200.0f}, {100.0f, 110.0f}, ids) == 2,
+          "overlap box hits both bodies");
+    check(world.OverlapBox({600.0f, 300.0f}, {10.0f, 10.0f}, ids) == 0,
+          "overlap box misses far away");
+
+    check(world.OverlapCircle({200.0f, 300.0f}, 5.0f) == 1, "buffered overlap circle");
+    check(world.OverlapBody(0) == box && world.OverlapUser(0) == 1, "buffered overlap readers");
+    check(world.OverlapBody(9) == fake2d::kInvalidBody && world.OverlapUser(9) == 0,
+          "buffered overlap out-of-range");
+
+    // -- Contact lifecycle ------------------------------------------------------
+    int began_frame = -1;
+    for (int f = 0; f < 240 && began_frame < 0; ++f) {
+        world.Step(1.0f / 60.0f);
+        for (const fake2d::ContactEvent &ev : world.Contacts()) {
+            if (pair_touch(ev)) {
+                began_frame = f;
+                break;
+            }
+        }
+    }
+    check(began_frame >= 0, "contact began (ball lands on box)");
+
+    bool stayed = false;
+    for (int f = 0; f < 60 && !stayed; ++f) {
+        world.Step(1.0f / 60.0f);
+        for (const fake2d::ContactEvent &ev : world.StayedContacts()) {
+            if (pair_touch(ev)) {
+                stayed = true;
+                break;
+            }
+        }
+    }
+    check(stayed, "contact stayed while resting");
+
+    world.DestroyBody(ball);
+    world.Step(1.0f / 60.0f);
+    bool ended = false;
+    for (const fake2d::ContactEvent &ev : world.EndedContacts()) {
+        if (pair_touch(ev)) {
+            ended = true;
+            break;
+        }
+    }
+    check(ended, "contact ended after body destruction");
+
+    std::printf("[phys-query] %s: %d checks, %d failures\n",
+                failures == 0 ? "PASS" : "FAILED", checks, failures);
+    return failures == 0 ? 0 : 1;
 }
 
 // ---------------------------------------------------------------------------
@@ -1909,6 +2048,7 @@ int main(int argc, char **argv) {
     bool slope_demo = false;
     bool bench = false;
     bool phys_bench = false;
+    bool phys_query = false;
     int max_frames = 0;
     int shot_frame = 30;
     std::string screenshot;
@@ -1951,6 +2091,13 @@ int main(int argc, char **argv) {
             phys_bench = true;
             cfg.script_entry.clear();
             cfg.vsync = false;
+        } else if (arg == "--phys-query-test") {
+            // Headless CPU-only self-test of ray casts / overlaps / contact
+            // lifecycle; exit code is the pass/fail signal.
+            phys_query = true;
+            cfg.headless = true;
+            cfg.script_entry.clear();
+            cfg.vsync = false;
         } else if (arg == "--entry" && i + 1 < argc) {
             // Dev/test hook: run an arbitrary script instead of a demo.
             cfg.script_entry = argv[++i];
@@ -1970,6 +2117,9 @@ int main(int argc, char **argv) {
     }
     if (phys_bench) {
         return RunPhysicsBenchmark(engine);
+    }
+    if (phys_query) {
+        return RunPhysicsQueryTest(engine);
     }
 
     // All gameplay is pure Lua below; C++ only guarantees the binary asset

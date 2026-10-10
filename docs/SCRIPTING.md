@@ -333,8 +333,50 @@ and zero per-frame allocations.
 | `phys_x / phys_y / phys_vx / phys_vy(id) -> n` | Current state, read after the engine stepped. |
 | `phys_destroy(id)` | Remove a body. |
 | `phys_gravity(gx, gy)` | World gravity (default `0, 900`). |
-| `phys_contact_count() -> n` | Pairs that **began** touching this frame. |
-| `phys_contact_user_a / phys_contact_user_b(i) -> n` | User tags of pair `i`. |
+| `phys_contact_count() -> n` | Pairs that **began** touching this step. |
+| `phys_contact_user_a / phys_contact_user_b(i) -> n` | User tags of began pair `i`. |
+| `phys_stay_count() -> n` | Pairs that kept touching through this step. |
+| `phys_stay_user_a / phys_stay_user_b(i) -> n` | User tags of stayed pair `i`. |
+| `phys_end_count() -> n` | Pairs that **stopped** touching this step (including a destroyed body's last contacts). |
+| `phys_end_user_a / phys_end_user_b(i) -> n` | User tags of ended pair `i`. |
+
+Contact buffers describe the single most recent `Step` (ran before your
+`update`): began pairs transitioned free→touching, stayed pairs were already
+touching and still are, ended pairs transitioned touching→free. Iterate them
+every frame; they are cleared on the next step.
+
+#### Queries (ray casts & overlaps)
+
+Immediate-mode spatial queries against the current body snapshot. Static
+bodies, dynamic bodies and sensors are all tested.
+
+| Function | Description |
+|---|---|
+| `phys_raycast(x1, y1, x2, y2) -> bool` | Cast a segment; returns true on the nearest hit. A ray starting inside a collider hits it at distance 0 with the normal opposing the ray. |
+| `phys_ray_hit_x / phys_ray_hit_y() -> n` | Hit point. |
+| `phys_ray_hit_nx / phys_ray_hit_ny() -> n` | Surface normal (opposes the ray). |
+| `phys_ray_hit_dist() -> n` | Distance from the ray origin. |
+| `phys_ray_hit_user() -> n` | User tag of the hit body (0 after a miss). |
+| `phys_overlap_circle(x, y, r) -> n` | Count of bodies intersecting the circle; results stay buffered. |
+| `phys_overlap_box(x, y, hw, hh) -> n` | Count of bodies intersecting the AABB; results stay buffered. |
+| `phys_overlap_id(i) -> id` | Buffered hit body id by index (0 when out of range). |
+| `phys_overlap_user(i) -> n` | Buffered hit user tag by index (0 when out of range). |
+
+Each query replaces the buffered result of the previous one, so read the
+hit list before issuing the next query:
+
+```lua
+if phys_raycast(eye_x, eye_y, target_x, target_y) then
+    local u = phys_ray_hit_user()
+    local d = phys_ray_hit_dist()
+    -- ...
+end
+local n = phys_overlap_circle(x, y, 24)
+for i = 0, n - 1 do
+    local hit_user = phys_overlap_user(i)
+    -- ...
+end
+```
 
 ```lua
 ball = phys_create_circle(100, 100, 10)
