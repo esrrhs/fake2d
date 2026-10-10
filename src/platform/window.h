@@ -12,6 +12,18 @@ struct WindowDesc {
     bool headless = false;
 };
 
+/// How the GL context was created.
+enum class RenderMode {
+    /// GLFW window: 3.3 core, falling back to a 2.1 legacy context when the
+    /// system offers no 3.3 pixel format (the engine renders either way).
+    GLFW,
+    /// macOS headless only: GLFW cannot find any pixel format on software-
+    /// renderer-only VMs (NSGL 65545), so the context is created directly
+    /// through CGL with no drawable and all rendering goes into an offscreen
+    /// FBO (screenshots read from it; SwapBuffers is a no-op).
+    CGLHeadlessFBO,
+};
+
 class Window {
 public:
     Window() = default;
@@ -42,10 +54,20 @@ public:
     [[nodiscard]] int FramebufferHeight() const { return fb_height_; }
     /// framebuffer points -> pixels scale, x/y averaged.
     [[nodiscard]] float ContentScale() const { return content_scale_; }
+    /// Context-creation path actually taken (see RenderMode).
+    [[nodiscard]] RenderMode GetRenderMode() const { return render_mode_; }
     /// Re-query sizes after event polling; returns true when any changed.
     bool RefreshSize();
 
 private:
+    bool CreateGLFW(const WindowDesc &desc, int major, int minor, bool core_profile);
+#if defined(__APPLE__)
+    bool CreateCGLHeadless(int width, int height);
+    void *cgl_context_ = nullptr; // CGLContextObj
+    unsigned fbo_ = 0;
+    unsigned fbo_texture_ = 0;
+#endif
+    RenderMode render_mode_ = RenderMode::GLFW;
     GLFWwindow *handle_ = nullptr;
     int width_ = 0;
     int height_ = 0;

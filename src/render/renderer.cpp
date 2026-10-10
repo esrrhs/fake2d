@@ -25,6 +25,10 @@ bool Renderer::Init(int logical_width, int logical_height) {
     // window/context is already current when Renderer::Init runs.
     fake2d_gl_load_functions();
 
+    // Pick the rendering path from the context version (GL3 core vs GL2
+    // legacy compatibility) before creating any GPU resources.
+    glcaps::Detect();
+
     camera_.SetViewport(static_cast<float>(logical_width), static_cast<float>(logical_height));
     camera_.SetContentScale(1.0f);
 

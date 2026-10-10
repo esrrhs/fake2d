@@ -21,8 +21,12 @@ bool SpriteBatch::Init(size_t max_quads) {
     sorted_vertices_.resize(max_quads_ * 4);
     commands_.reserve(max_quads_);
 
-    glGenVertexArrays(1, &vao_);
-    glBindVertexArray(vao_);
+    const bool legacy = glcaps::legacy_mode;
+
+    if (!legacy) {
+        glGenVertexArrays(1, &vao_);
+        glBindVertexArray(vao_);
+    }
 
     glGenBuffers(1, &vbo_);
     glBindBuffer(GL_ARRAY_BUFFER, vbo_);
@@ -57,14 +61,18 @@ bool SpriteBatch::Init(size_t max_quads) {
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo_);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLsizeiptr>(indices.size() * sizeof(std::uint32_t)), indices.data(), GL_STATIC_DRAW);
 
-    glBindVertexArray(0);
+    if (!legacy) {
+        glBindVertexArray(0);
+    }
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 
     // --- line stream (pos + color, same default shader) ---
     line_vertices_.resize(max_lines_ * 2);
-    glGenVertexArrays(1, &line_vao_);
-    glBindVertexArray(line_vao_);
+    if (!legacy) {
+        glGenVertexArrays(1, &line_vao_);
+        glBindVertexArray(line_vao_);
+    }
     glGenBuffers(1, &line_vbo_);
     glBindBuffer(GL_ARRAY_BUFFER, line_vbo_);
     glBufferData(GL_ARRAY_BUFFER,
@@ -77,9 +85,33 @@ bool SpriteBatch::Init(size_t max_quads) {
     glEnableVertexAttribArray(2);
     glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, sizeof(LineVertex),
                           reinterpret_cast<const void *>(offsetof(LineVertex, color)));
-    glBindVertexArray(0);
+    if (!legacy) {
+        glBindVertexArray(0);
+    }
 
-    return vao_ != 0;
+    return legacy || vao_ != 0;
+}
+
+void SpriteBatch::ConfigureQuadAttribs() {
+    // GL2 path: VAOs are unavailable, so the pointers are re-specified on
+    // every flush with the vertex buffer bound. GL3 path sets this up once
+    // inside the VAO at Init time.
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex2D), reinterpret_cast<const void *>(offsetof(Vertex2D, position)));
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex2D), reinterpret_cast<const void *>(offsetof(Vertex2D, uv)));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex2D), reinterpret_cast<const void *>(offsetof(Vertex2D, color)));
+}
+
+void SpriteBatch::ConfigureLineAttribs() {
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(LineVertex),
+                          reinterpret_cast<const void *>(offsetof(LineVertex, position)));
+    glDisableVertexAttribArray(1);
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, sizeof(LineVertex),
+                          reinterpret_cast<const void *>(offsetof(LineVertex, color)));
 }
 
 void SpriteBatch::Shutdown() {
@@ -193,7 +225,7 @@ void SpriteBatch::Flush() {
 }
 
 void SpriteBatch::FlushImmediate() {
-    if (current_quads_ == 0 || !vao_ || !current_shader_) {
+    if (current_quads_ == 0 || (!glcaps::legacy_mode && !vao_) || !current_shader_) {
         return;
     }
 
@@ -211,6 +243,12 @@ void SpriteBatch::FlushImmediate() {
     glBufferSubData(GL_ARRAY_BUFFER, 0,
                     static_cast<GLsizeiptr>(current_quads_ * 4 * sizeof(Vertex2D)),
                     vertices_.data());
+    if (glcaps::legacy_mode) {
+        // No VAO: re-point attributes and rebind the element buffer (the
+        // element binding is global state outside a VAO).
+        ConfigureQuadAttribs();
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo_);
+    }
 
     glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(current_quads_ * 6), GL_UNSIGNED_INT, nullptr);
 
@@ -223,7 +261,8 @@ void SpriteBatch::FlushImmediate() {
 }
 
 void SpriteBatch::FlushSorted() {
-    if (current_quads_ == 0 || commands_.empty() || !vao_ || !current_shader_) {
+    if (current_quads_ == 0 || commands_.empty() ||
+        (!glcaps::legacy_mode && !vao_) || !current_shader_) {
         current_quads_ = 0;
         return;
     }
@@ -257,6 +296,10 @@ void SpriteBatch::FlushSorted() {
     glBufferSubData(GL_ARRAY_BUFFER, 0,
                     static_cast<GLsizeiptr>(commands_.size() * 4 * sizeof(Vertex2D)),
                     sorted_vertices_.data());
+    if (glcaps::legacy_mode) {
+        ConfigureQuadAttribs();
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo_);
+    }
 
     size_t run_start = 0;
     std::uint32_t run_texture = commands_[0].texture_id;
@@ -469,7 +512,8 @@ void SpriteBatch::DrawCircleOutline(const Vec2 &center, float radius, int segmen
 }
 
 void SpriteBatch::FlushLines() {
-    if (current_lines_ == 0 || !line_vao_ || !current_shader_) {
+    if (current_lines_ == 0 ||
+        (!glcaps::legacy_mode && !line_vao_) || !current_shader_) {
         current_lines_ = 0;
         return;
     }
@@ -487,6 +531,9 @@ void SpriteBatch::FlushLines() {
     glBufferSubData(GL_ARRAY_BUFFER, 0,
                     static_cast<GLsizeiptr>(current_lines_ * 2 * sizeof(LineVertex)),
                     line_vertices_.data());
+    if (glcaps::legacy_mode) {
+        ConfigureLineAttribs();
+    }
     glDrawArrays(GL_LINES, 0, static_cast<GLsizei>(current_lines_ * 2));
     glBindVertexArray(0);
 
