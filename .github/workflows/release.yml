@@ -8,77 +8,316 @@ on:
 permissions:
   contents: write
 
+# Same pinned fakelua as build.yml. The shipped game engine disables the TCC
+# backend and falls back to its interpreter when no GCC is present, so the
+# release packages need no compiler or tinycc support tree -- only the
+# libfakelua shared library and OpenSSL, which the packaging scripts bundle.
+env:
+  FAKELUA_REF: 608154182155ab34216d20ad3fad624ae65004cf
+
 jobs:
+  # Produce the demo maps with a real build once (plain JSON, portable across
+  # OSes); every platform bundles the same files so first launch is identical
+  # everywhere and needs no headless GL on the user's machine.
+  assets:
+    name: generate demo assets
+
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build pkg-config ccache xvfb \
+            libssl-dev libgl1-mesa-dev libx11-dev libxrandr-dev libxi-dev \
+            libxcursor-dev libxinerama-dev
+
+      - name: Cache paths
+        run: |
+          echo "CPM_SOURCE_CACHE=$HOME/.cache/CPM" >> "$GITHUB_ENV"
+          echo "FLINSTALL=$RUNNER_TEMP/flinstall" >> "$GITHUB_ENV"
+          mkdir -p "$HOME/.cache/CPM"
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/CPM
+          key: Linux-cpm-v2
+          restore-keys: |
+            Linux-cpm-
+
+      - name: Checkout + build fakelua
+        run: |
+          set -eux
+          git clone --no-checkout https://github.com/esrrhs/fakelua "$RUNNER_TEMP/fakelua-src"
+          git -C "$RUNNER_TEMP/fakelua-src" fetch --depth 1 origin "$FAKELUA_REF"
+          git -C "$RUNNER_TEMP/fakelua-src" checkout FETCH_HEAD
+          cmake -S "$RUNNER_TEMP/fakelua-src" -B "$RUNNER_TEMP/flbuild" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DFAKELUA_BUILD_TESTS=OFF \
+            -DFAKELUA_BUILD_BENCHMARKS=OFF \
+            -DCMAKE_INSTALL_PREFIX="$FLINSTALL"
+          cmake --build "$RUNNER_TEMP/flbuild" --parallel
+          cmake --install "$RUNNER_TEMP/flbuild"
+
+      - name: Build fake2d
+        run: |
+          set -eux
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -Dfakelua_DIR="$FLINSTALL/lib/cmake/fakelua"
+          cmake --build build --parallel
+
+      - name: Generate demo assets
+        run: |
+          export LD_LIBRARY_PATH="$FLINSTALL/lib:${LD_LIBRARY_PATH:-}"
+          for demo in mario platformer slope; do
+            xvfb-run -a -s '-screen 0 1024x768x24' \
+              env LIBGL_ALWAYS_SOFTWARE=1 \
+              ./build/bin/fake2d_hello --headless --frames 1 "--$demo-demo"
+          done
+          for f in mario.json platformer.json slope.json; do test -s "assets/$f"; done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          retention-days: 5
+          path: |
+            assets/mario.json
+            assets/platformer.json
+            assets/slope.json
+
   build:
-    name: Build ${{ matrix.os }}
+    name: package ${{ matrix.label }}
+    needs: assets
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-24.04
-            artifact: fake2d-linux
-            exe: bin/fake2d_hello
-          - os: windows-2022
-            artifact: fake2d-windows
-            exe: bin/Release/fake2d_hello.exe
+            label: linux
+            triplet: linux-x64
           - os: macos-15
-            artifact: fake2d-macos
-            exe: bin/fake2d_hello
+            label: macos
+            triplet: macos-arm64
+          - os: windows-2022
+            label: windows
+            triplet: windows-x64
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Linux packages
+      - name: Derive package version
+        shell: bash
+        run: echo "VER=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
+      - name: (linux) toolchain
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build pkg-config \
-            libgl1-mesa-dev libx11-dev libxrandr-dev libxi-dev \
-            libxcursor-dev libxinerama-dev libwayland-dev libxkbcommon-dev
+            build-essential cmake ninja-build pkg-config ccache \
+            libssl-dev libgl1-mesa-dev libx11-dev libxrandr-dev libxi-dev \
+            libxcursor-dev libxinerama-dev patchelf
 
-      - name: Configure
-        run: >
-          cmake -S . -B build
-          -DCMAKE_BUILD_TYPE=Release
-          -DFAKE2D_WITH_FAKELUA=OFF
+      - name: (macos) toolchain
+        if: runner.os == 'macOS'
+        run: |
+          HOMEBREW_NO_AUTO_UPDATE=1 brew install ninja ccache openssl@3 || true
+          echo "OPENSSL_PREFIX=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
 
-      - name: Build
-        run: cmake --build build --config Release --parallel
+      - name: (windows) MSYS2 toolchain
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            git
+            make
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-openssl
+            mingw-w64-x86_64-ccache
 
-      - name: Stage artifact
+      - name: (unix) cache paths
+        if: runner.os != 'Windows'
         shell: bash
         run: |
-          mkdir -p stage/scripts
-          cp "${{ matrix.exe }}" stage/ || cp "build/${{ matrix.exe }}" stage/
-          cp -r scripts/* stage/scripts/
-          cp README.md LICENSE stage/
+          echo "CPM_SOURCE_CACHE=$HOME/.cache/CPM" >> "$GITHUB_ENV"
+          echo "FLINSTALL=$RUNNER_TEMP/flinstall" >> "$GITHUB_ENV"
+          mkdir -p "$HOME/.cache/CPM"
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/cache@v4
+        if: runner.os != 'Windows'
         with:
-          name: ${{ matrix.artifact }}
-          path: stage/
+          path: ~/.cache/CPM
+          key: ${{ matrix.label }}-cpm
+          restore-keys: |
+            ${{ matrix.label }}-cpm-
+
+      - name: (windows) cache paths
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          set -eux
+          mkdir -p .cache/CPM
+          echo "CPM_SOURCE_CACHE=$(cygpath -w "$GITHUB_WORKSPACE/.cache/CPM")" >> "$GITHUB_ENV"
+          echo "FLINSTALL=$(cygpath -w "$GITHUB_WORKSPACE/../flinstall")" >> "$GITHUB_ENV"
+
+      - uses: actions/cache@v4
+        if: runner.os == 'Windows'
+        with:
+          path: .cache
+          key: windows-cpm-release
+          restore-keys: |
+            windows-cpm-release
+
+      - name: (linux/macos) checkout + build fakelua
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -eux
+          git clone --no-checkout https://github.com/esrrhs/fakelua "$RUNNER_TEMP/fakelua-src"
+          git -C "$RUNNER_TEMP/fakelua-src" fetch --depth 1 origin "$FAKELUA_REF"
+          git -C "$RUNNER_TEMP/fakelua-src" checkout FETCH_HEAD
+          extra=()
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            extra=(-DCMAKE_PREFIX_PATH="$OPENSSL_PREFIX")
+          fi
+          cmake -S "$RUNNER_TEMP/fakelua-src" -B "$RUNNER_TEMP/flbuild" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DFAKELUA_BUILD_TESTS=OFF \
+            -DFAKELUA_BUILD_BENCHMARKS=OFF \
+            -DCMAKE_INSTALL_PREFIX="$FLINSTALL" \
+            "${extra[@]}"
+          cmake --build "$RUNNER_TEMP/flbuild" --parallel
+          cmake --install "$RUNNER_TEMP/flbuild"
+
+      - name: (windows) checkout + build fakelua
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          set -eux
+          git clone --no-checkout https://github.com/esrrhs/fakelua ../fakelua-src
+          git -C ../fakelua-src fetch --depth 1 origin "$FAKELUA_REF"
+          git -C ../fakelua-src checkout FETCH_HEAD
+          cmake -S ../fakelua-src -B ../flbuild -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DFAKELUA_BUILD_TESTS=OFF \
+            -DFAKELUA_BUILD_BENCHMARKS=OFF \
+            -DCMAKE_INSTALL_PREFIX="$FLINSTALL"
+          cmake --build ../flbuild --parallel
+          cmake --install ../flbuild
+
+      - name: (unix) build fake2d
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -eux
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -Dfakelua_DIR="$FLINSTALL/lib/cmake/fakelua"
+          cmake --build build --parallel
+
+      - name: (windows) build fake2d
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          set -eux
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -Dfakelua_DIR="$FLINSTALL/lib/cmake/fakelua"
+          cmake --build build --parallel
+
+      - name: Download demo assets
+        uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: assets
+
+      - name: (linux) stage self-contained package
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -eux
+          STAGE="stage/fake2d-${VER}-linux-x64"
+          tools/package-linux.sh \
+            build/bin/fake2d_hello "$FLINSTALL/lib" "$STAGE" \
+            assets/mario.json assets/platformer.json assets/slope.json
+
+      - name: (macos) stage self-contained package
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -eux
+          STAGE="stage/fake2d-${VER}-macos-arm64"
+          tools/package-macos.sh \
+            build/bin/fake2d_hello "$STAGE" \
+            assets/mario.json assets/platformer.json assets/slope.json
+          # Verify every non-system reference now resolves inside the bundle.
+          if otool -L "$STAGE/bin/fake2d_hello" | grep -vE '@executable_path|/usr/lib|/System' | grep -q dylib; then
+            echo "Unresolved external dylib reference" >&2; exit 1
+          fi
+
+      - name: (windows) stage self-contained package
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          set -eux
+          FLBIN="$(cygpath -u "$FLINSTALL")/bin"
+          STAGE="stage/fake2d-${VER}-windows-x64"
+          tools/package-windows.sh \
+            build/bin/fake2d_hello.exe "$FLBIN" "$STAGE" \
+            assets/mario.json assets/platformer.json assets/slope.json
+
+      - name: Show staged tree
+        shell: bash
+        run: |
+          find stage -maxdepth 3 -type f | sort
+          du -sh stage/* || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: staged-${{ matrix.label }}
+          retention-days: 7
+          path: stage/fake2d-${{ env.VER }}-${{ matrix.triplet }}
 
   release:
-    name: Publish GitHub release
+    name: publish GitHub release
     needs: build
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - name: Download all staged packages
+        uses: actions/download-artifact@v4
         with:
+          pattern: staged-*
           path: dist
-      - name: Package archives
+          merge-multiple: true
+
+      - name: Archive
+        shell: bash
         run: |
+          set -eux
           cd dist
-          for d in fake2d-*/; do
+          for d in */; do
             name=${d%/}
-            zip -qr "${name}.zip" "$d"
+            if [[ "$name" == *windows* ]]; then
+              zip -qr "${name}.zip" "$name"
+            else
+              tar -czf "${name}.tar.gz" "$name"
+            fi
           done
+          ls -la
+
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: dist/*.zip
+          files: dist/*.tar.gz dist/*.zip
