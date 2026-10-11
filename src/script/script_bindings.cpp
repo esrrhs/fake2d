@@ -581,6 +581,238 @@ void RegisterTilemapApi(fakelua::State *state, Engine *engine) {
                            ? static_cast<double>(map->Layers()[i].parallax_y)
                            : 1.0;
             }));
+
+    // --- Tiled object layers (objectgroup) --------------------------------
+    // Object layers are authored spawn/trigger data: points, rectangles,
+    // ellipses and polylines with custom properties. They are never drawn.
+    auto get_object = [engine](std::int64_t id, double layer,
+                               double index) -> const MapObject * {
+        if (!std::isfinite(layer) || layer < 0.0 || !std::isfinite(index) ||
+            index < 0.0) {
+            return nullptr;
+        }
+        const Tilemap *map = engine->GetTilemaps().Get(static_cast<int>(id));
+        if (map == nullptr) {
+            return nullptr;
+        }
+        const auto *objects = map->ObjectsAt(static_cast<std::size_t>(layer));
+        if (objects == nullptr) {
+            return nullptr;
+        }
+        const auto i = static_cast<std::size_t>(index);
+        return i < objects->size() ? &(*objects)[i] : nullptr;
+    };
+
+    fakelua::RegisterNativeFunction(
+        state, "map_find_layer", false,
+        std::function<std::int64_t(fakelua::State *, std::int64_t,
+                                   std::string_view)>(
+            [engine](fakelua::State *, std::int64_t id,
+                     std::string_view name) -> std::int64_t {
+                const Tilemap *map = engine->GetTilemaps().Get(static_cast<int>(id));
+                return map ? static_cast<std::int64_t>(map->FindLayer(name)) : -1;
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_layer_type", false,
+        std::function<std::int64_t(fakelua::State *, std::int64_t, double)>(
+            [engine](fakelua::State *, std::int64_t id, double idx) -> std::int64_t {
+                if (!std::isfinite(idx) || idx < 0.0) {
+                    return -1;
+                }
+                const Tilemap *map = engine->GetTilemaps().Get(static_cast<int>(id));
+                return map ? static_cast<std::int64_t>(
+                                 map->LayerTypeAt(static_cast<std::size_t>(idx)))
+                           : -1;
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_obj_count", false,
+        std::function<std::int64_t(fakelua::State *, std::int64_t, double)>(
+            [engine](fakelua::State *, std::int64_t id, double idx) -> std::int64_t {
+                if (!std::isfinite(idx) || idx < 0.0) {
+                    return 0;
+                }
+                const Tilemap *map = engine->GetTilemaps().Get(static_cast<int>(id));
+                const auto *objects =
+                    map ? map->ObjectsAt(static_cast<std::size_t>(idx)) : nullptr;
+                return objects ? static_cast<std::int64_t>(objects->size()) : 0;
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_obj_id", false,
+        std::function<std::int64_t(fakelua::State *, std::int64_t, double, double)>(
+            [get_object](fakelua::State *, std::int64_t id, double layer,
+                         double index) -> std::int64_t {
+                const MapObject *obj = get_object(id, layer, index);
+                return obj ? static_cast<std::int64_t>(obj->id) : 0;
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_obj_name", false,
+        std::function<std::string_view(fakelua::State *, std::int64_t, double,
+                                       double)>(
+            [get_object](fakelua::State *, std::int64_t id, double layer,
+                         double index) -> std::string_view {
+                const MapObject *obj = get_object(id, layer, index);
+                return obj ? std::string_view{obj->name} : std::string_view{};
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_obj_class", false,
+        std::function<std::string_view(fakelua::State *, std::int64_t, double,
+                                       double)>(
+            [get_object](fakelua::State *, std::int64_t id, double layer,
+                         double index) -> std::string_view {
+                const MapObject *obj = get_object(id, layer, index);
+                return obj ? std::string_view{obj->class_name} : std::string_view{};
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_obj_x", false,
+        std::function<double(fakelua::State *, std::int64_t, double, double)>(
+            [get_object](fakelua::State *, std::int64_t id, double layer,
+                         double index) -> double {
+                const MapObject *obj = get_object(id, layer, index);
+                return obj ? static_cast<double>(obj->x) : 0.0;
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_obj_y", false,
+        std::function<double(fakelua::State *, std::int64_t, double, double)>(
+            [get_object](fakelua::State *, std::int64_t id, double layer,
+                         double index) -> double {
+                const MapObject *obj = get_object(id, layer, index);
+                return obj ? static_cast<double>(obj->y) : 0.0;
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_obj_w", false,
+        std::function<double(fakelua::State *, std::int64_t, double, double)>(
+            [get_object](fakelua::State *, std::int64_t id, double layer,
+                         double index) -> double {
+                const MapObject *obj = get_object(id, layer, index);
+                return obj ? static_cast<double>(obj->width) : 0.0;
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_obj_h", false,
+        std::function<double(fakelua::State *, std::int64_t, double, double)>(
+            [get_object](fakelua::State *, std::int64_t id, double layer,
+                         double index) -> double {
+                const MapObject *obj = get_object(id, layer, index);
+                return obj ? static_cast<double>(obj->height) : 0.0;
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_obj_rotation", false,
+        std::function<double(fakelua::State *, std::int64_t, double, double)>(
+            [get_object](fakelua::State *, std::int64_t id, double layer,
+                         double index) -> double {
+                const MapObject *obj = get_object(id, layer, index);
+                return obj ? static_cast<double>(obj->rotation) : 0.0;
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_obj_visible", false,
+        std::function<bool(fakelua::State *, std::int64_t, double, double)>(
+            [get_object](fakelua::State *, std::int64_t id, double layer,
+                         double index) {
+                const MapObject *obj = get_object(id, layer, index);
+                // A bad reference reads as invisible so callers skip it.
+                return obj != nullptr && obj->visible;
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_obj_shape", false,
+        std::function<std::int64_t(fakelua::State *, std::int64_t, double, double)>(
+            [get_object](fakelua::State *, std::int64_t id, double layer,
+                         double index) -> std::int64_t {
+                const MapObject *obj = get_object(id, layer, index);
+                return obj ? static_cast<std::int64_t>(obj->shape) : 0;
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_obj_point_count", false,
+        std::function<std::int64_t(fakelua::State *, std::int64_t, double, double)>(
+            [get_object](fakelua::State *, std::int64_t id, double layer,
+                         double index) -> std::int64_t {
+                const MapObject *obj = get_object(id, layer, index);
+                return obj ? static_cast<std::int64_t>(obj->points.size()) : 0;
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_obj_point_x", false,
+        std::function<double(fakelua::State *, std::int64_t, double, double,
+                             double)>(
+            [get_object](fakelua::State *, std::int64_t id, double layer,
+                         double index, double point) -> double {
+                const MapObject *obj = get_object(id, layer, index);
+                if (obj == nullptr || point < 0.0) {
+                    return 0.0;
+                }
+                const auto p = static_cast<std::size_t>(point);
+                return p < obj->points.size()
+                           ? static_cast<double>(obj->points[p].x)
+                           : 0.0;
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_obj_point_y", false,
+        std::function<double(fakelua::State *, std::int64_t, double, double,
+                             double)>(
+            [get_object](fakelua::State *, std::int64_t id, double layer,
+                         double index, double point) -> double {
+                const MapObject *obj = get_object(id, layer, index);
+                if (obj == nullptr || point < 0.0) {
+                    return 0.0;
+                }
+                const auto p = static_cast<std::size_t>(point);
+                return p < obj->points.size()
+                           ? static_cast<double>(obj->points[p].y)
+                           : 0.0;
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_obj_has_prop", false,
+        std::function<bool(fakelua::State *, std::int64_t, double, double,
+                           std::string_view)>(
+            [get_object](fakelua::State *, std::int64_t id, double layer,
+                         double index, std::string_view key) {
+                const MapObject *obj = get_object(id, layer, index);
+                return obj != nullptr && obj->HasProperty(key);
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_obj_prop_bool", false,
+        std::function<bool(fakelua::State *, std::int64_t, double, double,
+                           std::string_view)>(
+            [get_object](fakelua::State *, std::int64_t id, double layer,
+                         double index, std::string_view key) {
+                const MapObject *obj = get_object(id, layer, index);
+                return obj != nullptr && obj->PropBool(key);
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_obj_prop_num", false,
+        std::function<double(fakelua::State *, std::int64_t, double, double,
+                             std::string_view)>(
+            [get_object](fakelua::State *, std::int64_t id, double layer,
+                         double index, std::string_view key) -> double {
+                const MapObject *obj = get_object(id, layer, index);
+                return obj ? obj->PropNum(key) : 0.0;
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_obj_prop_str", false,
+        std::function<std::string_view(fakelua::State *, std::int64_t, double,
+                                       double, std::string_view)>(
+            [get_object](fakelua::State *, std::int64_t id, double layer,
+                         double index, std::string_view key)
+                -> std::string_view {
+                const MapObject *obj = get_object(id, layer, index);
+                return obj ? obj->PropStr(key) : std::string_view{};
+            }));
 }
 
 void RegisterUiApi(fakelua::State *state, Engine *engine) {

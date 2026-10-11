@@ -562,6 +562,177 @@ int RunPhysicsQueryTest(fake2d::Engine &engine) {
     return failures == 0 ? 0 : 1;
 }
 
+// Defined later in this translation unit (marble asset scaffolding); the
+// object-layer test regenerates mario.json to check the production pipeline.
+void EnsureMarioAssets(bool regen);
+
+// Tiled object-layer self-test: parsing of objectgroups (points, rects,
+// ellipses, polylines, polygons), custom properties and layer/object queries
+// against an inline JSON document, plus an end-to-end check of the generated
+// assets/mario.json spawns layer. Prints [map-obj] lines; non-zero on fail.
+// Headless-safe: parses JSON only, never touches the window or renderer.
+int RunMapObjectTest(fake2d::Engine &engine) {
+    int failures = 0;
+    int checks = 0;
+    auto check = [&](bool ok, const char *what) {
+        ++checks;
+        if (!ok) {
+            ++failures;
+            std::printf("[map-obj] FAIL %s\n", what);
+        }
+    };
+    auto near = [](float a, float b) { return std::fabs(a - b) < 0.01f; };
+
+    constexpr const char *kDoc = R"JSON({
+      "orientation": "orthogonal",
+      "width": 4, "height": 2,
+      "tilewidth": 16, "tileheight": 16,
+      "tilesets": [],
+      "layers": [
+        {"name": "world", "type": "tilelayer", "visible": true,
+         "data": [0, 0, 0, 0, 0, 0, 0, 0]},
+        {"name": "spawns", "type": "objectgroup", "visible": true,
+         "draworder": "topdown", "objects": [
+          {"id": 1, "name": "goomba", "type": "enemy",
+           "x": 18, "y": 36, "width": 0, "height": 0,
+           "rotation": 0, "visible": true, "point": true,
+           "properties": [
+             {"name": "patrol", "type": "bool", "value": true},
+             {"name": "hp", "type": "int", "value": 3},
+             {"name": "speed", "type": "float", "value": 42.5},
+             {"name": "mood", "type": "string", "value": "angry"}
+           ]},
+          {"id": 2, "name": "zone", "x": 0, "y": 0,
+           "width": 64, "height": 32, "rotation": 90, "visible": false},
+          {"id": 3, "name": "trigger", "x": 300, "y": 300,
+           "width": 40, "height": 20, "ellipse": true},
+          {"id": 4, "name": "path", "x": 10, "y": 10,
+           "polyline": [{"x": 0, "y": 0}, {"x": 100, "y": 50}]},
+          {"id": 5, "name": "area", "x": 0, "y": 0,
+           "polygon": [{"x": 0, "y": 0}, {"x": 16, "y": 0}, {"x": 8, "y": 12}]}
+        ]}
+      ]
+    })JSON";
+
+    fake2d::Tilemap map;
+    check(map.LoadFromString(kDoc, ".", engine.GetResources()), "inline map parses");
+    check(map.IsValid() && map.Cols() == 4 && map.Rows() == 2, "map dimensions");
+
+    check(map.Layers().size() == 2, "two layers kept");
+    check(map.LayerTypeAt(0) == 0, "layer 0 is tile");
+    check(map.LayerTypeAt(1) == 2, "layer 1 is object");
+    check(map.LayerTypeAt(2) == -1, "layer 2 out of range");
+    check(map.FindLayer("world") == 0, "find world layer");
+    check(map.FindLayer("spawns") == 1, "find spawns layer");
+    check(map.FindLayer("missing") == -1, "missing layer -> -1");
+    check(map.ObjectsAt(0) == nullptr, "tile layer has no objects");
+    check(map.ObjectsAt(9) == nullptr, "bad object layer index");
+
+    const auto *objs = map.ObjectsAt(1);
+    check(objs != nullptr && objs->size() == 5, "five objects parsed");
+    if (objs != nullptr && objs->size() == 5) {
+        const fake2d::MapObject &goomba = (*objs)[0];
+        check(goomba.id == 1 && goomba.name == "goomba" &&
+                  goomba.class_name == "enemy",
+              "object id/name/type");
+        check(near(goomba.x, 18.0f) && near(goomba.y, 36.0f), "object x/y");
+        check(goomba.shape == fake2d::MapObjectShape::Point, "point shape");
+        check(goomba.visible, "object defaults visible");
+        check(goomba.HasProperty("hp") && goomba.HasProperty("mood"),
+              "has properties");
+        check(!goomba.HasProperty("nope"), "missing property");
+        check(goomba.PropBool("patrol"), "bool property");
+        check(near(static_cast<float>(goomba.PropNum("hp")), 3.0f), "int property");
+        check(near(static_cast<float>(goomba.PropNum("speed")), 42.5f),
+              "float property");
+        check(goomba.PropStr("mood") == "angry", "string property");
+        check(near(static_cast<float>(goomba.PropNum("nope", 7.0f)), 7.0f),
+              "numeric default");
+        check(!goomba.PropBool("nope"), "bool default");
+        check(goomba.PropStr("nope").empty(), "string default");
+        // Type mismatch must yield the default, not the stored value.
+        check(near(static_cast<float>(goomba.PropNum("patrol", 9.0f)), 9.0f),
+              "typed access rejects kind mismatch");
+
+        const fake2d::MapObject &zone = (*objs)[1];
+        check(zone.shape == fake2d::MapObjectShape::Rect, "rect shape");
+        check(near(zone.width, 64.0f) && near(zone.height, 32.0f), "rect size");
+        check(near(zone.rotation, 90.0f), "rotation");
+        check(!zone.visible, "hidden object");
+        check(zone.class_name.empty(), "empty type");
+
+        const fake2d::MapObject &trigger = (*objs)[2];
+        check(trigger.shape == fake2d::MapObjectShape::Ellipse, "ellipse shape");
+
+        const fake2d::MapObject &path = (*objs)[3];
+        check(path.shape == fake2d::MapObjectShape::Polyline, "polyline shape");
+        check(path.points.size() == 2, "polyline vertex count");
+        check(path.points.size() == 2 && near(path.points[0].x, 10.0f) &&
+                  near(path.points[0].y, 10.0f) && near(path.points[1].x, 110.0f) &&
+                  near(path.points[1].y, 60.0f),
+              "polyline vertices are absolute");
+
+        const fake2d::MapObject &area = (*objs)[4];
+        check(area.shape == fake2d::MapObjectShape::Polygon, "polygon shape");
+        check(area.points.size() == 3 && near(area.points[2].x, 8.0f) &&
+                  near(area.points[2].y, 12.0f),
+              "polygon vertices are absolute");
+    }
+
+    // Tile queries must ignore the object layer entirely.
+    check(map.GidAt(1, 0, 0) == 0, "gid read on object layer is empty");
+    check(!map.SolidAt(0, 0), "no solids from object layer");
+    check(map.TileAt(0, 0) == 0, "tile accessor skips object layer");
+
+    // --- End to end: the host-generated mario level + spawns layer --------
+    EnsureMarioAssets(false);
+    fake2d::Tilemap mario;
+    check(mario.LoadFromFile("assets/mario.json", engine.GetResources()),
+          "generated mario.json loads");
+    int spawn_layer = mario.FindLayer("spawns");
+    check(spawn_layer >= 0 && mario.LayerTypeAt(static_cast<std::size_t>(spawn_layer)) == 2,
+          "mario.json has an object spawns layer");
+    const auto *spawns = spawn_layer >= 0 ? mario.ObjectsAt(spawn_layer) : nullptr;
+    int goombas = 0;
+    int starts = 0;
+    if (spawns != nullptr) {
+        check(spawns->size() == 8, "spawns: 7 goombas + 1 player start");
+        for (const fake2d::MapObject &obj : *spawns) {
+            if (obj.name == "goomba") {
+                ++goombas;
+                if (goombas == 1) {
+                    check(near(obj.x, 22 * 32 + 2) && near(obj.y, 12 * 32 + 4),
+                          "first goomba matches authored cell");
+                    check(obj.shape == fake2d::MapObjectShape::Point &&
+                              obj.class_name == "enemy",
+                          "goomba is an enemy point");
+                }
+            } else if (obj.name == "player_start") {
+                ++starts;
+                check(near(obj.x, 80.0f) && near(obj.y, 13 * 32),
+                      "player start at 2.5 tiles / ground top");
+            }
+        }
+    }
+    check(goombas == 7, "seven goomba spawns");
+    check(starts == 1, "one player start");
+
+    // The old marker tile (gid 15) must no longer appear anywhere in the grid.
+    bool marker_left = false;
+    for (int r = 0; r < mario.Rows(); ++r) {
+        for (int c = 0; c < mario.Cols(); ++c) {
+            if (mario.TileAt(c, r) == 15) {
+                marker_left = true;
+            }
+        }
+    }
+    check(!marker_left, "no goomba marker gid left in tile grid");
+
+    std::printf("[map-obj] %s: %d checks, %d failures\n",
+                failures == 0 ? "PASS" : "FAILED", checks, failures);
+    return failures == 0 ? 0 : 1;
+}
+
 // ---------------------------------------------------------------------------
 // Asset scaffolding for scripts/map_demo.lua: tilesheet + Tiled JSON.
 // Generated on demand so the repo stays binary-asset-free.
@@ -1701,19 +1872,16 @@ void EnsureMarioAssets(bool regen = false) {
     pipe(38, 10); // height 3
     pipe(48, 9);  // height 4
 
-    // loose coins arc over the second gap approach
+    // Loose coins arc over the second gap approach
     if (at(55, 8) == 0) at(55, 8) = kMCoin;
     if (at(56, 7) == 0) at(56, 7) = kMCoin;
     if (at(57, 8) == 0) at(57, 8) = kMCoin;
 
-    // goomba spawn markers (swept into entities on the first frame)
-    at(22, 12) = kMGoomba;
-    at(40, 12) = kMGoomba;
-    at(51, 12) = kMGoomba;
-    at(53, 12) = kMGoomba;
-    at(66, 12) = kMGoomba;
-    at(84, 12) = kMGoomba;
-    at(86, 12) = kMGoomba;
+    // Goomba spawn points live in the "spawns" object layer below (Tiled
+    // point objects), not in the tile grid: the script sweeps them into
+    // EntityStore slots on every level reset.
+    static constexpr int kGoombaCols[] = {22, 40, 51, 53, 66, 84, 86};
+    constexpr int kGoombaRow = 12;
 
     // staircase up (91..94) then down (96..99); col 95 stays flat
     for (int i = 0; i < 4; ++i) {
@@ -1776,7 +1944,30 @@ void EnsureMarioAssets(bool regen = false) {
         if (i % kMCols == 0) json << "\n      ";
         json << gids[i] << (i + 1 == gids.size() ? "\n" : ", ");
     }
-    json << "  ]}]\n}\n";
+    json << "  ]}, {\n";
+    // Data-only object layer: point objects the Lua game sweeps into
+    // entities. Coordinates are world pixels; a point's x/y is the point.
+    json << "    \"name\": \"spawns\", \"type\": \"objectgroup\",\n"
+         << "    \"draworder\": \"topdown\", \"opacity\": 1, \"visible\": true,\n"
+         << "    \"objects\": [\n";
+    int obj_id = 1;
+    for (int col : kGoombaCols) {
+        const int x = col * kMTile + 2;
+        const int y = kGoombaRow * kMTile + 4;
+        json << "      {\"id\": " << obj_id++
+             << ", \"name\": \"goomba\", \"type\": \"enemy\","
+                " \"x\": " << x << ", \"y\": " << y
+             << ", \"width\": 0, \"height\": 0, \"rotation\": 0,"
+                " \"visible\": true, \"point\": true},\n";
+    }
+    // Player spawn: feet position (2.5 tiles in, standing on the ground).
+    json << "      {\"id\": " << obj_id
+         << ", \"name\": \"player_start\", \"type\": \"spawn\","
+            " \"x\": " << 2.5 * kMTile << ", \"y\": " << 13 * kMTile
+         << ", \"width\": 0, \"height\": 0, \"rotation\": 0,"
+            " \"visible\": true, \"point\": true}\n";
+    json << "    ]\n"
+         << "  }]\n}\n";
 
     const std::filesystem::path level_path = dir / "mario.json";
     if (regen || !std::filesystem::exists(level_path)) {
@@ -2049,6 +2240,7 @@ int main(int argc, char **argv) {
     bool bench = false;
     bool phys_bench = false;
     bool phys_query = false;
+    bool map_object = false;
     int max_frames = 0;
     int shot_frame = 30;
     std::string screenshot;
@@ -2098,6 +2290,12 @@ int main(int argc, char **argv) {
             cfg.headless = true;
             cfg.script_entry.clear();
             cfg.vsync = false;
+        } else if (arg == "--map-object-test") {
+            // Headless self-test of Tiled objectgroup parsing/queries.
+            map_object = true;
+            cfg.headless = true;
+            cfg.script_entry.clear();
+            cfg.vsync = false;
         } else if (arg == "--entry" && i + 1 < argc) {
             // Dev/test hook: run an arbitrary script instead of a demo.
             cfg.script_entry = argv[++i];
@@ -2120,6 +2318,9 @@ int main(int argc, char **argv) {
     }
     if (phys_query) {
         return RunPhysicsQueryTest(engine);
+    }
+    if (map_object) {
+        return RunMapObjectTest(engine);
     }
 
     // All gameplay is pure Lua below; C++ only guarantees the binary asset
