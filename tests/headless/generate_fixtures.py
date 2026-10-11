@@ -42,6 +42,57 @@ def load_grid(repo: Path, asset: str):
     return data["width"], data["height"], csv
 
 
+def load_map_meta(repo: Path, asset: str):
+    """Layer/object metadata for one map: [(name, kind, [(name, x, y)])].
+
+    Kind matches the engine's map_layer_type: 0 tile, 1 image, 2 object.
+    Nested group layers are not produced by any shipped map.
+    """
+    doc = json.loads((repo / "assets" / asset).read_text())
+    layers = []
+    for layer in doc.get("layers", []):
+        kind = {"tilelayer": 0, "imagelayer": 1, "objectgroup": 2}.get(
+            layer.get("type"))
+        if kind is None:
+            continue
+        objs = []
+        if kind == 2:
+            for obj in layer.get("objects", []):
+                objs.append((obj.get("name", ""),
+                             float(obj.get("x", 0.0)),
+                             float(obj.get("y", 0.0))))
+        layers.append((layer.get("name", ""), kind, objs))
+    return layers
+
+
+def build_object_loaders(map_metas):
+    lines = ["local function fix_load_objs(m)",
+             "    fix_tset(fix_objdata, 0.0, m)"]
+    first = True
+    for mapidx, layers in enumerate(map_metas, start=1):
+        kw = "if" if first else "elseif"
+        first = False
+        lines.append(f"    {kw} m == {mapidx} then")
+        lines.append(f"        fix_tset(fix_objdata, {mapidx * 1000}.0, "
+                     f"{len(layers)}.0)")
+        for li, (lname, kind, objs) in enumerate(layers):
+            lbase = mapidx * 1000 + li * 10
+            lines.append(f"        fix_tset(fix_objdata, {lbase + 1}.0, {kind}.0)")
+            lines.append(f'        fix_tset(fix_objdata, {lbase + 2}.0, "{lname}")')
+            if kind == 2:
+                lines.append(f"        fix_tset(fix_objdata, {lbase + 3}.0, "
+                             f"{len(objs)}.0)")
+                for oi, (oname, ox, oy) in enumerate(objs):
+                    obase = mapidx * 1_000_000 + li * 10_000 + oi * 10
+                    lines.append(
+                        f'        fix_tset(fix_objdata, {obase + 1}.0, "{oname}")')
+                    lines.append(f"        fix_tset(fix_objdata, {obase + 2}.0, {ox})")
+                    lines.append(f"        fix_tset(fix_objdata, {obase + 3}.0, {oy})")
+    lines.append("    end")
+    lines.append("end")
+    return "\n".join(lines)
+
+
 # ------------------------------------------------------------ C++ signatures
 
 BIND_RE = re.compile(
@@ -64,7 +115,7 @@ def parse_native_api(bindings: Path):
 
 # ------------------------------------------------------------------- prelude
 
-def build_prelude(mario_grid, plat_grid, slope_grid):
+def build_prelude(mario_grid, plat_grid, slope_grid, object_section):
     mw, mh, mg = mario_grid
     pw, ph, pg = plat_grid
     sw, sh, sg = slope_grid
@@ -123,14 +174,21 @@ local function fix_in_range(lo, hi)
 end
 
 -- ---------------------------------------------------------------- map
-local fix_g_mario = "{mg}"
-local fix_g_plat = "{pg}"
-local fix_g_slope = "{sg}"
+-- The three grids share ONE table local: the chunk's main function is near
+-- the interpreter's 255-register ceiling, so no extra top-level locals.
+local fix_grids = fix_nilval()
 local fix_cells = fix_nilval()
 local fix_cols = 0 + 0
 local fix_rows = 0 + 0
 local fix_ncell = 0 + 0
 local fix_tile = 32 + 0
+
+-- Object-layer metadata packed into one table (see build_object_loaders):
+-- key 0 holds the current map index, layer/object rows use disjoint integer
+-- bands above it.
+local fix_objdata = fix_nilval()
+
+{object_section}
 
 local function fix_load_grid(s, c, r)
     fix_cols = c
@@ -144,13 +202,17 @@ end
 
 function map_load(path)
     if path == "assets/mario.json" then
-        fix_load_grid(fix_g_mario, {mw}, {mh})
+        fix_load_grid(fix_tget(fix_grids, 1.0), {mw}, {mh})
+        fix_load_objs(1)
     elseif path == "assets/platformer.json" then
-        fix_load_grid(fix_g_plat, {pw}, {ph})
+        fix_load_grid(fix_tget(fix_grids, 2.0), {pw}, {ph})
+        fix_load_objs(2)
     elseif path == "assets/slope.json" then
-        fix_load_grid(fix_g_slope, {sw}, {sh})
+        fix_load_grid(fix_tget(fix_grids, 3.0), {sw}, {sh})
+        fix_load_objs(3)
     else
-        fix_load_grid(fix_g_mario, {mw}, {mh})
+        fix_load_grid(fix_tget(fix_grids, 1.0), {mw}, {mh})
+        fix_load_objs(1)
     end
     return 1
 end
@@ -184,9 +246,62 @@ function map_oneway(id, c, r) return false end
 function map_slope_dir(id, c, r) return 0 end
 function map_slope_rise(id, c, r) return 0 end
 function map_ground_y(id, wx, reach) return -1.0 end
-function map_layer_count(id) return 1 end
+function map_layer_count(id)
+    return fix_tget(fix_objdata, fix_tget(fix_objdata, 0.0) * 1000.0)
+end
 function map_layer_parallax_x(id, i) return 1.0 end
 function map_layer_parallax_y(id, i) return 1.0 end
+
+-- ---------------------------------------------------- object layer stubs
+-- Metadata layout: see build_object_loaders. fix_objdata[0] is the current
+-- map index; layer rows are m*1000+l*10 + 1 type / +2 name / +3 obj count;
+-- object rows are m*1000000+l*10000+i*10 + 1 name / +2 x / +3 y.
+local function fix_om() return fix_tget(fix_objdata, 0.0) end
+local function fix_lrow(li, slot)
+    return fix_om() * 1000.0 + li * 10.0 + slot
+end
+local function fix_orow(li, i, slot)
+    return fix_om() * 1000000.0 + li * 10000.0 + i * 10.0 + slot
+end
+function map_find_layer(id, name)
+    local m = fix_om()
+    local n = fix_tget(fix_objdata, m * 1000.0)
+    local i = 0
+    while i < n do
+        if fix_tget(fix_objdata, m * 1000.0 + i * 10.0 + 2.0) == name then
+            return i
+        end
+        i = i + 1
+    end
+    return -1
+end
+function map_layer_type(id, li)
+    if li < 0 then return -1 end
+    local t = fix_tget(fix_objdata, fix_lrow(li, 1.0))
+    if t == nil then return -1 end
+    return t
+end
+function map_obj_count(id, li)
+    if li < 0 then return 0 end
+    local n = fix_tget(fix_objdata, fix_lrow(li, 3.0))
+    if n == nil then return 0 end
+    return n
+end
+function map_obj_name(id, li, i)
+    local v = fix_tget(fix_objdata, fix_orow(li, i, 1.0))
+    if v == nil then return "" end
+    return v
+end
+function map_obj_x(id, li, i)
+    local v = fix_tget(fix_objdata, fix_orow(li, i, 2.0))
+    if v == nil then return 0.0 end
+    return v
+end
+function map_obj_y(id, li, i)
+    local v = fix_tget(fix_objdata, fix_orow(li, i, 3.0))
+    if v == nil then return 0.0 end
+    return v
+end
 
 -- ---------------------------------------------------------------- entities
 local fix_ea = fix_nilval()
@@ -466,6 +581,11 @@ function fix_boot()
     fix_have = 0
     fix_bs = 0.0
     fix_bt = 0.0
+    fix_grids = fix_newtable()
+    fix_tset(fix_grids, 1.0, "{mg}")
+    fix_tset(fix_grids, 2.0, "{pg}")
+    fix_tset(fix_grids, 3.0, "{sg}")
+    fix_objdata = fix_newtable()
 end
 '''
 
@@ -518,6 +638,7 @@ function main()
     local fails = 0
     if sc == "mario_smoke" then
         fails = fix_expect(900112, "mario: map loads 112 cols", fails)
+        fails = fix_expect(900207, "mario: 7 goombas read from spawns object layer", fails)
         fails = fix_expect(201001, "mario: mode stays PLAY", fails)
         fails = fix_expect(204080, "mario: idle player holds spawn px=80", fails)
         fails = fix_forbid(300010, "mario: no goomba death", fails)
@@ -564,6 +685,7 @@ DEFAULTS = {
     "double": "0.0",
     "std::int64_t": "0",
     "std::string": '""',
+    "std::string_view": '""',
 }
 
 
@@ -578,10 +700,18 @@ def write_fixtures(repo: Path, out: Path):
     out.mkdir(parents=True, exist_ok=True)
     api = parse_native_api(repo / "src" / "script" / "script_bindings.cpp")
 
+    map_metas = [
+        load_map_meta(repo, "mario.json"),
+        load_map_meta(repo, "platformer.json"),
+        load_map_meta(repo, "slope.json"),
+    ]
+    object_section = build_object_loaders(map_metas)
+
     prelude = build_prelude(
         load_grid(repo, "mario.json"),
         load_grid(repo, "platformer.json"),
         load_grid(repo, "slope.json"),
+        object_section,
     )
 
     # Every hand-written stub must match the C++ binding arity exactly.

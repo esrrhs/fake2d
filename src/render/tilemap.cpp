@@ -57,6 +57,50 @@ bool GetIntProperty(const nlohmann::json &props, const char *name, int &out) {
     return false;
 }
 
+/// Parse a Tiled custom-property array (bool/int/float/string) into the
+/// engine's representation. Other Tiled property kinds (file/color/object)
+/// fall back to their string form when present.
+std::vector<MapProperty> ParseObjectProperties(const nlohmann::json &props) {
+    std::vector<MapProperty> out;
+    if (!props.is_array()) {
+        return out;
+    }
+    for (const auto &prop : props) {
+        if (!prop.is_object() || !prop.contains("name") || !prop.contains("value")) {
+            continue;
+        }
+        MapProperty mp;
+        mp.name = prop.value("name", "");
+        const std::string type = prop.value("type", "");
+        const auto &value = prop["value"];
+        if (type == "bool" && value.is_boolean()) {
+            mp.kind = MapProperty::Kind::Bool;
+            mp.bool_value = value.get<bool>();
+        } else if (type == "int" && value.is_number_integer()) {
+            mp.kind = MapProperty::Kind::Int;
+            mp.num_value = static_cast<double>(value.get<std::int64_t>());
+        } else if (type == "float" && value.is_number()) {
+            mp.kind = MapProperty::Kind::Float;
+            mp.num_value = value.get<double>();
+        } else if (value.is_string()) {
+            // Plain strings plus Tiled file/color values, which are strings.
+            mp.kind = MapProperty::Kind::String;
+            mp.str_value = value.get<std::string>();
+        } else if (value.is_boolean()) {
+            mp.kind = MapProperty::Kind::Bool;
+            mp.bool_value = value.get<bool>();
+        } else if (value.is_number()) {
+            mp.kind = value.is_number_integer() ? MapProperty::Kind::Int
+                                                : MapProperty::Kind::Float;
+            mp.num_value = value.get<double>();
+        } else {
+            continue;
+        }
+        out.push_back(std::move(mp));
+    }
+    return out;
+}
+
 } // namespace
 
 bool Tilemap::LoadFromFile(const std::string &json_path, ResourceManager &resources) {
@@ -163,7 +207,7 @@ bool Tilemap::ParseImpl(std::string_view json, std::string_view base_dir,
         tilesets_.push_back(std::move(ts));
     }
 
-    // --- layers (tile layers and image layers; groups/objects ignored) ---
+    // --- layers (tile, image and object layers; groups ignored) ---
     layers_.clear();
     const auto layers_it = doc.find("layers");
     if (layers_it == doc.end() || !layers_it->is_array()) {
@@ -211,10 +255,133 @@ bool Tilemap::ParseImpl(std::string_view json, std::string_view base_dir,
                 }
                 // A missing/unloadable image drops the layer but keeps the map valid.
             }
+        } else if (type == "objectgroup") {
+            layer.object_layer = true;
+            const auto objs_it = layer_json.find("objects");
+            if (objs_it != layer_json.end() && objs_it->is_array()) {
+                layer.objects.reserve(objs_it->size());
+                for (const auto &obj_json : *objs_it) {
+                    if (!obj_json.is_object()) {
+                        continue;
+                    }
+                    MapObject obj;
+                    obj.id = obj_json.value("id", 0);
+                    obj.name = obj_json.value("name", "");
+                    // Tiled 1.9 renamed "type" to "class"; accept both.
+                    obj.class_name = obj_json.value("type", "");
+                    if (obj.class_name.empty()) {
+                        obj.class_name = obj_json.value("class", "");
+                    }
+                    obj.x = obj_json.value("x", 0.0f);
+                    obj.y = obj_json.value("y", 0.0f);
+                    obj.width = obj_json.value("width", 0.0f);
+                    obj.height = obj_json.value("height", 0.0f);
+                    obj.rotation = obj_json.value("rotation", 0.0f);
+                    obj.visible = obj_json.value("visible", true);
+
+                    const char *shape_key = nullptr;
+                    if (obj_json.value("point", false)) {
+                        obj.shape = MapObjectShape::Point;
+                    } else if (obj_json.value("ellipse", false)) {
+                        obj.shape = MapObjectShape::Ellipse;
+                    } else if (obj_json.contains("polyline")) {
+                        obj.shape = MapObjectShape::Polyline;
+                        shape_key = "polyline";
+                    } else if (obj_json.contains("polygon")) {
+                        obj.shape = MapObjectShape::Polygon;
+                        shape_key = "polygon";
+                    }
+                    if (shape_key != nullptr) {
+                        const auto &pts = obj_json[shape_key];
+                        if (pts.is_array()) {
+                            // Tiled stores vertices relative to the object
+                            // origin; expose absolute world pixels so scripts
+                            // can consume them directly.
+                            obj.points.reserve(pts.size());
+                            for (const auto &pt : pts) {
+                                obj.points.push_back(
+                                    {obj.x + pt.value("x", 0.0f),
+                                     obj.y + pt.value("y", 0.0f)});
+                            }
+                        }
+                    }
+                    if (const auto props_it = obj_json.find("properties");
+                        props_it != obj_json.end()) {
+                        obj.properties = ParseObjectProperties(*props_it);
+                    }
+                    layer.objects.push_back(std::move(obj));
+                }
+            }
+            // Object layers are data only; an empty one is still kept so
+            // layer indices/names match the authored map.
+            layers_.push_back(std::move(layer));
         }
     }
 
     return !layers_.empty();
+}
+
+// --- MapObject property accessors ---
+
+const MapProperty *MapObject::FindProperty(std::string_view prop_name) const {
+    for (const MapProperty &prop : properties) {
+        if (prop.name == prop_name) {
+            return &prop;
+        }
+    }
+    return nullptr;
+}
+
+bool MapObject::PropBool(std::string_view prop_name, bool dflt) const {
+    const MapProperty *prop = FindProperty(prop_name);
+    return (prop != nullptr && prop->kind == MapProperty::Kind::Bool)
+               ? prop->bool_value
+               : dflt;
+}
+
+double MapObject::PropNum(std::string_view prop_name, double dflt) const {
+    const MapProperty *prop = FindProperty(prop_name);
+    return (prop != nullptr && (prop->kind == MapProperty::Kind::Int ||
+                                prop->kind == MapProperty::Kind::Float))
+               ? prop->num_value
+               : dflt;
+}
+
+std::string_view MapObject::PropStr(std::string_view prop_name,
+                                    std::string_view dflt) const {
+    const MapProperty *prop = FindProperty(prop_name);
+    return (prop != nullptr && prop->kind == MapProperty::Kind::String)
+               ? std::string_view{prop->str_value}
+               : dflt;
+}
+
+// --- Layer/object queries ---
+
+int Tilemap::LayerTypeAt(std::size_t index) const {
+    if (index >= layers_.size()) {
+        return -1;
+    }
+    const Layer &layer = layers_[index];
+    if (layer.object_layer) {
+        return 2;
+    }
+    return layer.image_layer ? 1 : 0;
+}
+
+int Tilemap::FindLayer(std::string_view layer_name) const {
+    for (std::size_t i = 0; i < layers_.size(); ++i) {
+        if (layers_[i].name == layer_name) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
+const std::vector<MapObject> *Tilemap::ObjectsAt(std::size_t index) const {
+    if (index >= layers_.size() || !layers_[index].object_layer) {
+        return nullptr;
+    }
+    return &layers_[index].objects;
 }
 
 const Tilemap::Tileset *Tilemap::FindTileset(std::uint32_t gid) const {
@@ -243,7 +410,7 @@ std::uint32_t Tilemap::GidAt(std::size_t layer, int col, int row) const {
         return 0;
     }
     const Layer &l = layers_[layer];
-    if (l.image_layer) {
+    if (l.image_layer || l.object_layer) {
         return 0;
     }
     return l.gids[static_cast<std::size_t>(row) * cols_ + col];
@@ -254,7 +421,7 @@ bool Tilemap::SolidAt(int col, int row) const {
         return false;
     }
     for (const Layer &layer : layers_) {
-        if (!layer.visible || layer.image_layer) {
+        if (!layer.visible || layer.image_layer || layer.object_layer) {
             continue;
         }
         const std::uint32_t gid =
@@ -272,7 +439,7 @@ bool Tilemap::OneWayAt(int col, int row) const {
         return false;
     }
     for (const Layer &layer : layers_) {
-        if (!layer.visible || layer.image_layer) {
+        if (!layer.visible || layer.image_layer || layer.object_layer) {
             continue;
         }
         const std::uint32_t gid =
@@ -290,7 +457,7 @@ int Tilemap::SlopeDirAt(int col, int row) const {
         return 0;
     }
     for (const Layer &layer : layers_) {
-        if (!layer.visible || layer.image_layer) {
+        if (!layer.visible || layer.image_layer || layer.object_layer) {
             continue;
         }
         const std::uint32_t gid =
@@ -312,7 +479,7 @@ int Tilemap::SlopeRiseAt(int col, int row) const {
     }
 
     for (const Layer &layer : layers_) {
-        if (!layer.visible || layer.image_layer) {
+        if (!layer.visible || layer.image_layer || layer.object_layer) {
             continue;
         }
         const std::uint32_t gid =
@@ -411,7 +578,7 @@ float Tilemap::GroundYAt(float world_x, float reach_y) const {
 
 std::uint32_t Tilemap::TileAt(int col, int row) const {
     for (std::size_t i = 0; i < layers_.size(); ++i) {
-        if (layers_[i].image_layer) {
+        if (layers_[i].image_layer || layers_[i].object_layer) {
             continue;
         }
         return GidAt(i, col, row);
@@ -425,7 +592,7 @@ void Tilemap::SetTile(int col, int row, std::uint32_t gid) {
     }
     for (std::size_t i = 0; i < layers_.size(); ++i) {
         Layer &layer = layers_[i];
-        if (layer.image_layer) {
+        if (layer.image_layer || layer.object_layer) {
             continue;
         }
         layer.gids[static_cast<std::size_t>(row) * cols_ + col] = gid;
@@ -472,6 +639,9 @@ void Tilemap::Draw(Renderer &renderer) const {
         const Layer &layer = layers_[li];
         if (!layer.visible) {
             continue;
+        }
+        if (layer.object_layer) {
+            continue; // object layers are data only, never rendered
         }
         batch.SetLayer(static_cast<int>(li));
 

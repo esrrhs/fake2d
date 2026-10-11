@@ -62,3 +62,7 @@ build-nofakelua/
 .workbuddy/
 saves/
 dist/
+
+# Python test tooling bytecode
+__pycache__/
+*.pyc

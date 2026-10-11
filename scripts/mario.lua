@@ -32,11 +32,14 @@
 -- gids (must match the host-generated assets/mario.json)
 local G_GROUND, G_DIRT, G_BRICK, G_QUESTION, G_USED = 1, 2, 3, 4, 5
 local G_PIPE_TL, G_PIPE_TR, G_PIPE_BL, G_PIPE_BR, G_COIN = 6, 7, 8, 9, 10
-local G_POLEBALL, G_POLE, G_FLAG, G_STONE, G_GOOMBA_MARK = 11, 12, 13, 14, 15
+local G_POLEBALL, G_POLE, G_FLAG, G_STONE = 11, 12, 13, 14
 
 -- entity tags
 local TAG_GOOMBA, TAG_MUSH = 1, 2
 local TAG_BUMP, TAG_POPUP, TAG_RESTORE = 10, 11, 20
+-- Persistent spawn records read once from the map's "spawns" object layer;
+-- they survive level resets and drive goomba/player (re)spawning.
+local TAG_SP_G, TAG_SP_P = 21, 22
 -- goomba/mushroom number slots
 local S_X, S_Y, S_VX, S_VY, S_STATE, S_T, S_DIR, S_ANIM = 0, 1, 2, 3, 4, 5, 6, 7
 local GOOMBA_WALK, GOOMBA_SQUASH, GOOMBA_DEAD = 1, 2, 3
@@ -233,10 +236,12 @@ local function destroy_goomba(id)
     ent_destroy(id)
 end
 
-local function spawn_goomba(c, r)
+-- Spawn a goomba at world pixels (x, y); coordinates come from the "spawns"
+-- object layer's point objects (or test hooks), not tile cells.
+local function spawn_goomba_at(x, y)
     local id = ent_create(TAG_GOOMBA)
-    ent_set_num(id, S_X, c * TILE + 2.0)
-    ent_set_num(id, S_Y, r * TILE + 4.0)
+    ent_set_num(id, S_X, x)
+    ent_set_num(id, S_Y, y)
     ent_set_num(id, S_VX, -GOOMBA_SPEED)
     ent_set_num(id, S_VY, 0.0)
     ent_set_num(id, S_STATE, GOOMBA_WALK)
@@ -287,9 +292,17 @@ local function reset_player()
     else
         big = 0
     end
-    px = 2.5 * TILE
+    -- Spawn point authored as the "player_start" object in the map's
+    -- spawns layer; fall back to the classic 2.5-tiles-in stance.
+    local spx, spy = 2.5 * TILE, GROUND_TOP
+    local sp = ent_at(0, TAG_SP_P)
+    if sp ~= 0 then
+        spx = ent_num(sp, S_X)
+        spy = ent_num(sp, S_Y)
+    end
+    px = spx
     if test_tp >= 0.0 then px = test_tp end
-    py = GROUND_TOP - box_h
+    py = spy - box_h
     vx, vy = 0.0, 0.0
     on_ground = false
     facing = 1
@@ -331,13 +344,13 @@ local function reset_level()
     clear_tag(TAG_MUSH)
     clear_tag(TAG_BUMP)
     clear_tag(TAG_POPUP)
-    -- sweep goomba markers into entities, then clear the marker cells
-    for r = 0, 14 do
-        for c = 0, 111 do
-            if map_tile(map_id, c, r) == G_GOOMBA_MARK then
-                spawn_goomba(c, r)
-                map_set_tile(map_id, c, r, 0)
-            end
+    -- Sweep the persistent goomba spawn records (sourced once from the
+    -- map's "spawns" object layer) into live entities.
+    local gn = ent_count(TAG_SP_G)
+    for i = 0, gn - 1 do
+        local sp = ent_at(i, TAG_SP_G)
+        if sp ~= 0 then
+            spawn_goomba_at(ent_num(sp, S_X), ent_num(sp, S_Y))
         end
     end
     reset_player()
@@ -350,6 +363,34 @@ local function full_reset()
     coins = 0
     lives = 3
     reset_level()
+end
+
+-- Read the map's "spawns" object layer once and park every point in a
+-- persistent EntityStore slot; level resets respawn from these instead of
+-- scanning the tile grid for marker gids. Lives in its own function to keep
+-- update()'s register count within the interpreter's limit.
+local function read_spawns()
+    local spawn_layer = map_find_layer(map_id, "spawns")
+    local goomba_spawns = 0
+    if spawn_layer >= 0 then
+        local n = map_obj_count(map_id, spawn_layer)
+        for i = 0, n - 1 do
+            local nm = map_obj_name(map_id, spawn_layer, i)
+            local ox = map_obj_x(map_id, spawn_layer, i)
+            local oy = map_obj_y(map_id, spawn_layer, i)
+            if nm == "goomba" then
+                local rec = ent_create(TAG_SP_G)
+                ent_set_num(rec, S_X, ox)
+                ent_set_num(rec, S_Y, oy)
+                goomba_spawns = goomba_spawns + 1
+            elseif nm == "player_start" then
+                local rec = ent_create(TAG_SP_P)
+                ent_set_num(rec, S_X, ox)
+                ent_set_num(rec, S_Y, oy)
+            end
+        end
+    end
+    log_number(900200 + goomba_spawns)
 end
 
 -- ---------------------------------------------------------------------------
@@ -1421,7 +1462,7 @@ local function run_blocks_mode(sdt)
         -- one walks off to col 22 before the bonk hop reaches its band.
         if blk_flag == 0 then
             blk_flag = 1
-            local gid = spawn_goomba(23, 8)
+            local gid = spawn_goomba_at(23 * TILE + 2.0, 8 * TILE + 4.0)
             ent_set_num(gid, S_VX, 0.0)
             ent_set_num(gid, S_DIR, 0.0)
         end
@@ -1575,8 +1616,7 @@ function update(dt)
         for r = 0, 14 do
             for c = 0, 111 do
                 local g = map_tile(map_id, c, r)
-                if g == G_BRICK or g == G_QUESTION or g == G_COIN
-                    or g == G_GOOMBA_MARK then
+                if g == G_BRICK or g == G_QUESTION or g == G_COIN then
                     local rec = ent_create(TAG_RESTORE)
                     ent_set_num(rec, 0, c)
                     ent_set_num(rec, 1, r)
@@ -1584,6 +1624,9 @@ function update(dt)
                 end
             end
         end
+        -- Spawn points come from the "spawns" object layer (persistent
+        -- EntityStore slots; see read_spawns).
+        read_spawns()
         full_reset()
         -- DIE3 begins with a nonzero score; the GAME OVER reopen must zero it
         if test_die3 == 1 then score = 999 end

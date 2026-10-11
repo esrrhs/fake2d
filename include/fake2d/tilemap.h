@@ -15,6 +15,60 @@
 
 namespace fake2d {
 
+/// Shape of a Tiled map object (objectgroup entries).
+enum class MapObjectShape : std::uint8_t {
+    Rect = 0,
+    Point = 1,
+    Ellipse = 2,
+    Polyline = 3,
+    Polygon = 4,
+};
+
+/// One custom property of a Tiled map object. Tiled exposes bool / int /
+/// float / string values; int and float share the numeric accessor.
+struct MapProperty {
+    enum class Kind : std::uint8_t { Bool, Int, Float, String };
+
+    std::string name;
+    Kind kind = Kind::String;
+    bool bool_value = false;
+    double num_value = 0.0;
+    std::string str_value;
+};
+
+/// A single entry of a Tiled object layer.
+///
+/// Coordinates follow the Tiled convention: x/y is the top-left corner in
+/// world pixels (for point objects the point itself, with width/height 0);
+/// polyline/polygon vertices are pre-transformed to absolute world pixels.
+/// Object layers are data only — they are never rendered.
+struct MapObject {
+    int id = 0; ///< Tiled-assigned per-object id
+    std::string name;
+    std::string class_name; ///< Tiled "type" / "class"
+    float x = 0.0f;
+    float y = 0.0f;
+    float width = 0.0f;
+    float height = 0.0f;
+    float rotation = 0.0f; ///< degrees clockwise
+    bool visible = true;
+    MapObjectShape shape = MapObjectShape::Rect;
+    /// Absolute world-space vertices (polyline/polygon only).
+    std::vector<Vec2> points;
+    std::vector<MapProperty> properties;
+
+    /// Typized property accessors; the default is returned when the property
+    /// is missing or its Tiled type is incompatible.
+    [[nodiscard]] const MapProperty *FindProperty(std::string_view name) const;
+    [[nodiscard]] bool HasProperty(std::string_view name) const {
+        return FindProperty(name) != nullptr;
+    }
+    [[nodiscard]] bool PropBool(std::string_view name, bool dflt = false) const;
+    [[nodiscard]] double PropNum(std::string_view name, double dflt = 0.0) const;
+    [[nodiscard]] std::string_view PropStr(std::string_view name,
+                                           std::string_view dflt = "") const;
+};
+
 /// Orthogonal tile map exported by Tiled (JSON format).
 ///
 /// The map borrows its tilesheet textures from a ResourceManager (handles
@@ -49,6 +103,7 @@ public:
         std::string name;
         bool visible = true;
         bool image_layer = false; ///< Tiled image layer (gids unused)
+        bool object_layer = false; ///< Tiled objectgroup (gids unused)
         std::vector<std::uint32_t> gids; // row-major, 0 = empty, Tiled flags masked
         // Tiled parallax/offset (defaults match the Tiled format).
         float parallax_x = 1.0f;
@@ -58,9 +113,17 @@ public:
         bool repeat_x = false;
         bool repeat_y = false;
         TextureHandle image = kInvalidTextureHandle; // image layers only
+        std::vector<MapObject> objects;               // object layers only
     };
 
     [[nodiscard]] const std::vector<Layer> &Layers() const { return layers_; }
+    /// Layer kind at an index: 0 = tile, 1 = image, 2 = object; -1 if out of
+    /// range.
+    [[nodiscard]] int LayerTypeAt(std::size_t index) const;
+    /// Index of the first layer with this name (any kind), or -1.
+    [[nodiscard]] int FindLayer(std::string_view name) const;
+    /// Object list of an object layer, or null for a non-object/bad index.
+    [[nodiscard]] const std::vector<MapObject> *ObjectsAt(std::size_t index) const;
     /// Tile gid at a layer/cell (0 for empty or out of range).
     [[nodiscard]] std::uint32_t GidAt(std::size_t layer, int col, int row) const;
 

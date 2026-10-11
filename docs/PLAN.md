@@ -147,6 +147,16 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 - [x] `--phys-query-test`: headless C++ self-test with exact-value assertions (face points/normals/distances both ray directions, interior-start hits, misses, buffered readers, overlap counts incl. both-body and far-away cases, began→stayed→ended incl. the destroyed-body ended event); `--phys-bench` additionally reports per-frame raycast/overlap cost
 - [x] `scripts/phys_test.lua` exercises the same surface through real bindings end to end; bodies are placed initially touching because headless frames advance by wall-clock dt and an empty scene renders in microseconds (collision response is positional and frame-deterministic); CI runs both gates on Linux, macOS (CGL headless) and Windows (Mesa llvmpipe)
 
+## Phase 14 — Tiled object layers, data-driven level markup (1.8.x)
+
+- [x] Object-group parsing in `Tilemap`: `objectgroup` layers with rectangle/point/ellipse/polyline/polygon shapes, per-object id/name/class (legacy `type` accepted)/x/y/w/h/rotation/visible, and Tiled custom properties (bool/int/float/string; file/color degrade to strings); polyline/polygon vertices are converted to absolute world coordinates at load time
+- [x] C++ query surface: `LayerTypeAt` (0 tile / 1 image / 2 object / -1), `FindLayer(name)`, `ObjectsAt(layer)`, typed property readers with defaults (`PropBool/PropNum/PropStr`); object groups are skipped by every tile traversal (solid/one-way/slope/ground queries, gid reads/writes, draw)
+- [x] 20 Lua bindings: `map_find_layer`, `map_layer_type`, and the `map_obj_*` family (count/id/name/class/x/y/w/h/rotation/visible/shape/point_count/point_x/point_y/has_prop/prop_bool/prop_num/prop_str)
+- [x] Mario demo migrated off marker tiles: the host-generated `assets/mario.json` carries a `"spawns"` object group (seven goomba points + one `player_start`); `scripts/mario.lua` reads it once at boot into persistent entity-store slots and respawns from those slots on every level reset — the goomba marker gid is gone from both the generator and the script
+- [x] `--map-object-test`: headless C++ self-test, 49 assertions on an inline map (every shape, property kinds and type-mismatch defaults, rotation/visibility defaults, layer lookup/count/type, out-of-range guards) plus an end-to-end check against the real generated mario map (8 objects, 7 goombas, zero leftover marker gids)
+- [x] Headless fixtures extended with object-layer stubs; all map/layer/object metadata is packed into a single integer-keyed table because the concatenated chunk's main function sits near FakeLua's 255-register ceiling (mario spawn reading was likewise extracted into its own `read_spawns()` function); a new `900207` smoke assertion pins the seven goomba spawns — 24/24 cases green across tcc/gcc/interpreter
+- [x] Verification: `--map-object-test` 49/49, 24/24 logic fixtures, all five demos headless with zero script errors; mario screenshot pixel-confirmed (player on the object-layer start point, goomba spawned on the ground)
+
 ---
 
 ## Non-goals (for now)

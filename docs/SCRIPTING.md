@@ -444,7 +444,7 @@ Tile custom properties with `solid = true` (boolean) mark collidable tiles.
 | `map_set_tile(id, col, row, gid)` | Overwrite one cell (coin pickups, breakable blocks). |
 | `map_cols(id) / map_rows(id) -> n` | Map dimensions in cells. |
 | `map_tilew(id) / map_tileh(id) -> n` | Cell size in pixels. |
-| `map_layer_count(id) -> n` | Number of parsed layers (tile + image, in Tiled order). |
+| `map_layer_count(id) -> n` | Number of parsed layers (tile + image + object, in Tiled order). |
 | `map_layer_parallax_x/y(id, idx) -> f` | Layer parallax factors (defaults 1.0). |
 
 `col`/`row` are accepted as floats and truncated to int at the native
@@ -580,6 +580,64 @@ cameras rotate parallax layers, and shake does not move them. Keep camera
 zoom/rotation at identity for levels that rely on pixel-exact parallax.
 Image layers are visual only — cell queries (`map_solid`, `map_ground_y`,
 …) skip them.
+
+#### Object layers (data-driven spawns & zones)
+
+Tiled object groups (`type: "objectgroup"`) are parsed as pure data: the
+engine never draws or collides with them, so they are the right place for
+spawn points, triggers, patrol paths, zone rectangles, and other level
+markup. Layers are identified by index (Tiled order) or by name:
+
+| Function | Description |
+|---|---|
+| `map_find_layer(id, name) -> idx` | First layer with this name, or -1. |
+| `map_layer_type(id, idx) -> int` | 0 tile, 1 image, 2 object; -1 if `idx` is out of range. |
+| `map_obj_count(id, layer) -> n` | Number of objects in the layer (0 for a non-object layer). |
+| `map_obj_id(id, layer, i) -> int` | Tiled object id. |
+| `map_obj_name(id, layer, i) -> s` | Object `name` (`""` if unset). |
+| `map_obj_class(id, layer, i) -> s` | Object `class`/`type` (`""` if unset). |
+| `map_obj_x/y(id, layer, i) -> f` | Position in **world pixels** (Tiled's top-left convention for rects/ellipses; points are the point position). |
+| `map_obj_w/h(id, layer, i) -> f` | Size in pixels (0 for a point). |
+| `map_obj_rotation(id, layer, i) -> f` | Rotation in degrees, clockwise (Tiled convention). |
+| `map_obj_visible(id, layer, i) -> bool` | Object visibility flag. |
+| `map_obj_shape(id, layer, i) -> int` | 0 rectangle, 1 point, 2 ellipse, 3 polyline, 4 polygon. |
+| `map_obj_point_count(id, layer, i) -> n` | Vertices of a polyline/polygon (0 for other shapes). |
+| `map_obj_point_x/y(id, layer, i, p) -> f` | Vertex `p` in **world pixels** (object origin already applied). |
+| `map_obj_has_prop(id, layer, i, name) -> bool` | Whether the object has a custom property. |
+| `map_obj_prop_bool(id, layer, i, name) -> bool` | Bool property (false if missing or not a bool). |
+| `map_obj_prop_num(id, layer, i, name) -> f` | Int/float property (0.0 if missing/non-numeric). |
+| `map_obj_prop_str(id, layer, i, name) -> s` | String property; `file`/`color` properties are returned as strings (`""` if missing). |
+
+A typical spawn read at level boot — the mario demo reads its `"spawns"`
+layer exactly like this and parks the results in the entity store so level
+resets never rescan the map:
+
+```lua
+local layer = map_find_layer(map_id, "spawns")
+if layer >= 0 then
+    for i = 0, map_obj_count(map_id, layer) - 1 do
+        local nm = map_obj_name(map_id, layer, i)
+        local x = map_obj_x(map_id, layer, i)
+        local y = map_obj_y(map_id, layer, i)
+        if nm == "goomba" then
+            spawn_goomba_at(x, y)
+        elseif nm == "player_start" then
+            player_start_x, player_start_y = x, y
+        end
+    end
+end
+```
+
+Notes:
+
+- Polyline/polygon vertices are already converted to absolute world
+  coordinates; add no further offset. A closed polygon does not repeat its
+  first vertex.
+- Object groups are skipped by every cell query and by `map_draw`, exactly
+  like image layers are skipped by physics.
+- Tiled writes object positions from the top/left except for polygons/points;
+  the parser normalizes everything to the same top-left origin used by the
+  engine.
 
 ### Save storage
 
