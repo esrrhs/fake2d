@@ -34,6 +34,103 @@ void Camera2D::SetContentScale(float scale) {
     }
 }
 
+void Camera2D::SetBounds(const Rect &world_bounds) {
+    bounds_ = world_bounds;
+    has_bounds_ = world_bounds.width > 0.0f && world_bounds.height > 0.0f;
+    if (has_bounds_) {
+        is_dirty_ = true;
+        ClampToBounds();
+    }
+}
+
+void Camera2D::SetBounds(float x, float y, float width, float height) {
+    SetBounds(Rect{x, y, width, height});
+}
+
+void Camera2D::ClearBounds() {
+    has_bounds_ = false;
+    bounds_ = Rect{};
+}
+
+void Camera2D::ClampToBounds() {
+    if (!has_bounds_) {
+        return;
+    }
+    // position_ is the TOP-LEFT of the visible world rect (see
+    // UpdateMatrices); the visible size shrinks as zoom grows.
+    const float view_w = viewport_width_ / zoom_;
+    const float view_h = viewport_height_ / zoom_;
+    if (bounds_.width <= view_w) {
+        // Level narrower than the view: centre it (top-left may go negative).
+        position_.x = bounds_.x + (bounds_.width - view_w) * 0.5f;
+    } else {
+        position_.x = std::clamp(position_.x, bounds_.x,
+                                 bounds_.x + bounds_.width - view_w);
+    }
+    if (bounds_.height <= view_h) {
+        position_.y = bounds_.y + (bounds_.height - view_h) * 0.5f;
+    } else {
+        position_.y = std::clamp(position_.y, bounds_.y,
+                                 bounds_.y + bounds_.height - view_h);
+    }
+    is_dirty_ = true;
+}
+
+void Camera2D::Follow(const Vec2 &target, float dt) {
+    const float view_w = viewport_width_ / zoom_;
+    const float view_h = viewport_height_ / zoom_;
+    const Vec2 view_center = position_ + Vec2{view_w * 0.5f, view_h * 0.5f};
+    Vec2 desired = position_;
+
+    if (deadzone_.x > 0.0f || deadzone_.y > 0.0f) {
+        // Only push the camera once the target leaves the box around the
+        // current view centre.
+        const float dx = target.x - view_center.x;
+        if (dx > deadzone_.x) {
+            desired.x = position_.x + (dx - deadzone_.x);
+        } else if (dx < -deadzone_.x) {
+            desired.x = position_.x + (dx + deadzone_.x);
+        }
+        const float dy = target.y - view_center.y;
+        if (dy > deadzone_.y) {
+            desired.y = position_.y + (dy - deadzone_.y);
+        } else if (dy < -deadzone_.y) {
+            desired.y = position_.y + (dy + deadzone_.y);
+        }
+    } else {
+        // Centre the view on the target (top-left = target - half view).
+        desired = target - Vec2{view_w * 0.5f, view_h * 0.5f};
+    }
+
+    // SMB scroll lock: once the camera has advanced, a target further left
+    // never pulls it back (SnapTo / SetPosition remain free for resets).
+    if (forward_only_x_ && desired.x < position_.x) {
+        desired.x = position_.x;
+    }
+
+    if (dt > 0.0f && follow_rate_ > 0.0f) {
+        // Frame-rate independent exponential approach.
+        const float k = 1.0f - std::exp(-follow_rate_ * dt);
+        position_.x += (desired.x - position_.x) * k;
+        position_.y += (desired.y - position_.y) * k;
+    } else {
+        position_ = desired;
+    }
+
+    is_dirty_ = true;
+    ClampToBounds();
+}
+
+void Camera2D::Follow(float x, float y, float dt) {
+    Follow(Vec2{x, y}, dt);
+}
+
+void Camera2D::SnapTo(const Vec2 &target) {
+    position_ = target;
+    is_dirty_ = true;
+    ClampToBounds();
+}
+
 void Camera2D::AddTrauma(float amount) {
     trauma_ = std::clamp(trauma_ + amount, 0.0f, 1.0f);
     is_dirty_ = true;

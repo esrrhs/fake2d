@@ -177,6 +177,7 @@ BodyId PhysicsWorld::CreateBody(const BodyConfig &config) {
     }
     Body &body = bodies_[slot];
     body.cfg = config;
+    body.prev_position = config.position;
     body.alive = true;
     if (body.cfg.radius <= 0.0f) {
         body.cfg.radius = 0.0f;
@@ -486,18 +487,32 @@ void PhysicsWorld::Step(float dt) {
     contacts_.clear();
     stayed_contacts_.clear();
     ended_contacts_.clear();
-    if (dt <= 0.0f) {
-        return; // prev_touching_ is preserved for the next real step
+
+    // dt == 0: contact-only pass. Nothing moves and no response is applied,
+    // but the lifecycle buffers are recomputed so a fixed-step host that
+    // skipped a step this frame still reports correct stayed/ended pairs
+    // instead of replaying the previous frame's events.
+    const bool advance = dt > 0.0f;
+    const float h = advance ? dt / static_cast<float>(kSubsteps) : 0.0f;
+
+    if (advance) {
+        // Snapshot for render interpolation between fixed steps.
+        for (Body &body : bodies_) {
+            if (body.alive) {
+                body.prev_position = body.cfg.position;
+            }
+        }
     }
-    const float h = dt / static_cast<float>(kSubsteps);
 
     // Track touching pairs so the lifecycle fires only on transitions.
     curr_touching_.clear();
 
     for (int sub = 0; sub < kSubsteps; ++sub) {
-        for (Body &body : bodies_) {
-            if (body.alive) {
-                Integrate(body, h);
+        if (advance) {
+            for (Body &body : bodies_) {
+                if (body.alive) {
+                    Integrate(body, h);
+                }
             }
         }
 
@@ -531,7 +546,13 @@ void PhysicsWorld::Step(float dt) {
                     static_cast<BodyId>(Encode(candidate.b, b.generation)),
                     a.cfg.user_id, b.cfg.user_id});
             }
-            SolvePair(a, b, normal, penetration);
+            if (advance) {
+                SolvePair(a, b, normal, penetration);
+            }
+        }
+
+        if (!advance) {
+            break; // one sweep is enough when the world is not moving
         }
     }
 
@@ -572,6 +593,18 @@ void PhysicsWorld::Step(float dt) {
     }
 
     prev_touching_.swap(curr_touching_);
+}
+
+Vec2 PhysicsWorld::SmoothPosition(BodyId id) const {
+    const Body *body = Resolve(id);
+    if (body == nullptr) {
+        return Vec2{0.0f, 0.0f};
+    }
+    if (interp_alpha_ >= 1.0f) {
+        return body->cfg.position;
+    }
+    return Vec2{body->prev_position.x + (body->cfg.position.x - body->prev_position.x) * interp_alpha_,
+                body->prev_position.y + (body->cfg.position.y - body->prev_position.y) * interp_alpha_};
 }
 
 BodyId PhysicsWorld::PointTest(const Vec2 &p) const {

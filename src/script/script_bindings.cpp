@@ -216,6 +216,19 @@ void RegisterPhysicsApi(fakelua::State *state, Engine *engine) {
         std::function<double(fakelua::State *, std::int64_t)>(
             [getter](fakelua::State *, std::int64_t id) { return getter(id, 3); }));
 
+    // Interpolated render position (between the last two fixed steps); equals
+    // phys_x / phys_y when interpolation is off or the frame ran no step.
+    const auto smooth_getter = [engine](std::int64_t id, int field) -> double {
+        const Vec2 p = engine->GetPhysics().SmoothPosition(ResolveBody(id));
+        return static_cast<double>(field == 0 ? p.x : p.y);
+    };
+    fakelua::RegisterNativeFunction(state, "phys_smooth_x", false,
+        std::function<double(fakelua::State *, std::int64_t)>(
+            [smooth_getter](fakelua::State *, std::int64_t id) { return smooth_getter(id, 0); }));
+    fakelua::RegisterNativeFunction(state, "phys_smooth_y", false,
+        std::function<double(fakelua::State *, std::int64_t)>(
+            [smooth_getter](fakelua::State *, std::int64_t id) { return smooth_getter(id, 1); }));
+
     fakelua::RegisterNativeFunction(
         state, "phys_gravity", false,
         std::function<void(fakelua::State *, double, double)>(
@@ -1303,6 +1316,62 @@ void RegisterCameraApi(fakelua::State *state, Engine *engine) {
                 camera.AddTrauma(static_cast<float>(trauma));
             }));
 
+    // ---- Follow / bounds (Phase 16) ---------------------------------------
+    // world rectangle the view may never leave; the camera centre is clamped
+    // (or centred when the level is smaller than the view on that axis).
+    fakelua::RegisterNativeFunction(
+        state, "camera_set_bounds", false,
+        std::function<void(fakelua::State *, double, double, double, double)>(
+            [&camera](fakelua::State *, double x, double y, double w, double h) {
+                camera.SetBounds(static_cast<float>(x), static_cast<float>(y),
+                                 static_cast<float>(w), static_cast<float>(h));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "camera_clear_bounds", false,
+        std::function<void(fakelua::State *)>([&camera](fakelua::State *) {
+            camera.ClearBounds();
+        }));
+
+    fakelua::RegisterNativeFunction(
+        state, "camera_deadzone", false,
+        std::function<void(fakelua::State *, double, double)>(
+            [&camera](fakelua::State *, double hw, double hh) {
+                camera.SetDeadzone(static_cast<float>(hw), static_cast<float>(hh));
+            }));
+
+    // SMB-style scroll lock: while following, the camera never moves left.
+    fakelua::RegisterNativeFunction(
+        state, "camera_forward_only", false,
+        std::function<void(fakelua::State *, bool)>(
+            [&camera](fakelua::State *, bool enabled) {
+                camera.SetForwardOnlyX(enabled);
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "camera_smoothing", false,
+        std::function<void(fakelua::State *, double)>(
+            [&camera](fakelua::State *, double rate) {
+                camera.SetFollowSmoothing(static_cast<float>(rate));
+            }));
+
+    // Smooth follow of a world point (deadzone + smoothing + bounds). The
+    // engine supplies the frame delta, so scripts just pass the target.
+    fakelua::RegisterNativeFunction(
+        state, "camera_follow", false,
+        std::function<void(fakelua::State *, double, double)>(
+            [engine, &camera](fakelua::State *, double x, double y) {
+                camera.Follow(static_cast<float>(x), static_cast<float>(y),
+                              static_cast<float>(engine->DeltaTime()));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "camera_snap", false,
+        std::function<void(fakelua::State *, double, double)>(
+            [&camera](fakelua::State *, double x, double y) {
+                camera.SnapTo({static_cast<float>(x), static_cast<float>(y)});
+            }));
+
     fakelua::RegisterNativeFunction(
         state, "camera_viewport_w", false,
         std::function<double(fakelua::State *)>(
@@ -1540,6 +1609,25 @@ void RegisterTimeApi(fakelua::State *state, Engine *engine) {
         state, "time_frame", false,
         std::function<std::int64_t(fakelua::State *)>(
             [engine](fakelua::State *) { return static_cast<std::int64_t>(engine->FrameIndex()); }));
+
+    // Fixed-step introspection: the physics step actually simulated, how many
+    // steps ran this frame, and the render interpolation factor.
+    fakelua::RegisterNativeFunction(
+        state, "time_sim_dt", false,
+        std::function<double(fakelua::State *)>(
+            [engine](fakelua::State *) { return engine->PhysicsDt(); }));
+
+    fakelua::RegisterNativeFunction(
+        state, "time_steps", false,
+        std::function<std::int64_t(fakelua::State *)>(
+            [engine](fakelua::State *) {
+                return static_cast<std::int64_t>(engine->PhysicsStepsLastFrame());
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "time_alpha", false,
+        std::function<double(fakelua::State *)>(
+            [engine](fakelua::State *) { return engine->InterpAlpha(); }));
 }
 
 void RegisterStorageApi(fakelua::State *state, Engine *engine) {

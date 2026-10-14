@@ -315,6 +315,7 @@ local function reset_player()
     win_bonus = 0
     death_done = false
     cam_x = 0.0
+    camera_snap(0.0, 0.0) -- scroll back to the level start on every reset
     time_left = 300
     time_acc = 0.0
 end
@@ -1749,15 +1750,18 @@ function update(dt)
     update_bumps(sdt)
     update_popups(sdt)
 
-    -- camera follows, clamped to the level
+    -- camera follows via the engine: SMB scroll lock (never moves left),
+    -- clamped to the level, instant (no smoothing). x bounds keep the view
+    -- inside [0, MAP_W]; the y bounds are wide open because 1-1 scrolls
+    -- horizontally only.
     cam_vw = camera_viewport_w()
     cam_vh = camera_viewport_h()
-    local want = px + box_w * 0.5 - cam_vw * 0.55
-    if want > cam_x then cam_x = want end
-    local max_cam = MAP_W - cam_vw
-    local cam_hi = math.max(0.0, max_cam)
-    cam_x = clampf(cam_x, 0.0, cam_hi)
-    camera_set_position(cam_x, 0.0)
+    camera_forward_only(true)
+    camera_smoothing(0.0)
+    camera_set_bounds(0.0, -100000.0, MAP_W, 200000.0)
+    camera_follow(px + box_w * 0.5 - cam_vw * 0.05, cam_vh * 0.5)
+    cam_x = camera_x()
+    cam_y = camera_y()
 
     draw_world(sdt)
     draw_hud()

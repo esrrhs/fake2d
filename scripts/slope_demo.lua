@@ -237,6 +237,7 @@ local function reset_player()
     coyote_t, buffer_t = 0.0, 0.0
     cut_used = false
     cam_x = 0.0
+    camera_snap(0.0, 0.0)
     snap_count = 0
 end
 
@@ -413,18 +414,14 @@ function update(dt)
 
     cam_vw = camera_viewport_w()
     cam_vh = camera_viewport_h()
-    local want = px + box_w * 0.5 - cam_vw * 0.4
-    if want > cam_x then cam_x = want end
-    local max_cam = MAP_W - cam_vw
-    if max_cam < 0.0 then max_cam = 0.0 end
-    if cam_x > max_cam then cam_x = max_cam end
-    if cam_x < 0.0 then cam_x = 0.0 end
-    cam_y = 0.0
-    -- The engine camera has to be told where we are looking. Without this it
-    -- stays at the origin while the sky quad, the map and the HUD are all drawn
-    -- in world coordinates, so the view never scrolls and an unpainted strip
-    -- shows along the top and left edges.
-    camera_set_position(cam_x, cam_y)
+    -- Engine-owned SMB scroll: never moves left, clamped to the level, x
+    -- bounds keep the view inside [0, MAP_W] (y bounds stay wide open).
+    camera_forward_only(true)
+    camera_smoothing(0.0)
+    camera_set_bounds(0.0, -100000.0, MAP_W, 200000.0)
+    camera_follow(px + box_w * 0.5 + cam_vw * 0.1, cam_vh * 0.5)
+    cam_x = camera_x()
+    cam_y = camera_y()
     -- Both ends are walls. Without the right one the player walks off the
     -- level, falls out of the world, gets teleported back to the start, and the
     -- whole view jumps with them.

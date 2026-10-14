@@ -7,7 +7,7 @@
 
 **Fake2D** is a lightweight, modern 2D game rendering engine powered by [FakeLua](https://github.com/esrrhs/fakelua): C++ owns the window, GPU resources, and scene graph; FakeLua scripts orchestrate gameplay logic with a per-frame linear arena reset (**zero GC pauses**).
 
-> Status: **1.9 — Phase 15 collision filtering complete** — everything through 1.8 (self-contained release packaging, GL2 compatibility path, physics ray casts / overlaps / full contact lifecycle, Tiled object layers for data-driven spawns & zones), plus 16-bit **category/mask collision filters** on every body: mismatched pairs never collide or report contacts, masked `phys_raycast_cat` / `phys_overlap_*_cat` queries skip whole buckets, and widening a mask at runtime re-enables an already-overlapping pair. See the [Implementation Plan](#implementation-plan), [docs/PLAN.md](docs/PLAN.md), the [Scripting Guide](docs/SCRIPTING.md), and [Packaging Notes](docs/PACKAGING.md).
+> Status: **1.10 — Phase 16 fixed timestep & camera tooling complete** — everything through 1.9 (collision category/mask filters, Tiled object layers, physics query surface, GL2 compatibility path, self-contained release packaging), plus a **fixed-step physics accumulator** (frame-rate-independent simulation, zero-dt contact refresh on skipped frames, render interpolation via `phys_smooth_x/y` and `time_alpha`) and an engine-owned **follow camera** (world bounds clamp, deadzone, exponential smoothing, SMB forward-only scroll lock). See the [Implementation Plan](#implementation-plan), [docs/PLAN.md](docs/PLAN.md), the [Scripting Guide](docs/SCRIPTING.md), and [Packaging Notes](docs/PACKAGING.md).
 
 ---
 
@@ -157,6 +157,11 @@ cmake --build build --parallel
 # Physics self-tests (CPU only, exit code + assertion summary):
 ./build/bin/fake2d_hello --phys-query-test    # ray casts / overlaps / contacts
 ./build/bin/fake2d_hello --phys-filter-test   # category & mask collision filtering
+./build/bin/fake2d_hello --timestep-test      # fixed-step accumulator + camera tools
+
+# Physics stepping is fixed at 60 Hz by default; override or disable it:
+./build/bin/fake2d_hello --fixed-hz 120 --mario-demo
+./build/bin/fake2d_hello --variable-step --mario-demo
 ```
 
 Window-only skeleton build (without FakeLua, useful for rapid engine-only testing):
@@ -216,6 +221,7 @@ codegen constraints), and performance best practices live in the
 | **13 — Physics query surface (1.7)** | Gameplay queries | `RayCast` (circles + AABBs, normals, interior starts), `OverlapCircle` / `OverlapBox`, full began/stayed/ended contact lifecycle, 17 Lua bindings, `--phys-query-test` | **Done** |
 | **14 — Tiled object layers (1.8)** | Data-driven levels | `objectgroup` parsing (rect/point/ellipse/polyline/polygon + custom properties), `map_find_layer` / `map_layer_type` / `map_obj_*` queries; mario spawns migrated off marker tiles | **Done** |
 | **15 — Collision filtering (1.9)** | Collision control | Per-body 16-bit `category` / `mask` filtered in the broadphase, masked ray casts and overlaps, `phys_create_*_cat` / `phys_set_category` / `phys_set_mask` / `phys_*_cat` bindings, `--phys-filter-test` | **Done** |
+| **16 — Fixed timestep & camera tooling (1.10)** | Determinism & camera | Fixed-step physics accumulator (frame-rate-independent, zero-dt contact refresh, `phys_smooth_*` interpolation, `time_sim_dt/steps/alpha`), Camera2D follow toolkit (bounds clamp / deadzone / smoothing / forward-only scroll lock / snap) with 8 Lua bindings; mario, slope and platformer demos migrated onto it; `--timestep-test` | **Done** |
 
 Detailed checklist: [docs/PLAN.md](docs/PLAN.md).
 

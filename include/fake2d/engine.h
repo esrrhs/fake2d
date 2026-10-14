@@ -35,6 +35,14 @@ struct EngineConfig {
     bool hot_reload = false;
     /// Directory (relative to the working directory) holding save slot JSONs.
     std::string save_dir = "saves";
+    /// Fixed physics timestep in seconds. Physics advances in whole steps of
+    /// this size (accumulator + max_physics_steps guard), so simulation
+    /// results never depend on the frame rate. `<= 0` restores the legacy
+    /// single variable-dt step per frame.
+    float fixed_dt = 1.0f / 60.0f;
+    /// Upper bound of fixed steps simulated in one frame (spiral-of-death
+    /// guard). Leftover backlog is dropped, never carried over.
+    int max_physics_steps = 5;
     /// Optional per-frame C++ hook, invoked after the script update and
     /// before the frame is flushed (e.g. to draw a scene graph).
     std::function<void(Engine &)> on_frame;
@@ -75,6 +83,15 @@ public:
     /// Seconds since Init (sum of frame deltas).
     [[nodiscard]] double TimeElapsed() const;
     [[nodiscard]] std::uint64_t FrameIndex() const;
+
+    /// Physics timestep actually used: the configured fixed step, or the
+    /// frame delta when fixed stepping is disabled.
+    [[nodiscard]] double PhysicsDt() const;
+    /// Number of physics steps simulated during the current frame (0 when the
+    /// accumulator had not reached a full step yet).
+    [[nodiscard]] int PhysicsStepsLastFrame() const;
+    /// Render interpolation factor [0,1] between the last two physics steps.
+    [[nodiscard]] double InterpAlpha() const;
 
     Renderer &GetRenderer();
     [[nodiscard]] const Renderer &GetRenderer() const;
