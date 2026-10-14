@@ -4,9 +4,12 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <limits>
+#include <queue>
 #include <sstream>
 
 namespace fake2d {
@@ -607,6 +610,194 @@ bool Tilemap::SolidAtPixel(float x, float y) const {
     const int col = static_cast<int>(x) / tile_width_;
     const int row = static_cast<int>(y) / tile_height_;
     return SolidAt(col, row);
+}
+
+namespace {
+constexpr float kSqrt2 = 1.41421356f;
+} // namespace
+
+bool Tilemap::FindPath(float start_x, float start_y, float goal_x, float goal_y,
+                       bool diagonal, std::size_t max_nodes) const {
+    path_.clear();
+    if (!IsValid()) {
+        return false;
+    }
+
+    const auto to_col = [&](float x) {
+        return static_cast<int>(std::floor(x / static_cast<float>(tile_width_)));
+    };
+    const auto to_row = [&](float y) {
+        return static_cast<int>(std::floor(y / static_cast<float>(tile_height_)));
+    };
+    const auto blocked = [&](int c, int r) {
+        return c < 0 || r < 0 || c >= cols_ || r >= rows_ || SolidAt(c, r);
+    };
+
+    const int sc = to_col(start_x);
+    const int sr = to_row(start_y);
+    const int gc = to_col(goal_x);
+    const int gr = to_row(goal_y);
+    if (blocked(sc, sr) || blocked(gc, gr)) {
+        return false;
+    }
+
+    const std::size_t cells = static_cast<std::size_t>(cols_) * static_cast<std::size_t>(rows_);
+    const auto index = [&](int c, int r) {
+        return static_cast<std::size_t>(r) * static_cast<std::size_t>(cols_) + static_cast<std::size_t>(c);
+    };
+    const auto heuristic = [&](int c, int r) {
+        const int dx = std::abs(c - gc);
+        const int dy = std::abs(r - gr);
+        // Octile distance: admissible for 8-way movement, still fine (if
+        // slightly loose) for 4-way.
+        return static_cast<float>(std::max(dx, dy)) +
+               (kSqrt2 - 1.0f) * static_cast<float>(std::min(dx, dy));
+    };
+
+    std::vector<float> g_score(cells, std::numeric_limits<float>::infinity());
+    std::vector<int> came_from(cells, -1);
+    std::vector<std::uint8_t> closed(cells, 0);
+
+    struct Node {
+        float f;
+        std::size_t cell;
+        bool operator<(const Node &other) const { return f > other.f; } // min-heap
+    };
+    std::priority_queue<Node> open;
+
+    const std::size_t start = index(sc, sr);
+    const std::size_t goal = index(gc, gr);
+    g_score[start] = 0.0f;
+    open.push(Node{heuristic(sc, sr), start});
+
+    std::size_t expanded = 0;
+    static constexpr int kDirs[8][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1},
+                                        {1, 1}, {1, -1}, {-1, 1}, {-1, -1}};
+
+    while (!open.empty() && expanded < max_nodes) {
+        const Node top = open.top();
+        open.pop();
+        if (closed[top.cell]) {
+            continue;
+        }
+        closed[top.cell] = 1;
+        ++expanded;
+        if (top.cell == goal) {
+            break;
+        }
+        const int c = static_cast<int>(top.cell % static_cast<std::size_t>(cols_));
+        const int r = static_cast<int>(top.cell / static_cast<std::size_t>(cols_));
+        for (int d = 0; d < (diagonal ? 8 : 4); ++d) {
+            const int nc = c + kDirs[d][0];
+            const int nr = r + kDirs[d][1];
+            if (blocked(nc, nr)) {
+                continue;
+            }
+            if (d >= 4) {
+                // No corner cutting: both orthogonal neighbours must be open.
+                if (blocked(c + kDirs[d][0], r) || blocked(c, r + kDirs[d][1])) {
+                    continue;
+                }
+            }
+            const std::size_t nidx = index(nc, nr);
+            if (closed[nidx]) {
+                continue;
+            }
+            const float step = d >= 4 ? kSqrt2 : 1.0f;
+            const float tentative = g_score[top.cell] + step;
+            if (tentative < g_score[nidx]) {
+                g_score[nidx] = tentative;
+                came_from[nidx] = static_cast<int>(top.cell);
+                open.push(Node{tentative + heuristic(nc, nr), nidx});
+            }
+        }
+    }
+
+    if (!closed[goal]) {
+        return false; // unreachable (fully explored or hit the node cap)
+    }
+
+    // Walk back to the start, then reverse into cell order.
+    std::vector<std::size_t> cells_path;
+    for (std::size_t cur = goal; cur != start;
+         cur = static_cast<std::size_t>(came_from[cur])) {
+        cells_path.push_back(cur);
+        if (came_from[cur] < 0) {
+            return false; // defensive: broken chain
+        }
+    }
+    cells_path.push_back(start);
+    std::reverse(cells_path.begin(), cells_path.end());
+
+    // String pulling: keep a waypoint only when the next one is not visible
+    // from the current anchor, which removes the staircase artifact of grid
+    // paths (straight runs collapse into one segment).
+    const auto cell_center = [&](std::size_t cell, Vec2 &out) {
+        const int c = static_cast<int>(cell % static_cast<std::size_t>(cols_));
+        const int r = static_cast<int>(cell / static_cast<std::size_t>(cols_));
+        out = {(static_cast<float>(c) + 0.5f) * static_cast<float>(tile_width_),
+               (static_cast<float>(r) + 0.5f) * static_cast<float>(tile_height_)};
+    };
+    const auto visible = [&](std::size_t a_idx, std::size_t b_idx) {
+        Vec2 a;
+        Vec2 b;
+        cell_center(a_idx, a);
+        cell_center(b_idx, b);
+        const float dx = b.x - a.x;
+        const float dy = b.y - a.y;
+        const int steps = std::max(std::abs(static_cast<int>(dx / static_cast<float>(tile_width_))),
+                                   std::abs(static_cast<int>(dy / static_cast<float>(tile_height_)))) * 2 + 2;
+        for (int s = 0; s <= steps; ++s) {
+            const float t = static_cast<float>(s) / static_cast<float>(steps);
+            const float px = a.x + dx * t;
+            const float py = a.y + dy * t;
+            const int pc = to_col(px);
+            const int pr = to_row(py);
+            if (blocked(pc, pr)) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    // 4-way searches keep every cell: callers that move tile-by-tile need the
+    // grid steps, and straightening them would cut diagonally across corners.
+    std::vector<std::size_t> pulled;
+    if (!diagonal) {
+        pulled = cells_path;
+    } else {
+        pulled.push_back(cells_path.front());
+        std::size_t anchor = 0;
+        while (anchor + 1 < cells_path.size()) {
+            std::size_t best = anchor + 1;
+            for (std::size_t cand = anchor + 2; cand < cells_path.size(); ++cand) {
+                if (visible(cells_path[anchor], cells_path[cand])) {
+                    best = cand;
+                } else {
+                    break; // visibility is monotone along a straight run
+                }
+            }
+            pulled.push_back(cells_path[best]);
+            anchor = best;
+        }
+    }
+
+    path_.reserve(pulled.size());
+    for (const std::size_t cell : pulled) {
+        Vec2 p;
+        cell_center(cell, p);
+        path_.push_back(p);
+    }
+    // The final waypoint is the goal cell centre, which is closer to the real
+    // goal than a snapped cell edge for most callers.
+    return true;
+}
+
+Vec2 Tilemap::PathPointAt(std::size_t index) const {
+    if (index >= path_.size()) {
+        return Vec2{0.0f, 0.0f};
+    }
+    return path_[index];
 }
 
 void Tilemap::Draw(Renderer &renderer) const {

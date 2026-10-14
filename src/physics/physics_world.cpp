@@ -483,10 +483,34 @@ void PhysicsWorld::GatherPairs() {
     }
 }
 
-void PhysicsWorld::Step(float dt) {
+bool PhysicsWorld::MarkEvent(std::vector<std::uint64_t> &keys, std::uint32_t a,
+                             std::uint32_t b) {
+    const auto key = (static_cast<std::uint64_t>(a) << 32) | static_cast<std::uint64_t>(b);
+    for (const std::uint64_t k : keys) {
+        if (k == key) {
+            return false;
+        }
+    }
+    keys.push_back(key);
+    return true;
+}
+
+void PhysicsWorld::ClearFrameEvents() {
     contacts_.clear();
     stayed_contacts_.clear();
     ended_contacts_.clear();
+    began_keys_.clear();
+    stayed_keys_.clear();
+    ended_keys_.clear();
+}
+
+void PhysicsWorld::Step(float dt) {
+    // Accumulating hosts (fixed-step engines) clear the buffers once per
+    // frame instead, so events raised on earlier steps of the same frame
+    // survive until gameplay reads them.
+    if (!accumulate_events_) {
+        ClearFrameEvents();
+    }
 
     // dt == 0: contact-only pass. Nothing moves and no response is applied,
     // but the lifecycle buffers are recomputed so a fixed-step host that
@@ -534,7 +558,7 @@ void PhysicsWorld::Step(float dt) {
                 const TouchRecord key{candidate.a, candidate.b};
                 const bool began = !std::binary_search(
                     prev_touching_.begin(), prev_touching_.end(), key, TouchLess);
-                if (began) {
+                if (began && MarkEvent(began_keys_, candidate.a, candidate.b)) {
                     contacts_.push_back(ContactEvent{
                         static_cast<BodyId>(Encode(candidate.a, a.generation)),
                         static_cast<BodyId>(Encode(candidate.b, b.generation)),
@@ -576,20 +600,26 @@ void PhysicsWorld::Step(float dt) {
         if (TouchLess(cur, prev)) {
             ++i;
         } else if (TouchLess(prev, cur)) {
-            ended_contacts_.push_back(ContactEvent{
-                prev.id_a, prev.id_b, prev.user_a, prev.user_b, {0.0f, 0.0f}});
+            if (MarkEvent(ended_keys_, prev.a, prev.b)) {
+                ended_contacts_.push_back(ContactEvent{
+                    prev.id_a, prev.id_b, prev.user_a, prev.user_b, {0.0f, 0.0f}});
+            }
             ++j;
         } else {
-            stayed_contacts_.push_back(ContactEvent{
-                cur.id_a, cur.id_b, cur.user_a, cur.user_b, {0.0f, 0.0f}});
+            if (MarkEvent(stayed_keys_, cur.a, cur.b)) {
+                stayed_contacts_.push_back(ContactEvent{
+                    cur.id_a, cur.id_b, cur.user_a, cur.user_b, {0.0f, 0.0f}});
+            }
             ++i;
             ++j;
         }
     }
     for (; j < prev_touching_.size(); ++j) {
         const TouchRecord &prev = prev_touching_[j];
-        ended_contacts_.push_back(ContactEvent{
-            prev.id_a, prev.id_b, prev.user_a, prev.user_b, {0.0f, 0.0f}});
+        if (MarkEvent(ended_keys_, prev.a, prev.b)) {
+            ended_contacts_.push_back(ContactEvent{
+                prev.id_a, prev.id_b, prev.user_a, prev.user_b, {0.0f, 0.0f}});
+        }
     }
 
     prev_touching_.swap(curr_touching_);
@@ -627,9 +657,7 @@ void PhysicsWorld::Clear() {
     free_list_.clear();
     prev_touching_.clear();
     curr_touching_.clear();
-    contacts_.clear();
-    stayed_contacts_.clear();
-    ended_contacts_.clear();
+    ClearFrameEvents();
     has_ray_hit_ = false;
     last_ray_hit_ = RayHit{};
     overlap_result_.clear();

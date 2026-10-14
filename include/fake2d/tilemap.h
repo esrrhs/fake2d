@@ -146,6 +146,23 @@ public:
     [[nodiscard]] float GroundYAt(float world_x, float reach_y) const;
     /// Solid test in world (logical point) coordinates.
     [[nodiscard]] bool SolidAtPixel(float x, float y) const;
+
+    // --- grid path finding (A*) ---------------------------------------------
+    /// A* over the solidity grid. World-space endpoints snap to cells;
+    /// `diagonal` allows 8-way movement but never cuts a solid corner. The
+    /// result is string-pulled (collinear / redundant waypoints dropped) and
+    /// buffered as world-space cell centres, read with
+    /// PathPointCount()/PathPointAt(). Returns false — and leaves the buffer
+    /// empty — when either endpoint is out of bounds or solid, or when the
+    /// goal is unreachable. `max_nodes` caps the search on huge maps.
+    bool FindPath(float start_x, float start_y, float goal_x, float goal_y,
+                  bool diagonal = true, std::size_t max_nodes = 4096) const;
+    /// Waypoints of the last successful FindPath (0 when it failed).
+    [[nodiscard]] std::size_t PathPointCount() const { return path_.size(); }
+    /// Waypoint `index` in world coordinates; {0,0} when out of range.
+    [[nodiscard]] Vec2 PathPointAt(std::size_t index) const;
+    /// Drop the buffered path (e.g. when a chase target dies).
+    void ClearPath() { path_.clear(); }
     /// Overwrite a cell in the first tile layer (used for collected coins).
     void SetTile(int col, int row, std::uint32_t gid);
     /// Gid of the first tile layer at the cell (0 empty).
@@ -190,6 +207,9 @@ private:
     std::vector<Layer> layers_;
     std::vector<TextureHandle> pinned_textures_;
     ResourceManager *resources_ = nullptr;
+    /// Buffered A* result (world-space waypoints); mutable so FindPath can
+    /// stay const like the other queries.
+    mutable std::vector<Vec2> path_;
 };
 
 /// Fixed-slot store of loaded tile maps (1-based ids, 0 = invalid).

@@ -777,6 +777,64 @@ int RunTimestepTest(fake2d::Engine &engine) {
     check(world.EndedContacts().size() == 1, "zero-dt step: separation reports ended");
     check(world.StayedContacts().empty(), "zero-dt step: nothing stays touching");
 
+    // ---- Physics: per-frame event accumulation ----------------------------
+    // A fixed-step host can run several steps inside one rendered frame while
+    // gameplay reads the contact buffers only once. Without accumulation each
+    // step replaces the buffers, so an event raised on an earlier step (the
+    // "began" of a fresh contact, typically) is silently dropped and scripts
+    // miss it depending on frame timing — an intermittent failure by nature.
+    fake2d::PhysicsWorld fworld;
+    fworld.SetGravity({0.0f, 0.0f});
+    fworld.SetEventAccumulation(true);
+    fake2d::BodyConfig fplat_cfg;
+    fplat_cfg.type = fake2d::BodyType::Static;
+    fplat_cfg.position = {240.0f, 400.0f};
+    fplat_cfg.half_extents = {60.0f, 16.0f};
+    fplat_cfg.user_id = 1;
+    fworld.CreateBody(fplat_cfg);
+
+    fake2d::BodyConfig fball_cfg;
+    fball_cfg.position = {240.0f, 380.0f}; // created already overlapping
+    fball_cfg.radius = 10.0f;
+    fball_cfg.half_extents = {10.0f, 10.0f};
+    fball_cfg.gravity_scale = 0.0f;
+    fball_cfg.restitution = 0.0f;
+    fball_cfg.user_id = 2;
+    const fake2d::BodyId fball = fworld.CreateBody(fball_cfg);
+
+    fworld.ClearFrameEvents();
+    for (int s = 0; s < 4; ++s) {
+        fworld.Step(1.0f / 60.0f); // four steps, one rendered frame
+    }
+    check(fworld.Contacts().size() == 1, "frame events: began survives a 4-step frame");
+    check(fworld.StayedContacts().size() == 1,
+          "frame events: a stayed pair is reported once per frame");
+    check(fworld.EndedContacts().empty(), "frame events: no ended while touching");
+
+    // A separation on the first of several steps must survive as well.
+    if (fake2d::BodyConfig *cfg = fworld.Get(fball)) {
+        cfg->position = {240.0f, -400.0f};
+        cfg->velocity = {0.0f, 0.0f};
+    }
+    fworld.ClearFrameEvents();
+    for (int s = 0; s < 3; ++s) {
+        fworld.Step(1.0f / 60.0f);
+    }
+    check(fworld.EndedContacts().size() == 1,
+          "frame events: ended survives a multi-step frame");
+    check(fworld.Contacts().empty(), "frame events: no began after separation");
+    check(fworld.StayedContacts().empty(), "frame events: nothing stays touching");
+
+    // Accumulation off keeps the classic "buffers describe the last step".
+    fworld.SetEventAccumulation(false);
+    if (fake2d::BodyConfig *cfg = fworld.Get(fball)) {
+        cfg->position = {240.0f, 380.0f};
+    }
+    fworld.Step(1.0f / 60.0f); // began
+    fworld.Step(1.0f / 60.0f); // stayed, and the began buffer is replaced
+    check(fworld.Contacts().empty() && fworld.StayedContacts().size() == 1,
+          "frame events: accumulation off restores per-step buffers");
+
     // ---- Render interpolation ---------------------------------------------
     fake2d::PhysicsWorld iworld;
     iworld.SetGravity({0.0f, 0.0f});
@@ -865,6 +923,378 @@ int RunTimestepTest(fake2d::Engine &engine) {
     camera.SetForwardOnlyX(false);
 
     std::printf("[timestep] %s: %d checks, %d failures\n",
+                failures == 0 ? "PASS" : "FAILED", checks, failures);
+    return failures == 0 ? 0 : 1;
+}
+
+// ---------------------------------------------------------------------------
+// path demo assets
+//
+// A deterministic maze (fixed-seed recursive backtracker, then a few walls
+// knocked out to create loops so A* has real choices) exported as Tiled JSON.
+// Only the wall tile carries `solid`, so the A* grid matches what the player
+// collides with. Spawns live in an object layer: player_start, three chasers
+// and the goal marker.
+// ---------------------------------------------------------------------------
+
+constexpr int kPathCols = 40;
+constexpr int kPathRows = 24;
+constexpr int kPathTile = 24;
+constexpr int kPathSheetCols = 3;
+// tile ids (gid = id + 1)
+constexpr std::uint32_t kPFloor = 0;
+constexpr std::uint32_t kPWall = 1;
+constexpr std::uint32_t kPGoal = 2;
+
+void PaintPathSheet(std::uint8_t *sheet) {
+    const int sw = kPathSheetCols * kPathTile;
+    const auto fill = [&](int id, std::uint8_t r, std::uint8_t g, std::uint8_t b) {
+        const int ox = id * kPathTile;
+        for (int y = 0; y < kPathTile; ++y) {
+            for (int x = 0; x < kPathTile; ++x) {
+                std::uint8_t *px = sheet + (static_cast<std::size_t>(y) * sw + ox + x) * 4;
+                px[0] = r;
+                px[1] = g;
+                px[2] = b;
+                px[3] = 255;
+            }
+        }
+    };
+    const auto edge = [&](int id, std::uint8_t r, std::uint8_t g, std::uint8_t b) {
+        const int ox = id * kPathTile;
+        for (int i = 0; i < kPathTile; ++i) {
+            const std::size_t row_bytes = static_cast<std::size_t>(sw) * 4;
+            std::uint8_t *top = sheet + (static_cast<std::size_t>(ox + i)) * 4;
+            std::uint8_t *bot = sheet + static_cast<std::size_t>((kPathTile - 1) * sw + ox + i) * 4;
+            std::uint8_t *left = sheet + static_cast<std::size_t>(i * sw + ox) * 4;
+            std::uint8_t *right = sheet + static_cast<std::size_t>(i * sw + ox + kPathTile - 1) * 4;
+            (void)row_bytes;
+            top[0] = r; top[1] = g; top[2] = b;
+            bot[0] = r; bot[1] = g; bot[2] = b;
+            left[0] = r; left[1] = g; left[2] = b;
+            right[0] = r; right[1] = g; right[2] = b;
+        }
+    };
+    fill(kPFloor, 26, 32, 48);
+    fill(kPWall, 74, 88, 122);
+    edge(kPWall, 40, 50, 74);
+    fill(kPGoal, 46, 190, 96);
+    edge(kPGoal, 24, 120, 62);
+}
+
+void EnsurePathAssets(bool regen = false) {
+    const std::filesystem::path dir = "assets";
+    std::error_code ec;
+    std::filesystem::create_directory(dir, ec);
+
+    const auto sheet_path = dir / "pf_tiles.png";
+    if (regen || !std::filesystem::exists(sheet_path)) {
+        std::vector<std::uint8_t> sheet(
+            static_cast<size_t>(kPathSheetCols * kPathTile) * kPathTile * 4, 0);
+        PaintPathSheet(sheet.data());
+        stbi_write_png(sheet_path.string().c_str(), kPathSheetCols * kPathTile,
+                       kPathTile, 4, sheet.data(), kPathSheetCols * kPathTile * 4);
+    }
+
+    // ---- Maze -------------------------------------------------------------
+    std::vector<std::uint32_t> gids(
+        static_cast<size_t>(kPathCols) * kPathRows, kPWall + 1);
+    auto at = [&](int c, int r) -> std::uint32_t & {
+        return gids[static_cast<size_t>(r) * kPathCols + c];
+    };
+
+    // Fixed-seed LCG so the level (and every headless screenshot) is stable.
+    std::uint32_t seed = 0x9E3779B9u;
+    const auto next_rand = [&]() {
+        seed = seed * 1664525u + 1013904223u;
+        return (seed >> 16) & 0x7FFFu;
+    };
+
+    const int cw = (kPathCols - 1) / 2; // 19
+    const int ch = (kPathRows - 1) / 2; // 11
+    std::vector<char> visited(static_cast<size_t>(cw) * ch, 0);
+    std::vector<std::pair<int, int>> stack;
+    auto carve = [&](int c, int r) { at(c, r) = kPFloor + 1; };
+
+    auto visit = [&](int cx, int cy) {
+        visited[static_cast<size_t>(cy) * cw + cx] = 1;
+        carve(cx * 2 + 1, cy * 2 + 1);
+        stack.emplace_back(cx, cy);
+    };
+    visit(0, 0);
+    static const int dirs[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+    while (!stack.empty()) {
+        const auto [cx, cy] = stack.back();
+        const int start_dir = static_cast<int>(next_rand() % 4);
+        bool moved = false;
+        for (int k = 0; k < 4 && !moved; ++k) {
+            const int d = (start_dir + k) % 4;
+            const int nx = cx + dirs[d][0];
+            const int ny = cy + dirs[d][1];
+            if (nx < 0 || ny < 0 || nx >= cw || ny >= ch) {
+                continue;
+            }
+            if (visited[static_cast<size_t>(ny) * cw + nx]) {
+                continue;
+            }
+            carve(cx * 2 + 1 + dirs[d][0], cy * 2 + 1 + dirs[d][1]);
+            visit(nx, ny);
+            moved = true;
+        }
+        if (!moved) {
+            stack.pop_back();
+        }
+    }
+
+    // Knock out ~30% of the remaining interior walls that sit between two
+    // corridors: loops instead of a perfect maze, so A* has alternatives and
+    // the drawn path visibly cuts corners.
+    for (int r = 1; r + 1 < kPathRows; ++r) {
+        for (int c = 1; c + 1 < kPathCols; ++c) {
+            if (at(c, r) != kPWall + 1) {
+                continue;
+            }
+            const bool h_open = at(c - 1, r) != kPWall + 1 && at(c + 1, r) != kPWall + 1;
+            const bool v_open = at(c, r - 1) != kPWall + 1 && at(c, r + 1) != kPWall + 1;
+            if ((h_open || v_open) && (next_rand() % 100) < 30) {
+                at(c, r) = kPFloor + 1;
+            }
+        }
+    }
+
+    // Goal: the walkable cell closest to the bottom-right corner.
+    int goal_c = 1;
+    int goal_r = 1;
+    int best = -1;
+    for (int r = 1; r + 1 < kPathRows; ++r) {
+        for (int c = 1; c + 1 < kPathCols; ++c) {
+            if (at(c, r) == kPWall + 1) {
+                continue;
+            }
+            const int score = c * 2 + r;
+            if (score > best) {
+                best = score;
+                goal_c = c;
+                goal_r = r;
+            }
+        }
+    }
+    at(goal_c, goal_r) = kPGoal + 1;
+
+    // Chaser spawns: three walkable cells far from the player start (1,1).
+    int spawn_c[3] = {1, 1, 1};
+    int spawn_r[3] = {1, 1, 1};
+    int spawn_best[3] = {-1, -1, -1};
+    for (int r = 1; r + 1 < kPathRows; ++r) {
+        for (int c = 1; c + 1 < kPathCols; ++c) {
+            if (at(c, r) == kPWall + 1) {
+                continue;
+            }
+            const int dist = c * c + r * r;
+            // Keep three distinct "far" cells: best overall, plus the two
+            // best cells that are far from the already picked ones.
+            for (int i = 0; i < 3; ++i) {
+                if (dist > spawn_best[i]) {
+                    bool clash = false;
+                    for (int j = 0; j < i; ++j) {
+                        const int dc = c - spawn_c[j];
+                        const int dr = r - spawn_r[j];
+                        if (dc * dc + dr * dr < 100) {
+                            clash = true;
+                        }
+                    }
+                    if (!clash) {
+                        for (int k = 2; k > i; --k) {
+                            spawn_best[k] = spawn_best[k - 1];
+                            spawn_c[k] = spawn_c[k - 1];
+                            spawn_r[k] = spawn_r[k - 1];
+                        }
+                        spawn_best[i] = dist;
+                        spawn_c[i] = c;
+                        spawn_r[i] = r;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    std::ostringstream json;
+    json << "{\n"
+         << "  \"orientation\": \"orthogonal\",\n"
+         << "  \"width\": " << kPathCols << ", \"height\": " << kPathRows << ",\n"
+         << "  \"tilewidth\": " << kPathTile << ", \"tileheight\": " << kPathTile << ",\n"
+         << "  \"tilesets\": [{\n"
+         << "    \"firstgid\": 1, \"name\": \"pf_tiles\",\n"
+         << "    \"tilewidth\": " << kPathTile << ", \"tileheight\": " << kPathTile << ",\n"
+         << "    \"columns\": " << kPathSheetCols << ", \"tilecount\": " << kPathSheetCols << ",\n"
+         << "    \"image\": \"pf_tiles.png\",\n"
+         << "    \"imagewidth\": " << kPathSheetCols * kPathTile
+         << ", \"imageheight\": " << kPathTile << ",\n"
+         << "    \"tiles\": [\n"
+         << "      {\"id\": 1, \"properties\": [{\"name\": \"solid\", \"type\": \"bool\", \"value\": true}]}\n"
+         << "    ]\n"
+         << "  }],\n"
+         << "  \"layers\": [{\n"
+         << "    \"name\": \"world\", \"type\": \"tilelayer\", \"visible\": true,\n"
+         << "    \"opacity\": 1, \"data\": [";
+    for (std::size_t i = 0; i < gids.size(); ++i) {
+        if (i % kPathCols == 0) json << "\n      ";
+        json << gids[i] << (i + 1 == gids.size() ? "\n" : ", ");
+    }
+    const auto point = [](int id, const char *name, int c, int r) {
+        std::ostringstream o;
+        o << "      {\"id\": " << id << ", \"name\": \"" << name
+          << "\", \"type\": \"spawn\", \"x\": " << c * kPathTile + kPathTile / 2
+          << ", \"y\": " << r * kPathTile + kPathTile / 2
+          << ", \"width\": 0, \"height\": 0, \"rotation\": 0,"
+             " \"visible\": true, \"point\": true}";
+        return o.str();
+    };
+    json << "  ]}, {\n"
+         << "    \"name\": \"spawns\", \"type\": \"objectgroup\",\n"
+         << "    \"draworder\": \"topdown\", \"opacity\": 1, \"visible\": true,\n"
+         << "    \"objects\": [\n"
+         << point(1, "player_start", 1, 1) << ",\n"
+         << point(2, "goal", goal_c, goal_r) << ",\n"
+         << point(3, "chaser", spawn_c[0], spawn_r[0]) << ",\n"
+         << point(4, "chaser", spawn_c[1], spawn_r[1]) << ",\n"
+         << point(5, "chaser", spawn_c[2], spawn_r[2]) << "\n"
+         << "    ]\n"
+         << "  }]\n}\n";
+
+    const auto level_path = dir / "path.json";
+    if (regen || !std::filesystem::exists(level_path)) {
+        std::ofstream out(level_path, std::ios::binary);
+        out << json.str();
+    }
+}
+
+// Grid A* self-test (Phase 18). Headless CPU-only: three inline maps cover
+// straight runs (string pulling), a forced detour through a gap, unreachable
+// goals, corner-cut prevention and the endpoint guards. Prints [path] lines;
+// non-zero on fail.
+int RunPathTest(fake2d::Engine &engine) {
+    int failures = 0;
+    int checks = 0;
+    auto check = [&](bool ok, const char *what) {
+        ++checks;
+        if (!ok) {
+            ++failures;
+            std::printf("[path] FAIL %s\n", what);
+        }
+    };
+    auto near = [](float a, float b) { return std::fabs(a - b) < 1.0f; };
+
+    // gid 1 = solid wall, gid 2 = walkable floor.
+    const auto make_map = [&](int cols, int rows, const std::vector<int> &cells) {
+        std::ostringstream json;
+        json << R"({"orientation":"orthogonal","width":)" << cols
+             << R"(,"height":)" << rows << R"(,"tilewidth":16,"tileheight":16,)"
+             << R"("tilesets":[{"firstgid":1,"name":"t","tilewidth":16,"tileheight":16,)"
+             << R"("columns":2,"tilecount":2,"image":"t.png","imagewidth":32,"imageheight":16,)"
+             << R"("tiles":[{"id":0,"properties":[{"name":"solid","type":"bool","value":true}]}]}],)"
+             << R"("layers":[{"name":"world","type":"tilelayer","visible":true,"opacity":1,"data":[)";
+        for (std::size_t i = 0; i < cells.size(); ++i) {
+            json << cells[i] << (i + 1 == cells.size() ? ' ' : ',');
+        }
+        json << "]}]}";
+        auto map = std::make_unique<fake2d::Tilemap>();
+        const bool ok = map->LoadFromString(json.str(), ".", engine.GetResources());
+        return std::make_pair(ok, std::move(map));
+    };
+
+    // A: 6x6 open field. The diagonal is fully visible, so string pulling
+    // collapses the whole run into start + goal.
+    {
+        std::vector<int> cells(36, 2);
+        auto [ok, map] = make_map(6, 6, cells);
+        check(ok && map->IsValid(), "open field parses");
+        check(map->FindPath(8.0f, 8.0f, 5.0f * 16.0f + 8.0f, 5.0f * 16.0f + 8.0f),
+              "open field: path found corner to corner");
+        check(map->PathPointCount() == 2, "open field: straight run pulls to 2 waypoints");
+        check(near(map->PathPointAt(0).x, 8.0f) && near(map->PathPointAt(0).y, 8.0f),
+              "open field: first waypoint is the start cell centre");
+        check(near(map->PathPointAt(1).x, 88.0f) && near(map->PathPointAt(1).y, 88.0f),
+              "open field: last waypoint is the goal cell centre");
+        // Same start/goal without diagonals: still reachable.
+        check(map->FindPath(8.0f, 8.0f, 88.0f, 88.0f, false),
+              "open field: 4-way path found");
+        check(map->PathPointCount() > 2, "open field: 4-way path is not a straight line");
+        // start == goal is a single waypoint
+        check(map->FindPath(8.0f, 8.0f, 8.0f, 8.0f) && map->PathPointCount() == 1,
+              "start == goal yields one waypoint");
+    }
+
+    // B: 5x5 vertical wall in column 2 with a gap at the bottom row.
+    {
+        std::vector<int> cells(25, 2);
+        for (int r = 0; r < 4; ++r) {
+            cells[static_cast<std::size_t>(r) * 5 + 2] = 1;
+        }
+        auto [ok, map] = make_map(5, 5, cells);
+        check(ok, "wall map parses");
+        check(map->FindPath(8.0f, 8.0f, 4.0f * 16.0f + 8.0f, 8.0f),
+              "detour: path found around the wall");
+        // The wall seals column 2 for rows 0..3, so any route must dip to the
+        // bottom row (y = 4 * 16 + 8) to cross it.
+        bool dips_to_gap_row = false;
+        for (std::size_t i = 0; i < map->PathPointCount(); ++i) {
+            if (near(map->PathPointAt(i).y, 4.0f * 16.0f + 8.0f)) {
+                dips_to_gap_row = true;
+            }
+        }
+        check(dips_to_gap_row, "detour: the path routes through the bottom gap");
+        check(map->PathPointCount() >= 3, "detour: string pulling keeps the corners");
+    }
+
+    // C: goal sealed inside a box of walls -> unreachable.
+    {
+        std::vector<int> cells(25, 1);
+        cells[12] = 2; // (2,2)
+        cells[6] = 2;  // (1,1) start, sealed off
+        auto [ok, map] = make_map(5, 5, cells);
+        check(ok, "sealed map parses");
+        check(!map->FindPath(1.0f * 16.0f + 8.0f, 1.0f * 16.0f + 8.0f,
+                             2.0f * 16.0f + 8.0f, 2.0f * 16.0f + 8.0f),
+              "sealed goal: no path");
+        check(map->PathPointCount() == 0, "sealed goal: buffer stays empty");
+    }
+
+    // D: corner cutting. (0,0) -> (1,1) is diagonal; both orthogonal
+    // neighbours are walls, so 8-way movement must refuse the shortcut.
+    {
+        std::vector<int> cells(16, 2);
+        cells[1] = 1; // (1,0)
+        cells[4] = 1; // (0,1)
+        auto [ok, map] = make_map(4, 4, cells);
+        check(ok, "corner map parses");
+        check(!map->FindPath(8.0f, 8.0f, 1.0f * 16.0f + 8.0f, 1.0f * 16.0f + 8.0f),
+              "corner cut: diagonal shortcut is refused");
+        // Freeing one orthogonal neighbour makes the same move legal.
+        cells[4] = 2;
+        auto [ok2, map2] = make_map(4, 4, cells);
+        check(ok2, "opened corner map parses");
+        check(map2->FindPath(8.0f, 8.0f, 1.0f * 16.0f + 8.0f, 1.0f * 16.0f + 8.0f),
+              "corner cut: legal diagonal is taken");
+    }
+
+    // E: endpoint guards and the node cap.
+    {
+        std::vector<int> cells(36, 2);
+        cells[0] = 1; // (0,0) solid
+        auto [ok, map] = make_map(6, 6, cells);
+        check(ok, "guard map parses");
+        check(!map->FindPath(8.0f, 8.0f, 88.0f, 88.0f), "solid start is rejected");
+        check(!map->FindPath(-8.0f, 8.0f, 88.0f, 88.0f), "out-of-bounds start is rejected");
+        check(!map->FindPath(8.0f, 8.0f, 999.0f, 999.0f), "out-of-bounds goal is rejected");
+        check(!map->FindPath(88.0f, 8.0f, 8.0f, 88.0f, true, 2),
+              "node cap aborts an unreachable-in-budget search");
+        map->ClearPath();
+        check(map->PathPointCount() == 0, "ClearPath drops the buffer");
+    }
+
+    std::printf("[path] %s: %d checks, %d failures\n",
                 failures == 0 ? "PASS" : "FAILED", checks, failures);
     return failures == 0 ? 0 : 1;
 }
@@ -2544,12 +2974,14 @@ int main(int argc, char **argv) {
     bool platformer_demo = false;
     bool mario_demo = false;
     bool slope_demo = false;
+    bool path_demo = false;
     bool bench = false;
     bool phys_bench = false;
     bool phys_query = false;
     bool phys_filter = false;
     bool map_object = false;
     bool timestep_test = false;
+    bool path_test = false;
     int max_frames = 0;
     int shot_frame = 30;
     std::string screenshot;
@@ -2576,6 +3008,9 @@ int main(int argc, char **argv) {
         } else if (arg == "--slope-demo") {
             slope_demo = true;
             cfg.script_entry = "scripts/slope_demo.lua";
+        } else if (arg == "--path-demo") {
+            path_demo = true;
+            cfg.script_entry = "scripts/path_demo.lua";
         } else if (arg == "--screenshot" && i + 1 < argc) {
             screenshot = argv[++i];
         } else if (arg == "--shot-frame" && i + 1 < argc) {
@@ -2608,6 +3043,12 @@ int main(int argc, char **argv) {
         } else if (arg == "--map-object-test") {
             // Headless self-test of Tiled objectgroup parsing/queries.
             map_object = true;
+            cfg.headless = true;
+            cfg.script_entry.clear();
+            cfg.vsync = false;
+        } else if (arg == "--path-test") {
+            // Headless self-test of the tilemap A* path finder.
+            path_test = true;
             cfg.headless = true;
             cfg.script_entry.clear();
             cfg.vsync = false;
@@ -2656,6 +3097,9 @@ int main(int argc, char **argv) {
     if (timestep_test) {
         return RunTimestepTest(engine);
     }
+    if (path_test) {
+        return RunPathTest(engine);
+    }
 
     // All gameplay is pure Lua below; C++ only guarantees the binary asset
     // scaffolding exists before the script's first frame.
@@ -2665,6 +3109,9 @@ int main(int argc, char **argv) {
     }
     if (slope_demo) {
         EnsureSlopeAssets(regen_assets);
+    }
+    if (path_demo) {
+        EnsurePathAssets(regen_assets);
     }
     if (map_demo) {
         EnsureMapAssets();

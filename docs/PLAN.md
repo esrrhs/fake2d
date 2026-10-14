@@ -185,6 +185,15 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 - [x] Visual verification via headless screenshot probes: stretched dialog frame with wrapped/aligned text inside, a quad clipped to an exact sub-rect, and `end_y`-stacked text — pixel-checked on the Apple software renderer
 - [ ] Remaining scope for a later pass: render targets / FBO (post-processing, minimaps, split-screen), more UI widgets (slider / checkbox / text input / scroll container)
 
+## Phase 18 — Tilemap A* path finding & maze chase demo (1.12.x)
+
+- [x] `Tilemap::FindPath(start, goal, diagonal, max_nodes)`: A* over the solidity grid (octile heuristic, binary heap), 8-way with **corner-cut prevention** (both orthogonal neighbours must be open) or strict 4-way; world endpoints snap to cells; endpoints that are solid or out of bounds fail. Results are **string-pulled** (LOS-based waypoint reduction; 4-way keeps every cell for tile-stepping movement) and buffered as world-space cell centres via `PathPointCount()` / `PathPointAt()` / `ClearPath()`
+- [x] 6 Lua bindings: `map_find_path` / `map_path_count` / `map_path_x` / `map_path_y` / `map_clear_path`; the waypoint index is a double (indices come from counters / EntityStore slots, same float-vs-int lesson as `anim_draw`)
+- [x] `--path-test`: headless self-test, 25 assertions (open-field pull to 2 waypoints, 4-way staircase preserved, detour through a gap, sealed goal, corner-cut refusal + legal-diagonal acceptance, solid/OOB endpoint guards, node cap, ClearPath)
+- [x] `--path-demo` (maze chase): deterministic fixed-seed maze (recursive backtracker + 30% loop knocking, exported as Tiled JSON with a 3-tile sheet and a `spawns` object layer), three chasers that re-path to the player on staggered timers, player autopilot to the goal whenever there is no input (attract AI), live path polylines (`draw_line`, toggle with P), catches/clears counters, Phase 16 camera follow + bounds
+- [x] **Fix: per-frame contact events were dropped on multi-step frames.** The fixed-step accumulator runs `PhysicsWorld::Step` several times per rendered frame, but every `Step` cleared the began/stayed/ended buffers, so an event raised on an earlier step of the frame was replaced before gameplay (which reads once per frame) could see it — `scripts/phys_test.lua` missed `began` and reported `2001/2002/2003` on roughly half of all runs, depending purely on frame-time jitter. `PhysicsWorld` now has `SetEventAccumulation(true)` + `ClearFrameEvents()`: the engine clears once per frame and every step *appends* (de-duplicated per slot pair), so no event is lost. Off by default, so hosts that step once per frame (and the C++ tests) keep the classic "buffers describe the last step" behaviour. Regression covered by 7 new `--timestep-test` assertions (30 total)
+- [x] Verification: `--path-test` 25/25; `--path-demo` headless smoke with pixel-checked screenshots (autopilot progress, chasers converging); `phys_test.lua` 12/12 consecutive headless runs green; all gates re-run green
+
 ---
 
 ## Non-goals (for now)

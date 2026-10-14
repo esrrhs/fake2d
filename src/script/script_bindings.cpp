@@ -662,6 +662,65 @@ void RegisterTilemapApi(fakelua::State *state, Engine *engine) {
                            : -1.0;
             }));
 
+    // ---- grid path finding (A*, Phase 18) ----------------------------------
+    // World endpoints snap to cells; results are buffered waypoints.
+    fakelua::RegisterNativeFunction(
+        state, "map_find_path", false,
+        std::function<bool(fakelua::State *, std::int64_t, double, double, double, double,
+                           bool)>(
+            [engine](fakelua::State *, std::int64_t id, double sx, double sy,
+                     double gx, double gy, bool diagonal) {
+                const Tilemap *map = engine->GetTilemaps().Get(static_cast<int>(id));
+                return map != nullptr &&
+                       map->FindPath(static_cast<float>(sx), static_cast<float>(sy),
+                                     static_cast<float>(gx), static_cast<float>(gy),
+                                     diagonal);
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_path_count", false,
+        std::function<std::int64_t(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id) -> std::int64_t {
+                const Tilemap *map = engine->GetTilemaps().Get(static_cast<int>(id));
+                return map ? static_cast<std::int64_t>(map->PathPointCount()) : 0;
+            }));
+
+    // Waypoint index is a double: indices usually come from a counter or an
+    // EntityStore slot, and FakeLua passes those as floats (same reason
+    // anim_draw takes its clip id as double).
+    fakelua::RegisterNativeFunction(
+        state, "map_path_x", false,
+        std::function<double(fakelua::State *, std::int64_t, double)>(
+            [engine](fakelua::State *, std::int64_t id, double i) -> double {
+                const Tilemap *map = engine->GetTilemaps().Get(static_cast<int>(id));
+                if (!map || !std::isfinite(i) || i < 0.0) {
+                    return 0.0;
+                }
+                return static_cast<double>(
+                    map->PathPointAt(static_cast<std::size_t>(i)).x);
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_path_y", false,
+        std::function<double(fakelua::State *, std::int64_t, double)>(
+            [engine](fakelua::State *, std::int64_t id, double i) -> double {
+                const Tilemap *map = engine->GetTilemaps().Get(static_cast<int>(id));
+                if (!map || !std::isfinite(i) || i < 0.0) {
+                    return 0.0;
+                }
+                return static_cast<double>(
+                    map->PathPointAt(static_cast<std::size_t>(i)).y);
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_clear_path", false,
+        std::function<void(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id) {
+                if (Tilemap *map = engine->GetTilemaps().Get(static_cast<int>(id))) {
+                    map->ClearPath();
+                }
+            }));
+
     fakelua::RegisterNativeFunction(
         state, "map_layer_count", false,
         std::function<std::int64_t(fakelua::State *, std::int64_t)>(

@@ -405,10 +405,15 @@ and zero per-frame allocations.
 | `phys_end_count() -> n` | Pairs that **stopped** touching this step (including a destroyed body's last contacts). |
 | `phys_end_user_a / phys_end_user_b(i) -> n` | User tags of ended pair `i`. |
 
-Contact buffers describe the single most recent `Step` (ran before your
-`update`): began pairs transitioned free→touching, stayed pairs were already
-touching and still are, ended pairs transitioned touching→free. Iterate them
-every frame; they are cleared on the next step.
+Contact buffers cover **the whole frame** (physics runs before your `update`):
+began pairs transitioned free→touching, stayed pairs were already touching and
+still are, ended pairs transitioned touching→free. Iterate them every frame;
+they are cleared at the start of the next frame.
+
+The engine advances physics in fixed 1/60 s steps, so a slow frame can run
+two or more steps before your `update` — events from *every* step of the frame
+accumulate (a given pair is reported at most once per buffer), so a `began`
+that fired on the first of four steps is never lost.
 
 #### Queries (ray casts & overlaps)
 
@@ -747,6 +752,32 @@ Notes:
 - Tiled writes object positions from the top/left except for polygons/points;
   the parser normalizes everything to the same top-left origin used by the
   engine.
+
+### Grid path finding (A*)
+
+`map_find_path` runs A* over the map's solidity grid. World endpoints snap to
+cells; either endpoint being solid or out of bounds fails. 8-way movement
+never cuts a solid corner. The result is string-pulled (redundant waypoints
+dropped) and buffered on the map — read it right after the call.
+
+| Function | Description |
+|---|---|
+| `map_find_path(id, sx, sy, gx, gy, diagonal) -> bool` | Search; false when unreachable or an endpoint is blocked. `diagonal = false` keeps every grid step (tile-stepping movement), `true` pulls straight runs into single segments. |
+| `map_path_count(id) -> n` | Waypoints of the last successful search (0 after a failure). |
+| `map_path_x(id, i) -> x` / `map_path_y(id, i) -> y` | Waypoint `i` in world coordinates (cell centres). |
+| `map_clear_path(id)` | Drop the buffered path. |
+
+```lua
+-- chaser AI: re-path to the player twice a second, walk the waypoints
+if map_find_path(map_id, cx, cy, px, py, true) then
+    local n = map_path_count(map_id)
+    local i = 1
+    while i < n do
+        -- move toward (map_path_x(map_id, i), map_path_y(map_id, i)) ...
+        i = i + 1
+    end
+end
+```
 
 ### Save storage
 

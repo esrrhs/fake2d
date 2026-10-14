@@ -7,7 +7,7 @@
 
 **Fake2D** is a lightweight, modern 2D game rendering engine powered by [FakeLua](https://github.com/esrrhs/fakelua): C++ owns the window, GPU resources, and scene graph; FakeLua scripts orchestrate gameplay logic with a per-frame linear arena reset (**zero GC pauses**).
 
-> Status: **1.11 — Phase 17 scissor, nine-slice & text layout complete** — everything through 1.10 (fixed-step physics, camera follow toolkit, collision filters, Tiled object layers, physics queries), plus **scissor clip rects** (`draw_set_clip`, exact flush-boundary semantics), **nine-slice panels** (`draw_nine_slice`, stretch any dialog frame without corner blur), and **aligned word-wrapped text** (`draw_text_ex` with block stacking). See the [Implementation Plan](#implementation-plan), [docs/PLAN.md](docs/PLAN.md), the [Scripting Guide](docs/SCRIPTING.md), and [Packaging Notes](docs/PACKAGING.md).
+> Status: **1.12 — Phase 18 tilemap A* path finding & maze chase demo complete** — everything through 1.11 (scissor clips, nine-slice panels, aligned wrapped text, fixed-step physics, camera follow toolkit, collision filters), plus a **grid A\* path finder** on the tilemap solidity grid (corner-cut prevention, string-pulled waypoints, `map_find_path` + waypoint readers) and a new **`--path-demo`**: a deterministic maze where three chasers re-path to the player and the player auto-navigates to the goal with live path polylines. See the [Implementation Plan](#implementation-plan), [docs/PLAN.md](docs/PLAN.md), the [Scripting Guide](docs/SCRIPTING.md), and [Packaging Notes](docs/PACKAGING.md).
 
 ---
 
@@ -99,8 +99,8 @@ fake2d/
 │   ├── script/              # FakeLua integration & bindings
 │   └── ui/                  # Anchored widget system
 ├── third_party/             # stb_image, stb_truetype, stb_rect_pack, miniaudio, font8x8
-├── scripts/                 # Pure-Lua samples: game.lua (breakout), scene_demo.lua, map_demo.lua, platformer_demo.lua, mario.lua
-├── examples/hello/          # Samples: breakout, --scene-demo, --map-demo, --platformer-demo, --mario-demo, --slope-demo, --bench, --phys-bench
+├── scripts/                 # Pure-Lua samples: game.lua (breakout), scene_demo.lua, map_demo.lua, platformer_demo.lua, mario.lua, path_demo.lua
+├── examples/hello/          # Samples: breakout, --scene-demo, --map-demo, --platformer-demo, --mario-demo, --slope-demo, --path-demo, --bench, --phys-bench
 ├── docs/SCRIPTING.md        # Script authoring guide & API reference
 ├── docs/PACKAGING.md        # Linux / Windows / macOS packaging notes
 └── docs/PLAN.md             # Detailed roadmap and milestone checklist
@@ -150,6 +150,7 @@ cmake --build build --parallel
 # Super Mario Bros 1-1 style demo (A/D + Shift + Space; attract AI headless):
 ./build/bin/fake2d_hello --mario-demo
 ./build/bin/fake2d_hello --slope-demo   # tilemap slope lab: 45 deg, rise-64, surface overlay (V)
+./build/bin/fake2d_hello --path-demo    # maze chase: A* chaser AI + player autopilot (P paths)
 
 # Physics broadphase benchmark (brute force vs spatial hash grid):
 ./build/bin/fake2d_hello --headless --phys-bench
@@ -223,6 +224,7 @@ codegen constraints), and performance best practices live in the
 | **15 — Collision filtering (1.9)** | Collision control | Per-body 16-bit `category` / `mask` filtered in the broadphase, masked ray casts and overlaps, `phys_create_*_cat` / `phys_set_category` / `phys_set_mask` / `phys_*_cat` bindings, `--phys-filter-test` | **Done** |
 | **16 — Fixed timestep & camera tooling (1.10)** | Determinism & camera | Fixed-step physics accumulator (frame-rate-independent, zero-dt contact refresh, `phys_smooth_*` interpolation, `time_sim_dt/steps/alpha`), Camera2D follow toolkit (bounds clamp / deadzone / smoothing / forward-only scroll lock / snap) with 8 Lua bindings; mario, slope and platformer demos migrated onto it; `--timestep-test` | **Done** |
 | **17 — Scissor, nine-slice & text layout (1.11)** | Presentation | `draw_set_clip` scissor rects with exact flush-boundary semantics, `draw_nine_slice` stretch panels, `draw_text_ex` aligned word-wrapped text with `end_y` block stacking; FBO render targets and more UI widgets deferred | **Done** |
+| **18 — Tilemap A* & maze chase (1.12)** | Navigation | Grid A* over the solidity grid (corner-cut prevention, string-pulled waypoints, `map_find_path` + waypoint readers), `--path-test` (25 assertions), `--path-demo` maze chase: chaser AI with staggered re-paths, player autopilot attract mode, live path polylines | **Done** |
 
 Detailed checklist: [docs/PLAN.md](docs/PLAN.md).
 

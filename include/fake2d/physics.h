@@ -116,6 +116,23 @@ public:
     /// correct began/stayed/ended set instead of a stale one.
     void Step(float dt);
 
+    /// A fixed-step host usually advances the world several times per
+    /// rendered frame, while gameplay scripts read the contact buffers only
+    /// once per frame. With accumulation on, Step() *appends* to the
+    /// began/stayed/ended buffers (de-duplicated per pair) instead of
+    /// replacing them, so an event raised on an earlier step of the same
+    /// frame is never dropped; the host clears them once per frame with
+    /// ClearFrameEvents().
+    ///
+    /// Off by default, which keeps the classic "buffers describe the most
+    /// recent step" behaviour for hosts that step once per frame.
+    void SetEventAccumulation(bool enabled) { accumulate_events_ = enabled; }
+    [[nodiscard]] bool EventAccumulation() const { return accumulate_events_; }
+
+    /// Drop every event buffered for the current frame (see above). Call
+    /// once per frame, before the first Step() of that frame.
+    void ClearFrameEvents();
+
     /// Interpolation factor in [0,1] between the last two fixed steps; hosts
     /// set it once per frame (1 = no interpolation, i.e. latest state).
     void SetInterpAlpha(float alpha) {
@@ -223,6 +240,9 @@ private:
     void Integrate(Body &body, float h) const;
     /// Build the candidate body-index pair list for this step (broadphase).
     void GatherPairs();
+    /// True the first time a slot pair is recorded for the current frame;
+    /// keeps accumulated buffers free of duplicates (no-op when off).
+    static bool MarkEvent(std::vector<std::uint64_t> &keys, std::uint32_t a, std::uint32_t b);
 
     std::vector<Body> bodies_;
     std::vector<std::uint32_t> free_list_;
@@ -231,6 +251,11 @@ private:
     std::vector<ContactEvent> contacts_;
     std::vector<ContactEvent> stayed_contacts_;
     std::vector<ContactEvent> ended_contacts_;
+    /// Slot-pair keys already recorded for the current frame (per buffer);
+    /// only consulted while event accumulation is on.
+    std::vector<std::uint64_t> began_keys_;
+    std::vector<std::uint64_t> stayed_keys_;
+    std::vector<std::uint64_t> ended_keys_;
     std::vector<Pair> candidates_;
     RayHit last_ray_hit_{};
     std::vector<BodyId> overlap_result_;
@@ -238,6 +263,7 @@ private:
     Vec2 gravity_{0.0f, 900.0f};
     bool use_grid_ = true;
     bool has_ray_hit_ = false;
+    bool accumulate_events_ = false;
     float cell_size_ = 64.0f;
     float interp_alpha_ = 1.0f;
     std::size_t live_ = 0;
