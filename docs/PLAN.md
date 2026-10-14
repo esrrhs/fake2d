@@ -157,6 +157,16 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 - [x] Headless fixtures extended with object-layer stubs; all map/layer/object metadata is packed into a single integer-keyed table because the concatenated chunk's main function sits near FakeLua's 255-register ceiling (mario spawn reading was likewise extracted into its own `read_spawns()` function); a new `900207` smoke assertion pins the seven goomba spawns — 24/24 cases green across tcc/gcc/interpreter
 - [x] Verification: `--map-object-test` 49/49, 24/24 logic fixtures, all five demos headless with zero script errors; mario screenshot pixel-confirmed (player on the object-layer start point, goomba spawned on the ground)
 
+## Phase 15 — Collision filtering (1.9.x)
+
+- [x] Category/mask bitmasks on `BodyConfig` (`category` default bit 0 = 1, `mask` default 0xFFFF) plus the `CategoriesMatch(a, b)` predicate: a pair interacts only when each body's category passes the other's mask, so every existing scene behaves unchanged
+- [x] Filtering applied in both broadphase paths (brute-force sweep and spatial-hash grid) before a candidate pair is inserted, so filtered pairs cost nothing beyond one bitmask test
+- [x] Masked query surface: `RayCast` / buffered `RayCast`, `OverlapCircle` / `OverlapBox` (caller-vector and buffered overloads) take an optional `mask` (default 0xFFFF) and skip bodies whose category does not intersect it
+- [x] 9 Lua bindings: `phys_create_box_cat` / `phys_create_circle_cat` (creators with an explicit filter), `phys_set_category` / `phys_set_mask` (runtime mutation — widening a mask re-enables an already-overlapping pair), `phys_category` / `phys_mask` readers, and `phys_raycast_cat` / `phys_overlap_circle_cat` / `phys_overlap_box_cat`
+- [x] `--phys-filter-test`: headless C++ self-test, 14 assertions (default pair collides, category/mask mismatch never contacts and falls through, one-way mask rejection, runtime mask widening re-enables the pair, masked vs unmasked ray casts and overlaps incl. the buffered overload)
+- [x] `scripts/phys_test.lua` extended with the same surface through real bindings: an intentionally overlapping filtered pair (mismatch → no began contact across 15 frames), masked ray/overlap reads, then `phys_set_mask` widening → the pair reports began; new log codes 1050–1059 (assertions) and 2004–2006 (final tally)
+- [x] CI: `--phys-filter-test` runs alongside `--phys-query-test` on Linux, macOS (CGL headless) and Windows (Mesa llvmpipe)
+
 ---
 
 ## Non-goals (for now)

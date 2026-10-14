@@ -389,6 +389,9 @@ void PhysicsWorld::GatherPairs() {
         if (a.cfg.type == BodyType::Static && b.cfg.type == BodyType::Static) {
             return;
         }
+        if (!CategoriesMatch(a.cfg, b.cfg)) {
+            return; // filtered out by category/mask
+        }
         candidates_.push_back(MakePair(i, j));
     };
 
@@ -461,6 +464,9 @@ void PhysicsWorld::GatherPairs() {
                 }
                 if (ba.cfg.type == BodyType::Static && bb.cfg.type == BodyType::Static) {
                     continue;
+                }
+                if (!CategoriesMatch(ba.cfg, bb.cfg)) {
+                    continue; // filtered out by category/mask
                 }
                 pair_keys.push_back(static_cast<std::uint64_t>(p.a) * n + p.b);
             }
@@ -598,13 +604,14 @@ void PhysicsWorld::Clear() {
     live_ = 0;
 }
 
-bool PhysicsWorld::RayCast(const Vec2 &from, const Vec2 &to, RayHit &out) const {
+bool PhysicsWorld::RayCast(const Vec2 &from, const Vec2 &to, RayHit &out,
+                           std::uint16_t mask) const {
     const Vec2 delta{to.x - from.x, to.y - from.y};
     bool found = false;
     float best_t = 0.0f;
     for (std::size_t idx = 0; idx < bodies_.size(); ++idx) {
         const Body &body = bodies_[idx];
-        if (!body.alive) {
+        if (!body.alive || (body.cfg.category & mask) == 0) {
             continue;
         }
         float t = 0.0f;
@@ -626,17 +633,19 @@ bool PhysicsWorld::RayCast(const Vec2 &from, const Vec2 &to, RayHit &out) const 
     return found;
 }
 
-bool PhysicsWorld::RayCast(const Vec2 &from, const Vec2 &to) {
-    has_ray_hit_ = RayCast(from, to, last_ray_hit_);
+bool PhysicsWorld::RayCast(const Vec2 &from, const Vec2 &to, std::uint16_t mask) {
+    has_ray_hit_ = RayCast(from, to, last_ray_hit_, mask);
     return has_ray_hit_;
 }
 
 std::size_t PhysicsWorld::OverlapCircle(const Vec2 &center, float radius,
-                                        std::vector<BodyId> &out) const {
+                                        std::vector<BodyId> &out,
+                                        std::uint16_t mask) const {
     out.clear();
     for (std::size_t idx = 0; idx < bodies_.size(); ++idx) {
         const Body &body = bodies_[idx];
-        if (body.alive && OverlapsCircleShape(center, radius, body.cfg)) {
+        if (body.alive && (body.cfg.category & mask) != 0 &&
+            OverlapsCircleShape(center, radius, body.cfg)) {
             out.push_back(static_cast<BodyId>(
                 Encode(static_cast<std::uint32_t>(idx), body.generation)));
         }
@@ -645,11 +654,13 @@ std::size_t PhysicsWorld::OverlapCircle(const Vec2 &center, float radius,
 }
 
 std::size_t PhysicsWorld::OverlapBox(const Vec2 &center, const Vec2 &half_extents,
-                                     std::vector<BodyId> &out) const {
+                                     std::vector<BodyId> &out,
+                                     std::uint16_t mask) const {
     out.clear();
     for (std::size_t idx = 0; idx < bodies_.size(); ++idx) {
         const Body &body = bodies_[idx];
-        if (body.alive && OverlapsBoxShape(center, half_extents, body.cfg)) {
+        if (body.alive && (body.cfg.category & mask) != 0 &&
+            OverlapsBoxShape(center, half_extents, body.cfg)) {
             out.push_back(static_cast<BodyId>(
                 Encode(static_cast<std::uint32_t>(idx), body.generation)));
         }
@@ -657,8 +668,9 @@ std::size_t PhysicsWorld::OverlapBox(const Vec2 &center, const Vec2 &half_extent
     return out.size();
 }
 
-std::size_t PhysicsWorld::OverlapCircle(const Vec2 &center, float radius) {
-    OverlapCircle(center, radius, overlap_result_);
+std::size_t PhysicsWorld::OverlapCircle(const Vec2 &center, float radius,
+                                        std::uint16_t mask) {
+    OverlapCircle(center, radius, overlap_result_, mask);
     overlap_users_.clear();
     overlap_users_.reserve(overlap_result_.size());
     for (const BodyId id : overlap_result_) {
@@ -668,8 +680,9 @@ std::size_t PhysicsWorld::OverlapCircle(const Vec2 &center, float radius) {
     return overlap_result_.size();
 }
 
-std::size_t PhysicsWorld::OverlapBox(const Vec2 &center, const Vec2 &half_extents) {
-    OverlapBox(center, half_extents, overlap_result_);
+std::size_t PhysicsWorld::OverlapBox(const Vec2 &center, const Vec2 &half_extents,
+                                     std::uint16_t mask) {
+    OverlapBox(center, half_extents, overlap_result_, mask);
     overlap_users_.clear();
     overlap_users_.reserve(overlap_result_.size());
     for (const BodyId id : overlap_result_) {

@@ -378,6 +378,50 @@ for i = 0, n - 1 do
 end
 ```
 
+#### Collision filtering (categories & masks)
+
+Every body carries a 16-bit `category` (which buckets it belongs to) and a
+16-bit `mask` (which buckets it interacts with). A pair interacts — collides,
+reports contacts, shows up in queries — only when **each** body's category
+passes the other's mask. Defaults are `category = 1` (bit 0) and
+`mask = 0xFFFF` (everything), so scenes that never touch the filter behave
+exactly as before.
+
+| Function | Description |
+|---|---|
+| `phys_create_box_cat(x, y, hw, hh, cat, mask) -> id` | Box body with an explicit filter (then `phys_set_static` etc. as usual). |
+| `phys_create_circle_cat(x, y, r, cat, mask) -> id` | Circle body with an explicit filter. |
+| `phys_set_category(id, cat)` / `phys_set_mask(id, mask)` | Change the filter at runtime; widening a mask re-enables an already-overlapping pair on the next step. |
+| `phys_category(id) -> n` / `phys_mask(id) -> n` | Read the current filter (0 when the id is dead). |
+| `phys_raycast_cat(x1, y1, x2, y2, mask) -> bool` | Ray cast that only hits bodies whose category intersects `mask`; read the hit with the usual `phys_ray_hit_*`. |
+| `phys_overlap_circle_cat(x, y, r, mask) -> n` | Masked circle overlap (buffered). |
+| `phys_overlap_box_cat(x, y, hw, hh, mask) -> n` | Masked box overlap (buffered). |
+
+```lua
+local CAT_PLAYER = 1   -- bit 0
+local CAT_ENEMY  = 2   -- bit 1
+local CAT_WALL   = 4   -- bit 2
+
+-- Walls are in their own bucket but still collide with everything.
+local wall = phys_create_box_cat(200, 400, 60, 16, CAT_WALL, 0xFFFF)
+phys_set_static(wall, true)
+
+-- A player that ignores enemies (e.g. while dashing): keep bit 0 and the
+-- wall bit, drop the enemy bit from the mask.
+local player = phys_create_circle_cat(200, 380, 10, CAT_PLAYER, CAT_WALL + CAT_PLAYER)
+-- ...later:
+phys_set_mask(player, 0xFFFF)          -- dash ends, enemies hit again
+
+-- Only look for walls under the cursor, ignoring actors entirely:
+if phys_raycast_cat(mx, my, mx, my + 200, CAT_WALL) then
+    local d = phys_ray_hit_dist()
+end
+```
+
+> Filtering happens in the broadphase, before any pair is inserted, so a
+> filtered pair costs one bitmask test and nothing else. Bodies that are
+> filtered out are also invisible to masked ray casts and overlaps.
+
 ```lua
 ball = phys_create_circle(100, 100, 10)
 phys_set_restitution(ball, 0.7)

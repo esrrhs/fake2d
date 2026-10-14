@@ -135,6 +135,10 @@ jobs:
           set +e
           run_xvfb ./build/bin/fake2d_hello --phys-query-test
           rc_query=$?
+          # Category/mask collision filtering (exit code gate; the summary
+          # line pins the assertion count).
+          run_xvfb ./build/bin/fake2d_hello --phys-filter-test > phys_filter.log 2>&1
+          rc_filter=$?
           # Tiled objectgroup parsing + object/property readers (exit code
           # gate; the summary line pins the assertion count).
           run_xvfb ./build/bin/fake2d_hello --map-object-test > map_object.log 2>&1
@@ -146,10 +150,12 @@ jobs:
             --entry scripts/phys_test.lua > phys_test.log 2>&1
           rc_lua=$?
           set -e
-          echo "exit codes: query=$rc_query mapobj=$rc_mapobj lua=$rc_lua"
+          echo "exit codes: query=$rc_query filter=$rc_filter mapobj=$rc_mapobj lua=$rc_lua"
           [ "$rc_query" -eq 0 ]
+          [ "$rc_filter" -eq 0 ]
           [ "$rc_mapobj" -eq 0 ]
           [ "$rc_lua" -eq 0 ]
+          grep -F "[phys-filter] PASS" phys_filter.log
           grep -F "[map-obj] PASS" map_object.log
           grep -F "[script] 0" phys_test.log
           ! grep -E "\[script] (10[0-9][0-9]|200[0-9])" phys_test.log
@@ -367,6 +373,7 @@ jobs:
           set -eux
           export DYLD_LIBRARY_PATH="$FLINSTALL/lib:${DYLD_LIBRARY_PATH:-}"
           ./build/bin/fake2d_hello --phys-query-test
+          ./build/bin/fake2d_hello --phys-filter-test
           ./build/bin/fake2d_hello --map-object-test
           ./build/bin/fake2d_hello --headless --phys-bench
           ./build/bin/fake2d_hello --headless --frames 200 \
@@ -423,6 +430,7 @@ jobs:
           export PATH="$(cygpath -u "$FLINSTALL")/bin:$PATH"
           # Pure-CPU physics query self-test (exit code) + Lua binding test.
           ./build/bin/fake2d_hello.exe --phys-query-test
+          ./build/bin/fake2d_hello.exe --phys-filter-test
           ./build/bin/fake2d_hello.exe --map-object-test
           ./build/bin/fake2d_hello.exe --headless --frames 200 \
             --entry scripts/phys_test.lua > phys_test.log 2>&1
