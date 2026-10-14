@@ -75,6 +75,11 @@ bool Engine::Init(const EngineConfig &config) {
     // UI reads the input snapshot and viewport every frame.
     impl_->ui.Bind(&impl_->input, &impl_->renderer.GetCamera(), &impl_->renderer);
 
+    // Gameplay reads contacts once per frame, but the fixed-step loop may
+    // step the world several times in a frame: accumulate so no event is
+    // dropped between reads (cleared at the top of each frame).
+    impl_->physics.SetEventAccumulation(true);
+
 #if defined(FAKE2D_WITH_FAKELUA) && FAKE2D_WITH_FAKELUA
     if (!impl_->config.script_entry.empty()) {
         if (!impl_->script.CompileFile(impl_->config.script_entry)) {
@@ -124,7 +129,10 @@ int Engine::Run(int max_frames) {
         // Physics: fixed-step accumulator (config.fixed_dt <= 0 keeps the
         // legacy single variable-dt step). Frames that do not reach a whole
         // step still refresh the contact buffers with a zero-dt pass, so
-        // gameplay never sees a stale or replayed event set.
+        // gameplay never sees a stale or replayed event set. Events raised by
+        // every step of this frame accumulate until the next frame's clear,
+        // so a multi-step frame never hides a began/ended from gameplay.
+        impl_->physics.ClearFrameEvents();
         if (impl_->config.fixed_dt > 0.0f) {
             const double fixed = static_cast<double>(impl_->config.fixed_dt);
             // A stall (tab suspended, breakpoint) must not dump seconds of

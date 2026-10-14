@@ -7,7 +7,7 @@
 
 **Fake2D** 是基于 [FakeLua](https://github.com/esrrhs/fakelua) 的现代化轻量 2D 游戏渲染引擎：C++ 宿主掌控窗口、GPU 资源与场景数据；FakeLua 脚本负责编排玩法与实体逻辑，并在每帧边界执行 Arena 线性重置（**零 GC 停顿**）。
 
-> 当前状态：**1.11 — Phase 17 裁剪、九宫格与文本排版已完成** — 已包含 1.10 及之前的全部能力（固定步长物理、相机跟随工具、碰撞过滤、Tiled 对象层、物理查询），并新增**剪裁矩形**（`draw_set_clip`，精确到 flush 边界的语义）、**九宫格面板**（`draw_nine_slice`，任意尺寸拉伸对话框不糊角）与**对齐自动换行文本**（`draw_text_ex`，支持段落堆叠）。详见下方[实现计划](#实现计划)、[docs/PLAN.md](docs/PLAN.md)、[脚本编写指南](docs/SCRIPTING.md) 与[跨平台打包说明](docs/PACKAGING.md)。
+> 当前状态：**1.12 — Phase 18 瓦片地图 A* 寻路与迷宫追逐 Demo 已完成** — 已包含 1.11 及之前的全部能力（剪裁矩形、九宫格、对齐换行文本、固定步长物理、相机跟随工具、碰撞过滤），并新增基于瓦片地图 solidity 网格的 **A\* 寻路**（防切角、路径拉直、`map_find_path` + 路径点读取），以及新的 **`--path-demo` 迷宫追逐**：三个追踪者周期性重新寻路扑向玩家，玩家无输入时自动寻路冲向终点，路径线实时可视化。详见下方[实现计划](#实现计划)、[docs/PLAN.md](docs/PLAN.md)、[脚本编写指南](docs/SCRIPTING.md) 与[跨平台打包说明](docs/PACKAGING.md)。
 
 ---
 
@@ -90,8 +90,8 @@ fake2d/
 │   ├── scene/               # 节点层级与场景渲染
 │   └── script/              # FakeLua 桥接与原生 API 注册
 ├── third_party/             # stb_image、stb_truetype、stb_rect_pack、miniaudio、font8x8
-├── scripts/                 # 纯 Lua 示例：game.lua（打砖块）、scene_demo.lua、map_demo.lua、platformer_demo.lua、mario.lua
-├── examples/hello/          # 示例：打砖块、--scene-demo、--map-demo、--platformer-demo、--mario-demo、--bench、--phys-bench
+├── scripts/                 # 纯 Lua 示例：game.lua（打砖块）、scene_demo.lua、map_demo.lua、platformer_demo.lua、mario.lua、path_demo.lua
+├── examples/hello/          # 示例：打砖块、--scene-demo、--map-demo、--platformer-demo、--mario-demo、--path-demo、--bench、--phys-bench
 ├── docs/SCRIPTING.md        # 脚本编写指南与 API 参考
 ├── docs/PACKAGING.md        # Linux / Windows / macOS 跨平台打包说明
 └── docs/PLAN.md             # 详细路线图与任务清单
@@ -140,6 +140,9 @@ cmake --build build --parallel
 
 # 经典超级马里奥兄弟 1-1 关卡（A/D 移动、Shift 加速、空格跳跃；无头模式自动演示）：
 ./build/bin/fake2d_hello --mario-demo
+
+# 迷宫追逐：A* 追踪 AI + 玩家自动寻路演示（P 切换路径线）：
+./build/bin/fake2d_hello --path-demo
 
 # 物理宽相基准（暴力 O(n²) vs 空间哈希网格）：
 ./build/bin/fake2d_hello --headless --phys-bench
@@ -212,6 +215,7 @@ end
 | **15 — 碰撞过滤 (1.9)** | 碰撞控制 | 每个刚体的 16 位 `category` / `mask`，宽相阶段即过滤；带掩码的射线与重叠查询；`phys_create_*_cat` / `phys_set_category` / `phys_set_mask` / `phys_*_cat` 绑定；`--phys-filter-test` | **已完成** |
 | **16 — 固定步长与相机工具 (1.10)** | 确定性与相机 | 固定步长物理累加器（与帧率无关、零步长接触刷新、`phys_smooth_*` 渲染插值、`time_sim_dt/steps/alpha`），Camera2D 跟随工具（边界钳制 / 死区 / 平滑 / 只进不退滚动锁 / snap）共 8 个 Lua 绑定；马里奥、斜坡与平台 Demo 全部迁移其上；`--timestep-test` | **已完成** |
 | **17 — 裁剪、九宫格与文本排版 (1.11)** | 表现力 | `draw_set_clip` 剪裁矩形（精确 flush 边界语义）、`draw_nine_slice` 拉伸面板、`draw_text_ex` 对齐换行文本与 `end_y` 段落堆叠；FBO 渲染目标与更多 UI 控件顺延 | **已完成** |
+| **18 — 瓦片地图 A* 与迷宫追逐 (1.12)** | 导航 | 基于 solidity 网格的 A*（防切角、路径拉直、`map_find_path` + 路径点读取），`--path-test`（25 条断言），`--path-demo` 迷宫追逐：错峰重寻路的追踪 AI、玩家自动寻路演示模式、实时路径线 | **已完成** |
 
 详细任务清单见 [docs/PLAN.md](docs/PLAN.md)。
 

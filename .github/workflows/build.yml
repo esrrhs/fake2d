@@ -121,6 +121,7 @@ jobs:
           run_xvfb ./build/bin/fake2d_hello --headless --frames 180 --platformer-demo
           run_xvfb ./build/bin/fake2d_hello --headless --frames 180 --mario-demo
           run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --slope-demo
+          run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --path-demo
           run_xvfb ./build/bin/fake2d_hello --headless --phys-bench
 
       - name: Physics query self-test + Lua binding test
@@ -142,6 +143,9 @@ jobs:
           # Fixed-step accumulator + camera tools (exit code gate).
           run_xvfb ./build/bin/fake2d_hello --timestep-test > timestep.log 2>&1
           rc_timestep=$?
+          # Tilemap A* (exit code gate; the summary line pins the assertion count).
+          run_xvfb ./build/bin/fake2d_hello --path-test > path.log 2>&1
+          rc_path=$?
           # Tiled objectgroup parsing + object/property readers (exit code
           # gate; the summary line pins the assertion count).
           run_xvfb ./build/bin/fake2d_hello --map-object-test > map_object.log 2>&1
@@ -153,14 +157,16 @@ jobs:
             --entry scripts/phys_test.lua > phys_test.log 2>&1
           rc_lua=$?
           set -e
-          echo "exit codes: query=$rc_query filter=$rc_filter timestep=$rc_timestep mapobj=$rc_mapobj lua=$rc_lua"
+          echo "exit codes: query=$rc_query filter=$rc_filter timestep=$rc_timestep path=$rc_path mapobj=$rc_mapobj lua=$rc_lua"
           [ "$rc_query" -eq 0 ]
           [ "$rc_filter" -eq 0 ]
           [ "$rc_timestep" -eq 0 ]
+          [ "$rc_path" -eq 0 ]
           [ "$rc_mapobj" -eq 0 ]
           [ "$rc_lua" -eq 0 ]
           grep -F "[phys-filter] PASS" phys_filter.log
           grep -F "[timestep] PASS" timestep.log
+          grep -F "[path] PASS" path.log
           grep -F "[map-obj] PASS" map_object.log
           grep -F "[script] 0" phys_test.log
           ! grep -E "\[script] (10[0-9][0-9]|200[0-9])" phys_test.log
@@ -380,6 +386,7 @@ jobs:
           ./build/bin/fake2d_hello --phys-query-test
           ./build/bin/fake2d_hello --phys-filter-test
           ./build/bin/fake2d_hello --timestep-test
+          ./build/bin/fake2d_hello --path-test
           ./build/bin/fake2d_hello --map-object-test
           ./build/bin/fake2d_hello --headless --phys-bench
           ./build/bin/fake2d_hello --headless --frames 200 \
@@ -404,6 +411,7 @@ jobs:
           ./build/bin/fake2d_hello --headless --frames 180 --platformer-demo
           ./build/bin/fake2d_hello --headless --frames 180 --mario-demo
           ./build/bin/fake2d_hello --headless --frames 120 --slope-demo
+          ./build/bin/fake2d_hello --headless --frames 120 --path-demo
 
       - name: (windows) headless Lua fixtures
         if: runner.os == 'Windows'
@@ -438,6 +446,7 @@ jobs:
           ./build/bin/fake2d_hello.exe --phys-query-test
           ./build/bin/fake2d_hello.exe --phys-filter-test
           ./build/bin/fake2d_hello.exe --timestep-test
+          ./build/bin/fake2d_hello.exe --path-test
           ./build/bin/fake2d_hello.exe --map-object-test
           ./build/bin/fake2d_hello.exe --headless --frames 200 \
             --entry scripts/phys_test.lua > phys_test.log 2>&1
@@ -451,5 +460,6 @@ jobs:
           ./build/bin/fake2d_hello.exe --headless --frames 180 --platformer-demo
           ./build/bin/fake2d_hello.exe --headless --frames 180 --mario-demo
           ./build/bin/fake2d_hello.exe --headless --frames 120 --slope-demo
+          ./build/bin/fake2d_hello.exe --headless --frames 120 --path-demo
           ./build/bin/fake2d_hello.exe --headless --bench
           ./build/bin/fake2d_hello.exe --headless --phys-bench
