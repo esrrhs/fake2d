@@ -29,6 +29,43 @@ public:
     void SetRotation(float radians) { rotation_ = radians; is_dirty_ = true; }
     [[nodiscard]] float Rotation() const { return rotation_; }
 
+    // --- follow / bounds ---
+    /// World rectangle the camera view must stay inside. The camera center is
+    /// clamped so the visible rect never leaves `bounds`; when the level is
+    /// smaller than the view on an axis, that axis is centred instead.
+    /// Pass a zero-size rect (or ClearBounds) to disable.
+    void SetBounds(const Rect &world_bounds);
+    void SetBounds(float x, float y, float width, float height);
+    void ClearBounds();
+    [[nodiscard]] const Rect &Bounds() const { return bounds_; }
+    [[nodiscard]] bool HasBounds() const { return has_bounds_; }
+
+    /// Half-size of a box around the follow target: inside it the camera does
+    /// not move at all (0 = lock tightly to the target).
+    void SetDeadzone(float half_width, float half_height) {
+        deadzone_ = {half_width < 0.0f ? 0.0f : half_width,
+                     half_height < 0.0f ? 0.0f : half_height};
+    }
+    [[nodiscard]] Vec2 Deadzone() const { return deadzone_; }
+
+    /// Follow smoothing rate (higher = snappier). Frame-rate independent
+    /// exponential approach: `1 - exp(-rate * dt)` per frame.
+    void SetFollowSmoothing(float rate) { follow_rate_ = rate > 0.0f ? rate : 0.0f; }
+    [[nodiscard]] float FollowSmoothing() const { return follow_rate_; }
+
+    /// SMB-style horizontal scroll lock: the camera never moves left while
+    /// following (desired.x below the current position is ignored). Direct
+    /// SetPosition / SnapTo still move freely, so level resets work.
+    void SetForwardOnlyX(bool enabled) { forward_only_x_ = enabled; }
+    [[nodiscard]] bool ForwardOnlyX() const { return forward_only_x_; }
+
+    /// Move toward `target` with deadzone + smoothing, then clamp to bounds.
+    /// Call once per frame with the frame delta.
+    void Follow(const Vec2 &target, float dt);
+    void Follow(float x, float y, float dt);
+    /// Jump straight to `target` (no smoothing), still clamped to bounds.
+    void SnapTo(const Vec2 &target);
+
     // --- trauma shake ---
     /// Add impact in [0,1]; shake magnitude scales with trauma squared and
     /// decays automatically. Multiple impacts stack up to 1.
@@ -49,6 +86,8 @@ public:
 
 private:
     void UpdateMatrices() const;
+    /// Clamp `position_` so the visible rect stays inside bounds_.
+    void ClampToBounds();
 
     float viewport_width_ = 1280.0f;
     float viewport_height_ = 720.0f;
@@ -56,6 +95,12 @@ private:
     Vec2 position_ = {0.0f, 0.0f};
     float zoom_ = 1.0f;
     float rotation_ = 0.0f;
+
+    Rect bounds_{};
+    bool has_bounds_ = false;
+    Vec2 deadzone_{0.0f, 0.0f};
+    float follow_rate_ = 8.0f;
+    bool forward_only_x_ = false;
 
     float trauma_ = 0.0f;
     float shake_time_ = 0.0f;

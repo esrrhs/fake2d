@@ -28,6 +28,12 @@ struct Engine::Impl {
     double delta_time = 0.0;
     double elapsed = 0.0;
     std::uint64_t frame_index = 0;
+    // Fixed-step accumulator: physics advances in whole `fixed_dt` steps so
+    // simulation results never depend on the frame rate. `step_accumulator`
+    // carries the leftover time into the next frame.
+    double step_accumulator = 0.0;
+    int last_physics_steps = 0;
+    float interp_alpha = 1.0f;
 };
 
 Engine::Engine() : impl_(std::make_unique<Impl>()) {}
@@ -110,11 +116,43 @@ int Engine::Run(int max_frames) {
         impl_->ui.NewFrame();
         impl_->elapsed += impl_->delta_time;
 
-        // Advance gameplay systems once; scripts read results / emit per frame.
+        // Advance gameplay systems; scripts read results / emit per frame.
         impl_->renderer.GetCamera().UpdateEffects(static_cast<float>(impl_->delta_time));
         impl_->particles.Update(static_cast<float>(impl_->delta_time));
-        impl_->physics.Step(static_cast<float>(impl_->delta_time));
         impl_->animations.Update(static_cast<float>(impl_->delta_time));
+
+        // Physics: fixed-step accumulator (config.fixed_dt <= 0 keeps the
+        // legacy single variable-dt step). Frames that do not reach a whole
+        // step still refresh the contact buffers with a zero-dt pass, so
+        // gameplay never sees a stale or replayed event set.
+        if (impl_->config.fixed_dt > 0.0f) {
+            const double fixed = static_cast<double>(impl_->config.fixed_dt);
+            // A stall (tab suspended, breakpoint) must not dump seconds of
+            // simulation into one frame.
+            impl_->step_accumulator += impl_->delta_time > 0.25 ? 0.25 : impl_->delta_time;
+            int steps = 0;
+            while (impl_->step_accumulator >= fixed &&
+                   steps < impl_->config.max_physics_steps) {
+                impl_->physics.Step(static_cast<float>(fixed));
+                impl_->step_accumulator -= fixed;
+                ++steps;
+            }
+            if (steps == 0) {
+                impl_->physics.Step(0.0f);
+            } else if (steps == impl_->config.max_physics_steps) {
+                // Spiral-of-death guard: drop the backlog instead of
+                // accumulating debt we can never pay back.
+                impl_->step_accumulator = 0.0;
+            }
+            impl_->last_physics_steps = steps;
+            impl_->interp_alpha = static_cast<float>(impl_->step_accumulator / fixed);
+            impl_->physics.SetInterpAlpha(impl_->interp_alpha);
+        } else {
+            impl_->physics.Step(static_cast<float>(impl_->delta_time));
+            impl_->last_physics_steps = 1;
+            impl_->interp_alpha = 1.0f;
+            impl_->physics.SetInterpAlpha(1.0f);
+        }
 
         // Clear color cycles slightly so the skeleton window is visibly alive.
         const float t = static_cast<float>(impl_->frame_index) * 0.01f;
@@ -140,6 +178,20 @@ int Engine::Run(int max_frames) {
 
     Shutdown();
     return 0;
+}
+
+double Engine::PhysicsDt() const {
+    return impl_->config.fixed_dt > 0.0f
+               ? static_cast<double>(impl_->config.fixed_dt)
+               : impl_->delta_time;
+}
+
+int Engine::PhysicsStepsLastFrame() const {
+    return impl_->last_physics_steps;
+}
+
+double Engine::InterpAlpha() const {
+    return static_cast<double>(impl_->interp_alpha);
 }
 
 void Engine::Shutdown() {

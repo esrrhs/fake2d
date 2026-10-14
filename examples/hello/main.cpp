@@ -717,6 +717,158 @@ int RunPhysicsFilterTest(fake2d::Engine &engine) {
     return failures == 0 ? 0 : 1;
 }
 
+// Fixed-step / camera-tooling self-test (Phase 16). Headless CPU-only:
+// the zero-dt contact pass used by the accumulator, render interpolation,
+// and the camera follow / deadzone / bounds helpers. Prints [timestep] lines;
+// non-zero on fail.
+int RunTimestepTest(fake2d::Engine &engine) {
+    (void)engine;
+    int failures = 0;
+    int checks = 0;
+    auto check = [&](bool ok, const char *what) {
+        ++checks;
+        if (!ok) {
+            ++failures;
+            std::printf("[timestep] FAIL %s\n", what);
+        }
+    };
+
+    // ---- Physics: zero-dt contact pass ------------------------------------
+    fake2d::PhysicsWorld world;
+    world.SetGravity({0.0f, 900.0f});
+
+    fake2d::BodyConfig wall_cfg;
+    wall_cfg.type = fake2d::BodyType::Static;
+    wall_cfg.position = {0.0f, 0.0f};
+    wall_cfg.half_extents = {32.0f, 8.0f}; // surface at y = -8
+    wall_cfg.user_id = 1;
+    const fake2d::BodyId wall = world.CreateBody(wall_cfg);
+
+    fake2d::BodyConfig ball_cfg;
+    ball_cfg.position = {0.0f, -20.0f};
+    ball_cfg.radius = 6.0f;
+    ball_cfg.half_extents = {6.0f, 6.0f};
+    ball_cfg.restitution = 0.0f;
+    ball_cfg.user_id = 2;
+    const fake2d::BodyId ball = world.CreateBody(ball_cfg);
+
+    for (int f = 0; f < 120; ++f) {
+        world.Step(1.0f / 60.0f);
+    }
+    const float rest_y = world.Get(ball)->position.y;
+    check(rest_y > -20.0f, "fixed stepping: the ball was caught by the wall");
+
+    // A zero-dt pass must not integrate: position is untouched, and the pair
+    // that is still touching shows up as "stayed", not "began" again.
+    world.Step(0.0f);
+    check(std::fabs(world.Get(ball)->position.y - rest_y) < 1e-4f,
+          "zero-dt step: no integration");
+    check(world.Contacts().empty(), "zero-dt step: no duplicate began events");
+    check(world.StayedContacts().size() == 1, "zero-dt step: pair reports stayed");
+    check(world.EndedContacts().empty(), "zero-dt step: no spurious ended events");
+
+    // Teleport away, then a zero-dt pass still reports the separation (this is
+    // exactly what a frame that skipped its fixed step must see).
+    if (fake2d::BodyConfig *cfg = world.Get(ball)) {
+        cfg->position = {0.0f, -400.0f};
+        cfg->velocity = {0.0f, 0.0f};
+    }
+    world.Step(0.0f);
+    check(world.EndedContacts().size() == 1, "zero-dt step: separation reports ended");
+    check(world.StayedContacts().empty(), "zero-dt step: nothing stays touching");
+
+    // ---- Render interpolation ---------------------------------------------
+    fake2d::PhysicsWorld iworld;
+    iworld.SetGravity({0.0f, 0.0f});
+    fake2d::BodyConfig mover_cfg;
+    mover_cfg.position = {0.0f, 0.0f};
+    mover_cfg.velocity = {600.0f, 0.0f};
+    mover_cfg.gravity_scale = 0.0f;
+    mover_cfg.radius = 4.0f;
+    mover_cfg.half_extents = {4.0f, 4.0f};
+    const fake2d::BodyId mover = iworld.CreateBody(mover_cfg);
+    iworld.Step(1.0f / 60.0f); // advances 10 units
+    const float end_x = iworld.Get(mover)->position.x;
+    check(std::fabs(end_x - 10.0f) < 0.2f, "interpolation: one step moved 10 units");
+    iworld.SetInterpAlpha(1.0f);
+    check(std::fabs(iworld.SmoothPosition(mover).x - end_x) < 1e-4f,
+          "interpolation: alpha 1 reports the current position");
+    iworld.SetInterpAlpha(0.0f);
+    check(std::fabs(iworld.SmoothPosition(mover).x) < 1e-4f,
+          "interpolation: alpha 0 reports the previous position");
+    iworld.SetInterpAlpha(0.5f);
+    check(std::fabs(iworld.SmoothPosition(mover).x - end_x * 0.5f) < 0.2f,
+          "interpolation: alpha 0.5 reports the midpoint");
+    iworld.SetInterpAlpha(9.0f); // clamped
+    check(std::fabs(iworld.SmoothPosition(mover).x - end_x) < 1e-4f,
+          "interpolation: alpha is clamped to [0,1]");
+    check(iworld.SmoothPosition(fake2d::kInvalidBody).x == 0.0f,
+          "interpolation: stale handle reads zero");
+    (void)wall;
+
+    // ---- Camera: bounds, deadzone, smoothing -------------------------------
+    // NOTE: Camera2D::Position is the TOP-LEFT of the visible world rect.
+    fake2d::Camera2D camera(200.0f, 100.0f); // view 200x100 at zoom 1
+    camera.SetBounds(0.0f, 0.0f, 1000.0f, 600.0f);
+    camera.SnapTo({0.0f, 0.0f});
+    check(std::fabs(camera.Position().x) < 1e-3f &&
+              std::fabs(camera.Position().y) < 1e-3f,
+          "camera bounds: the view is clamped to the bounds' top-left corner");
+    camera.SnapTo({9999.0f, 9999.0f});
+    check(std::fabs(camera.Position().x - 800.0f) < 1e-3f &&
+              std::fabs(camera.Position().y - 500.0f) < 1e-3f,
+          "camera bounds: the view is clamped to the bounds' bottom-right corner");
+    camera.SetBounds(0.0f, 0.0f, 120.0f, 60.0f); // smaller than the view
+    camera.SnapTo({0.0f, 0.0f});
+    check(std::fabs(camera.Position().x + 40.0f) < 1e-3f &&
+              std::fabs(camera.Position().y + 20.0f) < 1e-3f,
+          "camera bounds: a level smaller than the view is centred");
+    camera.ClearBounds();
+    check(!camera.HasBounds(), "camera bounds: ClearBounds disables clamping");
+
+    // Deadzone: moving the target inside the box around the view centre must
+    // not move the camera. View centre for position (500,300) is (600,350).
+    camera.SetDeadzone(20.0f, 10.0f);
+    camera.SnapTo({500.0f, 300.0f});
+    camera.Follow({605.0f, 353.0f}, 1.0f / 60.0f);
+    check(std::fabs(camera.Position().x - 500.0f) < 1e-3f &&
+              std::fabs(camera.Position().y - 300.0f) < 1e-3f,
+          "camera deadzone: target inside the box does not move the camera");
+    // Outside the box it catches up, smoothly (not instantly).
+    camera.Follow({700.0f, 350.0f}, 1.0f / 60.0f);
+    const float after_one = camera.Position().x;
+    check(after_one > 500.0f && after_one < 580.0f,
+          "camera follow: moves toward the target without snapping");
+    for (int f = 0; f < 240; ++f) {
+        camera.Follow({700.0f, 350.0f}, 1.0f / 60.0f);
+    }
+    check(std::fabs(camera.Position().x - 580.0f) < 0.5f,
+          "camera follow: settles one deadzone away from the target");
+    // Zero smoothing snaps straight to the target (view centred on it).
+    camera.SetFollowSmoothing(0.0f);
+    camera.SetDeadzone(0.0f, 0.0f);
+    camera.Follow({700.0f, 320.0f}, 1.0f / 60.0f);
+    check(std::fabs(camera.Position().x - 600.0f) < 1e-3f &&
+              std::fabs(camera.Position().y - 270.0f) < 1e-3f,
+          "camera follow: rate 0 snaps to the target");
+
+    // Forward-only scroll lock (SMB rule): a target to the left never pulls
+    // the camera back; moving right works normally.
+    camera.SetForwardOnlyX(true);
+    camera.SnapTo({500.0f, 300.0f});
+    camera.Follow({400.0f, 300.0f}, 1.0f / 60.0f);
+    check(std::fabs(camera.Position().x - 500.0f) < 1e-3f,
+          "camera forward-only: a left target is ignored");
+    camera.Follow({700.0f, 300.0f}, 1.0f / 60.0f);
+    check(std::fabs(camera.Position().x - 600.0f) < 1e-3f,
+          "camera forward-only: a right target still scrolls");
+    camera.SetForwardOnlyX(false);
+
+    std::printf("[timestep] %s: %d checks, %d failures\n",
+                failures == 0 ? "PASS" : "FAILED", checks, failures);
+    return failures == 0 ? 0 : 1;
+}
+
 // Defined later in this translation unit (marble asset scaffolding); the
 // object-layer test regenerates mario.json to check the production pipeline.
 void EnsureMarioAssets(bool regen);
@@ -2397,6 +2549,7 @@ int main(int argc, char **argv) {
     bool phys_query = false;
     bool phys_filter = false;
     bool map_object = false;
+    bool timestep_test = false;
     int max_frames = 0;
     int shot_frame = 30;
     std::string screenshot;
@@ -2458,6 +2611,19 @@ int main(int argc, char **argv) {
             cfg.headless = true;
             cfg.script_entry.clear();
             cfg.vsync = false;
+        } else if (arg == "--timestep-test") {
+            // Headless self-test of the fixed-step accumulator and the camera
+            // follow / bounds helpers.
+            timestep_test = true;
+            cfg.headless = true;
+            cfg.script_entry.clear();
+            cfg.vsync = false;
+        } else if (arg == "--fixed-hz" && i + 1 < argc) {
+            // Physics rate; 0 (or --variable-step) restores variable stepping.
+            const int hz = std::atoi(argv[++i]);
+            cfg.fixed_dt = hz > 0 ? 1.0f / static_cast<float>(hz) : 0.0f;
+        } else if (arg == "--variable-step") {
+            cfg.fixed_dt = 0.0f;
         } else if (arg == "--entry" && i + 1 < argc) {
             // Dev/test hook: run an arbitrary script instead of a demo.
             cfg.script_entry = argv[++i];
@@ -2486,6 +2652,9 @@ int main(int argc, char **argv) {
     }
     if (map_object) {
         return RunMapObjectTest(engine);
+    }
+    if (timestep_test) {
+        return RunTimestepTest(engine);
     }
 
     // All gameplay is pure Lua below; C++ only guarantees the binary asset

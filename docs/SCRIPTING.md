@@ -245,9 +245,13 @@ textured batch once; group bursts and call `part_draw()` at one point.
 
 ### Camera
 
+`camera_x()` / `camera_y()` return the **top-left** of the visible world rect
+(not its center), so `draw_quad(camera_x(), camera_y(), camera_viewport_w(),
+camera_viewport_h(), ...)` paints exactly the visible area.
+
 | Function | Description |
 |---|---|
-| `camera_set_position(x, y)` / `camera_move(dx, dy)` | Pan the world. |
+| `camera_set_position(x, y)` / `camera_move(dx, dy)` | Pan the world (top-left semantics; never clamped). |
 | `camera_set_zoom(z)` | `> 1` zooms in, `< 1` out. |
 | `camera_set_rotation(rad)` | Rotate the view around its center. |
 | `camera_x() / camera_y() / camera_zoom() / camera_rotation()` | Current values. |
@@ -255,6 +259,34 @@ textured batch once; group bursts and call `part_draw()` at one point.
 | `camera_world_to_screen_x(wx, wy) -> x` / `camera_world_to_screen_y(wx, wy) -> y` | World → screen. |
 | `camera_viewport_w() / camera_viewport_h()` | Viewport size in pixels (for clamping follow cameras / world HUDs). |
 | `camera_shake(trauma)` | Add trauma 0..1; shake scales with trauma² and decays automatically. |
+
+#### Follow & bounds
+
+The engine owns the common follow-camera math; scripts supply the target only.
+
+| Function | Description |
+|---|---|
+| `camera_set_bounds(x, y, w, h)` | World rectangle the view may never leave (the top-left position is clamped; a level smaller than the view on an axis is centred on it). |
+| `camera_clear_bounds()` | Remove the clamp. |
+| `camera_deadzone(hw, hh)` | Half-size of a box around the view centre: a target inside it does not move the camera (0 = track tightly). |
+| `camera_smoothing(rate)` | Exponential follow rate (higher = snappier); 0 snaps instantly. Frame-rate independent. |
+| `camera_forward_only(bool)` | SMB scroll lock: while following, the camera never moves left. `camera_snap` / `camera_set_position` still move freely, so level resets work. |
+| `camera_follow(x, y)` | Track a world point (usually the player centre) with deadzone + smoothing, then clamp to bounds. The engine supplies the frame delta. |
+| `camera_snap(x, y)` | Jump straight to a position (still clamped to bounds). |
+
+```lua
+-- platformer-style follow, clamped to the level:
+camera_smoothing(10.0)
+camera_set_bounds(0.0, 0.0, map_w, map_h)
+camera_follow(player_cx, player_cy)
+
+-- SMB 1-1 style scroll: never scrolls back, snaps instantly:
+camera_forward_only(true)
+camera_smoothing(0.0)
+camera_set_bounds(0.0, 0.0, map_w, map_h)
+camera_follow(player_cx, player_cy)
+camera_snap(0.0, 0.0)   -- on every level reset
+```
 
 ### Input (per-frame snapshot)
 
@@ -312,12 +344,19 @@ All four are safe no-ops in headless/CI runs (no window surface exists).
 | `time_delta()` | Seconds since the previous frame (same value as `dt`). |
 | `time_elapsed()` | Seconds since `Engine::Init`. |
 | `time_frame()` | Frame index (0-based counter). |
+| `time_sim_dt()` | The physics step actually simulated: the fixed step (default 1/60), or the frame delta when fixed stepping is off (`--variable-step`). |
+| `time_steps()` | How many physics steps ran this frame (0 when the accumulator had not reached a whole step yet). |
+| `time_alpha()` | Render interpolation factor [0,1] between the last two physics steps (1 = no interpolation). |
 
 ### Physics
 
-A tiny built-in arcade physics world, auto-stepped once per frame before
-`update` (4 substeps, semi-implicit Euler). Bodies are circles or AABBs,
-static or dynamic, with gravity scale and restitution. This is not Box2D:
+A tiny built-in arcade physics world, auto-stepped before `update` with a
+**fixed timestep** (accumulator + spiral-of-death guard, 4 substeps per step,
+semi-implicit Euler): the simulation advances in whole 1/60 s increments no
+matter the frame rate, so results never depend on how fast frames render.
+Frames that do not reach a whole step still refresh the contact buffers with
+a zero-dt pass. Bodies are circles or AABBs, static or dynamic, with gravity
+scale and restitution. This is not Box2D:
 there are no joints or continuous collision, but zero external dependencies
 and zero per-frame allocations.
 
@@ -331,6 +370,7 @@ and zero per-frame allocations.
 | `phys_set_pos / phys_set_vel(id, x, y)` | Teleport / set velocity. |
 | `phys_set_user(id, n)` | Game tag (e.g. a brick index) surfaced on contacts. |
 | `phys_x / phys_y / phys_vx / phys_vy(id) -> n` | Current state, read after the engine stepped. |
+| `phys_smooth_x / phys_smooth_y(id) -> n` | Render-interpolated position between the last two fixed steps (`time_alpha()`); equals `phys_x`/`phys_y` when no step was skipped. Draw sprites with these to remove fixed-step judder. |
 | `phys_destroy(id)` | Remove a body. |
 | `phys_gravity(gx, gy)` | World gravity (default `0, 900`). |
 | `phys_contact_count() -> n` | Pairs that **began** touching this step. |

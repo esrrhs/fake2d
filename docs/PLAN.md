@@ -167,6 +167,16 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 - [x] `scripts/phys_test.lua` extended with the same surface through real bindings: an intentionally overlapping filtered pair (mismatch → no began contact across 15 frames), masked ray/overlap reads, then `phys_set_mask` widening → the pair reports began; new log codes 1050–1059 (assertions) and 2004–2006 (final tally)
 - [x] CI: `--phys-filter-test` runs alongside `--phys-query-test` on Linux, macOS (CGL headless) and Windows (Mesa llvmpipe)
 
+## Phase 16 — Fixed timestep & camera tooling (1.10.x)
+
+- [x] Fixed-step physics accumulator in the engine loop (`EngineConfig::fixed_dt`, default 1/60, `max_physics_steps` spiral-of-death guard, frame-delta clamp): the simulation advances in whole steps regardless of frame rate; `--fixed-hz N` / `--variable-step` CLI overrides
+- [x] Zero-dt contact-only pass in `PhysicsWorld::Step`: frames that skip a whole step still report a correct began/stayed/ended set (no stale or replayed events); script teleports are picked up too
+- [x] Render interpolation source: bodies keep their previous step position, `PhysicsWorld::SetInterpAlpha` + `SmoothPosition`, Lua `phys_smooth_x` / `phys_smooth_y`; engine introspection `time_sim_dt` / `time_steps` / `time_alpha`
+- [x] Camera follow toolkit on `Camera2D` (documented top-left position semantics): world bounds clamp (`SetBounds`, level-smaller-than-view centring), follow deadzone, frame-rate-independent exponential smoothing, SMB-style forward-only scroll lock, `SnapTo` for level resets
+- [x] 8 Lua bindings: `camera_set_bounds` / `camera_clear_bounds` / `camera_deadzone` / `camera_smoothing` / `camera_forward_only` / `camera_follow` / `camera_snap` (+ existing position getters reused as readback)
+- [x] Demo migration: platformer uses smoothed engine follow + bounds; mario and slope use the forward-only scroll lock (behaviour-identical to their hand-rolled SMB rules, verified by screenshot); every reset snaps the camera back
+- [x] `--timestep-test`: headless C++ self-test, 23 assertions (zero-dt pass semantics incl. teleport ended events, interpolation alpha endpoints/midpoint/clamp/stale handles, bounds clamping both corners + centring, deadzone hold/catch-up/settle, rate-0 snap, forward-only lock)
+
 ---
 
 ## Non-goals (for now)

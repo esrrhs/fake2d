@@ -108,7 +108,25 @@ public:
     /// Advance the simulation; afterward Contacts() lists newly begun pairs,
     /// StayedContacts() pairs still touching, EndedContacts() pairs that
     /// separated during this step.
+    ///
+    /// `dt == 0` performs a contact-only pass: no integration and no response,
+    /// but the lifecycle buffers are recomputed against the current snapshot.
+    /// A host running a fixed-step accumulator uses it on frames where the
+    /// accumulator has not reached a full step yet, so scripts still see a
+    /// correct began/stayed/ended set instead of a stale one.
     void Step(float dt);
+
+    /// Interpolation factor in [0,1] between the last two fixed steps; hosts
+    /// set it once per frame (1 = no interpolation, i.e. latest state).
+    void SetInterpAlpha(float alpha) {
+        interp_alpha_ = alpha < 0.0f ? 0.0f : (alpha > 1.0f ? 1.0f : alpha);
+    }
+    [[nodiscard]] float InterpAlpha() const { return interp_alpha_; }
+
+    /// Position of a body interpolated from its previous step toward the
+    /// current one (see SetInterpAlpha). Returns the raw position for stale
+    /// handles or when interpolation is off.
+    [[nodiscard]] Vec2 SmoothPosition(BodyId id) const;
 
     /// Pairs that began touching during the most recent Step.
     [[nodiscard]] const std::vector<ContactEvent> &Contacts() const { return contacts_; }
@@ -164,6 +182,9 @@ public:
 private:
     struct Body {
         BodyConfig cfg;
+        /// Position at the start of the last advancing step; used to render
+        /// interpolated transforms between fixed steps.
+        Vec2 prev_position{0.0f, 0.0f};
         std::uint32_t generation = 1;
         bool alive = false;
     };
@@ -218,6 +239,7 @@ private:
     bool use_grid_ = true;
     bool has_ray_hit_ = false;
     float cell_size_ = 64.0f;
+    float interp_alpha_ = 1.0f;
     std::size_t live_ = 0;
 };
 

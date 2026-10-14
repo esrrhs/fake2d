@@ -85,6 +85,11 @@ local function spawn()
     cut_used = false
     win_timer = -1
     coins = 0
+    -- Engine camera: snappy smoothed follow, reset with the level.
+    camera_smoothing(10.0)
+    camera_deadzone(0.0, 0.0)
+    camera_forward_only(false)
+    camera_snap(px + HALF_W, py + HALF_H)
     -- Restore collectibles from their known level positions.
     for i = 1, N_COINS do
         map_set_tile(map_id, coin_col(i), coin_row(i), G_COIN)
@@ -399,20 +404,13 @@ function update(dt)
         if win_timer > 180 then spawn() end
     end
 
-    -- follow camera (clamped to map bounds; the clamp bounds are computed
-    -- here because map_w/map_h depend on cols*rows*tile, not because of any
-    -- codegen constraint)
+    -- follow camera, now engine-owned: the view is clamped to the map bounds
+    -- (bounds are computed here because map_w/map_h depend on cols*rows*tile)
+    -- and smoothly tracks the player centre.
     local vw, vh = camera_viewport_w(), camera_viewport_h()
-    local map_w, map_h = cols * tile, rows * tile
-    local max_x = map_w - vw
-    if max_x < 0.0 then max_x = 0.0 end
-    local max_y = map_h - vh
-    if max_y < -20.0 then max_y = -20.0 end
-    local want_x = cx - vw * 0.5
-    local want_y = cy - vh * 0.55
-    local cam_x = clampf(want_x, 0.0, max_x)
-    local cam_y = clampf(want_y, -20.0, max_y)
-    camera_set_position(cam_x, cam_y)
+    camera_set_bounds(0.0, -20.0, cols * tile, rows * tile + 20.0)
+    camera_follow(cx, cy - vh * 0.05)
+    local cam_x, cam_y = camera_x(), camera_y()
 
     map_draw(map_id)
     -- mirror the right-facing art when walking left; the engine clip is
