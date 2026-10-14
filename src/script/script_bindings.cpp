@@ -1043,6 +1043,78 @@ void RegisterTextApi(fakelua::State *state, Engine *engine) {
                 return static_cast<double>(
                     engine->GetRenderer().MeasureText(text, static_cast<float>(scale)));
             }));
+
+    // Aligned, word-wrapped text. align: 0 left / 1 center / 2 right; the box
+    // top-left is (x, y) and its width is wrap_w (0 = single line, aligned
+    // around x). Returns the y just below the last line.
+    fakelua::RegisterNativeFunction(
+        state, "draw_text_ex", false,
+        std::function<double(fakelua::State *, std::string_view, double, double, double,
+                             double, double, double, double, std::int64_t, double)>(
+            [engine](fakelua::State *, std::string_view text, double x, double y, double scale,
+                     double r, double g, double b, double a, std::int64_t align,
+                     double wrap_w) -> double {
+                return static_cast<double>(engine->GetRenderer().DrawTextEx(
+                    text, static_cast<float>(x), static_cast<float>(y),
+                    static_cast<float>(scale), static_cast<int>(align),
+                    static_cast<float>(wrap_w),
+                    Color{static_cast<float>(r), static_cast<float>(g),
+                          static_cast<float>(b), static_cast<float>(a)}));
+            }));
+
+    // Nine-slice panel: corners keep their source pixel size, edges/center
+    // stretch (dialog frames at any size without blur).
+    const auto nine_slice = [engine](fakelua::State *, std::int64_t handle, double sx,
+                                     double sy, double sw,
+                                     double sh, double dx, double dy, double dw, double dh,
+                                     double cx, double cy, double r, double g, double b,
+                                     double a) {
+        const Texture2D *texture =
+            engine->GetResources().GetTexture(ResolveTexture(handle));
+        if (texture) {
+            engine->GetRenderer().DrawNineSlice(
+                *texture,
+                Rect{static_cast<float>(sx), static_cast<float>(sy),
+                     static_cast<float>(sw), static_cast<float>(sh)},
+                Rect{static_cast<float>(dx), static_cast<float>(dy),
+                     static_cast<float>(dw), static_cast<float>(dh)},
+                static_cast<float>(cx), static_cast<float>(cy),
+                Color{static_cast<float>(r), static_cast<float>(g),
+                      static_cast<float>(b), static_cast<float>(a)});
+        }
+    };
+    fakelua::RegisterNativeFunction(
+        state, "draw_nine_slice", false,
+        std::function<void(fakelua::State *, std::int64_t, double, double, double, double,
+                           double, double, double, double, double, double, double, double,
+                           double, double)>(nine_slice));
+    // Untinted convenience overload.
+    fakelua::RegisterNativeFunction(
+        state, "draw_nine_slice_white", false,
+        std::function<void(fakelua::State *, std::int64_t, double, double, double, double,
+                           double, double, double, double, double, double)>(
+            [nine_slice](fakelua::State *s, std::int64_t handle, double sx, double sy,
+                         double sw, double sh, double dx, double dy, double dw, double dh,
+                         double cx, double cy) {
+                nine_slice(s, handle, sx, sy, sw, sh, dx, dy, dw, dh, cx, cy,
+                           1.0, 1.0, 1.0, 1.0);
+            }));
+
+    // Scissor clip in logical points (top-left origin); cleared each frame.
+    fakelua::RegisterNativeFunction(
+        state, "draw_set_clip", false,
+        std::function<void(fakelua::State *, double, double, double, double)>(
+            [engine](fakelua::State *, double x, double y, double w, double h) {
+                engine->GetRenderer().SetClipRect(Rect{
+                    static_cast<float>(x), static_cast<float>(y),
+                    static_cast<float>(w), static_cast<float>(h)});
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "draw_clear_clip", false,
+        std::function<void(fakelua::State *)>([engine](fakelua::State *) {
+            engine->GetRenderer().ClearClipRect();
+        }));
 }
 
 void RegisterAudioApi(fakelua::State *state, Engine *engine) {

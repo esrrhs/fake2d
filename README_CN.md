@@ -7,7 +7,7 @@
 
 **Fake2D** 是基于 [FakeLua](https://github.com/esrrhs/fakelua) 的现代化轻量 2D 游戏渲染引擎：C++ 宿主掌控窗口、GPU 资源与场景数据；FakeLua 脚本负责编排玩法与实体逻辑，并在每帧边界执行 Arena 线性重置（**零 GC 停顿**）。
 
-> 当前状态：**1.10 — Phase 16 固定步长与相机工具已完成** — 已包含 1.9 及之前的全部能力（category/mask 碰撞过滤、Tiled 对象层、物理查询、GL2 兼容路径、自带依赖的发布包），并新增**固定步长物理累加器**（仿真与帧率无关，跳帧时用零步长刷新接触缓冲，`phys_smooth_x/y` 与 `time_alpha` 提供渲染插值）和引擎内置的**跟随相机**（世界边界钳制、死区、指数平滑、SMB 式只进不退滚动锁）。详见下方[实现计划](#实现计划)、[docs/PLAN.md](docs/PLAN.md)、[脚本编写指南](docs/SCRIPTING.md) 与[跨平台打包说明](docs/PACKAGING.md)。
+> 当前状态：**1.11 — Phase 17 裁剪、九宫格与文本排版已完成** — 已包含 1.10 及之前的全部能力（固定步长物理、相机跟随工具、碰撞过滤、Tiled 对象层、物理查询），并新增**剪裁矩形**（`draw_set_clip`，精确到 flush 边界的语义）、**九宫格面板**（`draw_nine_slice`，任意尺寸拉伸对话框不糊角）与**对齐自动换行文本**（`draw_text_ex`，支持段落堆叠）。详见下方[实现计划](#实现计划)、[docs/PLAN.md](docs/PLAN.md)、[脚本编写指南](docs/SCRIPTING.md) 与[跨平台打包说明](docs/PACKAGING.md)。
 
 ---
 
@@ -211,6 +211,7 @@ end
 | **14 — Tiled 对象层 (1.8)** | 数据化关卡 | `objectgroup` 解析（矩形/点/椭圆/折线/多边形 + 自定义属性）、`map_find_layer` / `map_layer_type` / `map_obj_*` 查询；马里奥刷怪从标记瓦片迁移到对象层 | **已完成** |
 | **15 — 碰撞过滤 (1.9)** | 碰撞控制 | 每个刚体的 16 位 `category` / `mask`，宽相阶段即过滤；带掩码的射线与重叠查询；`phys_create_*_cat` / `phys_set_category` / `phys_set_mask` / `phys_*_cat` 绑定；`--phys-filter-test` | **已完成** |
 | **16 — 固定步长与相机工具 (1.10)** | 确定性与相机 | 固定步长物理累加器（与帧率无关、零步长接触刷新、`phys_smooth_*` 渲染插值、`time_sim_dt/steps/alpha`），Camera2D 跟随工具（边界钳制 / 死区 / 平滑 / 只进不退滚动锁 / snap）共 8 个 Lua 绑定；马里奥、斜坡与平台 Demo 全部迁移其上；`--timestep-test` | **已完成** |
+| **17 — 裁剪、九宫格与文本排版 (1.11)** | 表现力 | `draw_set_clip` 剪裁矩形（精确 flush 边界语义）、`draw_nine_slice` 拉伸面板、`draw_text_ex` 对齐换行文本与 `end_y` 段落堆叠；FBO 渲染目标与更多 UI 控件顺延 | **已完成** |
 
 详细任务清单见 [docs/PLAN.md](docs/PLAN.md)。
 

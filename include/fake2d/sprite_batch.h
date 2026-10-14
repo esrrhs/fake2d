@@ -80,6 +80,22 @@ public:
     void DrawVertices(const Texture2D &texture, const Vec2 corners[4], const Vec2 uvs[4],
                       const Color &tint = Color::White());
 
+    /// Nine-slice panel: the four `corner_x`/`corner_y` source corners keep
+    /// their pixel size on screen, the edges stretch along one axis and the
+    /// center stretches both — dialog/frame art at any output size without
+    /// blur. Drawn as 9 ordinary quads, so batching, sorting and shaders all
+    /// behave exactly as for sprites.
+    void DrawNineSlice(const Texture2D &texture, const Rect &src, const Rect &dst,
+                       float corner_x, float corner_y, const Color &tint = Color::White());
+
+    // --- scissor clipping ----------------------------------------------------
+    /// Restrict drawing to a rectangle in GL window coordinates (physical
+    /// pixels, bottom-left origin). Applied around every flush; an empty rect
+    /// (default) draws unclipped. The host clears it each frame.
+    void SetClipRectPhysical(const Rect &rect) { clip_ = rect; clip_active_ = rect.width > 0.0f && rect.height > 0.0f; }
+    void ClearClipRect() { clip_active_ = false; }
+    [[nodiscard]] bool ClipActive() const { return clip_active_; }
+
     // --- line primitives (GL_LINES, flushed after quads at End) ---
     void DrawLine(const Vec2 &a, const Vec2 &b, const Color &color);
     void DrawRectOutline(const Rect &rect, const Color &color);
@@ -108,6 +124,10 @@ private:
     void FlushImmediate();
     void FlushSorted();
     static void ApplyBlend(BlendMode mode);
+    /// glEnable(GL_SCISSOR_TEST) + glScissor for the active clip rect.
+    void ApplyClip() const;
+    /// glDisable(GL_SCISSOR_TEST).
+    static void RestoreClip();
     // GL2 (no-VAO) paths: re-specify the fixed-layout attribute pointers
     // with the matching vertex buffer already bound to GL_ARRAY_BUFFER.
     void ConfigureQuadAttribs();
@@ -137,6 +157,9 @@ private:
     float current_z_ = 0.0f;
     BlendMode current_blend_ = BlendMode::Alpha;
     BlendMode pending_blend_ = BlendMode::Alpha; // blend of the unflushed run
+
+    Rect clip_{};
+    bool clip_active_ = false;
 
     Mat4 current_view_projection_;
     Shader *current_shader_ = nullptr;

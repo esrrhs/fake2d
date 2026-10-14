@@ -56,6 +56,17 @@ public:
                    float x, float y, float scale = 1.0f,
                    const Color &tint = Color::White()) const;
 
+    /// Alignment for DrawTextEx: 0 = left, 1 = centered, 2 = right.
+    enum TextAlign { AlignLeft = 0, AlignCenter = 1, AlignRight = 2 };
+
+    /// Aligned, word-wrapped text. (x, y) is the top-left of the layout box
+    /// (width = wrap_width); align places each line inside the box. A single
+    /// word longer than wrap_width still occupies its own line. Returns the y
+    /// just below the last line (next line's top).
+    float DrawTextEx(SpriteBatch &batch, std::string_view text,
+                     float x, float y, float scale, int align, float wrap_width,
+                     const Color &tint = Color::White()) const;
+
 private:
     struct Glyph {
         Rect atlas;        // pixel rect in the atlas

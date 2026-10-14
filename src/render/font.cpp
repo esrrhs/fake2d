@@ -246,4 +246,77 @@ float Font::DrawText(SpriteBatch &batch, std::string_view text,
     return pen_x;
 }
 
+float Font::DrawTextEx(SpriteBatch &batch, std::string_view text,
+                       float x, float y, float scale, int align, float wrap_width,
+                       const Color &tint) const {
+    if (!texture_.IsValid()) {
+        return y;
+    }
+
+    if (wrap_width <= 0.0f) {
+        // No wrapping: align the single line around x, then return.
+        const float w = MeasureText(text) * scale;
+        float ox = 0.0f;
+        if (align == AlignCenter) {
+            ox = -w * 0.5f;
+        } else if (align == AlignRight) {
+            ox = -w;
+        }
+        DrawText(batch, text, x + ox, y, scale, tint);
+        return y + line_height_ * scale;
+    }
+
+    const float lh = line_height_ * scale;
+    const float space_w = MeasureText(" ") * scale;
+    const std::size_t n = text.size();
+    float pen_y = y;
+    std::size_t i = 0;
+
+    while (i < n) {
+        // Greedy fill: pack words until the next one would overflow the box.
+        std::size_t line_end = i;   // exclusive end of the glyphs on this line
+        std::size_t resume = i;     // where the next line starts scanning
+        float line_w = 0.0f;
+        bool first = true;
+        std::size_t j = i;
+        while (j < n && text[j] != '\n') {
+            const std::size_t ws = j;
+            while (j < n && text[j] != ' ' && text[j] != '\n') {
+                ++j;
+            }
+            const float word_w = MeasureText(text.substr(ws, j - ws)) * scale;
+            if (!first && line_w + space_w + word_w > wrap_width) {
+                break; // the word starts the next line
+            }
+            if (!first) {
+                line_w += space_w;
+            }
+            line_w += word_w;
+            line_end = j;
+            first = false;
+            if (j < n && text[j] == ' ') {
+                ++j; // consumed with the word
+            }
+            resume = j;
+        }
+        if (j < n && text[j] == '\n') {
+            resume = j + 1;
+        }
+
+        const std::string_view line = text.substr(i, line_end - i);
+        const float w = MeasureText(line) * scale;
+        float ox = 0.0f;
+        if (align == AlignCenter) {
+            ox = (wrap_width - w) * 0.5f;
+        } else if (align == AlignRight) {
+            ox = wrap_width - w;
+        }
+        DrawText(batch, line, x + ox, pen_y, scale, tint);
+        pen_y += lh;
+
+        i = resume > i ? resume : i + 1; // always make progress
+    }
+    return pen_y;
+}
+
 } // namespace fake2d
