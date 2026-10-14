@@ -60,6 +60,7 @@ void Renderer::BeginFrame(float r, float g, float b, float a) {
 
     active_shader_ = nullptr;
     batch_.ResetStats();
+    batch_.ClearClipRect();
     batch_.Begin(camera_.ViewProjectionMatrix());
 }
 
@@ -204,12 +205,55 @@ void Renderer::DrawSpriteRotated(const Texture2D &texture, const Rect &src, cons
     batch_.DrawSpriteRotated(texture, src, dst, angle_rad, origin, tint);
 }
 
+void Renderer::DrawNineSlice(const Texture2D &texture, const Rect &src, const Rect &dst,
+                             float corner_x, float corner_y, const Color &tint) {
+    batch_.DrawNineSlice(texture, src, dst, corner_x, corner_y, tint);
+}
+
 bool Renderer::LoadDefaultFont(float pixel_height) {
     return font_.LoadDefault(pixel_height);
 }
 
 float Renderer::DrawText(std::string_view text, float x, float y, float scale, const Color &tint) {
     return font_.DrawText(batch_, text, x, y, scale, tint);
+}
+
+float Renderer::DrawTextEx(std::string_view text, float x, float y, float scale,
+                           int align, float wrap_width, const Color &tint) {
+    return font_.DrawTextEx(batch_, text, x, y, scale, align, wrap_width, tint);
+}
+
+void Renderer::SetClipRect(const Rect &points_rect) {
+    if (!ready_) {
+        return;
+    }
+    // Clip state is sampled at flush time, but quads/lines may sit buffered
+    // across the boundary — flush first so a rect only ever clips the draws
+    // submitted while it is active.
+    batch_.Flush();
+    batch_.FlushLines();
+    if (points_rect.width <= 0.0f || points_rect.height <= 0.0f) {
+        batch_.ClearClipRect();
+        return;
+    }
+    // Logical points (top-left origin) -> GL window coords (physical pixels,
+    // bottom-left origin). zoom/rotation are not baked in: clip UI in screen
+    // space, or convert world rects via camera_world_to_screen first.
+    const float cs = camera_.ContentScale();
+    batch_.SetClipRectPhysical(Rect{
+        points_rect.x * cs,
+        static_cast<float>(height_) - (points_rect.y + points_rect.height) * cs,
+        points_rect.width * cs,
+        points_rect.height * cs});
+}
+
+void Renderer::ClearClipRect() {
+    if (!ready_) {
+        return;
+    }
+    batch_.Flush();
+    batch_.FlushLines();
+    batch_.ClearClipRect();
 }
 
 float Renderer::MeasureText(std::string_view text, float scale) const {

@@ -224,6 +224,21 @@ void SpriteBatch::Flush() {
     }
 }
 
+void SpriteBatch::ApplyClip() const {
+    if (!clip_active_) {
+        return;
+    }
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(static_cast<GLint>(clip_.x), static_cast<GLint>(clip_.y),
+              static_cast<GLsizei>(clip_.width), static_cast<GLsizei>(clip_.height));
+}
+
+void SpriteBatch::RestoreClip() {
+    if (glIsEnabled(GL_SCISSOR_TEST)) {
+        glDisable(GL_SCISSOR_TEST);
+    }
+}
+
 void SpriteBatch::FlushImmediate() {
     if (current_quads_ == 0 || (!glcaps::legacy_mode && !vao_) || !current_shader_) {
         return;
@@ -250,7 +265,9 @@ void SpriteBatch::FlushImmediate() {
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo_);
     }
 
+    ApplyClip();
     glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(current_quads_ * 6), GL_UNSIGNED_INT, nullptr);
+    RestoreClip();
 
     glBindVertexArray(0);
     glBindTexture(GL_TEXTURE_2D, 0);
@@ -305,6 +322,7 @@ void SpriteBatch::FlushSorted() {
     std::uint32_t run_texture = commands_[0].texture_id;
     BlendMode run_blend = commands_[0].blend;
 
+    ApplyClip();
     const auto draw_run = [&](size_t run_end) {
         if (run_end == run_start) {
             return;
@@ -333,6 +351,7 @@ void SpriteBatch::FlushSorted() {
             }
         }
     }
+    RestoreClip();
 
     glBindVertexArray(0);
     glBindTexture(GL_TEXTURE_2D, 0);
@@ -459,6 +478,49 @@ void SpriteBatch::DrawSpriteRotated(const Texture2D &texture, const Rect &src, c
 
     RecordCommand(texture.Id());
     ++current_quads_;
+}
+
+void SpriteBatch::DrawNineSlice(const Texture2D &texture, const Rect &src, const Rect &dst,
+                                float corner_x, float corner_y, const Color &tint) {
+    // Corners never exceed half the source; output corners shrink to match
+    // tiny destination rects instead of drawing inside-out panels.
+    const float cx = std::min(corner_x, src.width * 0.5f);
+    const float cy = std::min(corner_y, src.height * 0.5f);
+    const float out_cx = std::min(cx, dst.width * 0.5f);
+    const float out_cy = std::min(cy, dst.height * 0.5f);
+
+    const float mx = src.x + cx;             // inner (stretchable) source x
+    const float my = src.y + cy;
+    const float mw = src.width - 2.0f * cx;
+    const float mh = src.height - 2.0f * cy;
+
+    const float x0 = dst.x;
+    const float x1 = dst.x + out_cx;
+    const float x2 = dst.x + dst.width - out_cx;
+    const float x3 = dst.x + dst.width;
+    const float y0 = dst.y;
+    const float y1 = dst.y + out_cy;
+    const float y2 = dst.y + dst.height - out_cy;
+    const float y3 = dst.y + dst.height;
+
+    // Four fixed-size corners.
+    DrawSprite(texture, Rect{src.x, src.y, cx, cy}, Rect{x0, y0, out_cx, out_cy}, tint);
+    DrawSprite(texture, Rect{mx + mw, src.y, cx, cy}, Rect{x2, y0, x3 - x2, out_cy}, tint);
+    DrawSprite(texture, Rect{src.x, my + mh, cx, cy}, Rect{x0, y2, out_cx, y3 - y2}, tint);
+    DrawSprite(texture, Rect{mx + mw, my + mh, cx, cy}, Rect{x2, y2, x3 - x2, y3 - y2}, tint);
+    // Stretchable edges.
+    if (x2 > x1 && mw > 0.0f) {
+        DrawSprite(texture, Rect{mx, src.y, mw, cy}, Rect{x1, y0, x2 - x1, out_cy}, tint);
+        DrawSprite(texture, Rect{mx, my + mh, mw, cy}, Rect{x1, y2, x2 - x1, y3 - y2}, tint);
+    }
+    if (y2 > y1 && mh > 0.0f) {
+        DrawSprite(texture, Rect{src.x, my, cx, mh}, Rect{x0, y1, out_cx, y2 - y1}, tint);
+        DrawSprite(texture, Rect{mx + mw, my, cx, mh}, Rect{x2, y1, x3 - x2, y2 - y1}, tint);
+    }
+    // Center.
+    if (x2 > x1 && y2 > y1 && mw > 0.0f && mh > 0.0f) {
+        DrawSprite(texture, Rect{mx, my, mw, mh}, Rect{x1, y1, x2 - x1, y2 - y1}, tint);
+    }
 }
 
 void SpriteBatch::DrawVertices(const Texture2D &texture, const Vec2 corners[4], const Vec2 uvs[4],

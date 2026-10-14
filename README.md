@@ -7,7 +7,7 @@
 
 **Fake2D** is a lightweight, modern 2D game rendering engine powered by [FakeLua](https://github.com/esrrhs/fakelua): C++ owns the window, GPU resources, and scene graph; FakeLua scripts orchestrate gameplay logic with a per-frame linear arena reset (**zero GC pauses**).
 
-> Status: **1.10 — Phase 16 fixed timestep & camera tooling complete** — everything through 1.9 (collision category/mask filters, Tiled object layers, physics query surface, GL2 compatibility path, self-contained release packaging), plus a **fixed-step physics accumulator** (frame-rate-independent simulation, zero-dt contact refresh on skipped frames, render interpolation via `phys_smooth_x/y` and `time_alpha`) and an engine-owned **follow camera** (world bounds clamp, deadzone, exponential smoothing, SMB forward-only scroll lock). See the [Implementation Plan](#implementation-plan), [docs/PLAN.md](docs/PLAN.md), the [Scripting Guide](docs/SCRIPTING.md), and [Packaging Notes](docs/PACKAGING.md).
+> Status: **1.11 — Phase 17 scissor, nine-slice & text layout complete** — everything through 1.10 (fixed-step physics, camera follow toolkit, collision filters, Tiled object layers, physics queries), plus **scissor clip rects** (`draw_set_clip`, exact flush-boundary semantics), **nine-slice panels** (`draw_nine_slice`, stretch any dialog frame without corner blur), and **aligned word-wrapped text** (`draw_text_ex` with block stacking). See the [Implementation Plan](#implementation-plan), [docs/PLAN.md](docs/PLAN.md), the [Scripting Guide](docs/SCRIPTING.md), and [Packaging Notes](docs/PACKAGING.md).
 
 ---
 
@@ -222,6 +222,7 @@ codegen constraints), and performance best practices live in the
 | **14 — Tiled object layers (1.8)** | Data-driven levels | `objectgroup` parsing (rect/point/ellipse/polyline/polygon + custom properties), `map_find_layer` / `map_layer_type` / `map_obj_*` queries; mario spawns migrated off marker tiles | **Done** |
 | **15 — Collision filtering (1.9)** | Collision control | Per-body 16-bit `category` / `mask` filtered in the broadphase, masked ray casts and overlaps, `phys_create_*_cat` / `phys_set_category` / `phys_set_mask` / `phys_*_cat` bindings, `--phys-filter-test` | **Done** |
 | **16 — Fixed timestep & camera tooling (1.10)** | Determinism & camera | Fixed-step physics accumulator (frame-rate-independent, zero-dt contact refresh, `phys_smooth_*` interpolation, `time_sim_dt/steps/alpha`), Camera2D follow toolkit (bounds clamp / deadzone / smoothing / forward-only scroll lock / snap) with 8 Lua bindings; mario, slope and platformer demos migrated onto it; `--timestep-test` | **Done** |
+| **17 — Scissor, nine-slice & text layout (1.11)** | Presentation | `draw_set_clip` scissor rects with exact flush-boundary semantics, `draw_nine_slice` stretch panels, `draw_text_ex` aligned word-wrapped text with `end_y` block stacking; FBO render targets and more UI widgets deferred | **Done** |
 
 Detailed checklist: [docs/PLAN.md](docs/PLAN.md).
 

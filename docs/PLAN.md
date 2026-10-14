@@ -177,6 +177,14 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 - [x] Demo migration: platformer uses smoothed engine follow + bounds; mario and slope use the forward-only scroll lock (behaviour-identical to their hand-rolled SMB rules, verified by screenshot); every reset snaps the camera back
 - [x] `--timestep-test`: headless C++ self-test, 23 assertions (zero-dt pass semantics incl. teleport ended events, interpolation alpha endpoints/midpoint/clamp/stale handles, bounds clamping both corners + centring, deadzone hold/catch-up/settle, rate-0 snap, forward-only lock)
 
+## Phase 17 — Scissor, nine-slice & text layout (1.11.x)
+
+- [x] Scissor clip rects: `SpriteBatch` applies `glScissor` around every flush (immediate and sorted runs); `Renderer::SetClipRect` converts logical points (top-left origin) to GL window coords per the HiDPI content scale, and setting/clearing flushes the pending batch first so the rect clips exactly the draws submitted while active; clip resets at `BeginFrame`
+- [x] Nine-slice panels: `SpriteBatch::DrawNineSlice` (corners keep source pixel size, edges stretch on one axis, center on both; degenerate rects shrink instead of drawing inside-out) drawn as 9 ordinary quads, so batching/sorting/shaders behave unchanged; `draw_nine_slice[_white]` bindings
+- [x] Text layout: `Font::DrawTextEx` with 0/1/2 left/center/right alignment and greedy word wrap (long words hard-place on their own line, `\n` honored), returning the y below the last line for block stacking; `draw_text_ex` binding
+- [x] Visual verification via headless screenshot probes: stretched dialog frame with wrapped/aligned text inside, a quad clipped to an exact sub-rect, and `end_y`-stacked text — pixel-checked on the Apple software renderer
+- [ ] Remaining scope for a later pass: render targets / FBO (post-processing, minimaps, split-screen), more UI widgets (slider / checkbox / text input / scroll container)
+
 ---
 
 ## Non-goals (for now)

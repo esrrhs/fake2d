@@ -177,14 +177,39 @@ Glyph quads go through the same `SpriteBatch` as everything else.
 |---|---|
 | `draw_text(text, x, y, scale, r, g, b, a)` | Draw `text` with top-left at `(x, y)`; `scale` multiplies the 28px raster size (`1.0` ≈ 28px tall). Returns the pen x after the last glyph. Channels 0–1. |
 | `text_width(text, scale) -> w` | Measured string width, for centering/right-align. |
+| `draw_text_ex(text, x, y, scale, r, g, b, a, align, wrap_w) -> end_y` | Aligned, word-wrapped text. `align`: 0 left / 1 center / 2 right; (x, y) is the top-left of the layout box and `wrap_w` its width (0 = a single line aligned around x). Returns the y just below the last line — stack blocks by feeding it back as y. |
 
 ```lua
 local w = text_width("YOU WIN!", 1.6)
 draw_text("YOU WIN!", W * 0.5 - w * 0.5, H * 0.5 - 30, 1.6, 1, 0.85, 0.35, 1)
+
+-- centered help block, 400px wide; the returned y stacks the next block:
+local y = draw_text_ex(help_text, 40.0, 60.0, 0.6, 1, 1, 1, 1, 1, 400.0)
+draw_text_ex("press ESC", 40.0, y + 8.0, 0.6, 1, 1, 1, 1, 1, 400.0)
 ```
 
 Only printable ASCII (space..tilde) is covered; unsupported glyphs are
 skipped. Number concatenation works directly: `"SCORE " .. score`.
+
+### Clipping & nine-slice panels
+
+| Function | Description |
+|---|---|
+| `draw_set_clip(x, y, w, h)` | Restrict drawing to a screen-space rectangle (logical points, top-left origin). Setting/clearing flushes the pending batch first, so the rect clips exactly the draws submitted while active. Cleared automatically each frame. |
+| `draw_clear_clip()` | Remove the clip. |
+| `draw_nine_slice_white(handle, sx, sy, sw, sh, dx, dy, dw, dh, cx, cy)` | Nine-slice panel from a texture region: the four `cx × cy` source corners keep their pixel size, edges stretch along one axis, the center stretches both — dialog frames at any size without corner blur. |
+| `draw_nine_slice(handle, ..., r, g, b, a)` | Same with a tint. |
+
+```lua
+-- dialog frame from a 48x48 panel texture with 12px corners:
+draw_nine_slice_white(panel, 0, 0, 48, 48, 40, 40, 400, 220, 12, 12)
+local y = draw_text_ex(body, 60, 60, 0.6, 0.1, 0.1, 0.1, 1, 0, 360.0)
+
+-- minimap viewport: clip everything between set/clear to the panel area
+draw_set_clip(map_x, map_y, map_w, map_h)
+draw_world_minimap()
+draw_clear_clip()
+```
 
 ### Audio
 

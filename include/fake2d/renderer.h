@@ -80,6 +80,18 @@ public:
     void DrawSpriteRotated(const Texture2D &texture, const Rect &src, const Rect &dst,
                            float angle_rad, const Vec2 &origin, const Color &tint = Color::White());
 
+    /// Nine-slice panel (see SpriteBatch::DrawNineSlice): corners keep their
+    /// source pixel size, edges/center stretch.
+    void DrawNineSlice(const Texture2D &texture, const Rect &src, const Rect &dst,
+                       float corner_x, float corner_y, const Color &tint = Color::White());
+
+    // --- scissor clipping ----------------------------------------------------
+    /// Restrict all drawing to a rectangle in logical points (top-left
+    /// origin, like every game coordinate). Cleared at the start of each
+    /// frame; nest manually if you need stacked regions.
+    void SetClipRect(const Rect &points_rect);
+    void ClearClipRect();
+
     // --- text (glyph quads are submitted into the same SpriteBatch) ---
     /// Rasterize the default font (system TTF, embedded 8x8 as fallback) at
     /// pixel_height. Called automatically at Init; safe to call again later.
@@ -90,6 +102,10 @@ public:
     /// pixel height. Returns the pen x after the last glyph.
     float DrawText(std::string_view text, float x, float y, float scale = 1.0f,
                    const Color &tint = Color::White());
+    /// Aligned, word-wrapped text (see Font::DrawTextEx). Returns the y just
+    /// below the last line.
+    float DrawTextEx(std::string_view text, float x, float y, float scale,
+                     int align, float wrap_width, const Color &tint = Color::White());
     /// Width of text at the given scale.
     [[nodiscard]] float MeasureText(std::string_view text, float scale = 1.0f) const;
 
