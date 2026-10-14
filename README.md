@@ -7,7 +7,7 @@
 
 **Fake2D** is a lightweight, modern 2D game rendering engine powered by [FakeLua](https://github.com/esrrhs/fakelua): C++ owns the window, GPU resources, and scene graph; FakeLua scripts orchestrate gameplay logic with a per-frame linear arena reset (**zero GC pauses**).
 
-> Status: **1.5 — Phase 10 character clips in the engine animator complete** — everything in 1.4 (gamepad, mirroring, window control, walk-cycle strips), plus script control of the frame-animation system (`anim_pause`/`anim_resume`/`anim_set_frame`/`anim_frame_index`) and `anim_draw_flip` for UV-mirrored clip drawing; the mario players (small/big) and every Goomba now animate through engine-owned clips — gameplay state pins the frame, the animator owns clip/timing, and per-entity clips are destroyed with their entities — and the platformer/slope characters use the same paused-clip pattern. See the [Implementation Plan](#implementation-plan), [docs/PLAN.md](docs/PLAN.md), the [Scripting Guide](docs/SCRIPTING.md), and [Packaging Notes](docs/PACKAGING.md).
+> Status: **1.9 — Phase 15 collision filtering complete** — everything through 1.8 (self-contained release packaging, GL2 compatibility path, physics ray casts / overlaps / full contact lifecycle, Tiled object layers for data-driven spawns & zones), plus 16-bit **category/mask collision filters** on every body: mismatched pairs never collide or report contacts, masked `phys_raycast_cat` / `phys_overlap_*_cat` queries skip whole buckets, and widening a mask at runtime re-enables an already-overlapping pair. See the [Implementation Plan](#implementation-plan), [docs/PLAN.md](docs/PLAN.md), the [Scripting Guide](docs/SCRIPTING.md), and [Packaging Notes](docs/PACKAGING.md).
 
 ---
 
@@ -153,6 +153,10 @@ cmake --build build --parallel
 
 # Physics broadphase benchmark (brute force vs spatial hash grid):
 ./build/bin/fake2d_hello --headless --phys-bench
+
+# Physics self-tests (CPU only, exit code + assertion summary):
+./build/bin/fake2d_hello --phys-query-test    # ray casts / overlaps / contacts
+./build/bin/fake2d_hello --phys-filter-test   # category & mask collision filtering
 ```
 
 Window-only skeleton build (without FakeLua, useful for rapid engine-only testing):
@@ -207,6 +211,11 @@ codegen constraints), and performance best practices live in the
 | **8 — Engine Gaps & Mario (1.3)** | Completeness | Tilemap slopes (`map_ground_y`, `map_slope_rise`, `--slope-demo`), Tiled parallax + image layers, `SaveStore` (`storage_*`), `EntityStore` (`ent_*`), custom shader slots (`shader_*`), SMB 1-1 `--mario-demo` | **Done** |
 | **9 — Gamepad / mirroring / window / character animation (1.4)** | Playability | Sprite UV mirroring (`sprite_draw_flip`), GLFW standard-mapping gamepads (`input_pad_*`, dead-zone/trigger remap/hot-unplug), `window_quit` / title / fullscreen; procedurally derived idle/stride/air sprite strips plus Goomba waddle; facing fixes, walk cycles and controller support across all three gameplay demos | **Done** |
 | **10 — Character clips in the engine animator (1.5)** | Engine reuse | `anim_pause` / `anim_resume` / `anim_set_frame` / `anim_frame_index` script control, `anim_draw_flip` UV mirroring; mario (player small/big + one waddle clip per Goomba) and platformer/slope characters migrated from hand-rolled strip math onto engine-owned clips | **Done** |
+| **11 — Self-contained release pipeline (1.5)** | Distribution | `tools/package-{macos,linux,windows}.sh` build no-compiler archives with bundled libfakelua/OpenSSL, `scripts/`, shaders and demo maps; Linux/Windows packagers pending first-tag end-to-end confirmation | **Done** |
+| **12 — GL2 compatibility path (1.6)** | Reach | Runtime GL context ladder (core 3.3 → legacy 2.1 → macOS headless CGL + offscreen FBO), GLSL 120 shader variants, `GL_LUMINANCE` uploads, NPOT clamp; macOS GPU smoke now runs on the Apple Software Renderer | **Done** |
+| **13 — Physics query surface (1.7)** | Gameplay queries | `RayCast` (circles + AABBs, normals, interior starts), `OverlapCircle` / `OverlapBox`, full began/stayed/ended contact lifecycle, 17 Lua bindings, `--phys-query-test` | **Done** |
+| **14 — Tiled object layers (1.8)** | Data-driven levels | `objectgroup` parsing (rect/point/ellipse/polyline/polygon + custom properties), `map_find_layer` / `map_layer_type` / `map_obj_*` queries; mario spawns migrated off marker tiles | **Done** |
+| **15 — Collision filtering (1.9)** | Collision control | Per-body 16-bit `category` / `mask` filtered in the broadphase, masked ray casts and overlaps, `phys_create_*_cat` / `phys_set_category` / `phys_set_mask` / `phys_*_cat` bindings, `--phys-filter-test` | **Done** |
 
 Detailed checklist: [docs/PLAN.md](docs/PLAN.md).
 

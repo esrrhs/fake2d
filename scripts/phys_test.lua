@@ -1,9 +1,13 @@
--- Phase 13 physics-query binding test.
+-- Phase 13/15 physics binding test: query surface + collision filtering.
 --
 -- Exercises the Lua query API exactly like a game would: ray casts against
 -- boxes and circles (including a ray that starts inside a collider),
 -- buffered shape overlaps, and the began/stayed/ended contact lifecycle of
 -- a ball resting on a platform and then being teleported away.
+--
+-- It also covers the category/mask filter: a mismatched pair never reports a
+-- contact even while overlapping, masked queries skip bodies outside their
+-- bitmask, and widening a mask at runtime re-enables the very same pair.
 --
 -- The ball is created already overlapping the platform on purpose. Headless
 -- frames advance the simulation by wall-clock dt, and an empty scene renders
@@ -26,6 +30,13 @@ local stay_seen = false
 local end_seen = false
 local teleported = false
 local finished = false
+
+-- Collision-filter scenario state (Phase 15).
+local filter_frames = 0 + 0
+local filter_seen = false       -- pair (3,4) reported while filtered out
+local filter_widened = false
+local filter_reenabled = false
+local filter_fail = false
 
 local function fail(code)
     failures = failures + 1
@@ -135,6 +146,67 @@ local function run_immediate_queries()
     expect(phys_overlap_user(999) == 0, 1043)
 end
 
+-- Collision filtering (Phase 15). A static wall in category bit 1 (0x2) and a
+-- dynamic circle that only accepts category bit 0 (0x1) overlap by 6px on
+-- purpose: unfiltered that reports a began contact on the very next step, so
+-- "no contact ever" is a real assertion rather than an accidental miss.
+local filter_wall = 0 + 0
+local filter_faller = 0 + 0
+
+local function run_filter_queries()
+    filter_wall = phys_create_box_cat(600.0, 400.0, 60.0, 16.0, 2, 65535)
+    phys_set_static(filter_wall, true)
+    phys_set_user(filter_wall, 3)
+    filter_faller = phys_create_circle_cat(600.0, 380.0, 10.0, 1, 1)
+    phys_set_restitution(filter_faller, 0.0)
+    phys_set_gravity_scale(filter_faller, 0.0)
+    phys_set_user(filter_faller, 4)
+
+    -- Readers mirror what was passed to the creators.
+    expect(phys_category(filter_wall) == 2 and phys_mask(filter_wall) == 65535, 1050)
+    expect(phys_category(filter_faller) == 1 and phys_mask(filter_faller) == 1, 1051)
+    -- Bodies made by the plain creators keep the "everything" default.
+    expect(phys_category(box_id) == 1 and phys_mask(box_id) == 65535, 1052)
+
+    -- Unmasked ray hits the wall; the 0x2 mask still hits it, 0x1 skips it.
+    expect(phys_raycast(500.0, 400.0, 700.0, 400.0) and phys_ray_hit_user() == 3, 1053)
+    expect(phys_raycast_cat(500.0, 400.0, 700.0, 400.0, 2) and phys_ray_hit_user() == 3, 1054)
+    expect(not phys_raycast_cat(500.0, 400.0, 700.0, 400.0, 1), 1055)
+
+    -- Overlaps: the circle (category bit 0) is invisible to a 0x2 mask.
+    local m1 = phys_overlap_circle(600.0, 380.0, 2.0)
+    expect(m1 == 1 and overlap_has_user(m1, 4), 1056)
+    expect(phys_overlap_circle_cat(600.0, 380.0, 2.0, 2) == 0, 1057)
+    local m2 = phys_overlap_box_cat(600.0, 400.0, 2.0, 2.0, 2)
+    expect(m2 == 1 and overlap_has_user(m2, 3), 1058)
+    expect(phys_overlap_box_cat(600.0, 400.0, 2.0, 2.0, 1) == 0, 1059)
+end
+
+-- Driven from update(): hold the filtered pair for a while, then widen the
+-- faller's mask and require the contact to appear.
+local function run_filter_step()
+    filter_frames = filter_frames + 1
+    if filter_widened then
+        if pair_in(0, 3, 4) then
+            filter_reenabled = true
+        elseif filter_frames > 40 then
+            filter_fail = true
+        end
+        return 0
+    end
+
+    -- Still filtered: an overlapping pair must never report a contact.
+    if pair_in(0, 3, 4) then
+        filter_seen = true
+    end
+    if filter_frames > 15 then
+        filter_widened = true
+        filter_frames = 0
+        phys_set_mask(filter_faller, 65535)
+    end
+    return 0
+end
+
 function update(dt)
     frame_n = frame_n + 1
     if finished then
@@ -145,6 +217,12 @@ function update(dt)
         phase = 1
         phys_gravity(0.0, 900.0)
         run_immediate_queries()
+        run_filter_queries()
+    end
+
+    -- The filter scenario is independent of the ball lifecycle above.
+    if phase >= 1 and not filter_reenabled then
+        run_filter_step()
     end
 
     -- Bodies were created after this frame's step; the next step resolves
@@ -180,7 +258,10 @@ function update(dt)
         end
     end
 
-    if phase == 4 or frame_n >= 190 then
+    -- Tally once the widened pair has reported (or the budget runs out). The
+    -- ball lifecycle above finishes long before that, so gate on the frame
+    -- count instead of `phase`.
+    if (filter_reenabled and frame_n >= 60) or frame_n >= 190 then
         finished = true
         if began_seen then
             log_number(1)
@@ -196,6 +277,20 @@ function update(dt)
             log_number(3)
         else
             fail(2003)
+        end
+        -- Filtering: no contact while masked, contact once widened.
+        if not filter_seen then
+            log_number(4)
+        else
+            fail(2004)
+        end
+        if filter_reenabled then
+            log_number(5)
+        else
+            fail(2005)
+        end
+        if filter_fail then
+            fail(2006)
         end
         if failures == 0 then
             log_number(0)

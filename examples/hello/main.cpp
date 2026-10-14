@@ -562,6 +562,161 @@ int RunPhysicsQueryTest(fake2d::Engine &engine) {
     return failures == 0 ? 0 : 1;
 }
 
+// Collision-filtering self-test: category/mask bitmasks gate pair
+// collisions, contact events and the query surface (ray casts / overlaps).
+// Headless CPU-only. Prints [phys-filter] lines; non-zero on fail.
+int RunPhysicsFilterTest(fake2d::Engine &engine) {
+    (void)engine;
+    fake2d::PhysicsWorld world;
+    world.SetGravity({0.0f, 900.0f});
+
+    int failures = 0;
+    int checks = 0;
+    auto check = [&](bool ok, const char *what) {
+        ++checks;
+        if (!ok) {
+            ++failures;
+            std::printf("[phys-filter] FAIL %s\n", what);
+        }
+    };
+
+    // Default filter collides with everything (category 1, mask all).
+    // +y is down in this world, so fallers start ABOVE their wall.
+    fake2d::BodyConfig a_cfg;
+    a_cfg.type = fake2d::BodyType::Static;
+    a_cfg.position = {0.0f, 0.0f};
+    a_cfg.half_extents = {16.0f, 16.0f}; // spans y[-16,16]; floor surface at y=-16
+    a_cfg.user_id = 1;
+    const fake2d::BodyId wall = world.CreateBody(a_cfg);
+
+    fake2d::BodyConfig b_cfg;
+    b_cfg.position = {0.0f, -100.0f};
+    b_cfg.half_extents = {16.0f, 16.0f};
+    b_cfg.restitution = 0.0f;
+    b_cfg.user_id = 2;
+    const fake2d::BodyId faller = world.CreateBody(b_cfg);
+
+    // A filtered pair: faller only accepts category bit 0 (0x1), the wall is
+    // category bit 1 (0x2) — no interaction despite overlapping.
+    fake2d::BodyConfig c_cfg;
+    c_cfg.type = fake2d::BodyType::Static;
+    c_cfg.position = {200.0f, 0.0f};
+    c_cfg.half_extents = {16.0f, 16.0f};
+    c_cfg.user_id = 3;
+    c_cfg.category = 0x2;
+    const fake2d::BodyId other_wall = world.CreateBody(c_cfg);
+
+    fake2d::BodyConfig d_cfg;
+    d_cfg.position = {200.0f, -100.0f};
+    d_cfg.half_extents = {16.0f, 16.0f};
+    d_cfg.restitution = 0.0f;
+    d_cfg.user_id = 4;
+    d_cfg.mask = 0x1; // only wants category bit 0
+    const fake2d::BodyId filtered_faller = world.CreateBody(d_cfg);
+
+    // One-way filter: e likes f but f does not like e.
+    fake2d::BodyConfig e_cfg;
+    e_cfg.type = fake2d::BodyType::Static;
+    e_cfg.position = {400.0f, 0.0f};
+    e_cfg.half_extents = {16.0f, 16.0f};
+    e_cfg.user_id = 5;
+    const fake2d::BodyId one_way_a = world.CreateBody(e_cfg);
+    fake2d::BodyConfig f_cfg;
+    f_cfg.position = {400.0f, -100.0f};
+    f_cfg.half_extents = {16.0f, 16.0f};
+    f_cfg.restitution = 0.0f;
+    f_cfg.user_id = 6;
+    f_cfg.mask = 0x0; // rejects everything
+    const fake2d::BodyId one_way_b = world.CreateBody(f_cfg);
+
+    auto ran_into = [&](std::int64_t user_a, std::int64_t user_b) {
+        for (const fake2d::ContactEvent &ev : world.Contacts()) {
+            if ((ev.user_a == user_a && ev.user_b == user_b) ||
+                (ev.user_a == user_b && ev.user_b == user_a)) {
+                return true;
+            }
+        }
+        return false;
+    };
+    auto near_y = [&](fake2d::BodyId body, float expected) {
+        const fake2d::BodyConfig *cfg = world.Get(body);
+        return cfg != nullptr && std::fabs(cfg->position.y - expected) < 1.5f;
+    };
+
+    // Step until the unfiltered faller has landed on its wall.
+    bool landed_a = false;
+    bool landed_b = false;
+    for (int f = 0; f < 240 && (!landed_a || !landed_b); ++f) {
+        world.Step(1.0f / 60.0f);
+        landed_a = ran_into(1, 2);
+        landed_b = near_y(faller, -32.0f); // rests on the y=-16 surface
+    }
+    check(landed_a, "default filter: contact began (faller vs wall)");
+    check(landed_b, "default filter: faller rests on the wall surface");
+
+    bool filtered_contact = false;
+    for (int f = 0; f < 240; ++f) {
+        world.Step(1.0f / 60.0f);
+        if (ran_into(3, 4)) {
+            filtered_contact = true;
+            break;
+        }
+    }
+    check(!filtered_contact, "category/mask mismatch: no contact event");
+    check(world.Get(filtered_faller)->position.y > 100.0f,
+          "category/mask mismatch: filtered faller falls through");
+
+    bool one_way_contact = false;
+    for (int f = 0; f < 240; ++f) {
+        world.Step(1.0f / 60.0f);
+        if (ran_into(5, 6)) {
+            one_way_contact = true;
+            break;
+        }
+    }
+    check(!one_way_contact, "one-way mask rejection: no contact event");
+    check(world.Get(one_way_b)->position.y > 100.0f,
+          "one-way mask rejection: rejected faller falls through");
+    (void)one_way_a;
+
+    // Mutating the filter at runtime re-enables the pair.
+    if (fake2d::BodyConfig *cfg = world.Get(filtered_faller)) {
+        cfg->mask = 0xFFFF; // now accepts everything again
+        cfg->position = {200.0f, -100.0f};
+        cfg->velocity = {0.0f, 0.0f};
+    }
+    bool reenabled = false;
+    for (int f = 0; f < 240 && !reenabled; ++f) {
+        world.Step(1.0f / 60.0f);
+        reenabled = ran_into(3, 4);
+    }
+    check(reenabled, "runtime mask widening re-enables the pair");
+
+    // ---- Query surface ------------------------------------------------------
+    fake2d::RayHit hit;
+    check(world.RayCast({-100.0f, 0.0f}, {100.0f, 0.0f}, hit) && hit.user_id == 1,
+          "unmasked raycast hits the default-category wall");
+    check(!world.RayCast({-100.0f, 0.0f}, {100.0f, 0.0f}, hit, 0x2),
+          "masked raycast skips category bit 0 bodies");
+    check(world.RayCast({100.0f, 0.0f}, {300.0f, 0.0f}, hit, 0x2) && hit.user_id == 3,
+          "masked raycast hits category bit 1 bodies");
+
+    std::vector<fake2d::BodyId> ids;
+    check(world.OverlapCircle({0.0f, 8.0f}, 8.0f, ids) == 1 && ids[0] == wall,
+          "unmasked overlap circle sees the wall only");
+    check(world.OverlapCircle({0.0f, 8.0f}, 8.0f, ids, 0x2) == 0,
+          "masked overlap circle skips the wall");
+    check(world.OverlapBox({200.0f, 8.0f}, {20.0f, 20.0f}, ids, 0x2) == 1 &&
+              ids[0] == other_wall,
+          "masked overlap box sees the bit-1 wall");
+    check(world.OverlapCircle({0.0f, 8.0f}, 8.0f, 0x2) == 0,
+          "buffered masked overlap circle");
+
+    std::printf("[phys-filter] %s: %d checks, %d failures\n",
+                failures == 0 ? "PASS" : "FAILED", checks, failures);
+    return failures == 0 ? 0 : 1;
+}
+
 // Defined later in this translation unit (marble asset scaffolding); the
 // object-layer test regenerates mario.json to check the production pipeline.
 void EnsureMarioAssets(bool regen);
@@ -2240,6 +2395,7 @@ int main(int argc, char **argv) {
     bool bench = false;
     bool phys_bench = false;
     bool phys_query = false;
+    bool phys_filter = false;
     bool map_object = false;
     int max_frames = 0;
     int shot_frame = 30;
@@ -2290,6 +2446,12 @@ int main(int argc, char **argv) {
             cfg.headless = true;
             cfg.script_entry.clear();
             cfg.vsync = false;
+        } else if (arg == "--phys-filter-test") {
+            // Headless CPU-only self-test of category/mask collision filtering.
+            phys_filter = true;
+            cfg.headless = true;
+            cfg.script_entry.clear();
+            cfg.vsync = false;
         } else if (arg == "--map-object-test") {
             // Headless self-test of Tiled objectgroup parsing/queries.
             map_object = true;
@@ -2318,6 +2480,9 @@ int main(int argc, char **argv) {
     }
     if (phys_query) {
         return RunPhysicsQueryTest(engine);
+    }
+    if (phys_filter) {
+        return RunPhysicsFilterTest(engine);
     }
     if (map_object) {
         return RunMapObjectTest(engine);

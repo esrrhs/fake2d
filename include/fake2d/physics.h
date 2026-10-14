@@ -31,9 +31,23 @@ struct BodyConfig {
     float gravity_scale = 1.0f;
     /// Sensors report "contact began" events but never produce a response.
     bool sensor = false;
+    /// Collision category bitmask: which buckets this body belongs to
+    /// (bit 0 = default). Paairs only interact when each body's category
+    /// passes the other body's mask — see CategoriesMatch.
+    std::uint16_t category = 1;
+    /// Collision mask: this body interacts with bodies whose category
+    /// intersects this mask. Defaults to "everything" (0xFFFF).
+    std::uint16_t mask = 0xFFFF;
     /// Game-defined tag (e.g. a brick index), surfaced with contact events.
     std::int64_t user_id = 0;
 };
+
+/// Two bodies interact (collide, report contacts) only when each one's
+/// category passes the other's mask. With the defaults (category 1, mask
+/// all) every pair matches, so existing scenes behave unchanged.
+[[nodiscard]] inline bool CategoriesMatch(const BodyConfig &a, const BodyConfig &b) {
+    return (a.category & b.mask) != 0 && (b.category & a.mask) != 0;
+}
 
 struct ContactEvent {
     BodyId a{kInvalidBody};
@@ -113,25 +127,32 @@ public:
     /// Cast a segment from `from` to `to` against every alive body; `out`
     /// receives the closest hit. A ray starting inside a body hits it at
     /// distance 0 with the normal opposing the ray. Returns false for a
-    /// degenerate or fully missed segment.
-    bool RayCast(const Vec2 &from, const Vec2 &to, RayHit &out) const;
+    /// degenerate or fully missed segment. `mask` (default: all) skips
+    /// bodies whose category does not intersect it.
+    bool RayCast(const Vec2 &from, const Vec2 &to, RayHit &out,
+                 std::uint16_t mask = 0xFFFF) const;
     /// Buffered variant: the result is stored in the world; read it back
     /// with HasRayHit()/LastRayHit().
-    bool RayCast(const Vec2 &from, const Vec2 &to);
+    bool RayCast(const Vec2 &from, const Vec2 &to, std::uint16_t mask = 0xFFFF);
     [[nodiscard]] bool HasRayHit() const { return has_ray_hit_; }
     [[nodiscard]] const RayHit &LastRayHit() const { return last_ray_hit_; }
 
     /// Collect every alive body (any type, sensors included) whose collider
     /// intersects the query shape. `out` is cleared then filled; returns the
-    /// hit count.
+    /// hit count. `mask` (default: all) skips bodies whose category does not
+    /// intersect it.
     std::size_t OverlapCircle(const Vec2 &center, float radius,
-                              std::vector<BodyId> &out) const;
+                              std::vector<BodyId> &out,
+                              std::uint16_t mask = 0xFFFF) const;
     std::size_t OverlapBox(const Vec2 &center, const Vec2 &half_extents,
-                           std::vector<BodyId> &out) const;
+                           std::vector<BodyId> &out,
+                           std::uint16_t mask = 0xFFFF) const;
     /// Buffered variants: results are stored in the world and read back with
     /// OverlapBody()/OverlapUser() by index.
-    std::size_t OverlapCircle(const Vec2 &center, float radius);
-    std::size_t OverlapBox(const Vec2 &center, const Vec2 &half_extents);
+    std::size_t OverlapCircle(const Vec2 &center, float radius,
+                              std::uint16_t mask = 0xFFFF);
+    std::size_t OverlapBox(const Vec2 &center, const Vec2 &half_extents,
+                           std::uint16_t mask = 0xFFFF);
     /// Buffered overlap result by index; kInvalidBody when out of range.
     [[nodiscard]] BodyId OverlapBody(std::size_t index) const;
     /// Buffered overlap user id by index; 0 when out of range.

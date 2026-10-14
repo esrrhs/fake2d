@@ -121,6 +121,75 @@ void RegisterPhysicsApi(fakelua::State *state, Engine *engine) {
                 }
             }));
 
+    // ---- Collision filtering (category / mask bitmasks) ---------------------
+    // Creators with an explicit filter; the plain creators default to
+    // category 1 / mask all (collide with everything).
+    fakelua::RegisterNativeFunction(
+        state, "phys_create_box_cat", false,
+        std::function<std::int64_t(fakelua::State *, double, double, double, double,
+                                   std::int64_t, std::int64_t)>(
+            [engine](fakelua::State *, double x, double y, double hw, double hh,
+                     std::int64_t category, std::int64_t mask) -> std::int64_t {
+                BodyConfig cfg;
+                cfg.position = {static_cast<float>(x), static_cast<float>(y)};
+                cfg.half_extents = {static_cast<float>(hw), static_cast<float>(hh)};
+                cfg.category = static_cast<std::uint16_t>(category);
+                cfg.mask = static_cast<std::uint16_t>(mask);
+                const BodyId id = engine->GetPhysics().CreateBody(cfg);
+                return static_cast<std::int64_t>(static_cast<std::uint64_t>(id));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "phys_create_circle_cat", false,
+        std::function<std::int64_t(fakelua::State *, double, double, double,
+                                   std::int64_t, std::int64_t)>(
+            [engine](fakelua::State *, double x, double y, double radius,
+                     std::int64_t category, std::int64_t mask) -> std::int64_t {
+                BodyConfig cfg;
+                cfg.position = {static_cast<float>(x), static_cast<float>(y)};
+                cfg.radius = static_cast<float>(radius);
+                cfg.half_extents = {static_cast<float>(radius),
+                                    static_cast<float>(radius)};
+                cfg.category = static_cast<std::uint16_t>(category);
+                cfg.mask = static_cast<std::uint16_t>(mask);
+                const BodyId id = engine->GetPhysics().CreateBody(cfg);
+                return static_cast<std::int64_t>(static_cast<std::uint64_t>(id));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "phys_set_category", false,
+        std::function<void(fakelua::State *, std::int64_t, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id, std::int64_t category) {
+                if (BodyConfig *b = engine->GetPhysics().Get(ResolveBody(id))) {
+                    b->category = static_cast<std::uint16_t>(category);
+                }
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "phys_set_mask", false,
+        std::function<void(fakelua::State *, std::int64_t, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id, std::int64_t mask) {
+                if (BodyConfig *b = engine->GetPhysics().Get(ResolveBody(id))) {
+                    b->mask = static_cast<std::uint16_t>(mask);
+                }
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "phys_category", false,
+        std::function<std::int64_t(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id) -> std::int64_t {
+                const BodyConfig *b = engine->GetPhysics().Get(ResolveBody(id));
+                return b != nullptr ? static_cast<std::int64_t>(b->category) : 0;
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "phys_mask", false,
+        std::function<std::int64_t(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id) -> std::int64_t {
+                const BodyConfig *b = engine->GetPhysics().Get(ResolveBody(id));
+                return b != nullptr ? static_cast<std::int64_t>(b->mask) : 0;
+            }));
+
     const auto getter = [engine](std::int64_t id, int field) -> double {
         const BodyConfig *b = engine->GetPhysics().Get(ResolveBody(id));
         if (b == nullptr) {
@@ -186,6 +255,19 @@ void RegisterPhysicsApi(fakelua::State *state, Engine *engine) {
                     {static_cast<float>(x2), static_cast<float>(y2)});
             }));
 
+    // Masked ray cast: only bodies whose category intersects `mask` are hit
+    // (bitmask, e.g. 0x2 = category bit 1 only; 0xFFFF = everything).
+    fakelua::RegisterNativeFunction(
+        state, "phys_raycast_cat", false,
+        std::function<bool(fakelua::State *, double, double, double, double, std::int64_t)>(
+            [engine](fakelua::State *, double x1, double y1, double x2, double y2,
+                     std::int64_t mask) -> bool {
+                return engine->GetPhysics().RayCast(
+                    {static_cast<float>(x1), static_cast<float>(y1)},
+                    {static_cast<float>(x2), static_cast<float>(y2)},
+                    static_cast<std::uint16_t>(mask));
+            }));
+
     const auto ray_reader = [engine](int field) -> double {
         if (!engine->GetPhysics().HasRayHit()) {
             return 0.0;
@@ -237,6 +319,27 @@ void RegisterPhysicsApi(fakelua::State *state, Engine *engine) {
                 return static_cast<std::int64_t>(engine->GetPhysics().OverlapBox(
                     {static_cast<float>(x), static_cast<float>(y)},
                     {static_cast<float>(hw), static_cast<float>(hh)}));
+            }));
+
+    // Masked overlaps: only bodies whose category intersects `mask` count.
+    fakelua::RegisterNativeFunction(
+        state, "phys_overlap_circle_cat", false,
+        std::function<std::int64_t(fakelua::State *, double, double, double, std::int64_t)>(
+            [engine](fakelua::State *, double x, double y, double r,
+                     std::int64_t mask) -> std::int64_t {
+                return static_cast<std::int64_t>(engine->GetPhysics().OverlapCircle(
+                    {static_cast<float>(x), static_cast<float>(y)},
+                    static_cast<float>(r), static_cast<std::uint16_t>(mask)));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "phys_overlap_box_cat", false,
+        std::function<std::int64_t(fakelua::State *, double, double, double, double, std::int64_t)>(
+            [engine](fakelua::State *, double x, double y, double hw, double hh,
+                     std::int64_t mask) -> std::int64_t {
+                return static_cast<std::int64_t>(engine->GetPhysics().OverlapBox(
+                    {static_cast<float>(x), static_cast<float>(y)},
+                    {static_cast<float>(hw), static_cast<float>(hh)},
+                    static_cast<std::uint16_t>(mask)));
             }));
     fakelua::RegisterNativeFunction(state, "phys_overlap_id", false,
         std::function<std::int64_t(fakelua::State *, std::int64_t)>(

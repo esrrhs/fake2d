@@ -7,7 +7,7 @@
 
 **Fake2D** 是基于 [FakeLua](https://github.com/esrrhs/fakelua) 的现代化轻量 2D 游戏渲染引擎：C++ 宿主掌控窗口、GPU 资源与场景数据；FakeLua 脚本负责编排玩法与实体逻辑，并在每帧边界执行 Arena 线性重置（**零 GC 停顿**）。
 
-> 当前状态：**1.5 — Phase 10 角色动画纳入引擎动画系统已完成** — 在 1.4（手柄、镜像、窗口控制、行走帧条带）基础上，帧动画系统支持脚本控帧（`anim_pause` / `anim_resume` / `anim_set_frame` / `anim_frame_index`）与翻转绘制（`anim_draw_flip`）；马里奥大小形态玩家与每只栗宝宝都改为播放引擎持有的动画 clip——玩法状态决定当前帧，动画系统负责 clip 与换帧，实体销毁时同步释放动画槽；平台跳跃与斜坡 Demo 的角色也采用同一"暂停 clip + 脚本定帧"模式。详见下方[实现计划](#实现计划)、[docs/PLAN.md](docs/PLAN.md)、[脚本编写指南](docs/SCRIPTING.md) 与[跨平台打包说明](docs/PACKAGING.md)。
+> 当前状态：**1.9 — Phase 15 碰撞过滤已完成** — 已包含 1.8 及之前的全部能力（自带依赖的发布包、GL2 兼容渲染路径、物理射线/重叠查询与完整接触生命周期、Tiled 对象层驱动的数据化刷怪与区域），并新增每个刚体的 16 位 **category/mask 碰撞过滤**：过滤掉的组合既不发生碰撞也不上报接触事件，带掩码的 `phys_raycast_cat` / `phys_overlap_*_cat` 可整类跳过，运行期放宽 mask 还能让已经重叠的一对重新产生接触。详见下方[实现计划](#实现计划)、[docs/PLAN.md](docs/PLAN.md)、[脚本编写指南](docs/SCRIPTING.md) 与[跨平台打包说明](docs/PACKAGING.md)。
 
 ---
 
@@ -143,6 +143,10 @@ cmake --build build --parallel
 
 # 物理宽相基准（暴力 O(n²) vs 空间哈希网格）：
 ./build/bin/fake2d_hello --headless --phys-bench
+
+# 物理自测（纯 CPU，退出码 + 断言汇总）：
+./build/bin/fake2d_hello --phys-query-test    # 射线 / 重叠 / 接触生命周期
+./build/bin/fake2d_hello --phys-filter-test   # category 与 mask 碰撞过滤
 ```
 
 仅窗口骨架模式（不链接 FakeLua，用于纯 C++ 基础测试）：
@@ -196,6 +200,11 @@ end
 | **8 — 引擎短板与马里奥 (1.3)** | 完整度 | 瓦片斜坡（`map_ground_y`）、Tiled 视差与图片层、`SaveStore` 存档（`storage_*`）、`EntityStore` 原生实体槽位（`ent_*`）、自定义 Shader 槽位（`shader_*`）、SMB 1-1 `--mario-demo` | **已完成** |
 | **9 — 手柄 / 镜像 / 窗口 / 角色动画 (1.4)** | 可玩性 | 精灵 UV 镜像（`sprite_draw_flip`）、GLFW 标准映射手柄（`input_pad_*`，死区/扳机重映射/热插拔）、`window_quit` / 标题 / 全屏；程序化派生的待机/迈腿/跳跃精灵表与栗宝宝摇摆帧，三个玩法 Demo 朝向修正、走路动画与手柄支持 | **已完成** |
 | **10 — 角色动画纳入引擎动画系统 (1.5)** | 引擎复用 | 脚本控帧 `anim_pause` / `anim_resume` / `anim_set_frame` / `anim_frame_index`、翻转绘制 `anim_draw_flip`；马里奥（大小形态 + 每只栗宝宝一个摇摆 clip）与平台/斜坡角色从手算帧矩形迁移到引擎持有的动画 clip | **已完成** |
+| **11 — 自带依赖的发布流水线 (1.5)** | 分发 | `tools/package-{macos,linux,windows}.sh` 产出免编译压缩包（内置 libfakelua / OpenSSL、`scripts/`、着色器与示例地图）；Linux / Windows 打包脚本待首个 tag 端到端验证 | **已完成** |
+| **12 — GL2 兼容渲染路径 (1.6)** | 覆盖面 | 运行时 GL 上下文阶梯（core 3.3 → legacy 2.1 → macOS 无头 CGL + 离屏 FBO）、GLSL 120 着色器变体、`GL_LUMINANCE` 上传、NPOT clamp；macOS GPU 冒烟跑在 Apple 软件渲染器上 | **已完成** |
+| **13 — 物理查询能力 (1.7)** | 玩法查询 | `RayCast`（圆 + AABB、法线、起点在内部）、`OverlapCircle` / `OverlapBox`、完整 began/stayed/ended 接触生命周期、17 个 Lua 绑定、`--phys-query-test` | **已完成** |
+| **14 — Tiled 对象层 (1.8)** | 数据化关卡 | `objectgroup` 解析（矩形/点/椭圆/折线/多边形 + 自定义属性）、`map_find_layer` / `map_layer_type` / `map_obj_*` 查询；马里奥刷怪从标记瓦片迁移到对象层 | **已完成** |
+| **15 — 碰撞过滤 (1.9)** | 碰撞控制 | 每个刚体的 16 位 `category` / `mask`，宽相阶段即过滤；带掩码的射线与重叠查询；`phys_create_*_cat` / `phys_set_category` / `phys_set_mask` / `phys_*_cat` 绑定；`--phys-filter-test` | **已完成** |
 
 详细任务清单见 [docs/PLAN.md](docs/PLAN.md)。
 
