@@ -7,7 +7,7 @@
 
 **Fake2D** 是基于 [FakeLua](https://github.com/esrrhs/fakelua) 的现代化轻量 2D 游戏渲染引擎：C++ 宿主掌控窗口、GPU 资源与场景数据；FakeLua 脚本负责编排玩法与实体逻辑，并在每帧边界执行 Arena 线性重置（**零 GC 停顿**）。
 
-> 当前状态：**1.14 — Phase 20 UI 控件已完成** — 已包含 1.13 及之前的全部能力（剪裁矩形、九宫格、对齐换行文本、固定步长物理、相机跟随工具、碰撞过滤、瓦片地图 A\* 寻路、离屏渲染目标），并新增四个即时模式 **UI 控件**：滑杆、复选框、UTF-8 文本输入框与滚动容器，全部以字符串为键、数值保存在调用脚本一侧。配套 `--ui-test`（30 条断言）与新的 **`--ui-demo`**（四个控件联动演示）。详见下方[实现计划](#实现计划)、[docs/PLAN.md](docs/PLAN.md)、[脚本编写指南](docs/SCRIPTING.md) 与[跨平台打包说明](docs/PACKAGING.md)。
+> 当前状态：**1.15 — Phase 21 后处理与烘焙小地图已完成** — 已包含 1.14 及之前的全部能力（剪裁矩形、九宫格、对齐换行文本、固定步长物理、相机跟随工具、碰撞过滤、瓦片地图 A\* 寻路、离屏渲染目标、UI 控件），并新增**全屏后处理**：先把世界画进渲染目标，用 `rt_camera` 把目标画布对准相机，再用 `rt_present` 通过着色器呈现；同时新增**小地图烘焙**（`map_draw_scaled`，无视差的整图绘制）。配套 `--post-test`（44 条像素探针断言）与新的 **`--post-demo`**（实时调参滑杆 + 视口追踪小地图）。详见下方[实现计划](#实现计划)、[docs/PLAN.md](docs/PLAN.md)、[脚本编写指南](docs/SCRIPTING.md) 与[跨平台打包说明](docs/PACKAGING.md)。
 
 ---
 
@@ -90,8 +90,8 @@ fake2d/
 │   ├── scene/               # 节点层级与场景渲染
 │   └── script/              # FakeLua 桥接与原生 API 注册
 ├── third_party/             # stb_image、stb_truetype、stb_rect_pack、miniaudio、font8x8
-├── scripts/                 # 纯 Lua 示例：game.lua（打砖块）、scene_demo.lua、map_demo.lua、platformer_demo.lua、mario.lua、path_demo.lua、rt_demo.lua、ui_demo.lua
-├── examples/hello/          # 示例：打砖块、--scene-demo、--map-demo、--platformer-demo、--mario-demo、--path-demo、--rt-demo、--ui-demo、--bench、--phys-bench
+├── scripts/                 # 纯 Lua 示例：game.lua（打砖块）、scene_demo.lua、map_demo.lua、platformer_demo.lua、mario.lua、path_demo.lua、rt_demo.lua、ui_demo.lua、post_demo.lua
+├── examples/hello/          # 示例：打砖块、--scene-demo、--map-demo、--platformer-demo、--mario-demo、--path-demo、--rt-demo、--ui-demo、--post-demo、--bench、--phys-bench
 ├── docs/SCRIPTING.md        # 脚本编写指南与 API 参考
 ├── docs/PACKAGING.md        # Linux / Windows / macOS 跨平台打包说明
 └── docs/PLAN.md             # 详细路线图与任务清单
@@ -149,6 +149,9 @@ cmake --build build --parallel
 
 # UI 控件：滑杆、复选框、文本输入框、滚动列表：
 ./build/bin/fake2d_hello --ui-demo
+
+# 后处理：世界画进目标后经着色器呈现 + 烘焙小地图（SPACE/G）：
+./build/bin/fake2d_hello --post-demo
 
 # 物理宽相基准（暴力 O(n²) vs 空间哈希网格）：
 ./build/bin/fake2d_hello --headless --phys-bench
@@ -224,6 +227,7 @@ end
 | **18 — 瓦片地图 A* 与迷宫追逐 (1.12)** | 导航 | 基于 solidity 网格的 A*（防切角、路径拉直、`map_find_path` + 路径点读取），`--path-test`（25 条断言），`--path-demo` 迷宫追逐：错峰重寻路的追踪 AI、玩家自动寻路演示模式、实时路径线 | **已完成** |
 | **19 — 离屏渲染目标 (1.13)** | 渲染 | `RenderTarget` FBO 资源池 + `rt_begin`/`rt_end`/`rt_clear`/`rt_draw` 绑定（一次性烘焙、累积反馈特效），画布坐标系与 V 方向校正、无头 framebuffer 正确恢复，`--rt-test`（38 条断言）、`--rt-demo`；顺带修复每帧 35 次 `GLFW_INVALID_VALUE` 按键轮询报错 | **已完成** |
 | **20 — UI 控件 (1.14)** | UI | 滑杆（拖动或点击跳转、保持抓取偏移）、复选框（调用方持有数值）、UTF-8 文本输入（按码点增删、按字符数限长、焦点管理、`Input` 字符回调）、滚动容器（滚轮 + 可拖动滑块、调用方负责剪裁内容），新增 8 个绑定，`--ui-test`（30 条断言）、`--ui-demo` | **已完成** |
+| **21 — 后处理与小地图 (1.15)** | 渲染 | `Renderer::ActiveCamera`（RT 内 tilemap 跟随目标画布相机）、`rt_camera`（把画布对准世界偏移）、`rt_present`（经着色器覆盖的全屏 blit）、`map_draw_scaled`（无视差小地图烘焙，抽出的 `DrawTileLayer` 共享 helper）、`assets/post_grade.*` 默认恒等的调色着色器、`--post-test`（44 条像素探针，经变异验证）、`--post-demo`；顺带修复像素边界扫描发现的 `--ui-demo` 页脚画出画布问题 | **已完成** |
 
 详细任务清单见 [docs/PLAN.md](docs/PLAN.md)。
 

@@ -91,11 +91,11 @@ function update(dt)
     end
 
     -- --- scroll list: clip the content, let the widget own the offset ----
-    draw_text("SCROLL LIST (wheel or drag the bar)", 660, 84, 0.75, 0.75,
+    draw_text("SCROLL LIST (wheel or drag the bar)", 640, 84, 0.75, 0.75,
               0.65, 0.95, 1.0)
-    draw_quad(660, 104, 300, LIST_H, 0.10, 0.13, 0.20, 1.0)
+    draw_quad(640, 104, 300, LIST_H, 0.10, 0.13, 0.20, 1.0)
 
-    draw_set_clip(660, 104, 290, LIST_H)
+    draw_set_clip(640, 104, 290, LIST_H)
     local i = 0 + 0
     while i < ITEMS do
         -- Rows outside the visible band cost a quad and a text draw for
@@ -106,19 +106,22 @@ function update(dt)
             local rr = 0.16 + alt * 0.07
             local gg = 0.20 + alt * 0.08
             local bb = 0.28 + alt * 0.10
-            draw_quad(660, y, 290, ITEM_H - 3, rr, gg, bb, 1.0)
-            draw_text("item " .. istr(i + 1), 674, y + 9, 0.65, 0.80, 0.86, 0.95, 1.0)
+            draw_quad(640, y, 290, ITEM_H - 3, rr, gg, bb, 1.0)
+            draw_text("item " .. istr(i + 1), 654, y + 9, 0.65, 0.80, 0.86, 0.95, 1.0)
         end
         i = i + 1
     end
     draw_clear_clip()
 
-    scroll_y = ui_scroll("list", 0, 660, 104, 300, LIST_H, ITEMS * ITEM_H, scroll_y)
+    scroll_y = ui_scroll("list", 0, 640, 104, 300, LIST_H, ITEMS * ITEM_H, scroll_y)
     draw_text("offset " .. istr(math.floor(scroll_y)) .. " px of "
                   .. istr(ITEMS * ITEM_H - LIST_H),
-              660, 396, 0.62, 0.55, 0.66, 0.75, 1.0)
+              640, 396, 0.62, 0.55, 0.66, 0.75, 1.0)
 
+    -- The logical canvas is 960x540 (1920x1080 at 2x), so nothing here may
+    -- sit below y=540 or past x=960.
     draw_text("values live in the script: ui_slider returns, ui_checkbox toggles",
-              40, 660, 0.7, 0.5, 0.6, 0.7, 1.0)
+              40, 470, 0.7, 0.5, 0.6, 0.7, 1.0)
+    draw_text("960x540 logical canvas", 40, 496, 0.6, 0.45, 0.52, 0.6, 1.0)
     return 0
 end

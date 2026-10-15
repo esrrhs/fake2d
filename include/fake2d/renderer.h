@@ -51,8 +51,20 @@ public:
     [[nodiscard]] int Height() const { return height_; }
     [[nodiscard]] bool IsReady() const { return ready_; }
 
+    /// The window camera. Note this is the *window* camera even while a
+    /// render target is bound: subsystems that draw into the active surface
+    /// (e.g. Tilemap) must use ActiveCamera instead.
     Camera2D &GetCamera() { return camera_; }
     [[nodiscard]] const Camera2D &GetCamera() const { return camera_; }
+
+    /// Camera of the surface being drawn into: the target's canvas camera
+    /// while a render target is bound, otherwise the window camera.
+    Camera2D &ActiveCamera() {
+        return active_target_ != 0 ? target_camera_ : camera_;
+    }
+    [[nodiscard]] const Camera2D &ActiveCamera() const {
+        return active_target_ != 0 ? target_camera_ : camera_;
+    }
 
     SpriteBatch &GetSpriteBatch() { return batch_; }
     [[nodiscard]] const SpriteBatch &GetSpriteBatch() const { return batch_; }
@@ -103,6 +115,14 @@ public:
     /// Active target id, or 0 when drawing to the window.
     [[nodiscard]] int ActiveRenderTarget() const { return active_target_; }
 
+    /// Move the bound target's canvas camera. A fresh target starts at (0,0)
+    /// with 1 unit = 1 pixel; pointing it at a world offset is what lets
+    /// whole-world draws (`Tilemap::Draw`) render the *camera's* view into
+    /// the target for a post-processing pass. Returns false when no target
+    /// is bound (the window camera is owned by the game, not by this call).
+    /// Flushes the pending batch so later draws use the new transform.
+    bool SetTargetCamera(float x, float y);
+
     /// Clear the active target — or the window when no target is bound — to a
     /// solid colour. Pending draws are flushed first.
     void ClearActiveTarget(const Color &clear_color);
@@ -124,6 +144,16 @@ public:
     /// frame; nest manually if you need stacked regions.
     void SetClipRect(const Rect &points_rect);
     void ClearClipRect();
+
+    /// Blit a target across the whole of the surface currently being drawn
+    /// into (the window, or another target) — the post-processing present.
+    /// V is flipped like DrawRenderTarget. `shader` overrides the program for
+    /// this blit only (nullptr = the current override, or the default); it
+    /// does not touch Renderer's active override, so the rest of the frame
+    /// keeps its shader. Ignored for unknown/invalid ids and for a target
+    /// drawn into itself.
+    void PresentRenderTarget(int id, Shader *shader = nullptr,
+                             const Color &tint = Color::White());
 
     // --- text (glyph quads are submitted into the same SpriteBatch) ---
     /// Rasterize the default font (system TTF, embedded 8x8 as fallback) at

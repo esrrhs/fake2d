@@ -800,22 +800,93 @@ Vec2 Tilemap::PathPointAt(std::size_t index) const {
     return path_[index];
 }
 
+void Tilemap::DrawTileLayer(SpriteBatch &batch, const Layer &layer, int layer_index,
+                           float scale, const Vec2 &cam_pos, const Camera2D *cam) const {
+    batch.SetLayer(layer_index);
+    // A null camera means "draw it flat": no parallax, no layer offsets —
+    // the minimap case, where a backdrop sliding at 0.5x would make the
+    // overview lie about where things are.
+    const bool shifted = cam != nullptr &&
+                         (layer.parallax_x != 1.0f || layer.parallax_y != 1.0f ||
+                          layer.offset_x != 0.0f || layer.offset_y != 0.0f);
+    // World point -> the world point that lands where the parallaxed point
+    // should appear on screen (screen = (world-cam)*factor + offset).
+    auto parallax_point = [&](float wx, float wy) -> Vec2 {
+        const float sx = (wx - cam_pos.x) * layer.parallax_x + layer.offset_x;
+        const float sy = (wy - cam_pos.y) * layer.parallax_y + layer.offset_y;
+        return cam->ScreenToWorld({sx, sy});
+    };
+    for (int row = 0; row < rows_; ++row) {
+        for (int col = 0; col < cols_; ++col) {
+            const std::uint32_t gid =
+                layer.gids[static_cast<std::size_t>(row) * cols_ + col];
+            if (gid == 0) {
+                continue;
+            }
+            const Tileset *ts = nullptr;
+            std::uint32_t local = 0;
+            if (!ResolveTile(gid, ts, local) || ts->texture == kInvalidTextureHandle) {
+                continue;
+            }
+            const Texture2D *texture = resources_->GetTexture(ts->texture);
+            if (texture == nullptr) {
+                continue;
+            }
+            const int sheet_col = static_cast<int>(local % static_cast<std::uint32_t>(ts->columns));
+            const int sheet_row = static_cast<int>(local / static_cast<std::uint32_t>(ts->columns));
+            const Rect src{
+                static_cast<float>(sheet_col * ts->tile_width),
+                static_cast<float>(sheet_row * ts->tile_height),
+                static_cast<float>(ts->tile_width),
+                static_cast<float>(ts->tile_height)};
+            float dst_h = static_cast<float>(tile_height_);
+            // A slope whose `slope_rise` is taller than one cell covers a
+            // vertical span larger than its own cell, so the sprite is
+            // stretched downward to cover the whole span. The surface is
+            // anchored at the cell's bottom edge, so a rise of N pixels
+            // reaches from there up to `rise` above it; the sprite has to
+            // fill that band or the artwork sits above the surface the
+            // player walks.
+            auto slope_at = ts->slope_gids.find(gid);
+            if (slope_at != ts->slope_gids.end() &&
+                slope_at->second.rise > static_cast<int>(tile_height_)) {
+                dst_h = static_cast<float>(slope_at->second.rise);
+            }
+            const Rect dst{static_cast<float>(col * tile_width_) * scale,
+                           static_cast<float>(row * tile_height_) * scale,
+                           static_cast<float>(tile_width_) * scale,
+                           dst_h * scale};
+            if (!shifted) {
+                batch.DrawSprite(*texture, src, dst);
+            } else {
+                const float tw = static_cast<float>(texture->Width());
+                const float th = static_cast<float>(texture->Height());
+                const Vec2 uv[4] = {
+                    {src.x / tw, src.y / th},
+                    {(src.x + src.width) / tw, src.y / th},
+                    {(src.x + src.width) / tw, (src.y + src.height) / th},
+                    {src.x / tw, (src.y + src.height) / th}};
+                const Vec2 corners[4] = {
+                    parallax_point(dst.x, dst.y),
+                    parallax_point(dst.x + dst.width, dst.y),
+                    parallax_point(dst.x + dst.width, dst.y + dst.height),
+                    parallax_point(dst.x, dst.y + dst.height)};
+                batch.DrawVertices(*texture, corners, uv);
+            }
+        }
+    }
+}
+
 void Tilemap::Draw(Renderer &renderer) const {
     if (!IsValid()) {
         return;
     }
     SpriteBatch &batch = renderer.GetSpriteBatch();
-    const Camera2D &cam = renderer.GetCamera();
+    // The active camera, not the window one: inside a render target the
+    // canvas camera is the surface being drawn into.
+    const Camera2D &cam = renderer.ActiveCamera();
     const Mat4 vp = cam.ViewProjectionMatrix();
     const Vec2 cam_pos = cam.Position();
-
-    // World point -> equivalent world point that lands where the parallaxed
-    // point should appear on screen (screen = (world-cam)*factor + offset).
-    auto parallax_point = [&](float wx, float wy, const Layer &l) -> Vec2 {
-        const float sx = (wx - cam_pos.x) * l.parallax_x + l.offset_x;
-        const float sy = (wy - cam_pos.y) * l.parallax_y + l.offset_y;
-        return cam.ScreenToWorld({sx, sy});
-    };
     static const Vec2 kFullUV[4] = {{0.0f, 0.0f}, {1.0f, 0.0f}, {1.0f, 1.0f}, {0.0f, 1.0f}};
 
     // Own sorted cycle: gids interleave sheets heavily, so submitting in map
@@ -834,7 +905,6 @@ void Tilemap::Draw(Renderer &renderer) const {
         if (layer.object_layer) {
             continue; // object layers are data only, never rendered
         }
-        batch.SetLayer(static_cast<int>(li));
 
         if (layer.image_layer) {
             const Texture2D *tex = resources_->GetTexture(layer.image);
@@ -879,66 +949,37 @@ void Tilemap::Draw(Renderer &renderer) const {
             continue;
         }
 
-        const bool shifted = layer.parallax_x != 1.0f || layer.parallax_y != 1.0f ||
-                             layer.offset_x != 0.0f || layer.offset_y != 0.0f;
-        for (int row = 0; row < rows_; ++row) {
-            for (int col = 0; col < cols_; ++col) {
-                const std::uint32_t gid =
-                    layer.gids[static_cast<std::size_t>(row) * cols_ + col];
-                if (gid == 0) {
-                    continue;
-                }
-                const Tileset *ts = nullptr;
-                std::uint32_t local = 0;
-                if (!ResolveTile(gid, ts, local) || ts->texture == kInvalidTextureHandle) {
-                    continue;
-                }
-                const Texture2D *texture = resources_->GetTexture(ts->texture);
-                if (texture == nullptr) {
-                    continue;
-                }
-                const int sheet_col = static_cast<int>(local % static_cast<std::uint32_t>(ts->columns));
-                const int sheet_row = static_cast<int>(local / static_cast<std::uint32_t>(ts->columns));
-                const Rect src{
-                    static_cast<float>(sheet_col * ts->tile_width),
-                    static_cast<float>(sheet_row * ts->tile_height),
-                    static_cast<float>(ts->tile_width),
-                    static_cast<float>(ts->tile_height)};
-                float dst_x = static_cast<float>(col * tile_width_);
-                float dst_y = static_cast<float>(row * tile_height_);
-                float dst_h = static_cast<float>(tile_height_);
-                // A slope whose `slope_rise` is taller than one cell covers a
-                // vertical span larger than its own cell, so the sprite is
-                // stretched downward to cover the whole span. The surface is
-                // anchored at the cell's bottom edge, so a rise of N pixels
-                // reaches from there up to `rise` above it; the sprite has to
-                // fill that band or the artwork sits above the surface the
-                // player walks.
-                auto slope_at = ts->slope_gids.find(gid);
-                if (slope_at != ts->slope_gids.end() &&
-                    slope_at->second.rise > static_cast<int>(tile_height_)) {
-                    dst_h = static_cast<float>(slope_at->second.rise);
-                }
-                const Rect dst{dst_x, dst_y, static_cast<float>(tile_width_), dst_h};
-                if (!shifted) {
-                    batch.DrawSprite(*texture, src, dst);
-                } else {
-                    const float tw = static_cast<float>(texture->Width());
-                    const float th = static_cast<float>(texture->Height());
-                    const Vec2 uv[4] = {
-                        {src.x / tw, src.y / th},
-                        {(src.x + src.width) / tw, src.y / th},
-                        {(src.x + src.width) / tw, (src.y + src.height) / th},
-                        {src.x / tw, (src.y + src.height) / th}};
-                    const Vec2 corners[4] = {
-                        parallax_point(dst.x, dst.y, layer),
-                        parallax_point(dst.x + dst.width, dst.y, layer),
-                        parallax_point(dst.x + dst.width, dst.y + dst.height, layer),
-                        parallax_point(dst.x, dst.y + dst.height, layer)};
-                    batch.DrawVertices(*texture, corners, uv);
-                }
-            }
+        DrawTileLayer(batch, layer, static_cast<int>(li), 1.0f, cam_pos, &cam);
+    }
+
+    batch.End();
+    batch.SetSorted(false);
+    batch.Begin(vp, active);
+}
+
+void Tilemap::DrawScaled(Renderer &renderer, float scale) const {
+    if (!IsValid() || scale <= 0.0f) {
+        return;
+    }
+    SpriteBatch &batch = renderer.GetSpriteBatch();
+    const Camera2D &cam = renderer.ActiveCamera();
+    const Mat4 vp = cam.ViewProjectionMatrix();
+    Shader *active = renderer.ActiveShader();
+
+    // Same sorted scope as Draw, but flat: a null camera drops parallax and
+    // layer offsets, and image layers are skipped (a full-size backdrop would
+    // cover the whole overview).
+    batch.End();
+    batch.SetSorted(true);
+    batch.Begin(vp, active);
+
+    for (std::size_t li = 0; li < layers_.size(); ++li) {
+        const Layer &layer = layers_[li];
+        if (!layer.visible || layer.object_layer || layer.image_layer) {
+            continue;
         }
+        DrawTileLayer(batch, layer, static_cast<int>(li), scale, Vec2{0.0f, 0.0f},
+                      nullptr);
     }
 
     batch.End();

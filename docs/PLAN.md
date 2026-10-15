@@ -224,6 +224,20 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 
 ---
 
+## Phase 21 — Post-processing & baked minimap (1.15.x)
+
+- [x] **`Renderer::ActiveCamera()`**: the camera of the surface actually being drawn into (the target's canvas camera while a target is bound, else the window camera). `Tilemap::Draw` now uses it — previously a tilemap drawn inside a target followed the *window* camera, so `map_draw` could not render a camera view offscreen. Regression-covered by drawing with the window camera scrolled far away and probing that the bake still lands at the canvas origin
+- [x] **`Renderer::SetTargetCamera(x, y)` / `rt_camera(x, y)`**: aim the bound target's canvas camera at a world offset — the piece that makes a whole-world post pass possible (`map_draw` inside the target then renders exactly what the game camera sees). Flushes and restarts the batch so later draws pick up the new transform; refused while no target is bound
+- [x] **`Tilemap::DrawScaled(renderer, scale)` / `map_draw_scaled(id, scale)`**: the whole map at a uniform scale about its origin, parallax and layer offsets dropped, image layers skipped — the minimap bake. The per-layer loop was extracted into a shared `DrawTileLayer` helper (scale + optional camera) so `Draw` and `DrawScaled` cannot drift apart
+- [x] **`Renderer::PresentRenderTarget(id, shader, tint)` / `rt_present(id, shader)`**: blit a target across the whole of the active view (the window, or another target for a ping-pong pass) with a shader override scoped to that one blit — `ActiveShader()` is untouched, so the rest of the frame keeps its program. Two extra flushes per pass, same contract as `UseShaderById`
+- [x] `assets/post_grade.{vert,frag}`: presentation-grade fragment stage (desaturate, brightness lift, vignette, scanlines) where **every uniform defaults to "unchanged"** — an untouched shader is a straight blit, which is also what makes the pass assertable
+- [x] `--post-test`: 44 headless assertions, all pixel probes (a generated two-tile tileset + an inline Tiled JSON): bake at scale 1 and 0.5, scale 0 no-op, the ActiveCamera regression, `rt_camera` aiming, plain-present coverage of a larger destination, identity-through-default-uniforms, +0.25 brightness, full desaturate, scanline row alternation, self/window/unknown-id guards, `ActiveShader` isolation, and the window framebuffer surviving a present. Mutation-checked: reverting `Draw` to the window camera, ignoring `DrawScaled`'s scale, and sizing the present quad from the source each fail the suite
+- [x] `--post-demo`: the world (mario.json when generated, else a procedural skyline) drawn into a full-screen target and presented through the grade shader; the HUD is drawn *after* the present so it stays ungraded. Right column: post/greyscale checkboxes + lift/vignette/scanline sliders driving the uniforms live; a baked minimap with the camera's viewport rectangle clipped to the pane; SPACE/G hotkeys; graceful no-FBO fallback draws straight to the screen
+- [x] **Fix (pre-existing):** `scripts/ui_demo.lua`'s footer sat at y=660 on a 960x540 logical canvas — invisible, but the demo still exited 0 and the earlier screenshot check eyeballed the picture instead of the bounds. Layout pulled inside the canvas and the check is now a pixel bounding-box probe; the same sweep found every other demo either inside (scene, rt, ui) or intentionally full-bleed (map/platformer/mario/slope)
+- [x] Verification: `--post-test` 44/44; `--post-demo` headless smoke + pixel-probed screenshot (panel overflow past x=960 and an unclipped viewport rect found and fixed by probe); all gates re-run green
+
+---
+
 ## Non-goals (for now)
 
 - Full 3D / PBR (Fake2D is strictly focused on high-performance 2D)

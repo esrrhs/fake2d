@@ -1443,6 +1443,282 @@ int RunUITest(fake2d::Engine &engine) {
     return failures == 0 ? 0 : 1;
 }
 
+// Post-processing and the minimap bake. Everything here is a pixel probe:
+// the scene goes into a target, the post pass blits it into a second one
+// (or onto the screen), and the result is read back — so no assertion needs
+// a mouse, a keyboard, or a visible window.
+int RunPostTest(fake2d::Engine &engine) {
+    int failures = 0;
+    int checks = 0;
+    auto check = [&](bool ok, const char *what) {
+        ++checks;
+        if (!ok) {
+            ++failures;
+            std::printf("[post] FAIL %s\n", what);
+        }
+    };
+    // 8-bit channels: 1/255 of slack absorbs any filtering rounding.
+    auto near = [](float a, float b) { return std::fabs(a - b) < 0.02f; };
+    auto is_red = [&](const fake2d::Color &c) {
+        return near(c.r, 1.0f) && near(c.g, 0.0f) && near(c.b, 0.0f);
+    };
+    auto is_green = [&](const fake2d::Color &c) {
+        return near(c.r, 0.0f) && near(c.g, 1.0f) && near(c.b, 0.0f);
+    };
+    auto is_white = [&](const fake2d::Color &c) {
+        return near(c.r, 1.0f) && near(c.g, 1.0f) && near(c.b, 1.0f);
+    };
+    auto is_grey = [&](const fake2d::Color &c) {
+        return near(c.r, c.g) && near(c.g, c.b);
+    };
+
+    fake2d::Renderer &r = engine.GetRenderer();
+    if (!r.IsReady()) {
+        std::printf("[post] FAIL renderer is not initialised\n");
+        return 1;
+    }
+    fake2d::RenderTargetLibrary &lib = r.GetRenderTargets();
+
+    // --- a real two-tile tileset, generated on demand ----------------------
+    // tile 1 = solid red, tile 2 = solid green, 32x16 as two 16x16 tiles.
+    // Tiles with no loaded texture are skipped, so the bake needs a real one.
+    const std::string tiles_path = "assets/_post_tiles.png";
+    {
+        std::error_code ec;
+        std::filesystem::create_directories("assets", ec);
+        std::vector<unsigned char> px(static_cast<std::size_t>(32 * 16 * 3));
+        for (int y = 0; y < 16; ++y) {
+            for (int x = 0; x < 32; ++x) {
+                const std::size_t o = static_cast<std::size_t>(y * 32 + x) * 3;
+                px[o + 0] = x < 16 ? 255 : 0;
+                px[o + 1] = x < 16 ? 0 : 255;
+                px[o + 2] = 0;
+            }
+        }
+        stbi_write_png(tiles_path.c_str(), 32, 16, 3, px.data(), 32 * 3);
+    }
+
+    // 4x2 checkerboard: the pattern below is the map read row by row, so a
+    // tile drawn in the wrong cell (or at the wrong scale) flips a colour.
+    constexpr const char *kDoc = R"JSON({
+      "orientation": "orthogonal", "width": 4, "height": 2,
+      "tilewidth": 16, "tileheight": 16,
+      "tilesets": [{"firstgid": 1, "name": "t", "tilewidth": 16, "tileheight": 16,
+                    "columns": 2, "tilecount": 2, "image": "_post_tiles.png",
+                    "imagewidth": 32, "imageheight": 16,
+                    "tiles": [{"id": 0}, {"id": 1}]}],
+      "layers": [{"name": "world", "type": "tilelayer", "visible": true,
+                  "opacity": 1,
+                  "data": [1, 2, 1, 2,
+                           2, 1, 2, 1]}]
+    })JSON";
+
+    fake2d::Tilemap map;
+    check(map.LoadFromString(kDoc, "assets", engine.GetResources()),
+          "map: the generated tileset parses");
+    check(map.IsValid() && map.Cols() == 4 && map.Rows() == 2, "map: 4x2 cells");
+
+    const int bake = lib.Create(128, 128);
+    const int graded = lib.Create(128, 128);
+    const int wide = lib.Create(256, 256);
+    check(bake > 0 && graded > 0 && wide > 0, "targets: three slots allocated");
+    fake2d::RenderTarget *t_bake = lib.Get(bake);
+    fake2d::RenderTarget *t_graded = lib.Get(graded);
+    fake2d::RenderTarget *t_wide = lib.Get(wide);
+    fake2d::Color px{};
+
+    // --- the minimap bake: DrawScaled into a target ------------------------
+    // Inside a target, coordinates are the target's own pixels with (0,0) at
+    // its top-left, so the whole map must land at the canvas origin.
+    r.BeginFrame(0.0f, 0.0f, 0.0f, 1.0f);
+    check(r.BeginRenderTarget(bake), "bake: target binds");
+    r.ClearActiveTarget(fake2d::Color{0.0f, 0.0f, 0.25f, 1.0f});
+    map.DrawScaled(r, 1.0f);
+    r.EndRenderTarget();
+    check(t_bake->ReadPixel(8, 8, px) && is_red(px), "bake: cell (0,0) is tile 1");
+    check(t_bake->ReadPixel(24, 8, px) && is_green(px), "bake: cell (1,0) is tile 2");
+    check(t_bake->ReadPixel(40, 8, px) && is_red(px), "bake: cell (2,0) is tile 1");
+    check(t_bake->ReadPixel(8, 24, px) && is_green(px), "bake: cell (0,1) is tile 2");
+    check(t_bake->ReadPixel(80, 8, px) && near(px.b, 0.25f),
+          "bake: past the map's right edge the clear colour survives");
+
+    // Half scale: 64x32 becomes 32x16, so cells shrink to 8px and everything
+    // past x=32 is untouched canvas.
+    check(r.BeginRenderTarget(bake), "bake: target rebinds");
+    r.ClearActiveTarget(fake2d::Color{0.0f, 0.0f, 0.25f, 1.0f});
+    map.DrawScaled(r, 0.5f);
+    r.EndRenderTarget();
+    check(t_bake->ReadPixel(4, 4, px) && is_red(px), "scaled: cell (0,0) still tile 1");
+    check(t_bake->ReadPixel(12, 4, px) && is_green(px), "scaled: cell (1,0) still tile 2");
+    check(t_bake->ReadPixel(40, 4, px) && near(px.b, 0.25f),
+          "scaled: the map ends at half its width");
+
+    // A non-positive scale is a no-op rather than a degenerate draw.
+    check(r.BeginRenderTarget(bake), "bake: target rebinds again");
+    r.ClearActiveTarget(fake2d::Color{0.0f, 0.0f, 0.25f, 1.0f});
+    map.DrawScaled(r, 0.0f);
+    r.EndRenderTarget();
+    check(t_bake->ReadPixel(4, 4, px) && near(px.b, 0.25f), "scaled: scale 0 draws nothing");
+
+    // --- the same map through the normal draw path -------------------------
+    // Tilemap::Draw follows the *active* camera. Scroll the window camera far
+    // away first: a map drawn with the window camera would land outside the
+    // target, while the canvas one puts it at the canvas origin.
+    r.GetCamera().SetPosition(500.0f, 300.0f);
+    check(r.BeginRenderTarget(bake), "draw: target binds under a scrolled camera");
+    r.ClearActiveTarget(fake2d::Color{0.0f, 0.0f, 0.25f, 1.0f});
+    map.Draw(r);
+    r.EndRenderTarget();
+    check(t_bake->ReadPixel(8, 8, px) && is_red(px),
+          "draw: a scrolled window camera does not move the baked map");
+    check(t_bake->ReadPixel(24, 8, px) && is_green(px),
+          "draw: the second cell lands beside the first");
+    r.GetCamera().SetPosition(0.0f, 0.0f);
+
+    // --- rt_camera: aim the canvas at a world offset -----------------------
+    // The minimap bakes at (0,0); a post pass needs the *camera's* view. The
+    // map is 64x32 px, so with the canvas camera at (32, 16), world (32, 16)
+    // — tile (2,1), gid 2 — must land on the canvas origin, and everything
+    // past world x=64 (canvas x=32) is off the map.
+    check(r.BeginRenderTarget(bake), "camera: target binds");
+    check(r.SetTargetCamera(32.0f, 16.0f), "camera: moves while a target is bound");
+    r.ClearActiveTarget(fake2d::Color{0.0f, 0.0f, 0.25f, 1.0f});
+    map.Draw(r);
+    check(t_bake->ReadPixel(4, 4, px) && is_green(px),
+          "camera: world (32,16) lands on the canvas origin");
+    check(t_bake->ReadPixel(40, 4, px) && near(px.b, 0.25f),
+          "camera: past the map's right edge only the clear colour remains");
+    r.EndRenderTarget();
+    check(!r.SetTargetCamera(0.0f, 0.0f),
+          "camera: refused with no target bound");
+    r.EndFrame();
+
+    // --- the post pass -----------------------------------------------------
+    const int fx = r.LoadShaderFromFile("assets/post_grade.vert",
+                                        "assets/post_grade.frag");
+    check(fx > 0, "shader: the post program compiles");
+
+    // Scene: a white upper half over a dark lower half — distinguishable
+    // after any grade that is supposed to preserve them.
+    const fake2d::Color kDark{0.10f, 0.12f, 0.20f, 1.0f};
+    r.BeginFrame(0.0f, 0.0f, 0.0f, 1.0f);
+    check(r.BeginRenderTarget(graded), "scene: target binds");
+    r.ClearActiveTarget(kDark);
+    r.DrawQuad(0.0f, 0.0f, 128.0f, 64.0f, fake2d::Color::White());
+    r.EndRenderTarget();
+
+    // A plain present (no shader) stretches the source over the whole
+    // destination, whatever its size.
+    check(r.BeginRenderTarget(wide), "present: 256x256 destination binds");
+    r.ClearActiveTarget(fake2d::Color{1.0f, 0.0f, 1.0f, 1.0f});
+    r.PresentRenderTarget(graded, nullptr);
+    r.EndRenderTarget();
+    check(t_wide->ReadPixel(64, 32, px) && is_white(px),
+          "present: the upper half is scaled up to the destination");
+    check(t_wide->ReadPixel(240, 240, px) && near(px.r, kDark.r),
+          "present: the quad covers the far corner (no magenta left)");
+
+    // Shader present with every knob at its default: a straight blit.
+    check(r.BeginRenderTarget(wide), "post: destination binds");
+    r.ClearActiveTarget(fake2d::Color{1.0f, 0.0f, 1.0f, 1.0f});
+    if (fx > 0) {
+        r.SetShaderFloat(fx, "u_desaturate", 0.0f);
+        r.SetShaderFloat(fx, "u_brightness", 0.0f);
+        r.SetShaderFloat(fx, "u_vignette", 0.0f);
+        r.SetShaderFloat(fx, "u_scanline", 0.0f);
+    }
+    r.PresentRenderTarget(graded, r.GetShader(fx));
+    r.EndRenderTarget();
+    check(t_wide->ReadPixel(64, 32, px) && is_white(px),
+          "post: defaults are the identity (white stays white)");
+    check(t_wide->ReadPixel(64, 200, px) && near(px.b, kDark.b),
+          "post: defaults are the identity (dark stays dark)");
+    check(r.ActiveShader() == nullptr,
+          "post: the override does not leak into the rest of the frame");
+
+    // Brightness lifts every channel; desaturate collapses them onto luma.
+    if (fx > 0) {
+        r.SetShaderFloat(fx, "u_brightness", 0.25f);
+    }
+    check(r.BeginRenderTarget(wide), "post: destination binds for the lift");
+    r.PresentRenderTarget(graded, r.GetShader(fx));
+    r.EndRenderTarget();
+    check(t_wide->ReadPixel(64, 200, px) && near(px.b, kDark.b + 0.25f),
+          "post: +0.25 brightness lands on the dark half");
+
+    if (fx > 0) {
+        r.SetShaderFloat(fx, "u_brightness", 0.0f);
+        r.SetShaderFloat(fx, "u_desaturate", 1.0f);
+    }
+    check(r.BeginRenderTarget(wide), "post: destination binds for the desaturate");
+    r.PresentRenderTarget(graded, r.GetShader(fx));
+    r.EndRenderTarget();
+    check(t_wide->ReadPixel(64, 32, px) && is_grey(px),
+          "post: full desaturate flattens the white half to grey");
+
+    // Scanlines darken alternate rows of the destination, so neighbours differ.
+    // Same-size pair (128 -> 128) so the frequency matches the resolution.
+    if (fx > 0) {
+        r.SetShaderFloat(fx, "u_desaturate", 0.0f);
+        r.SetShaderFloat(fx, "u_scanline", 0.0f);
+        r.SetShaderVec2(fx, "u_resolution", 128.0f, 128.0f);
+    }
+    check(r.BeginRenderTarget(bake), "post: same-size destination binds");
+    r.PresentRenderTarget(graded, r.GetShader(fx));
+    r.EndRenderTarget();
+    fake2d::Color row_a{};
+    fake2d::Color row_b{};
+    t_bake->ReadPixel(64, 32, row_a);
+    t_bake->ReadPixel(64, 33, row_b);
+    check(near(row_a.r, row_b.r), "post: no scanlines leave neighbours identical");
+    if (fx > 0) {
+        r.SetShaderFloat(fx, "u_scanline", 1.0f);
+    }
+    check(r.BeginRenderTarget(bake), "post: destination rebinds for scanlines");
+    r.PresentRenderTarget(graded, r.GetShader(fx));
+    r.EndRenderTarget();
+    t_bake->ReadPixel(64, 32, row_a);
+    t_bake->ReadPixel(64, 33, row_b);
+    check(!near(row_a.r, row_b.r), "post: scanlines darken every other row");
+
+    // --- guards ------------------------------------------------------------
+    // A target must not be presented into itself, and the window is not a
+    // presentable source.
+    check(r.BeginRenderTarget(bake), "guards: destination binds");
+    r.ClearActiveTarget(fake2d::Color{1.0f, 0.0f, 1.0f, 1.0f});
+    r.PresentRenderTarget(bake, nullptr); // self: ignored
+    r.PresentRenderTarget(0, nullptr);    // the window: ignored
+    r.PresentRenderTarget(99, nullptr);   // unknown: ignored
+    r.EndRenderTarget();
+    check(t_bake->ReadPixel(64, 64, px) && near(px.r, 1.0f) && near(px.b, 1.0f),
+          "guards: the ignored presents left the target untouched");
+    r.EndFrame();
+
+    // --- the window survives a present -------------------------------------
+    // Presenting onto the screen has to end up on the framebuffer the window
+    // actually shows, which a headless context owns itself (not id 0).
+    r.BeginFrame(0.0f, 0.0f, 0.0f, 1.0f);
+    r.PresentRenderTarget(graded, nullptr);
+    r.EndFrame();
+    std::error_code ec;
+    const std::string shot = "assets/_post_test.png";
+    std::filesystem::remove(shot, ec);
+    check(r.SaveScreenshot(shot), "screenshot: the window framebuffer is intact");
+    const auto shot_bytes = std::filesystem::file_size(shot, ec);
+    check(!ec && shot_bytes > 0, "screenshot: wrote a non-empty png");
+    std::filesystem::remove(shot, ec);
+
+    std::filesystem::remove(tiles_path, ec);
+    lib.Clear();
+    if (fx > 0) {
+        r.DestroyShader(fx);
+    }
+
+    std::printf("[post] %s: %d checks, %d failures\n", failures == 0 ? "PASS" : "FAIL",
+                checks, failures);
+    return failures == 0 ? 0 : 1;
+}
+
 int RunPathTest(fake2d::Engine &engine) {
     int failures = 0;
     int checks = 0;
@@ -3253,6 +3529,7 @@ int main(int argc, char **argv) {
     bool path_test = false;
     bool rt_test = false;
     bool ui_test = false;
+    bool post_test = false;
     int max_frames = 0;
     int shot_frame = 30;
     std::string screenshot;
@@ -3289,6 +3566,9 @@ int main(int argc, char **argv) {
         } else if (arg == "--ui-demo") {
             // Sliders, checkboxes, text fields and scroll areas.
             cfg.script_entry = "scripts/ui_demo.lua";
+        } else if (arg == "--post-demo") {
+            // Post-processing pass over the whole world + a baked minimap.
+            cfg.script_entry = "scripts/post_demo.lua";
         } else if (arg == "--screenshot" && i + 1 < argc) {
             screenshot = argv[++i];
         } else if (arg == "--shot-frame" && i + 1 < argc) {
@@ -3350,6 +3630,13 @@ int main(int argc, char **argv) {
             cfg.headless = true;
             cfg.script_entry.clear();
             cfg.vsync = false;
+        } else if (arg == "--post-test") {
+            // Headless self-test of the post-processing pass and the minimap
+            // bake: draw into a target, blit it through a shader, read back.
+            post_test = true;
+            cfg.headless = true;
+            cfg.script_entry.clear();
+            cfg.vsync = false;
         } else if (arg == "--fixed-hz" && i + 1 < argc) {
             // Physics rate; 0 (or --variable-step) restores variable stepping.
             const int hz = std::atoi(argv[++i]);
@@ -3396,6 +3683,9 @@ int main(int argc, char **argv) {
     }
     if (ui_test) {
         return RunUITest(engine);
+    }
+    if (post_test) {
+        return RunPostTest(engine);
     }
 
     // All gameplay is pure Lua below; C++ only guarantees the binary asset

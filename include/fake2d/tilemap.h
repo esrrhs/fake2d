@@ -172,6 +172,13 @@ public:
     /// tiles merge regardless of their gid interleaving.
     void Draw(Renderer &renderer) const;
 
+    /// Draw the whole map at a uniform `scale` about its (0,0) corner, with
+    /// parallax ignored — the minimap bake. Tile layers only: image layers
+    /// are a full-size backdrop and would drown the overview. Coordinates go
+    /// through the active camera, so this works inside a render target (in
+    /// canvas space, where 1 unit = 1 pixel). No-op for scale <= 0.
+    void DrawScaled(Renderer &renderer, float scale) const;
+
     /// Spawn one static sensor-less box body per solid cell. The bodies are
     /// caller-managed afterwards (returns the created ids).
     std::vector<BodyId> CreateStaticColliders(PhysicsWorld &physics) const;
@@ -198,6 +205,12 @@ private:
     [[nodiscard]] const Tileset *FindTileset(std::uint32_t gid) const;
     bool ResolveTile(std::uint32_t gid, const Tileset *&out_set,
                      std::uint32_t &out_local_id) const;
+
+    /// Submit every tile of one layer. `scale` multiplies the destination
+    /// rect about the map origin; with `cam` null the layer is drawn flat
+    /// (parallax and offsets skipped) — that is the minimap case.
+    void DrawTileLayer(SpriteBatch &batch, const Layer &layer, int layer_index,
+                       float scale, const Vec2 &cam_pos, const Camera2D *cam) const;
 
     int cols_ = 0;
     int rows_ = 0;
