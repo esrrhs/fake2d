@@ -15,12 +15,9 @@
 
 namespace fake2d {
 
-constexpr int kVoiceCount = 32;
-constexpr int kSampleRate = 44100;
 
 struct AudioEngine::Device {
     ma_device ma{};
-    std::mutex mutex;
 
     static void DataCallback(ma_device *device, void *output, const void * /*input*/,
                              ma_uint32 frame_count) {
@@ -31,12 +28,29 @@ struct AudioEngine::Device {
     }
 };
 
+namespace {
+
+// The mixer owns its own lock: a host with no audio device still has clips,
+// voices and fades to protect.
+std::mutex &MixerMutex(void *opaque) {
+    return *static_cast<std::mutex *>(opaque);
+}
+
+float Clamp01(float v) {
+    return std::clamp(v, 0.0f, 1.0f);
+}
+
+} // namespace
+
 AudioEngine::AudioEngine() {
-    voices_.resize(kVoiceCount);
+    voices_.resize(kMaxVoices);
+    mutex_ = new std::mutex();
 }
 
 AudioEngine::~AudioEngine() {
     Shutdown();
+    delete static_cast<std::mutex *>(mutex_);
+    mutex_ = nullptr;
 }
 
 bool AudioEngine::Init() {
@@ -46,7 +60,7 @@ bool AudioEngine::Init() {
     ma_device_config config = ma_device_config_init(ma_device_type_playback);
     config.playback.format = ma_format_f32;
     config.playback.channels = 2;
-    config.sampleRate = kSampleRate;
+    config.sampleRate = AudioEngine::kSampleRate;
     config.dataCallback = &Device::DataCallback;
     config.pUserData = this;
 
@@ -79,10 +93,13 @@ void AudioEngine::Shutdown() {
 }
 
 bool AudioEngine::AddClip(std::string_view name, const std::vector<float> &mono_pcm) {
-    if (!enabled_ || mono_pcm.empty()) {
+    // No enabled_ gate: clips are just memory, and a headless host still has
+    // to be able to register and mix them.
+    if (mono_pcm.empty()) {
         return false;
     }
     const std::string key(name);
+    std::lock_guard<std::mutex> lock(MixerMutex(mutex_));
     const auto existing = std::find_if(clips_.begin(), clips_.end(),
                                        [&](const Clip &c) { return c.name == key; });
     if (existing != clips_.end()) {
@@ -92,31 +109,44 @@ bool AudioEngine::AddClip(std::string_view name, const std::vector<float> &mono_
     return true;
 }
 
-void AudioEngine::StartClip(std::string_view name, float volume, bool loop, bool music) {
-    if (!enabled_ || voices_.empty()) {
+void AudioEngine::StartClip(std::string_view name, float volume, bool loop, bool music,
+                            float fade_seconds) {
+    if (voices_.empty()) {
         return;
     }
+    std::lock_guard<std::mutex> lock(MixerMutex(mutex_));
     const std::string key(name);
+    // clips_ may be reallocated by AddClip, so resolve the pointer under the
+    // lock and never hold a Clip* across an unlock.
     const auto clip = std::find_if(clips_.begin(), clips_.end(),
                                    [&](const Clip &c) { return c.name == key; });
     if (clip == clips_.end() || clip->pcm.empty()) {
         return;
     }
 
-    auto *device = static_cast<Device *>(device_);
-    std::lock_guard<std::mutex> lock(device->mutex);
-
-    // Music occupies exactly one voice; restart it in place.
-    if (music) {
+    // Music: hand the track over in place when it is not cross-fading. A
+    // fade hands the old voice to the ramp instead and starts a new one, so
+    // both play at once for `fade_seconds`.
+    if (music && fade_seconds <= 0.0f) {
         for (Voice &voice : voices_) {
             if (voice.music) {
                 voice.clip = &*clip;
                 voice.cursor = 0.0;
                 voice.step = 1.0;
-                voice.volume = volume;
+                voice.gain_from = volume;
+                voice.gain_to = volume;
+                voice.fade_pos = 0.0f;
+                voice.fade_dur = 0.0f;
+                voice.fade_ends_voice = false;
                 voice.active = true;
                 voice.loop = true;
                 return;
+            }
+        }
+    } else if (music) {
+        for (Voice &voice : voices_) {
+            if (voice.music && voice.active && !voice.fade_ends_voice) {
+                RampTo(voice, 0.0f, fade_seconds, true);
             }
         }
     }
@@ -126,10 +156,21 @@ void AudioEngine::StartClip(std::string_view name, float volume, bool loop, bool
             voice.clip = &*clip;
             voice.cursor = 0.0;
             voice.step = 1.0;
-            voice.volume = volume;
+            voice.gain_to = volume;
+            voice.fade_ends_voice = false;
             voice.active = true;
             voice.loop = loop;
             voice.music = music;
+            if (fade_seconds > 0.0f) {
+                // Fade in from silence; a fade out of 0 would end the voice.
+                voice.gain_from = 0.0f;
+                voice.fade_pos = 0.0f;
+                voice.fade_dur = fade_seconds;
+            } else {
+                voice.gain_from = volume;
+                voice.fade_pos = 0.0f;
+                voice.fade_dur = 0.0f;
+            }
             return;
         }
     }
@@ -137,43 +178,133 @@ void AudioEngine::StartClip(std::string_view name, float volume, bool loop, bool
 }
 
 void AudioEngine::Play(std::string_view name, float volume) {
-    StartClip(name, volume, false, false);
+    StartClip(name, volume, false, false, 0.0f);
 }
 
-void AudioEngine::PlayMusic(std::string_view name, float volume) {
-    StartClip(name, volume, true, true);
+void AudioEngine::PlayMusic(std::string_view name, float volume, float fade_seconds) {
+    StartClip(name, volume, true, true, fade_seconds);
 }
 
-void AudioEngine::StopMusic() {
-    if (!enabled_) {
-        return;
-    }
-    auto *device = static_cast<Device *>(device_);
-    std::lock_guard<std::mutex> lock(device->mutex);
+void AudioEngine::StopMusic(float fade_seconds) {
+    std::lock_guard<std::mutex> lock(MixerMutex(mutex_));
     for (Voice &voice : voices_) {
-        if (voice.music) {
-            voice.active = false;
+        if (voice.music && voice.active) {
+            if (fade_seconds > 0.0f) {
+                RampTo(voice, 0.0f, fade_seconds, true);
+            } else {
+                voice.active = false;
+                voice.fade_dur = 0.0f;
+                voice.fade_ends_voice = false;
+            }
+        }
+    }
+}
+
+void AudioEngine::FadeMusicTo(float volume, float seconds) {
+    std::lock_guard<std::mutex> lock(MixerMutex(mutex_));
+    for (Voice &voice : voices_) {
+        if (voice.music && voice.active && !voice.fade_ends_voice) {
+            RampTo(voice, volume, seconds, false);
         }
     }
 }
 
 void AudioEngine::SetMusicVolume(float volume) {
-    if (!enabled_) {
-        return;
-    }
-    auto *device = static_cast<Device *>(device_);
-    std::lock_guard<std::mutex> lock(device->mutex);
+    std::lock_guard<std::mutex> lock(MixerMutex(mutex_));
     for (Voice &voice : voices_) {
-        if (voice.music) {
-            voice.volume = volume;
+        if (voice.music && voice.active) {
+            // Immediate: cancel any ramp and settle on the new gain.
+            voice.gain_from = volume;
+            voice.gain_to = volume;
+            voice.fade_pos = 0.0f;
+            voice.fade_dur = 0.0f;
         }
     }
 }
 
-bool AudioEngine::AddClipWav(std::string_view name, const std::string &wav_path) {
-    if (!enabled_) {
-        return false;
+void AudioEngine::SetBusVolume(AudioBus bus, float volume) {
+    std::lock_guard<std::mutex> lock(MixerMutex(mutex_));
+    switch (bus) {
+        case AudioBus::Master: bus_master_ = Clamp01(volume); break;
+        case AudioBus::Sfx:    bus_sfx_ = Clamp01(volume); break;
+        case AudioBus::Music:  bus_music_ = Clamp01(volume); break;
     }
+}
+
+float AudioEngine::BusVolume(AudioBus bus) const {
+    std::lock_guard<std::mutex> lock(MixerMutex(mutex_));
+    switch (bus) {
+        case AudioBus::Master: return bus_master_;
+        case AudioBus::Sfx:    return bus_sfx_;
+        case AudioBus::Music:  return bus_music_;
+    }
+    return 0.0f;
+}
+
+void AudioEngine::SetPaused(bool paused) {
+    std::lock_guard<std::mutex> lock(MixerMutex(mutex_));
+    paused_ = paused;
+}
+
+bool AudioEngine::IsMusicPlaying() const {
+    std::lock_guard<std::mutex> lock(MixerMutex(mutex_));
+    // A track fading out is still audible, so it still counts as playing —
+    // MusicName() is the one that skips it (there the *new* track wins).
+    for (const Voice &voice : voices_) {
+        if (voice.music && voice.active) {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::string_view AudioEngine::MusicName() const {
+    std::lock_guard<std::mutex> lock(MixerMutex(mutex_));
+    for (const Voice &voice : voices_) {
+        if (voice.music && voice.active && !voice.fade_ends_voice &&
+            voice.clip != nullptr) {
+            return voice.clip->name;
+        }
+    }
+    return {};
+}
+
+float AudioEngine::MusicVolume() const {
+    std::lock_guard<std::mutex> lock(MixerMutex(mutex_));
+    for (const Voice &voice : voices_) {
+        if (voice.music && voice.active && !voice.fade_ends_voice) {
+            return voice.gain_to;
+        }
+    }
+    return 0.0f;
+}
+
+float AudioEngine::EnvelopeGain(const Voice &voice) {
+    if (voice.fade_dur <= 0.0f) {
+        return voice.gain_to; // settled
+    }
+    const float t = std::clamp(voice.fade_pos / voice.fade_dur, 0.0f, 1.0f);
+    return voice.gain_from + (voice.gain_to - voice.gain_from) * t;
+}
+
+void AudioEngine::RampTo(Voice &voice, float to, float seconds, bool ends_voice) {
+    const float from = EnvelopeGain(voice);
+    if (seconds <= 0.0f) {
+        voice.gain_from = to;
+        voice.gain_to = to;
+        voice.fade_dur = 0.0f;
+        voice.fade_ends_voice = false;
+        voice.active = voice.active && !(ends_voice && to <= 0.0f);
+        return;
+    }
+    voice.gain_from = from;
+    voice.gain_to = to;
+    voice.fade_pos = 0.0f;
+    voice.fade_dur = seconds;
+    voice.fade_ends_voice = ends_voice;
+}
+
+bool AudioEngine::AddClipWav(std::string_view name, const std::string &wav_path) {
     std::ifstream in(wav_path, std::ios::binary);
     if (!in) {
         std::fprintf(stderr, "fake2d: cannot open WAV %s\n", wav_path.c_str());
@@ -254,10 +385,10 @@ bool AudioEngine::AddClipWav(std::string_view name, const std::string &wav_path)
 
     // Linear resample to the device rate.
     std::vector<float> resampled;
-    if (sample_rate == static_cast<std::uint32_t>(kSampleRate)) {
+    if (sample_rate == static_cast<std::uint32_t>(AudioEngine::kSampleRate)) {
         resampled = std::move(mono);
     } else {
-        const double ratio = static_cast<double>(sample_rate) / kSampleRate;
+        const double ratio = static_cast<double>(sample_rate) / AudioEngine::kSampleRate;
         const auto out_count = static_cast<std::size_t>(frame_count / ratio);
         resampled.resize(out_count);
         for (std::size_t i = 0; i < out_count; ++i) {
@@ -272,11 +403,7 @@ bool AudioEngine::AddClipWav(std::string_view name, const std::string &wav_path)
 }
 
 std::size_t AudioEngine::PlayingCount() const {
-    if (!enabled_) {
-        return 0;
-    }
-    auto *device = static_cast<Device *>(device_);
-    std::lock_guard<std::mutex> lock(device->mutex);
+    std::lock_guard<std::mutex> lock(MixerMutex(mutex_));
     std::size_t count = 0;
     for (const Voice &voice : voices_) {
         count += voice.active ? 1 : 0;
@@ -284,13 +411,26 @@ std::size_t AudioEngine::PlayingCount() const {
     return count;
 }
 
+float AudioEngine::Peak() const {
+    std::lock_guard<std::mutex> lock(MixerMutex(mutex_));
+    return peak_;
+}
+
 void AudioEngine::Mix(float *out, int frame_count) {
-    if (device_ == nullptr) {
-        std::fill(out, out + static_cast<std::size_t>(frame_count) * 2, 0.0f);
+    std::lock_guard<std::mutex> lock(MixerMutex(mutex_));
+    if (out == nullptr || frame_count <= 0) {
         return;
     }
-    auto *device = static_cast<Device *>(device_);
-    std::lock_guard<std::mutex> lock(device->mutex);
+    if (paused_) {
+        // Frozen: silence out, and nothing advances, so resuming continues
+        // from exactly this point.
+        std::fill(out, out + static_cast<std::size_t>(frame_count) * 2, 0.0f);
+        peak_ = 0.0f;
+        return;
+    }
+
+    const float dt = 1.0f / static_cast<float>(AudioEngine::kSampleRate);
+    float peak = 0.0f;
 
     for (int frame = 0; frame < frame_count; ++frame) {
         float left = 0.0f;
@@ -314,14 +454,37 @@ void AudioEngine::Mix(float *out, int frame_count) {
                     continue;
                 }
             }
-            const float sample = pcm[index] * voice.volume;
+            // Envelope -> bus -> master. A music voice that has finished its
+            // fade-out leaves the mix here rather than looping forever.
+            const float envelope = EnvelopeGain(voice);
+            const float bus = voice.music ? bus_music_ : bus_sfx_;
+            const float gain = envelope * bus * bus_master_;
+            const float sample = pcm[index] * gain;
             left += sample;
             right += sample;
             voice.cursor += voice.step;
+            if (voice.fade_dur > 0.0f) {
+                voice.fade_pos += dt;
+                if (voice.fade_pos >= voice.fade_dur) {
+                    voice.fade_pos = voice.fade_dur;
+                    if (voice.fade_ends_voice) {
+                        voice.active = false;
+                        voice.fade_dur = 0.0f;
+                    } else {
+                        // Settle on the target so the ramp stops applying.
+                        voice.gain_from = voice.gain_to;
+                        voice.fade_dur = 0.0f;
+                    }
+                }
+            }
         }
-        out[static_cast<std::size_t>(frame) * 2 + 0] = std::clamp(left, -1.0f, 1.0f);
-        out[static_cast<std::size_t>(frame) * 2 + 1] = std::clamp(right, -1.0f, 1.0f);
+        const float l = std::clamp(left, -1.0f, 1.0f);
+        const float r = std::clamp(right, -1.0f, 1.0f);
+        out[static_cast<std::size_t>(frame) * 2 + 0] = l;
+        out[static_cast<std::size_t>(frame) * 2 + 1] = r;
+        peak = std::max(peak, std::max(std::fabs(l), std::fabs(r)));
     }
+    peak_ = peak;
 }
 
 } // namespace fake2d

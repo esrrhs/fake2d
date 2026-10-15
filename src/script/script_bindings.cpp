@@ -1,6 +1,7 @@
 #include "script_bindings.h"
 
 #include "fake2d/animation.h"
+#include "fake2d/audio.h"
 #include "fake2d/engine.h"
 #include "fake2d/particle.h"
 #include "fake2d/physics.h"
@@ -1405,17 +1406,86 @@ void RegisterAudioApi(fakelua::State *state, Engine *engine) {
         std::function<bool(fakelua::State *)>(
             [engine](fakelua::State *) { return engine->GetAudio().IsEnabled(); }));
 
+    // `fade` > 0 cross-fades: the incoming track ramps up while the outgoing
+    // one ramps down, so switching never clicks. 0 cuts over.
     fakelua::RegisterNativeFunction(
         state, "audio_music", false,
-        std::function<void(fakelua::State *, std::string_view, double)>(
-            [engine](fakelua::State *, std::string_view name, double volume) {
-                engine->GetAudio().PlayMusic(name, static_cast<float>(volume));
+        std::function<void(fakelua::State *, std::string_view, double, double)>(
+            [engine](fakelua::State *, std::string_view name, double volume,
+                     double fade) {
+                engine->GetAudio().PlayMusic(name, static_cast<float>(volume),
+                                             static_cast<float>(fade));
             }));
 
     fakelua::RegisterNativeFunction(
         state, "audio_music_stop", false,
-        std::function<void(fakelua::State *)>(
-            [engine](fakelua::State *) { engine->GetAudio().StopMusic(); }));
+        std::function<void(fakelua::State *, double)>(
+            [engine](fakelua::State *, double fade) {
+                engine->GetAudio().StopMusic(static_cast<float>(fade));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "audio_music_fade", false,
+        std::function<void(fakelua::State *, double, double)>(
+            [engine](fakelua::State *, double volume, double seconds) {
+                engine->GetAudio().FadeMusicTo(static_cast<float>(volume),
+                                               static_cast<float>(seconds));
+            }));
+
+    // --- mixing (Phase 22) ---------------------------------------------------
+    // Bus ids: 0 master, 1 sfx, 2 music. Every voice is multiplied by its
+    // own bus and by master, so effective = voice * bus * master.
+    fakelua::RegisterNativeFunction(
+        state, "audio_bus_set", false,
+        std::function<void(fakelua::State *, std::int64_t, double)>(
+            [engine](fakelua::State *, std::int64_t bus, double volume) {
+                engine->GetAudio().SetBusVolume(static_cast<AudioBus>(bus),
+                                                static_cast<float>(volume));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "audio_bus_get", false,
+        std::function<double(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t bus) -> double {
+                return engine->GetAudio().BusVolume(static_cast<AudioBus>(bus));
+            }));
+
+    // Pause freezes the mix: silence out, and neither cursors nor fades
+    // advance, so resuming picks up exactly where it stopped.
+    fakelua::RegisterNativeFunction(
+        state, "audio_pause", false,
+        std::function<void(fakelua::State *, bool)>(
+            [engine](fakelua::State *, bool paused) {
+                engine->GetAudio().SetPaused(paused);
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "audio_paused", false,
+        std::function<bool(fakelua::State *)>(
+            [engine](fakelua::State *) { return engine->GetAudio().IsPaused(); }));
+
+    fakelua::RegisterNativeFunction(
+        state, "audio_music_playing", false,
+        std::function<bool(fakelua::State *)>(
+            [engine](fakelua::State *) {
+                return engine->GetAudio().IsMusicPlaying();
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "audio_music_name", false,
+        std::function<std::string(fakelua::State *)>(
+            [engine](fakelua::State *) -> std::string {
+                return std::string(engine->GetAudio().MusicName());
+            }));
+
+    // Loudest sample of the last mixed block — drives VU meters. Reads 0
+    // when no device is consuming the mixer (headless).
+    fakelua::RegisterNativeFunction(
+        state, "audio_peak", false,
+        std::function<double(fakelua::State *)>(
+            [engine](fakelua::State *) -> double {
+                return engine->GetAudio().Peak();
+            }));
 }
 
 void RegisterParticleApi(fakelua::State *state, Engine *engine) {

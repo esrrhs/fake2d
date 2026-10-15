@@ -176,7 +176,10 @@ std::vector<float> MakeArpeggio(const std::vector<float> &freqs, float note_seco
 
 /// Register the samples' named clips (no-ops when audio is disabled).
 void EnsureGameAudio(fake2d::AudioEngine &audio) {
-    if (!audio.IsEnabled() || audio.ClipCount() > 0) {
+    // No IsEnabled() gate: clips are memory and the mixer runs headless too,
+    // so registering them unconditionally keeps every demo's script identical
+    // on hosts with and without a device.
+    if (audio.ClipCount() > 0) {
         return;
     }
     audio.AddClip("wall", MakeTone(720.0f, 900.0f, 0.05f, 1, 0.18f, 26.0f));
@@ -187,6 +190,18 @@ void EnsureGameAudio(fake2d::AudioEngine &audio) {
     audio.AddClip("win", MakeArpeggio({523.25f, 659.25f, 783.99f, 1046.5f}, 0.09f, 0.35f));
     audio.AddClip("coin", MakeArpeggio({880.0f, 1174.7f}, 0.06f, 0.3f));
     audio.AddClip("jump", MakeTone(280.0f, 620.0f, 0.09f, 0, 0.28f, 10.0f));
+}
+
+/// Two looping themes for --audio-demo, so the cross-fade has something to
+/// cross-fade between. Same rhythm, different key: with the fade slider at 0
+/// the switch is meant to be obvious.
+void EnsureAudioDemoMusic(fake2d::AudioEngine &audio) {
+    audio.AddClip("theme_a", MakeArpeggio({220.0f, 261.63f, 329.63f, 261.63f,
+                                           220.0f, 261.63f, 329.63f, 392.0f},
+                                          0.25f, 0.30f));
+    audio.AddClip("theme_b", MakeArpeggio({392.0f, 493.88f, 587.33f, 493.88f,
+                                           392.0f, 493.88f, 587.33f, 659.25f},
+                                          0.25f, 0.30f));
 }
 
 /// Write mono float PCM as a 16-bit PCM WAV (used to test AddClipWav).
@@ -1715,6 +1730,246 @@ int RunPostTest(fake2d::Engine &engine) {
     }
 
     std::printf("[post] %s: %d checks, %d failures\n", failures == 0 ? "PASS" : "FAIL",
+                checks, failures);
+    return failures == 0 ? 0 : 1;
+}
+
+// Audio is the one subsystem that used to be untestable without hardware:
+// every call was gated on "a device exists", so headless CI exercised none of
+// it. The mixer is now device-independent, and this test drives it directly —
+// a standalone AudioEngine that was never Init()ed (no device thread is
+// advancing cursors behind the assertions).
+// Mix `frames` frames out of the engine and return the LAST left sample —
+// "what the mixer is putting out after this much time has passed", which is
+// what every envelope assertion below is about. The buffer is sized from the
+// request, so a long fade cannot overrun it.
+float MixLast(fake2d::AudioEngine &audio, int frames) {
+    std::vector<float> out(static_cast<std::size_t>(frames) * 2 + 2);
+    audio.Mix(out.data(), frames);
+    return out[static_cast<std::size_t>(frames - 1) * 2];
+}
+
+int RunAudioTest(fake2d::Engine & /*engine*/) {
+    int failures = 0;
+    int checks = 0;
+    auto check = [&](bool ok, const char *what) {
+        ++checks;
+        if (!ok) {
+            ++failures;
+            std::printf("[audio] FAIL %s\n", what);
+        }
+    };
+    auto near = [](float a, float b, float tol = 0.01f) {
+        return std::fabs(a - b) < tol;
+    };
+
+    constexpr int kRate = fake2d::AudioEngine::kSampleRate;
+    // Constant clip: the mixed sample *is* the gain, so every bus and
+    // envelope assertion is a direct read.
+    auto constant = [](float value, int frames) {
+        return std::vector<float>(static_cast<std::size_t>(frames), value);
+    };
+
+    // --- registration ------------------------------------------------------
+    {
+        fake2d::AudioEngine audio;
+        check(!audio.IsEnabled(), "offline: no device claimed");
+        check(audio.AddClip("tone", constant(0.5f, kRate)),
+              "clip: registers without a device");
+        check(!audio.AddClip("tone", constant(0.5f, kRate)),
+              "clip: duplicate name rejected");
+        check(!audio.AddClip("empty", {}), "clip: empty rejected");
+        check(audio.ClipCount() == 1, "clip: only the accepted one is kept");
+        check(audio.PlayingCount() == 0, "offline: nothing plays yet");
+
+        std::vector<float> out(128);
+        audio.Mix(out.data(), 64);
+        bool silent = true;
+        for (float v : out) {
+            silent = silent && v == 0.0f;
+        }
+        check(silent, "mix: silence with no voices");
+        check(audio.Peak() == 0.0f, "mix: peak is 0 with no voices");
+    }
+
+    // --- bus gains ---------------------------------------------------------
+    {
+        fake2d::AudioEngine audio;
+        audio.AddClip("tone", constant(0.5f, kRate));
+        audio.Play("tone", 1.0f);
+        check(near(MixLast(audio, 1), 0.5f), "gain: voice 1 with all buses at 1");
+
+        audio.SetBusVolume(fake2d::AudioBus::Master, 0.5f);
+        check(near(MixLast(audio, 1), 0.25f), "gain: master 0.5 halves it");
+
+        audio.SetBusVolume(fake2d::AudioBus::Master, 1.0f);
+        audio.SetBusVolume(fake2d::AudioBus::Sfx, 0.25f);
+        check(near(MixLast(audio, 1), 0.125f), "gain: sfx 0.25 quarters it");
+
+        // The music bus must not touch a one-shot voice.
+        audio.SetBusVolume(fake2d::AudioBus::Music, 0.0f);
+        check(near(MixLast(audio, 1), 0.125f), "gain: the music bus leaves sfx alone");
+
+        audio.SetBusVolume(fake2d::AudioBus::Music, 1.0f);
+        audio.SetBusVolume(fake2d::AudioBus::Sfx, 1.0f);
+        audio.SetBusVolume(fake2d::AudioBus::Master, 9.0f);
+        check(near(MixLast(audio, 1), 0.5f), "gain: master clamps to 1");
+        audio.SetBusVolume(fake2d::AudioBus::Master, -4.0f);
+        check(near(MixLast(audio, 1), 0.0f), "gain: master clamps to 0 (silence)");
+        check(near(audio.BusVolume(fake2d::AudioBus::Master), 0.0f),
+              "gain: the clamped value reads back");
+    }
+
+    // --- one-shot lifetime and the voice pool ------------------------------
+    {
+        fake2d::AudioEngine audio;
+        audio.AddClip("blip", constant(1.0f, 100));
+        audio.Play("nope", 1.0f); // unknown clip: no voice
+        check(audio.PlayingCount() == 0, "play: an unknown clip starts nothing");
+
+        audio.Play("blip", 1.0f);
+        check(audio.PlayingCount() == 1, "play: one voice");
+        MixLast(audio, 100);
+        check(audio.PlayingCount() == 1, "one-shot: still playing at its last sample");
+        MixLast(audio, 1);
+        check(audio.PlayingCount() == 0, "one-shot: frees itself when it runs out");
+
+        // Loop: a music voice never runs out.
+        audio.AddClip("tone", constant(1.0f, kRate));
+        audio.PlayMusic("tone", 1.0f);
+        check(audio.IsMusicPlaying(), "music: reports playing");
+        check(audio.MusicName() == "tone", "music: reports the track name");
+        MixLast(audio, kRate + 128); // a full clip plus a bit
+        check(audio.IsMusicPlaying(), "music: the loop survives its clip length");
+
+        fake2d::AudioEngine pool;
+        pool.AddClip("blip", constant(1.0f, 100));
+        for (std::size_t i = 0; i < fake2d::AudioEngine::kMaxVoices + 4; ++i) {
+            pool.Play("blip", 1.0f);
+        }
+        check(pool.PlayingCount() == fake2d::AudioEngine::kMaxVoices,
+              "pool: caps at kMaxVoices and drops the overflow");
+    }
+
+    // --- envelopes: fade in, cross-fade, fade out, ramps -------------------
+    {
+        fake2d::AudioEngine audio;
+        audio.AddClip("a", constant(0.5f, kRate));
+        audio.AddClip("b", constant(0.5f, kRate));
+
+        // Fade in over 1.0 s. The clip is a constant 0.5, so the sample is
+        // 0.5 x gain: 0 at the start, 0.125 a quarter in, 0.25 at halfway
+        // and 0.5 once the ramp has finished.
+        audio.PlayMusic("a", 1.0f, 1.0f);
+        check(near(MixLast(audio, 1), 0.0f), "fade: starts from silence");
+        check(near(MixLast(audio, kRate / 4 - 1), 0.125f, 0.02f),
+              "fade: a quarter in, the gain is a quarter");
+        check(near(MixLast(audio, kRate / 4), 0.25f, 0.02f),
+              "fade: halfway, the gain is halfway");
+        check(near(MixLast(audio, kRate / 2), 0.5f, 0.02f),
+              "fade: settled at the target gain");
+        check(audio.IsMusicPlaying(), "fade: the track is still the music");
+
+        // Cross-fade: the old track keeps playing while it ramps down.
+        audio.PlayMusic("b", 1.0f, 1.0f);
+        check(audio.PlayingCount() == 2, "cross-fade: both tracks are audible");
+        check(audio.MusicName() == "b", "cross-fade: the new track is 'the' music");
+        // A linear cross-fade of two equal clips holds the level: 0.5*0.5 +
+        // 0.5*0.5 = 0.5.
+        check(near(MixLast(audio, kRate / 2 - 1), 0.5f, 0.03f),
+              "cross-fade: the level holds through the middle");
+        // Half the fade is already mixed above; this crosses the 1.0 s mark,
+        // where the outgoing track reaches 0 and frees its voice. The extra
+        // frames are slack so a float-accumulated fade_pos cannot land a
+        // hair short of the mark.
+        MixLast(audio, kRate / 2 + 64);
+        check(audio.PlayingCount() == 1, "cross-fade: the old track retires at 0");
+        check(audio.MusicName() == "b", "cross-fade: the new track survives");
+        check(near(MixLast(audio, 1), 0.5f, 0.02f),
+              "cross-fade: the new track holds the level alone");
+
+        // Fade out to silence retires the voice; a hard stop does it at once.
+        audio.StopMusic(0.5f);
+        check(audio.IsMusicPlaying(), "stop: still fading out");
+        MixLast(audio, static_cast<int>(kRate * 0.6));
+        check(!audio.IsMusicPlaying(), "stop: gone once the fade completes");
+        check(audio.PlayingCount() == 0, "stop: the voice was released");
+
+        audio.PlayMusic("a", 1.0f);
+        audio.StopMusic(0.0f);
+        check(audio.PlayingCount() == 0, "stop: a zero fade stops immediately");
+
+        // Ramp the music's gain, then set it outright.
+        audio.PlayMusic("a", 1.0f);
+        audio.FadeMusicTo(0.25f, 1.0f);
+        check(near(MixLast(audio, static_cast<int>(kRate * 1.1)), 0.125f, 0.02f),
+              "ramp: the music settles at the new gain");
+        audio.SetMusicVolume(1.0f);
+        check(near(MixLast(audio, 1), 0.5f), "volume: an immediate set cancels the ramp");
+        check(near(audio.MusicVolume(), 1.0f), "volume: reads back the target gain");
+    }
+
+    // --- pause freezes the mix ---------------------------------------------
+    {
+        fake2d::AudioEngine audio;
+        // A ramp makes the cursor position readable from the sample value.
+        std::vector<float> ramp(1000);
+        for (std::size_t i = 0; i < ramp.size(); ++i) {
+            ramp[i] = static_cast<float>(i) / 1000.0f;
+        }
+        audio.AddClip("ramp", ramp);
+        audio.Play("ramp", 1.0f);
+        const float before = MixLast(audio, 100);
+
+        audio.SetPaused(true);
+        check(audio.IsPaused(), "pause: reported");
+        check(MixLast(audio, 500) == 0.0f, "pause: the mix is silence");
+        check(audio.Peak() == 0.0f, "pause: the peak is silent too");
+
+        audio.SetPaused(false);
+        // Unpaused, the ramp must continue from sample 100, not 600.
+        check(near(MixLast(audio, 1), 100.0f / 1000.0f, 0.005f),
+              "pause: nothing advanced while paused");
+        check(before > 0.0f, "pause: the cursor did move before the pause");
+    }
+
+    // --- peak --------------------------------------------------------------
+    {
+        fake2d::AudioEngine audio;
+        audio.AddClip("loud", constant(1.0f, kRate));
+        audio.Play("loud", 1.0f);
+        MixLast(audio, 64);
+        check(near(audio.Peak(), 1.0f), "peak: reports the loudest sample");
+        audio.SetBusVolume(fake2d::AudioBus::Master, 0.25f);
+        MixLast(audio, 64);
+        check(near(audio.Peak(), 0.25f), "peak: follows the master gain");
+    }
+
+    // --- WAV decoding ------------------------------------------------------
+    {
+        fake2d::AudioEngine audio;
+        std::error_code ec;
+        std::filesystem::create_directories("assets", ec);
+        const std::string path = "assets/_audio_test.wav";
+        // 22050 Hz forces the resample path; 0.5 is constant, so resampling
+        // has to reproduce it exactly.
+        WriteWav(path, constant(0.5f, 1000), 22050);
+        check(audio.AddClipWav("wav22", path), "wav: a 22050 Hz file decodes");
+        audio.Play("wav22", 1.0f);
+        check(near(MixLast(audio, 1), 0.5f),
+              "wav: resampled to the mixer rate at the same level");
+
+        {
+            std::ofstream junk("assets/_audio_test_bad.wav", std::ios::binary);
+            junk << "not a wav at all";
+        }
+        check(!audio.AddClipWav("bad", "assets/_audio_test_bad.wav"),
+              "wav: a non-WAV file is rejected");
+        std::filesystem::remove("assets/_audio_test_bad.wav", ec);
+        std::filesystem::remove(path, ec);
+    }
+
+    std::printf("[audio] %s: %d checks, %d failures\n", failures == 0 ? "PASS" : "FAIL",
                 checks, failures);
     return failures == 0 ? 0 : 1;
 }
@@ -3517,6 +3772,7 @@ int main(int argc, char **argv) {
 
     bool map_demo = false;
     bool platformer_demo = false;
+    bool audio_demo = false;
     bool mario_demo = false;
     bool slope_demo = false;
     bool path_demo = false;
@@ -3530,6 +3786,7 @@ int main(int argc, char **argv) {
     bool rt_test = false;
     bool ui_test = false;
     bool post_test = false;
+    bool audio_test = false;
     int max_frames = 0;
     int shot_frame = 30;
     std::string screenshot;
@@ -3569,6 +3826,10 @@ int main(int argc, char **argv) {
         } else if (arg == "--post-demo") {
             // Post-processing pass over the whole world + a baked minimap.
             cfg.script_entry = "scripts/post_demo.lua";
+        } else if (arg == "--audio-demo") {
+            // Mixer front panel: bus gains, cross-fade, pause, VU meter.
+            audio_demo = true;
+            cfg.script_entry = "scripts/audio_demo.lua";
         } else if (arg == "--screenshot" && i + 1 < argc) {
             screenshot = argv[++i];
         } else if (arg == "--shot-frame" && i + 1 < argc) {
@@ -3637,6 +3898,13 @@ int main(int argc, char **argv) {
             cfg.headless = true;
             cfg.script_entry.clear();
             cfg.vsync = false;
+        } else if (arg == "--audio-test") {
+            // Self-test of the mixer: no device needed, the test drives
+            // AudioEngine::Mix itself.
+            audio_test = true;
+            cfg.headless = true;
+            cfg.script_entry.clear();
+            cfg.vsync = false;
         } else if (arg == "--fixed-hz" && i + 1 < argc) {
             // Physics rate; 0 (or --variable-step) restores variable stepping.
             const int hz = std::atoi(argv[++i]);
@@ -3687,6 +3955,9 @@ int main(int argc, char **argv) {
     if (post_test) {
         return RunPostTest(engine);
     }
+    if (audio_test) {
+        return RunAudioTest(engine);
+    }
 
     // All gameplay is pure Lua below; C++ only guarantees the binary asset
     // scaffolding exists before the script's first frame.
@@ -3706,6 +3977,12 @@ int main(int argc, char **argv) {
     if (platformer_demo) {
         EnsurePlatformerAssets();
         engine.GetAudio().AddClipWav("music", "assets/music.wav");
+    }
+    if (audio_demo) {
+        // SFX come from EnsureGameAudio; the two looping themes are
+        // synthesized so the cross-fade needs no binary asset.
+        EnsureGameAudio(engine.GetAudio());
+        EnsureAudioDemoMusic(engine.GetAudio());
     }
     // Generic host-level screenshot hook (visual regression; not game logic).
     if (!screenshot.empty()) {
