@@ -9,9 +9,20 @@
 #include <iterator>
 #include <vector>
 
+// GL_FRAMEBUFFER_BINDING is the unsuffixed query; it reads the draw binding
+// on both the core and the legacy EXT path.
+#ifndef GL_FRAMEBUFFER_BINDING
+#define GL_FRAMEBUFFER_BINDING 0x8CA6
+#endif
+
 namespace fake2d {
 
 Renderer::Renderer() = default;
+
+const Mat4 &Renderer::ActiveViewProjection() const {
+    return active_target_ != 0 ? target_camera_.ViewProjectionMatrix()
+                               : camera_.ViewProjectionMatrix();
+}
 
 Renderer::~Renderer() {
     Shutdown();
@@ -28,6 +39,13 @@ bool Renderer::Init(int logical_width, int logical_height) {
     // Pick the rendering path from the context version (GL3 core vs GL2
     // legacy compatibility) before creating any GPU resources.
     glcaps::Detect();
+
+    // Whatever the window bound is what "the screen" means here: 0 for a
+    // normal context, but a headless context may present through its own
+    // offscreen FBO. RenderTarget::Unbind restores this exact id.
+    GLint bound = 0;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &bound);
+    window_fbo_ = static_cast<std::uint32_t>(bound);
 
     camera_.SetViewport(static_cast<float>(logical_width), static_cast<float>(logical_height));
     camera_.SetContentScale(1.0f);
@@ -55,13 +73,19 @@ void Renderer::Resize(int fb_width, int fb_height, int logical_width, int logica
 }
 
 void Renderer::BeginFrame(float r, float g, float b, float a) {
+    // A target left bound by the previous frame's script (or a script that
+    // never called rt_end) must not leak into this one.
+    if (active_target_ != 0) {
+        EndRenderTarget();
+    }
+
     glClearColor(r, g, b, a);
     glClear(GL_COLOR_BUFFER_BIT);
 
     active_shader_ = nullptr;
     batch_.ResetStats();
     batch_.ClearClipRect();
-    batch_.Begin(camera_.ViewProjectionMatrix());
+    batch_.Begin(ActiveViewProjection());
 }
 
 void Renderer::BeginFrame(const Color &clear_color) {
@@ -69,8 +93,101 @@ void Renderer::BeginFrame(const Color &clear_color) {
 }
 
 void Renderer::EndFrame() {
+    // Flush the target and restore the window framebuffer for the swap.
+    if (active_target_ != 0) {
+        EndRenderTarget();
+    }
     batch_.End();
     active_shader_ = nullptr;
+}
+
+bool Renderer::BeginRenderTarget(int id) {
+    if (!ready_ || id <= 0 || active_target_ != 0) {
+        return false; // unknown id, the window itself, or already inside one
+    }
+    RenderTarget *target = targets_.Get(id);
+    if (target == nullptr || !target->IsValid()) {
+        return false;
+    }
+
+    // Everything submitted so far belongs on the window, not in the target.
+    batch_.End();
+    // Clip rects are window pixels; they carry no meaning inside a target.
+    batch_.ClearClipRect();
+
+    target->Bind();
+    glViewport(0, 0, target->Width(), target->Height());
+
+    // Canvas space: (0,0) at the target's top-left, one unit per pixel.
+    target_camera_.SetViewport(static_cast<float>(target->Width()),
+                               static_cast<float>(target->Height()));
+    target_camera_.SetContentScale(1.0f);
+    target_camera_.SetPosition(0.0f, 0.0f);
+    // Mark the target active BEFORE Begin: ActiveViewProjection keys off it,
+    // so drawing inside the target uses the canvas camera, not the window's.
+    active_target_ = id;
+    batch_.Begin(ActiveViewProjection(), active_shader_);
+    return true;
+}
+
+void Renderer::EndRenderTarget() {
+    if (!ready_ || active_target_ == 0) {
+        return;
+    }
+    batch_.End();
+    batch_.ClearClipRect();
+
+    RenderTarget::Unbind(window_fbo_);
+    glViewport(0, 0, width_, height_);
+    // Same ordering rule as Begin: leave the target first, then Begin, so the
+    // batch restarts with the window's view-projection.
+    active_target_ = 0;
+    batch_.Begin(ActiveViewProjection(), active_shader_);
+}
+
+void Renderer::ClearActiveTarget(const Color &clear_color) {
+    if (!ready_) {
+        return;
+    }
+    // glClear honours the scissor box, so make sure the pending draws (and
+    // any clip rect they were queued under) are out of the way first.
+    batch_.Flush();
+    batch_.FlushLines();
+    glClearColor(clear_color.r, clear_color.g, clear_color.b, clear_color.a);
+    glClear(GL_COLOR_BUFFER_BIT);
+}
+
+void Renderer::DrawRenderTarget(int id, const Rect &src, const Rect &dst, const Color &tint) {
+    const RenderTarget *target = targets_.Get(id);
+    if (!ready_ || target == nullptr || !target->IsValid()) {
+        return;
+    }
+    if (active_target_ == id) {
+        return; // sampling the surface being rendered into is undefined
+    }
+    // flip_y compensates for the FBO's bottom-up rows (see the header).
+    batch_.DrawSpriteFlipped(target->Texture(), src, dst, false, true, tint);
+}
+
+void Renderer::DrawRenderTarget(int id, const Rect &dst, const Color &tint) {
+    const RenderTarget *target = targets_.Get(id);
+    if (!ready_ || target == nullptr || !target->IsValid()) {
+        return;
+    }
+    DrawRenderTarget(id,
+                     Rect{0.0f, 0.0f, static_cast<float>(target->Width()),
+                          static_cast<float>(target->Height())},
+                     dst, tint);
+}
+
+void Renderer::DrawRenderTarget(int id, float x, float y, float w, float h, const Color &tint) {
+    const RenderTarget *target = targets_.Get(id);
+    if (!ready_ || target == nullptr || !target->IsValid()) {
+        return;
+    }
+    const float final_w = w > 0.0f ? w : static_cast<float>(target->Width());
+    const float final_h = h > 0.0f ? h : static_cast<float>(target->Height());
+    DrawRenderTarget(id, Rect{x, y, final_w, final_h}, tint);
 }
 
 int Renderer::LoadShaderFromFile(const std::string &vert_path,
@@ -143,8 +260,7 @@ void Renderer::UseShaderById(int id) {
     // Restart the batch with the other program; switching resets the
     // per-batch layer/z/blend state (same contract as Tilemap::Draw).
     batch_.End();
-    batch_.Begin(camera_.ViewProjectionMatrix(),
-                 target ? target : Shader::GetDefault2D());
+    batch_.Begin(ActiveViewProjection(), target ? target : Shader::GetDefault2D());
     active_shader_ = target;
 }
 
@@ -159,6 +275,9 @@ void Renderer::Shutdown() {
         active_shader_ = nullptr;
         // Release the glyph atlas while the GL context is still current.
         font_.Reset();
+        // Targets hold an FBO + texture each; free them before the context goes.
+        targets_.Clear();
+        active_target_ = 0;
         batch_.Shutdown();
         ready_ = false;
     }

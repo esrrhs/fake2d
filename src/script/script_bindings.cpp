@@ -1174,6 +1174,97 @@ void RegisterTextApi(fakelua::State *state, Engine *engine) {
         std::function<void(fakelua::State *)>([engine](fakelua::State *) {
             engine->GetRenderer().ClearClipRect();
         }));
+
+    // ---- offscreen render targets (Phase 19) --------------------------------
+    // Render into a target with rt_begin / rt_end, then blit it with rt_draw.
+    // Inside a target, (0,0) is the target's own top-left and 1 unit = 1
+    // pixel; rt_clear resets the bound surface (the screen when none is).
+    fakelua::RegisterNativeFunction(
+        state, "rt_create", false,
+        std::function<std::int64_t(fakelua::State *, std::int64_t, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t w, std::int64_t h) -> std::int64_t {
+                return engine->GetRenderer().GetRenderTargets().Create(
+                    static_cast<int>(w), static_cast<int>(h));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "rt_destroy", false,
+        std::function<void(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id) {
+                Renderer &r = engine->GetRenderer();
+                // Destroying the bound surface would leave drawing pointed at
+                // a deleted FBO; leave the target first.
+                if (r.ActiveRenderTarget() == static_cast<int>(id)) {
+                    r.EndRenderTarget();
+                }
+                r.GetRenderTargets().Destroy(static_cast<int>(id));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "rt_valid", false,
+        std::function<bool(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id) {
+                const RenderTarget *t =
+                    engine->GetRenderer().GetRenderTargets().Get(static_cast<int>(id));
+                return t != nullptr && t->IsValid();
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "rt_width", false,
+        std::function<std::int64_t(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id) -> std::int64_t {
+                const RenderTarget *t =
+                    engine->GetRenderer().GetRenderTargets().Get(static_cast<int>(id));
+                return t != nullptr ? t->Width() : 0;
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "rt_height", false,
+        std::function<std::int64_t(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id) -> std::int64_t {
+                const RenderTarget *t =
+                    engine->GetRenderer().GetRenderTargets().Get(static_cast<int>(id));
+                return t != nullptr ? t->Height() : 0;
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "rt_begin", false,
+        std::function<bool(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id) {
+                return engine->GetRenderer().BeginRenderTarget(static_cast<int>(id));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "rt_end", false,
+        std::function<void(fakelua::State *)>([engine](fakelua::State *) {
+            engine->GetRenderer().EndRenderTarget();
+        }));
+
+    fakelua::RegisterNativeFunction(
+        state, "rt_clear", false,
+        std::function<void(fakelua::State *, double, double, double, double)>(
+            [engine](fakelua::State *, double r, double g, double b, double a) {
+                engine->GetRenderer().ClearActiveTarget(Color{
+                    static_cast<float>(r), static_cast<float>(g),
+                    static_cast<float>(b), static_cast<float>(a)});
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "rt_draw", false,
+        std::function<void(fakelua::State *, std::int64_t, double, double, double, double)>(
+            [engine](fakelua::State *, std::int64_t id, double x, double y, double w,
+                     double h) {
+                engine->GetRenderer().DrawRenderTarget(
+                    static_cast<int>(id), static_cast<float>(x), static_cast<float>(y),
+                    static_cast<float>(w), static_cast<float>(h));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "rt_active", false,
+        std::function<std::int64_t(fakelua::State *)>(
+            [engine](fakelua::State *) -> std::int64_t {
+                return engine->GetRenderer().ActiveRenderTarget();
+            }));
 }
 
 void RegisterAudioApi(fakelua::State *state, Engine *engine) {

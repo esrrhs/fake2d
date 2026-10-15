@@ -54,7 +54,7 @@ public:
     [[nodiscard]] std::string_view GamepadName(int pad) const;
 
 private:
-    static constexpr std::size_t kKeyCount = 352;   // GLFW_KEY_LAST + 1
+    static constexpr std::size_t kKeyCount = 349;   // GLFW_KEY_LAST + 1
     static constexpr std::size_t kButtonCount = 8;  // GLFW_MOUSE_BUTTON_LAST + 1
     static constexpr int kPadCount = 16;            // GLFW_JOYSTICK_LAST + 1
     static constexpr int kPadButtonCount = 15;      // GLFW_GAMEPAD_BUTTON_LAST + 1

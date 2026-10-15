@@ -14,6 +14,16 @@
 
 void fake2d_gl_load_functions();
 
+// FBO entry points are declared with our own signatures rather than the
+// toolchain's PFNGL*FRAMEBUFFER*PROC typedefs: those only exist if the
+// bundled glext.h covers GL_ARB_framebuffer_object, and this engine builds
+// against several MinGW/SDK generations. The signatures are stable.
+typedef void(APIENTRY *Fake2dGenFramebuffers)(GLsizei, GLuint *);
+typedef void(APIENTRY *Fake2dBindFramebuffer)(GLenum, GLuint);
+typedef void(APIENTRY *Fake2dFramebufferTexture2D)(GLenum, GLenum, GLenum, GLuint, GLint);
+typedef void(APIENTRY *Fake2dDeleteFramebuffers)(GLsizei, const GLuint *);
+typedef GLenum(APIENTRY *Fake2dCheckFramebufferStatus)(GLenum);
+
 #define FAKE2D_GL_PROCS(X)                                                     \
     X(ActiveTexture, PFNGLACTIVETEXTUREPROC)                                   \
     X(AttachShader, PFNGLATTACHSHADERPROC)                                   \
@@ -29,6 +39,11 @@ void fake2d_gl_load_functions();
     X(DeleteProgram, PFNGLDELETEPROGRAMPROC)                                   \
     X(DeleteShader, PFNGLDELETESHADERPROC)                                     \
     X(DeleteVertexArrays, PFNGLDELETEVERTEXARRAYSPROC)                         \
+    X(BindFramebuffer, Fake2dBindFramebuffer)                                  \
+    X(CheckFramebufferStatus, Fake2dCheckFramebufferStatus)                    \
+    X(DeleteFramebuffers, Fake2dDeleteFramebuffers)                            \
+    X(FramebufferTexture2D, Fake2dFramebufferTexture2D)                        \
+    X(GenFramebuffers, Fake2dGenFramebuffers)                                  \
     X(DisableVertexAttribArray, PFNGLDISABLEVERTEXATTRIBARRAYPROC)             \
     X(EnableVertexAttribArray, PFNGLENABLEVERTEXATTRIBARRAYPROC)              \
     X(GenBuffers, PFNGLGENBUFFERSPROC)                                         \
@@ -67,6 +82,11 @@ FAKE2D_GL_PROCS(FAKE2D_GL_DECL)
 #define glDeleteProgram           p_glDeleteProgram
 #define glDeleteShader            p_glDeleteShader
 #define glDeleteVertexArrays      p_glDeleteVertexArrays
+#define glBindFramebuffer         p_glBindFramebuffer
+#define glCheckFramebufferStatus  p_glCheckFramebufferStatus
+#define glDeleteFramebuffers      p_glDeleteFramebuffers
+#define glFramebufferTexture2D    p_glFramebufferTexture2D
+#define glGenFramebuffers         p_glGenFramebuffers
 #define glDisableVertexAttribArray p_glDisableVertexAttribArray
 #define glEnableVertexAttribArray p_glEnableVertexAttribArray
 #define glGenBuffers              p_glGenBuffers

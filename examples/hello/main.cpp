@@ -1174,6 +1174,139 @@ void EnsurePathAssets(bool regen = false) {
 // straight runs (string pulling), a forced detour through a gap, unreachable
 // goals, corner-cut prevention and the endpoint guards. Prints [path] lines;
 // non-zero on fail.
+int RunRenderTargetTest(fake2d::Engine &engine) {
+    int failures = 0;
+    int checks = 0;
+    auto check = [&](bool ok, const char *what) {
+        ++checks;
+        if (!ok) {
+            ++failures;
+            std::printf("[rt] FAIL %s\n", what);
+        }
+    };
+    // 8-bit colour channels: 1/255 of slack absorbs any filtering rounding.
+    auto near = [](float a, float b) { return std::fabs(a - b) < 0.02f; };
+    auto is_red = [&](const fake2d::Color &c) {
+        return near(c.r, 1.0f) && near(c.g, 0.0f) && near(c.b, 0.0f);
+    };
+    auto is_white = [&](const fake2d::Color &c) {
+        return near(c.r, 1.0f) && near(c.g, 1.0f) && near(c.b, 1.0f);
+    };
+
+    fake2d::Renderer &r = engine.GetRenderer();
+    if (!r.IsReady()) {
+        std::printf("[rt] FAIL renderer is not initialised\n");
+        return 1;
+    }
+    fake2d::RenderTargetLibrary &lib = r.GetRenderTargets();
+
+    // --- creation ----------------------------------------------------------
+    const int rt1 = lib.Create(128, 128);
+    check(rt1 > 0, "create: returns a 1-based id");
+    fake2d::RenderTarget *t1 = lib.Get(rt1);
+    check(t1 != nullptr && t1->IsValid(), "create: target is valid");
+    check(t1 != nullptr && t1->Width() == 128 && t1->Height() == 128,
+          "create: keeps the requested size");
+    check(t1 != nullptr && t1->Texture().Id() != 0, "create: colour texture allocated");
+    check(lib.Count() == 1, "create: pool tracks live targets");
+
+    check(lib.Create(0, 0) == 0, "create: zero size rejected");
+    check(lib.Create(100000, 64) == 0, "create: oversized rejected");
+    check(lib.Get(0) == nullptr, "get: id 0 is never a target");
+    check(lib.Get(99) == nullptr, "get: out-of-range id is null");
+
+    // --- render into the target -------------------------------------------
+    r.BeginFrame(0.0f, 0.0f, 0.0f, 1.0f);
+    check(r.BeginRenderTarget(rt1), "begin: binds the target");
+    check(r.ActiveRenderTarget() == rt1, "begin: reports the active target");
+
+    const int rt2 = lib.Create(128, 128);
+    check(rt2 > 0, "create: a second target gets its own slot");
+    check(!r.BeginRenderTarget(rt2), "begin: nesting inside a target is refused");
+    check(!r.BeginRenderTarget(0), "begin: the window is not a target");
+    check(!r.BeginRenderTarget(99), "begin: unknown id refused");
+
+    // Red canvas with a white bar across the UPPER half only — an
+    // asymmetric pattern, so a missing vertical flip shows up immediately.
+    r.ClearActiveTarget(fake2d::Color{1.0f, 0.0f, 0.0f, 1.0f});
+    r.DrawQuad(32.0f, 16.0f, 64.0f, 32.0f, fake2d::Color::White());
+    // Drawing a target into itself is undefined; the call must be ignored.
+    r.DrawRenderTarget(rt1, 0.0f, 0.0f, 128.0f, 128.0f);
+    r.EndRenderTarget();
+    check(r.ActiveRenderTarget() == 0, "end: back to the window");
+
+    fake2d::Color px{};
+    check(t1->ReadPixel(10, 10, px) && is_red(px), "readback: clear colour outside the quad");
+    check(t1->ReadPixel(64, 30, px) && is_white(px), "readback: the quad landed where drawn");
+    check(t1->ReadPixel(64, 100, px) && is_red(px), "readback: below the quad is untouched");
+    check(!t1->ReadPixel(128, 0, px), "readback: x out of bounds fails");
+    check(!t1->ReadPixel(0, -1, px), "readback: negative y fails");
+
+    // --- blit one target into another (vertical orientation) ---------------
+    // Sampling an FBO texture flips V (FBO rows are bottom-up, sprite UVs
+    // sample top-down), so the white bar must stay in the upper half.
+    check(r.BeginRenderTarget(rt2), "begin: second target binds");
+    r.ClearActiveTarget(fake2d::Color{0.0f, 0.0f, 1.0f, 1.0f});
+    r.DrawRenderTarget(rt1, 0.0f, 0.0f, 128.0f, 128.0f);
+    r.EndRenderTarget();
+    fake2d::RenderTarget *t2 = lib.Get(rt2);
+    check(t2 != nullptr && t2->ReadPixel(64, 30, px) && is_white(px),
+          "blit: the target's top stays on top (V flipped)");
+    check(t2 != nullptr && t2->ReadPixel(64, 100, px) && is_red(px),
+          "blit: the target's bottom stays at the bottom");
+
+    // Sub-rectangle blit: take the bottom-right quarter, which is pure red.
+    const int rt3 = lib.Create(64, 64);
+    check(rt3 > 0, "create: third target");
+    check(r.BeginRenderTarget(rt3), "begin: third target binds");
+    r.ClearActiveTarget(fake2d::Color{0.0f, 1.0f, 0.0f, 1.0f});
+    r.DrawRenderTarget(rt1, fake2d::Rect{64.0f, 64.0f, 64.0f, 64.0f},
+                       fake2d::Rect{0.0f, 0.0f, 64.0f, 64.0f});
+    r.EndRenderTarget();
+    fake2d::RenderTarget *t3 = lib.Get(rt3);
+    check(t3 != nullptr && t3->ReadPixel(32, 32, px) && is_red(px),
+          "blit: src sub-rect maps into the dst rect");
+
+    // --- lifetime ----------------------------------------------------------
+    lib.Destroy(rt2);
+    check(lib.Get(rt2) == nullptr, "destroy: slot released");
+    check(lib.Count() == 2, "destroy: pool count updated");
+    lib.Destroy(rt2); // idempotent
+    check(lib.Get(rt2) == nullptr, "destroy: repeated destroy is safe");
+    check(r.BeginRenderTarget(rt2) == false, "begin: destroyed id refused");
+    check(rt1 > 0 && lib.Get(rt1) != nullptr, "destroy: other targets survive");
+    r.DrawRenderTarget(rt2, 0.0f, 0.0f, 64.0f, 64.0f); // ignored, must not crash
+
+    // A target left bound is released by EndFrame, so the swap always
+    // presents the window framebuffer.
+    check(r.BeginRenderTarget(rt1), "begin: rebind the first target");
+    r.EndFrame();
+    check(r.ActiveRenderTarget() == 0, "EndFrame: leaves the target automatically");
+
+    // --- the window survives the round trip --------------------------------
+    // A headless context presents through its own offscreen FBO rather than
+    // framebuffer 0, so this only works if EndRenderTarget restored that id.
+    r.BeginFrame(0.0f, 0.0f, 0.0f, 1.0f);
+    r.DrawRenderTarget(rt1, 40.0f, 40.0f, 128.0f, 128.0f);
+    r.EndFrame();
+    std::error_code ec;
+    std::filesystem::create_directories("assets", ec);
+    const std::string shot = "assets/_rt_test.png";
+    std::filesystem::remove(shot, ec);
+    check(r.SaveScreenshot(shot), "screenshot: window framebuffer is intact");
+    const auto shot_bytes = std::filesystem::file_size(shot, ec);
+    check(!ec && shot_bytes > 0, "screenshot: wrote a non-empty png");
+    std::filesystem::remove(shot, ec);
+
+    lib.Clear();
+    check(lib.Count() == 0, "clear: releases every target");
+    check(lib.Get(rt1) == nullptr, "clear: slots are reusable afterwards");
+
+    std::printf("[rt] %s: %d checks, %d failures\n", failures == 0 ? "PASS" : "FAIL",
+                checks, failures);
+    return failures == 0 ? 0 : 1;
+}
+
 int RunPathTest(fake2d::Engine &engine) {
     int failures = 0;
     int checks = 0;
@@ -2982,6 +3115,7 @@ int main(int argc, char **argv) {
     bool map_object = false;
     bool timestep_test = false;
     bool path_test = false;
+    bool rt_test = false;
     int max_frames = 0;
     int shot_frame = 30;
     std::string screenshot;
@@ -3011,6 +3145,10 @@ int main(int argc, char **argv) {
         } else if (arg == "--path-demo") {
             path_demo = true;
             cfg.script_entry = "scripts/path_demo.lua";
+        } else if (arg == "--rt-demo") {
+            // Offscreen render targets: bake-once art + accumulating trail.
+            // Needs no procedural assets — everything is drawn from quads.
+            cfg.script_entry = "scripts/rt_demo.lua";
         } else if (arg == "--screenshot" && i + 1 < argc) {
             screenshot = argv[++i];
         } else if (arg == "--shot-frame" && i + 1 < argc) {
@@ -3059,6 +3197,12 @@ int main(int argc, char **argv) {
             cfg.headless = true;
             cfg.script_entry.clear();
             cfg.vsync = false;
+        } else if (arg == "--rt-test") {
+            // Headless self-test of offscreen render targets (FBO).
+            rt_test = true;
+            cfg.headless = true;
+            cfg.script_entry.clear();
+            cfg.vsync = false;
         } else if (arg == "--fixed-hz" && i + 1 < argc) {
             // Physics rate; 0 (or --variable-step) restores variable stepping.
             const int hz = std::atoi(argv[++i]);
@@ -3099,6 +3243,9 @@ int main(int argc, char **argv) {
     }
     if (path_test) {
         return RunPathTest(engine);
+    }
+    if (rt_test) {
+        return RunRenderTargetTest(engine);
     }
 
     // All gameplay is pure Lua below; C++ only guarantees the binary asset

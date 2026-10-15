@@ -196,6 +196,19 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 
 ---
 
+## Phase 19 — Offscreen render targets (FBO) (1.13.x)
+
+- [x] `RenderTarget` (FBO + one RGBA colour texture): `Create(w, h)` / `Destroy()` / `Bind()` / `Unbind(window_fbo)` / `ReadPixel(x, y)`; size is clamped to 1..8192 and an incomplete FBO is reported as a failure instead of a silent black surface. `RenderTargetLibrary` is a fixed 8-slot pool addressed by a 1-based id (0 = the window), the same handle scheme as `TilemapLibrary`
+- [x] `Renderer` integration: `BeginRenderTarget(id)` flushes the pending batch, swaps in a **canvas camera** (top-left origin, 1 unit = 1 pixel, the target's own size) and sets the viewport; `EndRenderTarget()` flushes and restores the window; `EndFrame()` releases a target the script left bound; `ClearActiveTarget()` and three `DrawRenderTarget()` overloads (full / scaled / sub-rect). Draws inside a target use `ActiveViewProjection()`, so a shader switch mid-target keeps the canvas transform
+- [x] **Two platform traps handled:** (1) a headless context presents through *its own* offscreen FBO, so "the screen" is not framebuffer 0 — `Renderer::Init` captures the bound id and `Unbind` restores exactly that; (2) sampling an FBO texture flips V (FBO rows are bottom-up, sprite UVs sample top-down), so `DrawRenderTarget` draws with `flip_y`. Both are covered by assertions (`--rt-test`), the V-flip one by blitting one target into another and checking that an off-centre pattern keeps its orientation
+- [x] 10 Lua bindings: `rt_create` / `rt_destroy` / `rt_valid` / `rt_width` / `rt_height` / `rt_begin` / `rt_end` / `rt_clear` / `rt_draw` / `rt_active`. `rt_clear` acts on the *bound* surface (the screen when none is), which is what "fade the previous frame" needs
+- [x] `--rt-test`: 38 headless assertions (creation guards, nesting refusal, unknown/destroyed ids, readback of an asymmetric pattern, V-orientation through a target-to-target blit, sub-rect blit, idempotent destroy, `EndFrame` auto-release, and a screenshot proving the window framebuffer survived the round trip)
+- [x] `--rt-demo`: bake-once background (grid + deterministic starfield + baked captions, blitted at two sizes from one texture) beside an accumulating feedback trail (the target is faded, never cleared) with an immediate-mode pane running the same motion for contrast. Pixel probe: 8128 bright px at full size vs 1263 at half size; 669 trail px vs 58 immediate px
+- [x] **Fix (pre-existing):** `Input::NewFrame` polled every key code up to 352, but `glfwGetKey` rejects anything below `GLFW_KEY_SPACE` or above `GLFW_KEY_LAST` — 35 `GLFW_INVALID_VALUE` errors per frame on every platform, flooding CI logs. The poll now covers exactly `[GLFW_KEY_SPACE, GLFW_KEY_LAST]` and `kKeyCount` matches `GLFW_KEY_LAST + 1` (349)
+- [x] Verification: `--rt-test` 38/38; `--rt-demo` headless smoke + pixel-checked screenshot; all gates re-run green
+
+---
+
 ## Non-goals (for now)
 
 - Full 3D / PBR (Fake2D is strictly focused on high-performance 2D)

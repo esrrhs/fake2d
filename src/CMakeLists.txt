@@ -16,6 +16,7 @@ set(FAKE2D_SOURCES
     render/animation.cpp
     render/gl_loader.cpp
     render/tilemap.cpp
+    render/render_target.cpp
     render/image_write.cpp
     scene/node.cpp
     scene/scene.cpp
