@@ -3,6 +3,7 @@
 #include "fake2d/camera.h"
 #include "fake2d/font.h"
 #include "fake2d/math.h"
+#include "fake2d/render_target.h"
 #include "fake2d/shader.h"
 #include "fake2d/sprite_batch.h"
 #include "fake2d/texture.h"
@@ -85,6 +86,38 @@ public:
     void DrawNineSlice(const Texture2D &texture, const Rect &src, const Rect &dst,
                        float corner_x, float corner_y, const Color &tint = Color::White());
 
+    // --- offscreen render targets -------------------------------------------
+    RenderTargetLibrary &GetRenderTargets() { return targets_; }
+    [[nodiscard]] const RenderTargetLibrary &GetRenderTargets() const { return targets_; }
+
+    /// Redirect every subsequent draw into render target `id` (1-based, as
+    /// returned by RenderTargetLibrary::Create). The pending batch is flushed
+    /// first so nothing already submitted leaks into the target, and the
+    /// camera is replaced by a top-left-origin canvas of the target's own
+    /// pixel size. Returns false for id 0, unknown ids, invalid targets, or
+    /// while another target is already active (no nesting).
+    bool BeginRenderTarget(int id);
+    /// Flush and return to the window framebuffer. Safe to call when no
+    /// target is active; also done automatically by EndFrame.
+    void EndRenderTarget();
+    /// Active target id, or 0 when drawing to the window.
+    [[nodiscard]] int ActiveRenderTarget() const { return active_target_; }
+
+    /// Clear the active target — or the window when no target is bound — to a
+    /// solid colour. Pending draws are flushed first.
+    void ClearActiveTarget(const Color &clear_color);
+
+    /// Draw a target's colour texture into a world rect. V is flipped for
+    /// you: FBOs render bottom-up while sprite UVs sample top-down, so the
+    /// result matches what was drawn into the target. Ignored when the id is
+    /// unknown, invalid, or is the target currently being rendered into
+    /// (drawing a surface into itself is undefined).
+    void DrawRenderTarget(int id, float x, float y, float w, float h,
+                          const Color &tint = Color::White());
+    void DrawRenderTarget(int id, const Rect &dst, const Color &tint = Color::White());
+    void DrawRenderTarget(int id, const Rect &src, const Rect &dst,
+                          const Color &tint = Color::White());
+
     // --- scissor clipping ----------------------------------------------------
     /// Restrict all drawing to a rectangle in logical points (top-left
     /// origin, like every game coordinate). Cleared at the start of each
@@ -137,6 +170,10 @@ public:
     [[nodiscard]] size_t QuadCount() const { return batch_.QuadCount(); }
 
 private:
+    /// View-projection of the surface being drawn into: the window camera, or
+    /// the target's own canvas while a render target is bound.
+    [[nodiscard]] const Mat4 &ActiveViewProjection() const;
+
     int width_ = 0;
     int height_ = 0;
     bool ready_ = false;
@@ -144,6 +181,15 @@ private:
     Camera2D camera_;
     SpriteBatch batch_;
     Font font_;
+    RenderTargetLibrary targets_;
+    /// 1-based id of the bound target; 0 = the window.
+    int active_target_ = 0;
+    /// Canvas camera for the active target: top-left origin, own pixel size.
+    Camera2D target_camera_;
+    /// Framebuffer the window presents to, captured at Init. Usually 0, but a
+    /// headless context renders through its own offscreen FBO, so EndRenderTarget
+    /// must restore this exact id rather than assume 0.
+    std::uint32_t window_fbo_ = 0;
 
     static constexpr std::size_t kMaxCustomShaders = 8;
     std::array<Shader, kMaxCustomShaders> shaders_{};

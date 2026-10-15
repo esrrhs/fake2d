@@ -7,7 +7,7 @@
 
 **Fake2D** is a lightweight, modern 2D game rendering engine powered by [FakeLua](https://github.com/esrrhs/fakelua): C++ owns the window, GPU resources, and scene graph; FakeLua scripts orchestrate gameplay logic with a per-frame linear arena reset (**zero GC pauses**).
 
-> Status: **1.12 — Phase 18 tilemap A* path finding & maze chase demo complete** — everything through 1.11 (scissor clips, nine-slice panels, aligned wrapped text, fixed-step physics, camera follow toolkit, collision filters), plus a **grid A\* path finder** on the tilemap solidity grid (corner-cut prevention, string-pulled waypoints, `map_find_path` + waypoint readers) and a new **`--path-demo`**: a deterministic maze where three chasers re-path to the player and the player auto-navigates to the goal with live path polylines. See the [Implementation Plan](#implementation-plan), [docs/PLAN.md](docs/PLAN.md), the [Scripting Guide](docs/SCRIPTING.md), and [Packaging Notes](docs/PACKAGING.md).
+> Status: **1.13 — Phase 19 offscreen render targets (FBO) complete** — everything through 1.12 (scissor clips, nine-slice panels, aligned wrapped text, fixed-step physics, camera follow toolkit, collision filters, tilemap A\* path finding), plus **offscreen render targets**: draw into an FBO with `rt_begin`/`rt_end` and blit it with `rt_draw` for bake-once art (procedural backgrounds, prerendered text, reused at any size) and accumulating effects (motion trails, fog of war). Ships `--rt-test` (38 assertions) and a new **`--rt-demo`** that puts a baked canvas beside a fading feedback trail with an immediate-mode pane for contrast. See the [Implementation Plan](#implementation-plan), [docs/PLAN.md](docs/PLAN.md), the [Scripting Guide](docs/SCRIPTING.md), and [Packaging Notes](docs/PACKAGING.md).
 
 ---
 
@@ -151,6 +151,7 @@ cmake --build build --parallel
 ./build/bin/fake2d_hello --mario-demo
 ./build/bin/fake2d_hello --slope-demo   # tilemap slope lab: 45 deg, rise-64, surface overlay (V)
 ./build/bin/fake2d_hello --path-demo    # maze chase: A* chaser AI + player autopilot (P paths)
+./build/bin/fake2d_hello --rt-demo      # offscreen targets: baked canvas + fading trail (SPACE/C/R)
 
 # Physics broadphase benchmark (brute force vs spatial hash grid):
 ./build/bin/fake2d_hello --headless --phys-bench
@@ -225,6 +226,7 @@ codegen constraints), and performance best practices live in the
 | **16 — Fixed timestep & camera tooling (1.10)** | Determinism & camera | Fixed-step physics accumulator (frame-rate-independent, zero-dt contact refresh, `phys_smooth_*` interpolation, `time_sim_dt/steps/alpha`), Camera2D follow toolkit (bounds clamp / deadzone / smoothing / forward-only scroll lock / snap) with 8 Lua bindings; mario, slope and platformer demos migrated onto it; `--timestep-test` | **Done** |
 | **17 — Scissor, nine-slice & text layout (1.11)** | Presentation | `draw_set_clip` scissor rects with exact flush-boundary semantics, `draw_nine_slice` stretch panels, `draw_text_ex` aligned word-wrapped text with `end_y` block stacking; FBO render targets and more UI widgets deferred | **Done** |
 | **18 — Tilemap A* & maze chase (1.12)** | Navigation | Grid A* over the solidity grid (corner-cut prevention, string-pulled waypoints, `map_find_path` + waypoint readers), `--path-test` (25 assertions), `--path-demo` maze chase: chaser AI with staggered re-paths, player autopilot attract mode, live path polylines | **Done** |
+| **19 — Offscreen render targets (1.13)** | Rendering | `RenderTarget` FBO pool + `rt_begin`/`rt_end`/`rt_clear`/`rt_draw` bindings (bake-once art, accumulating feedback effects), canvas-space drawing with correct V orientation and headless-framebuffer restoration, `--rt-test` (38 assertions), `--rt-demo`; fixed 35-per-frame `GLFW_INVALID_VALUE` key-poll errors | **Done** |
 
 Detailed checklist: [docs/PLAN.md](docs/PLAN.md).
 

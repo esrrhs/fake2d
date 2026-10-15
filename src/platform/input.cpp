@@ -144,7 +144,11 @@ void Input::NewFrame(void *native_window) {
     std::copy(keys_, keys_ + kKeyCount, prev_keys_);
     std::copy(buttons_, buttons_ + kButtonCount, prev_buttons_);
 
-    for (int key = 0; key < static_cast<int>(kKeyCount); ++key) {
+    // glfwGetKey rejects anything outside [GLFW_KEY_SPACE, GLFW_KEY_LAST]
+    // with a GLFW_INVALID_VALUE error, and those codes have no key behind
+    // them anyway — scanning the whole array would spam the error callback
+    // 35 times per frame. The skipped slots stay 0 (never pressed).
+    for (int key = GLFW_KEY_SPACE; key <= GLFW_KEY_LAST; ++key) {
         keys_[key] = static_cast<std::uint8_t>(glfwGetKey(window, key) == GLFW_PRESS);
     }
     for (int button = 0; button < static_cast<int>(kButtonCount); ++button) {

@@ -7,7 +7,7 @@
 
 **Fake2D** 是基于 [FakeLua](https://github.com/esrrhs/fakelua) 的现代化轻量 2D 游戏渲染引擎：C++ 宿主掌控窗口、GPU 资源与场景数据；FakeLua 脚本负责编排玩法与实体逻辑，并在每帧边界执行 Arena 线性重置（**零 GC 停顿**）。
 
-> 当前状态：**1.12 — Phase 18 瓦片地图 A* 寻路与迷宫追逐 Demo 已完成** — 已包含 1.11 及之前的全部能力（剪裁矩形、九宫格、对齐换行文本、固定步长物理、相机跟随工具、碰撞过滤），并新增基于瓦片地图 solidity 网格的 **A\* 寻路**（防切角、路径拉直、`map_find_path` + 路径点读取），以及新的 **`--path-demo` 迷宫追逐**：三个追踪者周期性重新寻路扑向玩家，玩家无输入时自动寻路冲向终点，路径线实时可视化。详见下方[实现计划](#实现计划)、[docs/PLAN.md](docs/PLAN.md)、[脚本编写指南](docs/SCRIPTING.md) 与[跨平台打包说明](docs/PACKAGING.md)。
+> 当前状态：**1.13 — Phase 19 离屏渲染目标（FBO）已完成** — 已包含 1.12 及之前的全部能力（剪裁矩形、九宫格、对齐换行文本、固定步长物理、相机跟随工具、碰撞过滤、瓦片地图 A\* 寻路），并新增**离屏渲染目标**：用 `rt_begin`/`rt_end` 把绘制重定向到 FBO，再用 `rt_draw` 当作精灵贴回，支撑「一次性烘焙」（程序化背景、预渲染文字，任意尺寸复用）与「累积反馈」（运动残影、战争迷雾）两类典型玩法。配套 `--rt-test`（38 条断言）与新的 **`--rt-demo`**：左侧烘焙画布、中间逐帧淡出的拖尾层，右侧放一个即时模式对照区。详见下方[实现计划](#实现计划)、[docs/PLAN.md](docs/PLAN.md)、[脚本编写指南](docs/SCRIPTING.md) 与[跨平台打包说明](docs/PACKAGING.md)。
 
 ---
 
@@ -91,7 +91,7 @@ fake2d/
 │   └── script/              # FakeLua 桥接与原生 API 注册
 ├── third_party/             # stb_image、stb_truetype、stb_rect_pack、miniaudio、font8x8
 ├── scripts/                 # 纯 Lua 示例：game.lua（打砖块）、scene_demo.lua、map_demo.lua、platformer_demo.lua、mario.lua、path_demo.lua
-├── examples/hello/          # 示例：打砖块、--scene-demo、--map-demo、--platformer-demo、--mario-demo、--path-demo、--bench、--phys-bench
+├── examples/hello/          # 示例：打砖块、--scene-demo、--map-demo、--platformer-demo、--mario-demo、--path-demo、--rt-demo、--bench、--phys-bench
 ├── docs/SCRIPTING.md        # 脚本编写指南与 API 参考
 ├── docs/PACKAGING.md        # Linux / Windows / macOS 跨平台打包说明
 └── docs/PLAN.md             # 详细路线图与任务清单
@@ -143,6 +143,9 @@ cmake --build build --parallel
 
 # 迷宫追逐：A* 追踪 AI + 玩家自动寻路演示（P 切换路径线）：
 ./build/bin/fake2d_hello --path-demo
+
+# 离屏渲染目标：一次性烘焙画布 + 逐帧淡出的拖尾层（SPACE/C/R）：
+./build/bin/fake2d_hello --rt-demo
 
 # 物理宽相基准（暴力 O(n²) vs 空间哈希网格）：
 ./build/bin/fake2d_hello --headless --phys-bench
@@ -216,6 +219,7 @@ end
 | **16 — 固定步长与相机工具 (1.10)** | 确定性与相机 | 固定步长物理累加器（与帧率无关、零步长接触刷新、`phys_smooth_*` 渲染插值、`time_sim_dt/steps/alpha`），Camera2D 跟随工具（边界钳制 / 死区 / 平滑 / 只进不退滚动锁 / snap）共 8 个 Lua 绑定；马里奥、斜坡与平台 Demo 全部迁移其上；`--timestep-test` | **已完成** |
 | **17 — 裁剪、九宫格与文本排版 (1.11)** | 表现力 | `draw_set_clip` 剪裁矩形（精确 flush 边界语义）、`draw_nine_slice` 拉伸面板、`draw_text_ex` 对齐换行文本与 `end_y` 段落堆叠；FBO 渲染目标与更多 UI 控件顺延 | **已完成** |
 | **18 — 瓦片地图 A* 与迷宫追逐 (1.12)** | 导航 | 基于 solidity 网格的 A*（防切角、路径拉直、`map_find_path` + 路径点读取），`--path-test`（25 条断言），`--path-demo` 迷宫追逐：错峰重寻路的追踪 AI、玩家自动寻路演示模式、实时路径线 | **已完成** |
+| **19 — 离屏渲染目标 (1.13)** | 渲染 | `RenderTarget` FBO 资源池 + `rt_begin`/`rt_end`/`rt_clear`/`rt_draw` 绑定（一次性烘焙、累积反馈特效），画布坐标系与 V 方向校正、无头 framebuffer 正确恢复，`--rt-test`（38 条断言）、`--rt-demo`；顺带修复每帧 35 次 `GLFW_INVALID_VALUE` 按键轮询报错 | **已完成** |
 
 详细任务清单见 [docs/PLAN.md](docs/PLAN.md)。
 

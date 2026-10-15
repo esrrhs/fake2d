@@ -211,6 +211,57 @@ draw_world_minimap()
 draw_clear_clip()
 ```
 
+### Offscreen render targets
+
+A render target is an offscreen surface you can draw into and then blit like
+any sprite. Two patterns cover almost every use: **bake once** (procedural
+backgrounds, prerendered text — build it on the first frame, blit it every
+frame at any size) and **accumulate** (motion trails, fog of war: never clear
+the target, just fade it and draw the new state on top).
+
+Inside a target, coordinates are the target's own pixels with `(0,0)` at its
+top-left, independent of the window camera. Targets are a fixed pool of 8,
+addressed by a 1-based id (`0` means the window, which is never a valid
+target).
+
+| Function | Description |
+|---|---|
+| `rt_create(w, h) -> id` | Allocate an RGBA surface; returns `0` when the pool is full, the size is out of range (1..8192), or the context has no framebuffer objects. |
+| `rt_valid(id) -> bool` | True when the slot holds a usable target. |
+| `rt_width / rt_height(id) -> n` | Size in pixels (`0` for an unknown id). |
+| `rt_begin(id) -> bool` | Redirect every following draw into the target. Flushes the pending batch first, so nothing already submitted leaks into it. Returns false for id `0`, unknown/destroyed ids, and while another target is already bound (targets do not nest). |
+| `rt_end()` | Flush and return to the window. Called for you at the end of the frame if you forget. |
+| `rt_clear(r, g, b, a)` | Clear the **bound** surface to a solid colour — the target while one is bound, the screen otherwise. |
+| `rt_draw(id, x, y, w, h)` | Blit the target into a screen/world rect. The vertical flip FBOs need is applied for you, so what you drew is what you get. Drawing a target into itself is ignored. |
+| `rt_active() -> id` | Currently bound target, `0` for the window. |
+| `rt_destroy(id)` | Free the slot. Releases the target first if it is the bound one; destroying twice is safe. |
+
+```lua
+-- bake once: expensive art built a single time, blitted every frame
+if bake_id == 0 then
+    bake_id = rt_create(256, 256)
+    rt_begin(bake_id)
+    rt_clear(0.03, 0.04, 0.09, 1)
+    for i = 0, 200 do draw_quad(star_x(i), star_y(i), 2, 2, 1, 1, 1, 1) end
+    draw_text("BAKED ONCE", 56, 116, 1.0, 0.55, 0.92, 0.94, 1.0)
+    rt_end()
+end
+rt_draw(bake_id, 60, 100, 256, 256)   -- and again at half size, same texture
+rt_draw(bake_id, 60, 392, 128, 128)
+
+-- accumulate: fade instead of clear, so motion leaves a decaying tail
+rt_begin(trail_id)
+draw_quad(0, 0, 480, 320, 0.02, 0.03, 0.06, 0.09)
+draw_quad(px - 7, py - 7, 14, 14, 1.0, 0.78, 0.25, 1.0)
+rt_end()
+rt_draw(trail_id, 400, 100, 480, 320)
+```
+
+Notes: targets hold GPU memory, so create them once (not per frame) and
+destroy what you no longer need. A target's contents survive between frames,
+which is exactly what makes accumulating effects possible — but it also means
+you must `rt_clear` explicitly if you want a clean slate.
+
 ### Audio
 
 One-shot sound effects, fire-and-forget. Clips are mono float PCM registered
