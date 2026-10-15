@@ -1749,6 +1749,19 @@ float MixLast(fake2d::AudioEngine &audio, int frames) {
     return out[static_cast<std::size_t>(frames - 1) * 2];
 }
 
+/// Both channels of the last mixed frame — how pan and distance are checked.
+struct Stereo {
+    float left = 0.0f;
+    float right = 0.0f;
+};
+
+Stereo MixStereo(fake2d::AudioEngine &audio, int frames) {
+    std::vector<float> out(static_cast<std::size_t>(frames) * 2 + 2);
+    audio.Mix(out.data(), frames);
+    return {out[static_cast<std::size_t>(frames - 1) * 2],
+            out[static_cast<std::size_t>(frames - 1) * 2 + 1]};
+}
+
 int RunAudioTest(fake2d::Engine & /*engine*/) {
     int failures = 0;
     int checks = 0;
@@ -1943,6 +1956,141 @@ int RunAudioTest(fake2d::Engine & /*engine*/) {
         audio.SetBusVolume(fake2d::AudioBus::Master, 0.25f);
         MixLast(audio, 64);
         check(near(audio.Peak(), 0.25f), "peak: follows the master gain");
+    }
+
+    // --- positional audio: distance rolloff + stereo pan -------------------
+    // The listener sits at the origin with a 1000-unit range: a voice is
+    // silent that far away, and reaches full separation at half of it.
+    {
+        fake2d::AudioEngine audio;
+        audio.AddClip("tone", constant(1.0f, kRate));
+        audio.SetListener(0.0f, 0.0f);
+        audio.SetListenerRange(1000.0f);
+
+        // Straight ahead at half range: half level, dead centre.
+        audio.PlayAt("tone", 1.0f, 0.0f, -500.0f);
+        Stereo centred = MixStereo(audio, 1);
+        check(near(centred.left, 0.5f), "positional: distance halves the level");
+        check(near(centred.right, 0.5f), "positional: an emitter ahead is centred");
+    }
+    {
+        // Hard right at half range: full level there, silence on the left.
+        fake2d::AudioEngine audio;
+        audio.AddClip("tone", constant(1.0f, kRate));
+        audio.SetListener(0.0f, 0.0f);
+        audio.SetListenerRange(1000.0f);
+        audio.PlayAt("tone", 1.0f, 500.0f, 0.0f);
+        Stereo hard = MixStereo(audio, 1);
+        check(near(hard.right, 0.5f), "positional: the near channel keeps its level");
+        check(hard.left == 0.0f, "positional: hard pan mutes the far channel");
+    }
+    {
+        // Past half range the pan is already clamped, so only the distance
+        // still bites. (Its own engine: two placed one-shots would sum.)
+        fake2d::AudioEngine audio;
+        audio.AddClip("tone", constant(1.0f, kRate));
+        audio.SetListener(0.0f, 0.0f);
+        audio.SetListenerRange(1000.0f);
+        audio.PlayAt("tone", 1.0f, 750.0f, 0.0f);
+        Stereo further = MixStereo(audio, 1);
+        check(near(further.right, 0.25f), "positional: beyond full separation only distance bites");
+        check(further.left == 0.0f, "positional: the pan stays clamped");
+    }
+    {
+        // A quarter to the left: pan -0.5, distance gain 0.75.
+        fake2d::AudioEngine audio;
+        audio.AddClip("tone", constant(1.0f, kRate));
+        audio.SetListener(0.0f, 0.0f);
+        audio.SetListenerRange(1000.0f);
+        audio.PlayAt("tone", 1.0f, -250.0f, 0.0f);
+        Stereo leftish = MixStereo(audio, 1);
+        check(near(leftish.left, 0.75f), "positional: the near side is the loud one");
+        check(near(leftish.right, 0.375f), "positional: partial pan trims the far side");
+    }
+    {
+        fake2d::AudioEngine audio;
+        audio.AddClip("tone", constant(1.0f, kRate));
+        audio.SetListener(0.0f, 0.0f);
+        audio.SetListenerRange(1000.0f);
+        audio.PlayAt("tone", 1.0f, 1200.0f, 0.0f);
+        Stereo out = MixStereo(audio, 1);
+        check(out.left == 0.0f && out.right == 0.0f,
+              "positional: out of range is silence");
+        check(audio.PlayingCount() == 1,
+              "positional: the voice keeps running (only inaudible)");
+    }
+    {
+        // Moving the listener must re-evaluate voices that are already
+        // sounding, otherwise walking past an emitter would leave its sound
+        // parked where it started.
+        fake2d::AudioEngine audio;
+        audio.AddClip("tone", constant(1.0f, kRate));
+        audio.SetListener(0.0f, 0.0f);
+        audio.SetListenerRange(1000.0f);
+        audio.PlayAt("tone", 1.0f, 500.0f, 0.0f);
+        MixStereo(audio, 1);
+        audio.SetListener(500.0f, 0.0f);
+        Stereo on_top = MixStereo(audio, 1);
+        check(near(on_top.left, 1.0f) && near(on_top.right, 1.0f),
+              "positional: arriving at the emitter centres it at full level");
+        audio.SetListener(500.0f, -1000.0f);
+        Stereo away = MixStereo(audio, 1);
+        check(away.left == 0.0f && away.right == 0.0f,
+              "positional: leaving the emitter silences it again");
+    }
+    {
+        // Voices with no position must not react to the listener at all.
+        fake2d::AudioEngine audio;
+        audio.AddClip("tone", constant(1.0f, kRate));
+        audio.Play("tone", 1.0f);
+        audio.SetListener(9000.0f, -9000.0f);
+        Stereo still = MixStereo(audio, 1);
+        check(near(still.left, 1.0f) && near(still.right, 1.0f),
+              "positional: unplaced voices ignore the listener");
+    }
+    {
+        // Placement sits upstream of the buses, so they still apply.
+        fake2d::AudioEngine audio;
+        audio.AddClip("tone", constant(1.0f, kRate));
+        audio.SetListener(0.0f, 0.0f);
+        audio.SetListenerRange(1000.0f);
+        audio.PlayAt("tone", 1.0f, 500.0f, 0.0f);
+        MixStereo(audio, 1);
+        audio.SetBusVolume(fake2d::AudioBus::Sfx, 0.5f);
+        Stereo ducked = MixStereo(audio, 1);
+        check(near(ducked.right, 0.25f), "positional: the sfx bus still applies");
+        check(ducked.left == 0.0f, "positional: buses never resurrect a muted channel");
+    }
+    {
+        fake2d::AudioEngine audio;
+        audio.AddClip("tone", constant(1.0f, kRate));
+        // Default range: same 1000 units, so scripts need not set anything.
+        check(near(audio.ListenerRange(), fake2d::AudioEngine::kDefaultRange),
+              "positional: the default range is documented");
+        audio.SetListenerRange(0.0f);
+        check(near(audio.ListenerRange(), fake2d::AudioEngine::kDefaultRange),
+              "positional: a zero range is refused");
+        audio.SetListenerRange(-5.0f);
+        check(near(audio.ListenerRange(), fake2d::AudioEngine::kDefaultRange),
+              "positional: a negative range is refused");
+        audio.SetListener(3.0f, 4.0f);
+        check(near(audio.ListenerX(), 3.0f) && near(audio.ListenerY(), 4.0f),
+              "positional: the listener position reads back");
+        audio.PlayAt("unknown", 1.0f, 0.0f, 0.0f);
+        check(audio.PlayingCount() == 0,
+              "positional: an unknown clip still starts nothing");
+    }
+    {
+        // The per-channel peaks are the stereo image made visible.
+        fake2d::AudioEngine audio;
+        audio.AddClip("tone", constant(1.0f, kRate));
+        audio.SetListener(0.0f, 0.0f);
+        audio.SetListenerRange(1000.0f);
+        audio.PlayAt("tone", 1.0f, 500.0f, 0.0f);
+        MixStereo(audio, 64);
+        check(near(audio.PeakLeft(), 0.0f), "peak: the muted channel reads 0");
+        check(near(audio.PeakRight(), 0.5f), "peak: per-channel peaks are separate");
+        check(near(audio.Peak(), 0.5f), "peak: the scalar peak is the louder one");
     }
 
     // --- WAV decoding ------------------------------------------------------
@@ -3772,7 +3920,7 @@ int main(int argc, char **argv) {
 
     bool map_demo = false;
     bool platformer_demo = false;
-    bool audio_demo = false;
+    bool audio_clips = false;
     bool mario_demo = false;
     bool slope_demo = false;
     bool path_demo = false;
@@ -3828,8 +3976,13 @@ int main(int argc, char **argv) {
             cfg.script_entry = "scripts/post_demo.lua";
         } else if (arg == "--audio-demo") {
             // Mixer front panel: bus gains, cross-fade, pause, VU meter.
-            audio_demo = true;
+            audio_clips = true;
             cfg.script_entry = "scripts/audio_demo.lua";
+        } else if (arg == "--spatial-demo") {
+            // Positional audio: place one-shots in the world and move the
+            // listener through them with WASD / the mouse.
+            audio_clips = true;
+            cfg.script_entry = "scripts/spatial_demo.lua";
         } else if (arg == "--screenshot" && i + 1 < argc) {
             screenshot = argv[++i];
         } else if (arg == "--shot-frame" && i + 1 < argc) {
@@ -3978,7 +4131,7 @@ int main(int argc, char **argv) {
         EnsurePlatformerAssets();
         engine.GetAudio().AddClipWav("music", "assets/music.wav");
     }
-    if (audio_demo) {
+    if (audio_clips) {
         // SFX come from EnsureGameAudio; the two looping themes are
         // synthesized so the cross-fade needs no binary asset.
         EnsureGameAudio(engine.GetAudio());

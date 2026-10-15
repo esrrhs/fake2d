@@ -254,6 +254,21 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 
 ---
 
+## Phase 23 — Positional audio (1.17.x)
+
+- [x] **`PlayAt(name, volume, x, y)`**: one-shots placed in the world. Placement lives *outside* the gain envelope (`atten` 0–1 folded in at mix time), so rolling a sound off with distance never disturbs a fade, and buses/master still multiply on top (`effective = voice × atten × bus × master × pan_l/r`)
+- [x] **Distance rolloff**: linear to silence at `SetListenerRange(d)` (default 1000 world units, roughly a screen; ≤ 0 refused). **Pan** is horizontal only and reaches full separation at **half** the range — being hard-panned must not coincide with being inaudible, so a voice at the edge of the stereo image still has half its level
+- [x] **Pan law is a linear crossfade, documented**: a centred voice keeps full level on both channels (every existing mix is centred and must not change level), a hard-panned one mutes the far side. Constant power would have made the default state louder by √2 and silently broken every existing level expectation
+- [x] **`SetListener(x, y)` re-evaluates voices that are already sounding** — walking past an emitter sweeps its sound across the ears instead of leaving it parked where it started. Unplaced (`Play`) voices ignore the listener entirely, and a reused voice slot wipes its predecessor's placement (`ResetVoice`), so a plain `Play` can never come out panned
+- [x] **`PeakLeft()`/`PeakRight()`**: the per-channel VU feed; the difference between them *is* the stereo image. `Peak()` stays the scalar max
+- [x] 5 new Lua bindings: `audio_play_at`, `audio_listener`, `audio_range`, `audio_peak_l`, `audio_peak_r`; fixtures stub list extended in step
+- [x] `--audio-test` grows 51 → **74 assertions**, all offline through the public `Mix()`: centred emitters even on both channels, hard pan muting one side, partial pan trimming it, distance-only falloff past full separation, out-of-range silence (voice still counted), listener movement re-evaluating live voices both ways, unplaced voices immune, sfx bus still applying on top, default/guarded range values, per-channel peaks
+- [x] `--spatial-demo`: a top-down world with four periodic emitters and a listener moved by WASD/arrows/mouse; emitter rings dim exactly as their reach does, the listener's range circle shows where sounds die, and an L/R meter pair plus a balance indicator run off the per-channel peaks
+- [x] Verification: `--audio-test` 74/74; `--spatial-demo` headless smoke + pixel-checked screenshot (world panel clipped so range rings cannot escape it — `draw_line` primitives ignore the scissor, so the ring is drawn as scissored dots); all gates re-run green
+- Note: two placed one-shots on one engine **sum**, which initially broke a "single emitter" expectation — each placement scenario gets its own engine in the suite
+
+---
+
 ## Non-goals (for now)
 
 - Full 3D / PBR (Fake2D is strictly focused on high-performance 2D)

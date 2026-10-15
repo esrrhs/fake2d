@@ -299,6 +299,8 @@ drive `AudioEngine::Mix` itself to assert envelopes offline), but
 | Function | Description |
 |---|---|
 | `audio_play(name, volume)` | Play a registered clip once (`volume` 0–1) on the **sfx bus**. Overflow beyond the 32-voice pool drops the newest request. |
+| `audio_play_at(name, volume, x, y)` | Play a one-shot **at a world position**: panned left/right and attenuated by its distance to the listener, and re-evaluated on every `audio_listener` call — so a sound heard while walking past an emitter moves with you. |
+| `audio_listener(x, y)` / `audio_range(d)` | Where the ears are, and the distance at which a placed voice goes silent (`d` ≤ 0 is ignored). Full stereo separation is reached at **half** of `d`, so a hard-panned voice still has half its level. Default range: 1000 world units. |
 | `audio_enabled() -> bool` | Whether a playback device was opened (mixing still runs without one). |
 | `audio_music(name, volume, fade)` | Start (or restart) the looping music track on the **music bus**. `fade` > 0 cross-fades: the incoming track ramps up from silence while the outgoing one ramps down to 0 and frees its voice when it gets there; `fade` = 0 cuts over in place. |
 | `audio_music_stop(fade)` | Stop the music. With `fade` > 0 the track fades out first and is still audible (and still `audio_music_playing()`) until the ramp ends. |
@@ -308,10 +310,14 @@ drive `AudioEngine::Mix` itself to assert envelopes offline), but
 | `audio_bus_set(bus, volume)` / `audio_bus_get(bus)` | Bus gains: `0` master, `1` sfx, `2` music. Effective loudness is `voice × bus × master`; values clamp to 0–1. |
 | `audio_pause(paused)` / `audio_paused() -> bool` | Freeze the mix: silence out and neither cursors nor fades advance, so resuming picks up exactly where it stopped. |
 | `audio_peak() -> number` | Loudest sample (0–1) of the last block the device consumed — drives VU meters. Reads 0 headless. |
+| `audio_peak_l() / audio_peak_r() -> number` | The same peak per output channel; their difference *is* the stereo image, which is how a panned mix gets metered. |
 
 `scripts/audio_demo.lua` (`--audio-demo`) is a mixer front panel: bus sliders,
 two looping themes with a live cross-fade slider, SFX buttons on the sfx bus,
-a pause checkbox and a segment VU meter.
+a pause checkbox and a segment VU meter. `scripts/spatial_demo.lua`
+(`--spatial-demo`) demonstrates placement: emitters fire one-shots at fixed
+world positions while you move the listener (WASD/arrows/mouse) through them,
+with L/R meters and a balance indicator fed by the per-channel peaks.
 
 
 ### Particles

@@ -1486,6 +1486,51 @@ void RegisterAudioApi(fakelua::State *state, Engine *engine) {
             [engine](fakelua::State *) -> double {
                 return engine->GetAudio().Peak();
             }));
+
+    // --- positional audio (Phase 23) ---------------------------------------
+    // `audio_play_at` places a one-shot in the world; it is panned left/right
+    // and attenuated by distance against the listener, and re-evaluated on
+    // every audio_listener call, so sounds follow you as you walk past.
+    fakelua::RegisterNativeFunction(
+        state, "audio_play_at", false,
+        std::function<void(fakelua::State *, std::string_view, double, double, double)>(
+            [engine](fakelua::State *, std::string_view name, double volume,
+                     double x, double y) {
+                engine->GetAudio().PlayAt(name, static_cast<float>(volume),
+                                          static_cast<float>(x),
+                                          static_cast<float>(y));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "audio_listener", false,
+        std::function<void(fakelua::State *, double, double)>(
+            [engine](fakelua::State *, double x, double y) {
+                engine->GetAudio().SetListener(static_cast<float>(x),
+                                               static_cast<float>(y));
+            }));
+
+    // Distance at which a placed voice goes silent (twice it reaches full
+    // stereo separation). <= 0 is ignored.
+    fakelua::RegisterNativeFunction(
+        state, "audio_range", false,
+        std::function<void(fakelua::State *, double)>(
+            [engine](fakelua::State *, double max_distance) {
+                engine->GetAudio().SetListenerRange(static_cast<float>(max_distance));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "audio_peak_l", false,
+        std::function<double(fakelua::State *)>(
+            [engine](fakelua::State *) -> double {
+                return engine->GetAudio().PeakLeft();
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "audio_peak_r", false,
+        std::function<double(fakelua::State *)>(
+            [engine](fakelua::State *) -> double {
+                return engine->GetAudio().PeakRight();
+            }));
 }
 
 void RegisterParticleApi(fakelua::State *state, Engine *engine) {
