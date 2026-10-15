@@ -496,8 +496,16 @@ function draw_use_shader(id) end
 -- ---------------------------------------------------------------- audio
 function audio_play(name, vol) end
 function audio_enabled() return true end
-function audio_music(path, vol) end
-function audio_music_stop() end
+function audio_music(path, vol, fade) end
+function audio_music_stop(fade) end
+function audio_music_fade(vol, seconds) end
+function audio_bus_set(bus, vol) end
+function audio_bus_get(bus) return 1.0 end
+function audio_pause(paused) end
+function audio_paused() return false end
+function audio_music_playing() return false end
+function audio_music_name() return "" end
+function audio_peak() return 0.0 end
 
 -- ---------------------------------------------------------------- particles
 function part_create() return 1 end

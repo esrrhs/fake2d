@@ -287,17 +287,32 @@ minimap.
 
 ### Audio
 
-One-shot sound effects, fire-and-forget. Clips are mono float PCM registered
-from C++ (`AudioEngine::AddClip`, see the `MakeTone` synthesizer in
-`examples/hello/main.cpp` for an asset-free example). Playback is optional:
-on hosts without an audio device every call below is a silent no-op, so the
-same script runs unchanged in headless CI.
+A mixer, not a fire-and-forget player. Clips are mono float PCM registered
+from C++ (`AudioEngine::AddClip` / `AddClipWav`, see the `MakeTone`
+synthesizer and `EnsureAudioDemoMusic` in `examples/hello/main.cpp` for
+asset-free examples). The mixer is **independent of the device**: buses,
+fades and the voice pool are pure mixing state, so on hosts without an audio
+device nothing is lost — the script runs unchanged (and `--audio-test` can
+drive `AudioEngine::Mix` itself to assert envelopes offline), but
+`audio_peak()` stays 0 because no device is consuming the output.
 
 | Function | Description |
 |---|---|
-| `audio_play(name, volume)` | Play a registered clip once (`volume` 0–1). Overflow beyond the 32-voice pool drops the newest request. |
-| `audio_enabled() -> bool` | Whether a playback device was opened. |
-| `audio_music(name, volume)` / `audio_music_stop()` | Start/restart or stop the single looping music track (C++ registers WAV clips via `AudioEngine::AddClipWav`). |
+| `audio_play(name, volume)` | Play a registered clip once (`volume` 0–1) on the **sfx bus**. Overflow beyond the 32-voice pool drops the newest request. |
+| `audio_enabled() -> bool` | Whether a playback device was opened (mixing still runs without one). |
+| `audio_music(name, volume, fade)` | Start (or restart) the looping music track on the **music bus**. `fade` > 0 cross-fades: the incoming track ramps up from silence while the outgoing one ramps down to 0 and frees its voice when it gets there; `fade` = 0 cuts over in place. |
+| `audio_music_stop(fade)` | Stop the music. With `fade` > 0 the track fades out first and is still audible (and still `audio_music_playing()`) until the ramp ends. |
+| `audio_music_fade(volume, seconds)` | Ramp the music's gain to `volume` over `seconds`; `seconds` = 0 sets it immediately. |
+| `audio_music_playing() -> bool` | Whether any music voice is alive (a fading-out track still counts). |
+| `audio_music_name() -> str` | Name of the current music track (empty when stopped/silent). |
+| `audio_bus_set(bus, volume)` / `audio_bus_get(bus)` | Bus gains: `0` master, `1` sfx, `2` music. Effective loudness is `voice × bus × master`; values clamp to 0–1. |
+| `audio_pause(paused)` / `audio_paused() -> bool` | Freeze the mix: silence out and neither cursors nor fades advance, so resuming picks up exactly where it stopped. |
+| `audio_peak() -> number` | Loudest sample (0–1) of the last block the device consumed — drives VU meters. Reads 0 headless. |
+
+`scripts/audio_demo.lua` (`--audio-demo`) is a mixer front panel: bus sliders,
+two looping themes with a live cross-fade slider, SFX buttons on the sfx bus,
+a pause checkbox and a segment VU meter.
+
 
 ### Particles
 

@@ -7,7 +7,7 @@
 
 **Fake2D** 是基于 [FakeLua](https://github.com/esrrhs/fakelua) 的现代化轻量 2D 游戏渲染引擎：C++ 宿主掌控窗口、GPU 资源与场景数据；FakeLua 脚本负责编排玩法与实体逻辑，并在每帧边界执行 Arena 线性重置（**零 GC 停顿**）。
 
-> 当前状态：**1.15 — Phase 21 后处理与烘焙小地图已完成** — 已包含 1.14 及之前的全部能力（剪裁矩形、九宫格、对齐换行文本、固定步长物理、相机跟随工具、碰撞过滤、瓦片地图 A\* 寻路、离屏渲染目标、UI 控件），并新增**全屏后处理**：先把世界画进渲染目标，用 `rt_camera` 把目标画布对准相机，再用 `rt_present` 通过着色器呈现；同时新增**小地图烘焙**（`map_draw_scaled`，无视差的整图绘制）。配套 `--post-test`（44 条像素探针断言）与新的 **`--post-demo`**（实时调参滑杆 + 视口追踪小地图）。详见下方[实现计划](#实现计划)、[docs/PLAN.md](docs/PLAN.md)、[脚本编写指南](docs/SCRIPTING.md) 与[跨平台打包说明](docs/PACKAGING.md)。
+> 当前状态：**1.16 — Phase 22 音频混音器已完成** — 已包含 1.15 及之前的全部能力（剪裁矩形、九宫格、对齐换行文本、固定步长物理、相机跟随工具、碰撞过滤、瓦片地图 A\* 寻路、离屏渲染目标、UI 控件、全屏后处理 + 小地图烘焙），并新增**与设备解耦的音频混音器**：三条总线（`voice × bus × master`）、每声道增益包络与**音乐交叉淡入淡出**、增益斜坡、冻结混音的暂停、`Peak()` VU 数据源，以及可离线渲染的公开 `Mix()` —— 因此 `--audio-test` 在完全没有声音设备的情况下也能离线断言 51 条用例。配套新的 **`--audio-demo`** 调音台面板（总线滑杆、循环主题、音效按钮、VU 表）。详见下方[实现计划](#实现计划)、[docs/PLAN.md](docs/PLAN.md)、[脚本编写指南](docs/SCRIPTING.md) 与[跨平台打包说明](docs/PACKAGING.md)。
 
 ---
 
@@ -228,6 +228,7 @@ end
 | **19 — 离屏渲染目标 (1.13)** | 渲染 | `RenderTarget` FBO 资源池 + `rt_begin`/`rt_end`/`rt_clear`/`rt_draw` 绑定（一次性烘焙、累积反馈特效），画布坐标系与 V 方向校正、无头 framebuffer 正确恢复，`--rt-test`（38 条断言）、`--rt-demo`；顺带修复每帧 35 次 `GLFW_INVALID_VALUE` 按键轮询报错 | **已完成** |
 | **20 — UI 控件 (1.14)** | UI | 滑杆（拖动或点击跳转、保持抓取偏移）、复选框（调用方持有数值）、UTF-8 文本输入（按码点增删、按字符数限长、焦点管理、`Input` 字符回调）、滚动容器（滚轮 + 可拖动滑块、调用方负责剪裁内容），新增 8 个绑定，`--ui-test`（30 条断言）、`--ui-demo` | **已完成** |
 | **21 — 后处理与小地图 (1.15)** | 渲染 | `Renderer::ActiveCamera`（RT 内 tilemap 跟随目标画布相机）、`rt_camera`（把画布对准世界偏移）、`rt_present`（经着色器覆盖的全屏 blit）、`map_draw_scaled`（无视差小地图烘焙，抽出的 `DrawTileLayer` 共享 helper）、`assets/post_grade.*` 默认恒等的调色着色器、`--post-test`（44 条像素探针，经变异验证）、`--post-demo`；顺带修复像素边界扫描发现的 `--ui-demo` 页脚画出画布问题 | **已完成** |
+| **22 — 音频混音器 (1.16)** | 音频 | 混音器与设备解耦（无设备也能注册 clip 并直接跑 `Mix()`）、三条总线（`voice × bus × master`，sfx/music 隔离）、每声道增益包络（`PlayMusic` 交叉淡入淡出、`StopMusic` 淡出、`FadeMusicTo` 斜坡）、冻结混音的 `SetPaused`、`Peak()` VU 数据源、公开 `Mix()` 供离线渲染，新增 10 个绑定（`audio_bus_*`、`audio_pause*`、`audio_music_*`、`audio_peak`），`--audio-test`（51 条直接驱动 `Mix()` 的无头断言）、`--audio-demo` 调音台面板 | **已完成** |
 
 详细任务清单见 [docs/PLAN.md](docs/PLAN.md)。
 

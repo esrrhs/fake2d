@@ -375,7 +375,7 @@ function update(dt)
         tile = map_tilew(map_id)
         total_coins = N_COINS
         spawn()
-        audio_music("music", 0.22)
+        audio_music("music", 0.22, 0.0)
     end
 
     local intent_x, jump_pressed, jump_held = build_intent(time_frame())

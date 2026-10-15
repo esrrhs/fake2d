@@ -238,6 +238,22 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 
 ---
 
+## Phase 22 — Audio mixer (1.16.x)
+
+- [x] **Mixer separated from the device**: the Phase 4 audio path gated everything behind `IsEnabled()`, so buses/envelopes/pause were untestable headless. `AddClip`/`AddClipWav`/`Play`/`PlayMusic`/`Mix` now run with or without a device — clips are memory, mixing is arithmetic — and only device creation/consumption differs. `EnsureGameAudio` dropped its `IsEnabled()` early-return so every demo registers its clips identically on all hosts
+- [x] **Three buses** (`AudioBus::Master/Sfx/Music`): every voice is multiplied by its own bus and by master (`effective = voice × bus × master`, both clamped to 0–1). One-shots route through sfx, music through music, so ducking the music bus cannot touch SFX and master 0 silences everything
+- [x] **Per-voice gain envelopes** (`gain_from`/`gain_to`/`fade_pos`/`fade_dur`/`fade_ends_voice`): fade-ins on start, linear ramps between any two gains, and fade-outs that retire the voice when they complete. `PlayMusic(name, volume, fade)` with `fade` > 0 **cross-fades**: the outgoing track ramps down and stays audible (still `IsMusicPlaying()`, but `MusicName()` already reports the new track) until its ramp finishes and frees the voice; `fade` = 0 reuses the voice in place
+- [x] **`StopMusic(fade)` / `FadeMusicTo(volume, seconds)` / `SetMusicVolume`**: fade-out stop (still audible during the ramp), arbitrary gain ramps (voice retirement only when the ramp targets 0), and immediate set that cancels any ramp
+- [x] **`SetPaused`/`IsPaused`**: freezes the mix — silence out, `Peak()` forced to 0, and neither sample cursors nor fade positions advance, so resuming continues exactly where it stopped (asserted sample-exactly with a ramp clip)
+- [x] **`Peak()`**: loudest sample of the last mixed block for VU meters; tracks the bus/master gains, reads 0 headless. **`Mix(out, frames)` is public** so tests can drive the mixer directly
+- [x] 10 new Lua bindings: `audio_music_fade`, `audio_bus_set/get`, `audio_pause(paused)`, `audio_paused`, `audio_music_playing`, `audio_music_name`, `audio_peak`; `audio_music`/`audio_music_stop` gained the `fade` argument (strict arity: `platformer_demo.lua` updated)
+- [x] `--audio-test`: 51 headless assertions driving `Mix()` on standalone never-`Init()`ed engines — bus math incl. clamping and bus isolation, one-shot lifetime vs the voice-pool cap, fade-in envelope sampled at ¼/½/settled, cross-fade level-hold and retirement of the outgoing voice, fade-out vs zero-fade stop, ramp-then-set, pause freeze/resume with no cursor drift, peak tracking, WAV decode (22050 Hz resample path) and junk-file rejection
+- [x] `--audio-demo`: mixer front panel — bus sliders with live captions, two synthesized looping themes (A minor vs B major arpeggios, no binary asset), cross-fade and level sliders, SFX buttons, pause checkbox, a 24-segment VU meter fed by `audio_peak`, 1/2/S/P hotkeys, and a "no device" hint so headless runs are self-explanatory
+- [x] Verification: `--audio-test` 51/51; `--audio-demo` headless smoke + pixel-checked screenshot (all widgets inside the 960×540 canvas); all gates re-run green
+- Note: the cross-fade test initially flapped because the scenario mixed exactly to the 1.0 s mark, leaving the outgoing ramp a hair short of completion — the suite now mixes past it with slack, which also documents the envelope's boundary behaviour
+
+---
+
 ## Non-goals (for now)
 
 - Full 3D / PBR (Fake2D is strictly focused on high-performance 2D)
