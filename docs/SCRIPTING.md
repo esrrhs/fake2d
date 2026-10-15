@@ -236,6 +236,8 @@ target).
 | `rt_draw(id, x, y, w, h)` | Blit the target into a screen/world rect. The vertical flip FBOs need is applied for you, so what you drew is what you get. Drawing a target into itself is ignored. |
 | `rt_present(id, shader)` | Blit the target across the **whole** of whatever is being drawn into — the screen, or another target for a ping-pong pass. `shader` overrides the program for this one blit (`0` = no override) and does not touch `draw_use_shader`'s state, so the rest of the frame keeps its shader. This is the post-processing present: render the world into a target, then `rt_present(scene, fx)`. |
 | `rt_active() -> id` | Currently bound target, `0` for the window. |
+| `rt_copy(src, dst, shader) -> bool` | One ping-pong pass: blit `src` across the whole canvas of target `dst`, optionally through a shader (`0` = none). Equivalent to `rt_begin(dst)` + `rt_present(src)` + `rt_end()`, but it cannot be got wrong — refuses `src == dst` (a surface cannot be sampled while it is being drawn into), the window as either side, and any nesting. `dst` is not cleared first; clear it manually when the source is translucent. |
+| `rt_resize(id, w, h) -> bool` | Reallocate a target at a new pixel size; the old contents are lost. Half- and quarter-resolution passes are why this exists — a blur over a downsampled surface costs a fraction of the taps. Refused while that target is bound, and a refused resize never destroys the target. |
 | `rt_destroy(id)` | Free the slot. Releases the target first if it is the bound one; destroying twice is safe. |
 
 ```lua
@@ -284,6 +286,29 @@ draw_text("HUD", 16, 16, 1.0, 1, 1, 1, 1)   -- drawn after: never graded
 brightness, vignette, scanlines) where every uniform defaults to "unchanged";
 `scripts/post_demo.lua` (`--post-demo`) wires it to sliders and a baked
 minimap.
+
+**Multi-pass chains** go further: blur, bloom, ping-pong passes, each reading
+one target and writing another, with `rt_copy` doing the plumbing and
+`rt_resize` running passes at reduced resolution.
+
+```lua
+-- once: glow = rt_create(192, 108) (half resolution); blur = shader_load(...)
+rt_copy(scene_rt, glow, 0)                          -- downsample
+shader_set_vec2(blur, "u_dir", 2 / 192, 0)          -- horizontal step in UV
+rt_copy(glow, glow2, blur)
+shader_set_vec2(blur, "u_dir", 0, 2 / 108)          -- vertical step
+rt_copy(glow2, glow, blur)
+rt_present(scene_rt, 0)                             -- the sharp scene
+draw_set_blend(1)                                   -- glow on top, additively
+rt_draw(glow, 0, 0, 960, 540)
+draw_set_blend(0)
+```
+
+`assets/fx_blur.{vert,frag}` is a ready-made separable Gaussian: `u_dir` is
+the step in UV (so `0,0` is a straight copy), and `u_dim` scales the pass for
+an additive composite. `scripts/fx_demo.lua` (`--fx-demo`) builds a bloom out
+of it and shows a split-screen mode; `--fx-test` asserts the whole chain with
+pixel probes.
 
 ### Audio
 

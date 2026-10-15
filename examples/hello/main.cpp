@@ -1734,6 +1734,191 @@ int RunPostTest(fake2d::Engine &engine) {
     return failures == 0 ? 0 : 1;
 }
 
+// Multi-pass chains: one ping-pong pass (rt_copy) plus a resizable target are
+// all a bloom needs — scene -> blur H -> blur V -> composite. Everything here
+// is a pixel probe, and the blur shader's "u_dir = 0 is a straight copy"
+// contract is what makes the passes measurable step by step.
+int RunFxTest(fake2d::Engine &engine) {
+    int failures = 0;
+    int checks = 0;
+    auto check = [&](bool ok, const char *what) {
+        ++checks;
+        if (!ok) {
+            ++failures;
+            std::printf("[fx] FAIL %s\n", what);
+        }
+    };
+    // 8-bit channels: 1/255 of slack absorbs any filtering rounding.
+    auto near = [](float a, float b) { return std::fabs(a - b) < 0.02f; };
+    auto is_white = [&](const fake2d::Color &c) {
+        return near(c.r, 1.0f) && near(c.g, 1.0f) && near(c.b, 1.0f);
+    };
+    auto is_black = [&](const fake2d::Color &c) {
+        return near(c.r, 0.0f) && near(c.g, 0.0f) && near(c.b, 0.0f);
+    };
+    auto is_magenta = [&](const fake2d::Color &c) {
+        return near(c.r, 1.0f) && near(c.g, 0.0f) && near(c.b, 1.0f);
+    };
+
+    fake2d::Renderer &r = engine.GetRenderer();
+    if (!r.IsReady()) {
+        std::printf("[fx] FAIL renderer is not initialised\n");
+        return 1;
+    }
+    fake2d::RenderTargetLibrary &lib = r.GetRenderTargets();
+
+    const int blur = r.LoadShaderFromFile("assets/fx_blur.vert", "assets/fx_blur.frag");
+    const int grade = r.LoadShaderFromFile("assets/post_grade.vert",
+                                           "assets/post_grade.frag");
+    check(blur > 0, "shader: the blur program compiles");
+    check(grade > 0, "shader: the grade program compiles");
+
+    const int a = lib.Create(128, 128);
+    const int b = lib.Create(128, 128);
+    const int c = lib.Create(64, 64);
+    check(a > 0 && b > 0 && c > 0, "targets: three slots allocated");
+    fake2d::RenderTarget *t_b = lib.Get(b);
+    fake2d::Color px{};
+
+    // Scene: a 4x4 white dot on black at the centre of target A. Small enough
+    // that a blur has somewhere to spread into, big enough to read back.
+    r.BeginFrame(0.0f, 0.0f, 0.0f, 1.0f);
+    check(r.BeginRenderTarget(a), "scene: target A binds");
+    r.ClearActiveTarget(fake2d::Color{0.0f, 0.0f, 0.0f, 1.0f});
+    r.DrawQuad(62.0f, 62.0f, 4.0f, 4.0f, fake2d::Color::White());
+    r.EndRenderTarget();
+    check(t_b->IsValid(), "scene: target B is live");
+
+    // --- a plain pass is a copy --------------------------------------------
+    check(r.CopyRenderTarget(a, b, nullptr), "copy: A -> B succeeds");
+    check(t_b->ReadPixel(64, 64, px) && is_white(px),
+          "copy: the dot arrives at the same canvas position");
+    check(t_b->ReadPixel(4, 4, px) && is_black(px),
+          "copy: the black background arrives too");
+
+    // --- through a shader with u_dir = 0 it is still a copy ----------------
+    // Every tap samples the same texel, so the weights sum to the original.
+    if (blur > 0) {
+        r.SetShaderVec2(blur, "u_dir", 0.0f, 0.0f);
+    }
+    check(r.CopyRenderTarget(a, b, r.GetShader(blur)), "copy: A -> B through the blur shader");
+    check(t_b->ReadPixel(64, 64, px) && is_white(px),
+          "copy: u_dir = 0 leaves the dot untouched");
+    check(t_b->ReadPixel(70, 64, px) && is_black(px),
+          "copy: u_dir = 0 spreads nothing sideways");
+    check(r.ActiveShader() == nullptr,
+          "copy: the shader override does not leak into the frame");
+
+    // --- one pass blurs in one direction only ------------------------------
+    // Step of 2 px per tap: the outermost tap reaches 8 px, so the dot must
+    // paint x=70 but leave y=70 alone.
+    if (blur > 0) {
+        r.SetShaderVec2(blur, "u_dir", 2.0f / 128.0f, 0.0f);
+    }
+    check(r.CopyRenderTarget(a, b, r.GetShader(blur)), "blur: horizontal pass runs");
+    check(t_b->ReadPixel(70, 64, px) && px.r > 0.02f,
+          "blur: the dot spreads along the pass direction");
+    check(t_b->ReadPixel(64, 70, px) && is_black(px),
+          "blur: the perpendicular axis is untouched");
+    check(t_b->ReadPixel(64, 64, px) && px.r < 0.9f,
+          "blur: the centre gives up some of its level");
+
+    // --- ping-pong: the second pass covers the other axis ------------------
+    if (blur > 0) {
+        r.SetShaderVec2(blur, "u_dir", 0.0f, 2.0f / 128.0f);
+    }
+    check(r.CopyRenderTarget(b, a, r.GetShader(blur)), "blur: vertical pass runs back into A");
+    check(lib.Get(a)->ReadPixel(64, 70, px) && px.r > 0.02f,
+          "blur: two passes cover both axes");
+    // The corner is the product of both passes' outer taps, so it is a small
+    // but strictly positive fraction of the axis-aligned smear.
+    check(lib.Get(a)->ReadPixel(70, 70, px) && px.r > 0.001f,
+          "blur: the corner of the smear is lit too");
+    check(lib.Get(a)->ReadPixel(4, 4, px) && is_black(px),
+          "blur: far from the dot it is still black");
+
+    // --- guards ------------------------------------------------------------
+    check(!r.CopyRenderTarget(a, a, nullptr),
+          "guards: a target cannot be copied into itself");
+    check(!r.CopyRenderTarget(0, b, nullptr), "guards: the window is not a source");
+    check(!r.CopyRenderTarget(a, 0, nullptr), "guards: the window is not a destination");
+    check(!r.CopyRenderTarget(99, b, nullptr), "guards: an unknown source is refused");
+    check(!r.CopyRenderTarget(a, 99, nullptr), "guards: an unknown destination is refused");
+
+    check(r.BeginRenderTarget(c), "guards: target C binds");
+    check(!r.CopyRenderTarget(a, b, nullptr), "guards: no nesting");
+    r.EndRenderTarget();
+
+    // A refused copy must leave the destination exactly as it was.
+    check(r.BeginRenderTarget(b), "guards: B rebinds for the untouched check");
+    r.ClearActiveTarget(fake2d::Color{1.0f, 0.0f, 1.0f, 1.0f});
+    r.EndRenderTarget();
+    check(!r.CopyRenderTarget(99, b, nullptr), "guards: the bad copy is refused again");
+    check(t_b->ReadPixel(64, 64, px) && is_magenta(px),
+          "guards: the refused copy left the destination untouched");
+
+    // --- resize ------------------------------------------------------------
+    // A currently holds the *blurred* result (the ping-pong wrote back into
+    // it), so put the sharp dot back before measuring a rescaled copy.
+    check(r.BeginRenderTarget(a), "resize: A rebinds for a fresh scene");
+    r.ClearActiveTarget(fake2d::Color{0.0f, 0.0f, 0.0f, 1.0f});
+    r.DrawQuad(62.0f, 62.0f, 4.0f, 4.0f, fake2d::Color::White());
+    r.EndRenderTarget();
+    check(r.ResizeRenderTarget(b, 64, 64), "resize: B reallocates at 64x64");
+    check(t_b->Width() == 64 && t_b->Height() == 64, "resize: the new size is reported");
+    check(!r.ResizeRenderTarget(b, 0, 0), "resize: a zero size is refused");
+    check(t_b->Width() == 64 && t_b->Height() == 64,
+          "resize: the refused resize kept the size");
+    check(!r.ResizeRenderTarget(0, 32, 32), "resize: the window is not resizable");
+    check(!r.ResizeRenderTarget(99, 32, 32), "resize: an unknown id is refused");
+    check(r.BeginRenderTarget(b), "resize: B binds");
+    check(!r.ResizeRenderTarget(b, 32, 32), "resize: refused while the target is bound");
+    r.EndRenderTarget();
+    check(t_b->Width() == 64, "resize: the bound refusal kept the size");
+
+    // A half-size destination rescales: the dot at canvas 64/128 maps to 32/64.
+    check(r.CopyRenderTarget(a, b, nullptr), "resize: A (128) copies into B (64)");
+    check(t_b->ReadPixel(32, 32, px) && is_white(px), "resize: the dot lands at half scale");
+    check(t_b->ReadPixel(60, 60, px) && is_black(px), "resize: the far corner is background");
+
+    // --- the grade pass still composes on top of a chain -------------------
+    if (grade > 0) {
+        r.SetShaderFloat(grade, "u_desaturate", 0.0f);
+        r.SetShaderFloat(grade, "u_brightness", 0.25f);
+        r.SetShaderFloat(grade, "u_vignette", 0.0f);
+        r.SetShaderFloat(grade, "u_scanline", 0.0f);
+    }
+    check(r.CopyRenderTarget(b, c, r.GetShader(grade)), "chain: a grade pass over a copy");
+    check(lib.Get(c)->ReadPixel(60, 60, px) && near(px.r, 0.25f),
+          "chain: +0.25 brightness lifts the black background");
+
+    r.EndFrame();
+
+    // --- the window survives the whole chain -------------------------------
+    r.BeginFrame(0.0f, 0.0f, 0.0f, 1.0f);
+    r.PresentRenderTarget(b, nullptr);
+    r.EndFrame();
+    std::error_code ec;
+    const std::string shot = "assets/_fx_test.png";
+    std::filesystem::remove(shot, ec);
+    check(r.SaveScreenshot(shot), "screenshot: the window framebuffer is intact");
+    const auto shot_bytes = std::filesystem::file_size(shot, ec);
+    check(!ec && shot_bytes > 0, "screenshot: wrote a non-empty png");
+    std::filesystem::remove(shot, ec);
+
+    lib.Clear();
+    if (blur > 0) {
+        r.DestroyShader(blur);
+    }
+    if (grade > 0) {
+        r.DestroyShader(grade);
+    }
+
+    std::printf("[fx] %s: %d checks, %d failures\n", failures == 0 ? "PASS" : "FAIL",
+                checks, failures);
+    return failures == 0 ? 0 : 1;
+}
+
 // Audio is the one subsystem that used to be untestable without hardware:
 // every call was gated on "a device exists", so headless CI exercised none of
 // it. The mixer is now device-independent, and this test drives it directly —
@@ -3934,6 +4119,7 @@ int main(int argc, char **argv) {
     bool rt_test = false;
     bool ui_test = false;
     bool post_test = false;
+    bool fx_test = false;
     bool audio_test = false;
     int max_frames = 0;
     int shot_frame = 30;
@@ -3974,6 +4160,10 @@ int main(int argc, char **argv) {
         } else if (arg == "--post-demo") {
             // Post-processing pass over the whole world + a baked minimap.
             cfg.script_entry = "scripts/post_demo.lua";
+        } else if (arg == "--fx-demo") {
+            // Multi-pass chain: bloom over a procedural skyline + a
+            // split-screen mode.
+            cfg.script_entry = "scripts/fx_demo.lua";
         } else if (arg == "--audio-demo") {
             // Mixer front panel: bus gains, cross-fade, pause, VU meter.
             audio_clips = true;
@@ -4051,6 +4241,13 @@ int main(int argc, char **argv) {
             cfg.headless = true;
             cfg.script_entry.clear();
             cfg.vsync = false;
+        } else if (arg == "--fx-test") {
+            // Headless self-test of the multi-pass chain: rt_copy ping-pong,
+            // the separable blur and the target resize.
+            fx_test = true;
+            cfg.headless = true;
+            cfg.script_entry.clear();
+            cfg.vsync = false;
         } else if (arg == "--audio-test") {
             // Self-test of the mixer: no device needed, the test drives
             // AudioEngine::Mix itself.
@@ -4107,6 +4304,9 @@ int main(int argc, char **argv) {
     }
     if (post_test) {
         return RunPostTest(engine);
+    }
+    if (fx_test) {
+        return RunFxTest(engine);
     }
     if (audio_test) {
         return RunAudioTest(engine);

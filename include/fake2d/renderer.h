@@ -155,6 +155,22 @@ public:
     void PresentRenderTarget(int id, Shader *shader = nullptr,
                              const Color &tint = Color::White());
 
+    /// One ping-pong pass: blit `src` across the whole canvas of target `dst`,
+    /// optionally through `shader`. Equivalent to
+    /// `BeginRenderTarget(dst); PresentRenderTarget(src, shader); EndRenderTarget();`
+    /// but it cannot be got wrong — it refuses `src == dst` (sampling the
+    /// surface being drawn into is undefined), the window as either side, and
+    /// any nesting. `dst` is *not* cleared first: the blit covers the whole
+    /// canvas, so clear manually when the source is translucent.
+    bool CopyRenderTarget(int src, int dst, Shader *shader = nullptr,
+                          const Color &tint = Color::White());
+
+    /// Reallocate a target at a new pixel size; the old contents are lost.
+    /// Refused for unknown ids and for the target currently bound (its FBO is
+    /// in use). Half- and quarter-resolution passes are the reason this
+    /// exists: a blur over a downsampled surface costs a fraction of the taps.
+    bool ResizeRenderTarget(int id, int width, int height);
+
     // --- text (glyph quads are submitted into the same SpriteBatch) ---
     /// Rasterize the default font (system TTF, embedded 8x8 as fallback) at
     /// pixel_height. Called automatically at Init; safe to call again later.
