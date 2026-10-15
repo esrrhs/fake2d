@@ -1003,6 +1003,10 @@ from the anchored corner.
 | `ui_text_set(key, text)` | Overwrite a field's content (also how you clear it). |
 | `ui_text_focused() -> string` | Key of the focused field, or "" when none is. |
 | `ui_scroll(key, anchor, ox, oy, w, h, content_height, scroll_y) -> number` | Vertical scrollbar: wheel while hovered (40 px per notch) or drag the thumb. Returns the offset clamped to `[0, content_height - h]`, 0 when the content fits. **The widget only owns the offset and the scrollbar** — clip your content with `draw_set_clip` and draw items at `y - scroll_y`. |
+| `ui_bar(anchor, ox, oy, w, h, value, r, g, b, a)` | Progress bar: a frame and a track, filled `w * value` from the left. `value` is clamped to `0..1`, so a bar fed `1.4` or `-0.2` still looks like a bar instead of spilling out of (or growing backwards past) its track. Pure draw — no key, no state. |
+| `ui_radio(key, anchor, ox, oy, size, selected, label, text_scale) -> bool` | One radio row: a square indicator plus a right-side label. Returns true exactly on the click-release frame (releasing outside cancels, like `ui_button`). Selection is caller-owned — a group is N rows and one index. |
+| `ui_combo(key, anchor, ox, oy, w, h, label, open, text_scale) -> bool` | Combo header: the field's current text plus a chevron. Returns true on the click-release frame — **including a flick that ends outside the header**, because the popup list swallows the gesture. Toggle your own `open` then. |
+| `ui_combo_item(key, anchor, ox, oy, w, h, label, selected, text_scale) -> bool` | One row of an open combo list. Draws the label with a hover/selected highlight and returns true on the click-release frame over that row. Draw the list right after the header so the rows sit on top of what is behind them. |
 | `ui_hovered(key) -> bool` | True while the mouse is over the widget with that key (use it to swap cursors or highlight rows). |
 | `ui_set_origin(x, y)` | Offset added to mouse positions during hit-testing (set to the camera top-left for a world-anchored HUD). |
 
@@ -1034,7 +1038,10 @@ function update(dt)
 end
 ```
 
-See `scripts/ui_demo.lua` (`--ui-demo`) for all four widgets wired together.
+See `scripts/ui_demo.lua` (`--ui-demo`) for the Phase 20 widgets wired
+together, and `scripts/ui2_demo.lua` (`--ui2-demo`) for the round-2 set: a
+looping progress bar, a slider-driven bar that clamps past 100%, a radio
+group and a combo box with an openable list.
 
 ### Debugging
 

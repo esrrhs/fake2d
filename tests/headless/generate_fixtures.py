@@ -571,6 +571,11 @@ function ui_panel(a, b, c, d, e, f, g, h, i) end
 function ui_label(a, b, c, d, e, f, g, h, i) end
 function ui_button(a, b, c, d, e, f, g, h) return false end
 function ui_set_origin(a, b) end
+-- Phase 25 widgets round 2.
+function ui_bar(a, b, c, d, e, f, g, h, i, j) end
+function ui_radio(a, b, c, d, e, f, g, h) return false end
+function ui_combo(a, b, c, d, e, f, g, h, i) return false end
+function ui_combo_item(a, b, c, d, e, f, g, h, i) return false end
 
 -- Reset every persistent state slot. Defined last so all locals above are
 -- in scope; the driver calls this once from main().

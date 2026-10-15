@@ -254,6 +254,10 @@ const Input &Engine::GetInput() const {
     return impl_->input;
 }
 
+Input &Engine::GetInput() {
+    return impl_->input;
+}
+
 std::uint64_t Engine::FrameIndex() const {
     return impl_ ? impl_->frame_index : 0;
 }

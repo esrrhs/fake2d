@@ -7,7 +7,7 @@
 
 **Fake2D** 是基于 [FakeLua](https://github.com/esrrhs/fakelua) 的现代化轻量 2D 游戏渲染引擎：C++ 宿主掌控窗口、GPU 资源与场景数据；FakeLua 脚本负责编排玩法与实体逻辑，并在每帧边界执行 Arena 线性重置（**零 GC 停顿**）。
 
-> 当前状态：**1.18 — Phase 24 多趟后处理链已完成** — 已包含 1.17 及之前的全部能力（剪裁矩形、九宫格、对齐换行文本、固定步长物理、相机跟随工具、碰撞过滤、瓦片地图 A\* 寻路、离屏渲染目标、UI 控件、全屏后处理 + 小地图烘焙、音频混音器、位置音频），并新增 **ping-pong 趟**：`rt_copy` 把一个目标经着色器整体 blit 进另一个（自拷贝/嵌套提前拒绝），`rt_resize` 支持半分辨率 pass，`assets/fx_blur.*` 是现成的可分离高斯（`u_dir = 0` 即恒等拷贝）。`--fx-test` 离线探针 47 条；**`--fx-demo`** 在程序化天际线上构建 bloom 并提供分屏模式。详见下方[实现计划](#实现计划)、[docs/PLAN.md](docs/PLAN.md)、[脚本编写指南](docs/SCRIPTING.md) 与[跨平台打包说明](docs/PACKAGING.md)。
+> 当前状态：**1.19 — Phase 25 UI 控件第二批已完成** — 已包含 1.18 及之前的全部能力（剪裁矩形、九宫格、对齐换行文本、固定步长物理、相机跟随工具、碰撞过滤、瓦片地图 A\* 寻路、离屏渲染目标、全屏后处理 + 小地图烘焙、音频混音器、位置音频、`rt_copy`/`rt_resize` ping-pong 趟），并新增 **四个立即模式控件**：带钳制的进度条（`ui_bar`）、选择权归调用方的单选行（`ui_radio`）、组合式下拉框（`ui_combo` + `ui_combo_item`，表头容忍甩出点击）。`Input::InjectFrame` 可在无头环境注入合成输入帧，点按路径断言由此解锁——`--ui-test` 现覆盖 52 条。**`--ui2-demo`** 演示这批控件的整体用法。详见下方[实现计划](#实现计划)、[docs/PLAN.md](docs/PLAN.md)、[脚本编写指南](docs/SCRIPTING.md) 与[跨平台打包说明](docs/PACKAGING.md)。
 
 ---
 
@@ -231,6 +231,7 @@ end
 | **22 — 音频混音器 (1.16)** | 音频 | 混音器与设备解耦（无设备也能注册 clip 并直接跑 `Mix()`）、三条总线（`voice × bus × master`，sfx/music 隔离）、每声道增益包络（`PlayMusic` 交叉淡入淡出、`StopMusic` 淡出、`FadeMusicTo` 斜坡）、冻结混音的 `SetPaused`、`Peak()` VU 数据源、公开 `Mix()` 供离线渲染，新增 10 个绑定（`audio_bus_*`、`audio_pause*`、`audio_music_*`、`audio_peak`），`--audio-test`（51 条直接驱动 `Mix()` 的无头断言）、`--audio-demo` 调音台面板 | **已完成** |
 | **23 — 位置音频 (1.17)** | 音频 | `PlayAt` 把一次性音效放进世界（`atten` 独立于包络，衰减不动淡入淡出）、向 `SetListenerRange` 线性衰减到静音（默认 1000，≤ 0 拒绝）、声像半程即达全分离并采用显式文档化的线性交叉规律、`SetListener` 重新评估正在发声的 voice、`ResetVoice` 清空复用槽位、`PeakLeft`/`PeakRight` 逐声道 VU 数据源，新增 5 个绑定（`audio_play_at/listener/range/peak_l/peak_r`），`--audio-test` 扩到 74 条离线断言，`--spatial-demo`（可移动听者 + 范围环 + L/R 电平表） | **已完成** |
 | **24 — 多趟后处理链 (1.18)** | 渲染 | `rt_copy(src, dst, shader)`（一趟 ping-pong；自拷贝/窗口/嵌套提前拒绝）、`rt_resize`（半分辨率 pass；先校验尺寸再 `Create`，拒绝 resize 不会销毁目标）、`assets/fx_blur.*` 可分离 9 抽头高斯（`u_dir = 0` 即恒等，`u_dim` 合成增益）、2 个新绑定、`--fx-test`（47 条像素探针：恒等 pass、单轴拖影、双趟覆盖、守卫、缩放拷贝、链上叠加 grade、窗口存活）、`--fx-demo` 程序化天际线 bloom + 分屏模式；记录"带着色器的 present 会重置混合模式"的坑 | **已完成** |
+| **25 — UI 控件第二批 (1.19)** | UI | `ProgressBar`（`ui_bar`，钳制的纯绘制）、`RadioButton`（`ui_radio`，按钮式点击语义、选择权归调用方）、`ComboBegin`/`ComboItem`（`ui_combo`/`ui_combo_item`，组合式下拉，表头容忍甩出点击）、`Input::InjectFrame` + 可变 `Engine::GetInput()`（合成输入帧解锁无头点按路径断言）、4 个新绑定、`--ui-test` 扩到 52 条断言（4 次变异验证——变异暴露了轨道内空转的钳制探针）、`--ui2-demo` | **已完成** |
 
 详细任务清单见 [docs/PLAN.md](docs/PLAN.md)。
 

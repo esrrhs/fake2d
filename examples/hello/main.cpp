@@ -1338,6 +1338,9 @@ int RunUITest(fake2d::Engine &engine) {
         }
     };
     auto near = [](float a, float b) { return std::fabs(a - b) < 0.001f; };
+    // Read-back pixels are 8-bit: 0.14 lands on 36/255 = 0.141, so colour
+    // probes need ~1/255 of slack.
+    auto near_u8 = [](float a, float b) { return std::fabs(a - b) < 0.01f; };
 
     fake2d::UISystem &ui = engine.GetUI();
     fake2d::Renderer &r = engine.GetRenderer();
@@ -1452,6 +1455,124 @@ int RunUITest(fake2d::Engine &engine) {
     check(full_quads >= 2, "draw: a filled field draws frame + text");
     check(empty_quads > full_quads,
           "draw: the placeholder is longer than the typed text");
+
+    // --- widgets round 2 (Phase 25) ---------------------------------------
+    // Input::InjectFrame fills the snapshot by hand, so click paths — which
+    // used to be unreachable headless — are assertable: press, then release.
+    fake2d::Input &in = engine.GetInput();
+    const std::vector<std::int64_t> none{};
+    const std::vector<std::int64_t> left{0};
+    const std::vector<std::string_view> no_keys{};
+
+    // Radio: a press and release inside the row is one click.
+    in.InjectFrame({50.0f, 50.0f}, no_keys, left);
+    check(!ui.RadioButton("r1", tl, 40, 40, 20, false, "row"),
+          "radio: a press alone is not a click");
+    in.InjectFrame({50.0f, 50.0f}, no_keys, none);
+    check(ui.RadioButton("r1", tl, 40, 40, 20, false, "row"),
+          "radio: releasing over the row clicks it");
+    // Releasing outside cancels, exactly like a button.
+    in.InjectFrame({50.0f, 50.0f}, no_keys, left);
+    in.InjectFrame({500.0f, 500.0f}, no_keys, none);
+    check(!ui.RadioButton("r1", tl, 40, 40, 20, false, "row"),
+          "radio: releasing outside cancels the click");
+    in.InjectFrame({500.0f, 500.0f}, no_keys, none);
+    check(!ui.RadioButton("r1", tl, 40, 40, 20, false, "row"),
+          "radio: a click elsewhere never clicks this row");
+    // Selection is a draw state, not state the widget owns, so the same call
+    // reports a click whether or not the row is the selected one.
+    in.InjectFrame({50.0f, 50.0f}, no_keys, left);
+    (void)ui.RadioButton("r2", tl, 40, 40, 20, true, "selected row");
+    in.InjectFrame({50.0f, 50.0f}, no_keys, none);
+    check(ui.RadioButton("r2", tl, 40, 40, 20, true, "selected row"),
+          "radio: an already-selected row still reports the click");
+
+    // Combo: the header toggles, and items report their own clicks.
+    in.InjectFrame({50.0f, 50.0f}, no_keys, left);
+    check(!ui.ComboBegin("cb", tl, 40, 40, 160, 28, "pick", false),
+          "combo: a press alone does not open it");
+    in.InjectFrame({50.0f, 50.0f}, no_keys, none);
+    check(ui.ComboBegin("cb", tl, 40, 40, 160, 28, "pick", false),
+          "combo: releasing over the header clicks it");
+    // Unlike a button, a flick that ends outside still opens the list: the
+    // popup swallows the gesture.
+    in.InjectFrame({50.0f, 50.0f}, no_keys, left);
+    (void)ui.ComboBegin("cb", tl, 40, 40, 160, 28, "pick", false);
+    in.InjectFrame({500.0f, 500.0f}, no_keys, none);
+    check(ui.ComboBegin("cb", tl, 40, 40, 160, 28, "pick", false),
+          "combo: a press that ends outside still clicks it");
+    // Item rows: one click each, and only for the row under the cursor.
+    in.InjectFrame({50.0f, 90.0f}, no_keys, left);
+    check(!ui.ComboItem("ci0", tl, 40, 80, 160, 24, "alpha", true),
+          "combo item: a press alone is not a pick");
+    in.InjectFrame({50.0f, 90.0f}, no_keys, none);
+    check(ui.ComboItem("ci0", tl, 40, 80, 160, 24, "alpha", true),
+          "combo item: releasing over the row picks it");
+    check(!ui.ComboItem("ci1", tl, 40, 108, 160, 24, "beta", false),
+          "combo item: a row away from the cursor is not picked");
+    // An open list must not fall through to whatever is beneath it: the
+    // header is a separate widget with its own key.
+    in.InjectFrame({50.0f, 90.0f}, no_keys, left);
+    in.InjectFrame({50.0f, 90.0f}, no_keys, none);
+    check(!ui.ComboBegin("cb", tl, 40, 40, 160, 28, "pick", true),
+          "combo: the header does not swallow a click aimed at the list");
+
+    // --- ProgressBar: clamped, and measurable in pixels -------------------
+    // UI geometry goes through the same batch as everything else, so drawing
+    // widgets inside a target lets the fill be read back.
+    fake2d::RenderTargetLibrary &ui_lib = r.GetRenderTargets();
+    const int bar_rt = ui_lib.Create(128, 128);
+    fake2d::RenderTarget *t_bar = ui_lib.Get(bar_rt);
+    fake2d::Color px{};
+    if (t_bar != nullptr) {
+        r.BeginFrame(0.0f, 0.0f, 0.0f, 1.0f);
+        check(r.BeginRenderTarget(bar_rt), "bar: target binds");
+        r.ClearActiveTarget(fake2d::Color{0.0f, 0.0f, 0.0f, 1.0f});
+        // 100x20 at (10,10): half full means x=10..60 filled, 60..110 track.
+        ui.ProgressBar(tl, 10, 10, 100, 20, 0.5f,
+                       fake2d::Color{1.0f, 0.0f, 0.0f, 1.0f});
+        r.EndRenderTarget();
+        r.EndFrame();
+        check(t_bar->ReadPixel(30, 20, px) && near_u8(px.r, 1.0f),
+              "bar: half a bar fills the left half");
+        check(t_bar->ReadPixel(90, 20, px) && near_u8(px.r, 0.14f),
+              "bar: the right half stays on the track colour");
+        // Out-of-range values clamp instead of overflowing the track. The
+        // probes sit *outside* the 10..110 track (and outside the 8..112
+        // frame) on purpose: a probe inside it reads filled either way, and
+        // the assertion would never fail.
+        check(r.BeginRenderTarget(bar_rt), "bar: target rebinds");
+        ui.ProgressBar(tl, 10, 10, 100, 20, 2.0f,
+                       fake2d::Color{1.0f, 0.0f, 0.0f, 1.0f});
+        r.EndRenderTarget();
+        check(t_bar->ReadPixel(108, 20, px) && near_u8(px.r, 1.0f),
+              "bar: above 1 fills the whole track");
+        check(t_bar->ReadPixel(120, 20, px) && near_u8(px.r, 0.0f),
+              "bar: above 1 does not spill past the track");
+        check(r.BeginRenderTarget(bar_rt), "bar: target rebinds again");
+        ui.ProgressBar(tl, 10, 10, 100, 20, -1.0f,
+                       fake2d::Color{1.0f, 0.0f, 0.0f, 1.0f});
+        r.EndRenderTarget();
+        check(t_bar->ReadPixel(30, 20, px) && near_u8(px.r, 0.14f),
+              "bar: below 0 draws no fill at all");
+        check(t_bar->ReadPixel(4, 20, px) && near_u8(px.r, 0.0f),
+              "bar: below 0 does not grow backwards past the track");
+        r.EndFrame();
+        ui_lib.Destroy(bar_rt);
+    }
+
+    // Every new widget contributes geometry.
+    r.BeginFrame(0.0f, 0.08f, 0.10f, 0.14f);
+    ui.ProgressBar(tl, 40, 40, 200, 20, 0.5f, fake2d::Color::White());
+    (void)ui.RadioButton("q1", tl, 40, 80, 20, true, "row");
+    (void)ui.ComboBegin("q2", tl, 40, 110, 160, 28, "pick", false);
+    (void)ui.ComboItem("q3", tl, 40, 144, 160, 24, "alpha", true);
+    r.EndFrame();
+    check(r.QuadCount() >= 8, "draw: the round-2 widgets submit geometry");
+
+    // Injection is a test affordance: a real frame replaces it, so nothing
+    // synthetic can leak into a windowed run.
+    in.InjectFrame({0.0f, 0.0f}, no_keys, none);
 
     std::printf("[ui] %s: %d checks, %d failures\n", failures == 0 ? "PASS" : "FAIL",
                 checks, failures);
@@ -4157,6 +4278,9 @@ int main(int argc, char **argv) {
         } else if (arg == "--ui-demo") {
             // Sliders, checkboxes, text fields and scroll areas.
             cfg.script_entry = "scripts/ui_demo.lua";
+        } else if (arg == "--ui2-demo") {
+            // Round 2: progress bars, radio groups and combo boxes.
+            cfg.script_entry = "scripts/ui2_demo.lua";
         } else if (arg == "--post-demo") {
             // Post-processing pass over the whole world + a baked minimap.
             cfg.script_entry = "scripts/post_demo.lua";
