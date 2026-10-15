@@ -109,19 +109,19 @@ bool AudioEngine::AddClip(std::string_view name, const std::vector<float> &mono_
     return true;
 }
 
-void AudioEngine::StartClip(std::string_view name, float volume, bool loop, bool music,
-                            float fade_seconds) {
+AudioEngine::Voice *AudioEngine::StartClip(std::string_view name, float volume, bool loop,
+                                           bool music, float fade_seconds) {
     if (voices_.empty()) {
-        return;
+        return nullptr;
     }
     std::lock_guard<std::mutex> lock(MixerMutex(mutex_));
     const std::string key(name);
     // clips_ may be reallocated by AddClip, so resolve the pointer under the
     // lock and never hold a Clip* across an unlock.
-    const auto clip = std::find_if(clips_.begin(), clips_.end(),
-                                   [&](const Clip &c) { return c.name == key; });
-    if (clip == clips_.end() || clip->pcm.empty()) {
-        return;
+    auto clip_it = std::find_if(clips_.begin(), clips_.end(),
+                                [&](const Clip &c) { return c.name == key; });
+    if (clip_it == clips_.end() || clip_it->pcm.empty()) {
+        return nullptr;
     }
 
     // Music: hand the track over in place when it is not cross-fading. A
@@ -130,17 +130,11 @@ void AudioEngine::StartClip(std::string_view name, float volume, bool loop, bool
     if (music && fade_seconds <= 0.0f) {
         for (Voice &voice : voices_) {
             if (voice.music) {
-                voice.clip = &*clip;
-                voice.cursor = 0.0;
-                voice.step = 1.0;
-                voice.gain_from = volume;
-                voice.gain_to = volume;
-                voice.fade_pos = 0.0f;
-                voice.fade_dur = 0.0f;
-                voice.fade_ends_voice = false;
+                ResetVoice(voice, &*clip_it, volume);
                 voice.active = true;
                 voice.loop = true;
-                return;
+                voice.music = true;
+                return &voice;
             }
         }
     } else if (music) {
@@ -153,12 +147,7 @@ void AudioEngine::StartClip(std::string_view name, float volume, bool loop, bool
 
     for (Voice &voice : voices_) {
         if (!voice.active) {
-            voice.clip = &*clip;
-            voice.cursor = 0.0;
-            voice.step = 1.0;
-            voice.gain_to = volume;
-            voice.fade_ends_voice = false;
-            voice.active = true;
+            ResetVoice(voice, &*clip_it, volume);
             voice.loop = loop;
             voice.music = music;
             if (fade_seconds > 0.0f) {
@@ -168,17 +157,113 @@ void AudioEngine::StartClip(std::string_view name, float volume, bool loop, bool
                 voice.fade_dur = fade_seconds;
             } else {
                 voice.gain_from = volume;
-                voice.fade_pos = 0.0f;
-                voice.fade_dur = 0.0f;
             }
-            return;
+            return &voice;
         }
     }
     // Voice pool exhausted: drop the newest request (oldest sounds finish).
+    return nullptr;
 }
 
 void AudioEngine::Play(std::string_view name, float volume) {
     StartClip(name, volume, false, false, 0.0f);
+}
+
+void AudioEngine::PlayAt(std::string_view name, float volume, float x, float y) {
+    Voice *voice = StartClip(name, volume, false, false, 0.0f);
+    if (voice == nullptr) {
+        return;
+    }
+    // Placed after StartClip so the position survives whatever the shared
+    // acquisition path just reset.
+    voice->positional = true;
+    voice->pos_x = x;
+    voice->pos_y = y;
+    UpdateSpatial(*voice);
+}
+
+void AudioEngine::SetListener(float x, float y) {
+    std::lock_guard<std::mutex> lock(MixerMutex(mutex_));
+    listener_x_ = x;
+    listener_y_ = y;
+    // Voices already sounding must follow the ears, otherwise walking past an
+    // emitter would leave its sound parked where it started.
+    for (Voice &voice : voices_) {
+        UpdateSpatial(voice);
+    }
+}
+
+void AudioEngine::SetListenerRange(float max_distance) {
+    std::lock_guard<std::mutex> lock(MixerMutex(mutex_));
+    if (max_distance > 0.0f) {
+        listener_range_ = max_distance;
+        for (Voice &voice : voices_) {
+            UpdateSpatial(voice);
+        }
+    }
+}
+
+float AudioEngine::ListenerX() const {
+    std::lock_guard<std::mutex> lock(MixerMutex(mutex_));
+    return listener_x_;
+}
+
+float AudioEngine::ListenerY() const {
+    std::lock_guard<std::mutex> lock(MixerMutex(mutex_));
+    return listener_y_;
+}
+
+float AudioEngine::ListenerRange() const {
+    std::lock_guard<std::mutex> lock(MixerMutex(mutex_));
+    return listener_range_;
+}
+
+void AudioEngine::ResetVoice(Voice &voice, const Clip *clip, float volume) const {
+    voice.clip = clip;
+    voice.cursor = 0.0;
+    voice.step = 1.0;
+    voice.gain_from = volume;
+    voice.gain_to = volume;
+    voice.fade_pos = 0.0f;
+    voice.fade_dur = 0.0f;
+    voice.fade_ends_voice = false;
+    voice.active = true;
+    voice.loop = false;
+    voice.music = false;
+    // A reused slot must not inherit its predecessor's placement, or a plain
+    // Play() would come out panned by whatever played there before.
+    voice.positional = false;
+    voice.pos_x = 0.0f;
+    voice.pos_y = 0.0f;
+    voice.atten = 1.0f;
+    voice.pan = 0.0f;
+}
+
+void AudioEngine::PanGains(float pan, float &left, float &right) {
+    // Linear crossfade rather than constant power: a centred voice must keep
+    // full level on both sides (every existing mix is centred), so fading the
+    // far channel out is the whole behaviour. Hard pan mutes one side.
+    const float p = std::clamp(pan, -1.0f, 1.0f);
+    left = 1.0f - (p > 0.0f ? p : 0.0f);
+    right = 1.0f + (p < 0.0f ? p : 0.0f);
+}
+
+void AudioEngine::UpdateSpatial(Voice &voice) const {
+    if (!voice.positional) {
+        return;
+    }
+    const float dx = voice.pos_x - listener_x_;
+    const float dy = voice.pos_y - listener_y_;
+    if (listener_range_ <= 0.0f) {
+        voice.atten = 0.0f;
+        voice.pan = 0.0f;
+        return;
+    }
+    const float dist = std::sqrt(dx * dx + dy * dy);
+    voice.atten = std::clamp(1.0f - dist / listener_range_, 0.0f, 1.0f);
+    // Half the rolloff range reaches full separation, so a hard-panned voice
+    // still has half its level — being hard left must not mean being silent.
+    voice.pan = std::clamp(dx / (listener_range_ * 0.5f), -1.0f, 1.0f);
 }
 
 void AudioEngine::PlayMusic(std::string_view name, float volume, float fade_seconds) {
@@ -416,6 +501,16 @@ float AudioEngine::Peak() const {
     return peak_;
 }
 
+float AudioEngine::PeakLeft() const {
+    std::lock_guard<std::mutex> lock(MixerMutex(mutex_));
+    return peak_left_;
+}
+
+float AudioEngine::PeakRight() const {
+    std::lock_guard<std::mutex> lock(MixerMutex(mutex_));
+    return peak_right_;
+}
+
 void AudioEngine::Mix(float *out, int frame_count) {
     std::lock_guard<std::mutex> lock(MixerMutex(mutex_));
     if (out == nullptr || frame_count <= 0) {
@@ -426,11 +521,15 @@ void AudioEngine::Mix(float *out, int frame_count) {
         // from exactly this point.
         std::fill(out, out + static_cast<std::size_t>(frame_count) * 2, 0.0f);
         peak_ = 0.0f;
+        peak_left_ = 0.0f;
+        peak_right_ = 0.0f;
         return;
     }
 
     const float dt = 1.0f / static_cast<float>(AudioEngine::kSampleRate);
     float peak = 0.0f;
+    float peak_left = 0.0f;
+    float peak_right = 0.0f;
 
     for (int frame = 0; frame < frame_count; ++frame) {
         float left = 0.0f;
@@ -458,10 +557,13 @@ void AudioEngine::Mix(float *out, int frame_count) {
             // fade-out leaves the mix here rather than looping forever.
             const float envelope = EnvelopeGain(voice);
             const float bus = voice.music ? bus_music_ : bus_sfx_;
-            const float gain = envelope * bus * bus_master_;
+            const float gain = envelope * voice.atten * bus * bus_master_;
+            float pan_l = 1.0f;
+            float pan_r = 1.0f;
+            PanGains(voice.pan, pan_l, pan_r);
             const float sample = pcm[index] * gain;
-            left += sample;
-            right += sample;
+            left += sample * pan_l;
+            right += sample * pan_r;
             voice.cursor += voice.step;
             if (voice.fade_dur > 0.0f) {
                 voice.fade_pos += dt;
@@ -483,8 +585,12 @@ void AudioEngine::Mix(float *out, int frame_count) {
         out[static_cast<std::size_t>(frame) * 2 + 0] = l;
         out[static_cast<std::size_t>(frame) * 2 + 1] = r;
         peak = std::max(peak, std::max(std::fabs(l), std::fabs(r)));
+        peak_left = std::max(peak_left, std::fabs(l));
+        peak_right = std::max(peak_right, std::fabs(r));
     }
     peak_ = peak;
+    peak_left_ = peak_left;
+    peak_right_ = peak_right;
 }
 
 } // namespace fake2d

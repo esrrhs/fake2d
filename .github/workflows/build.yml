@@ -126,6 +126,7 @@ jobs:
           run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --ui-demo
           run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --post-demo
           run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --audio-demo
+          run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --spatial-demo
           run_xvfb ./build/bin/fake2d_hello --headless --phys-bench
 
       - name: Physics query self-test + Lua binding test
@@ -448,6 +449,7 @@ jobs:
           ./build/bin/fake2d_hello --headless --frames 120 --ui-demo
           ./build/bin/fake2d_hello --headless --frames 120 --post-demo
           ./build/bin/fake2d_hello --headless --frames 120 --audio-demo
+          ./build/bin/fake2d_hello --headless --frames 120 --spatial-demo
 
       - name: (windows) headless Lua fixtures
         if: runner.os == 'Windows'
@@ -505,5 +507,6 @@ jobs:
           ./build/bin/fake2d_hello.exe --headless --frames 120 --ui-demo
           ./build/bin/fake2d_hello.exe --headless --frames 120 --post-demo
           ./build/bin/fake2d_hello.exe --headless --frames 120 --audio-demo
+          ./build/bin/fake2d_hello.exe --headless --frames 120 --spatial-demo
           ./build/bin/fake2d_hello.exe --headless --bench
           ./build/bin/fake2d_hello.exe --headless --phys-bench

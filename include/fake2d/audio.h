@@ -30,6 +30,9 @@ public:
     static constexpr int kSampleRate = 44100;
     /// Size of the voice pool (one-shot overflow is dropped).
     static constexpr std::size_t kMaxVoices = 32;
+    /// Default `SetListenerRange`: a voice a thousand world units away is
+    /// silent — roughly one screen width for the demo layouts.
+    static constexpr float kDefaultRange = 1000.0f;
 
     AudioEngine();
     ~AudioEngine();
@@ -52,6 +55,27 @@ public:
 
     /// Fire-and-forget one-shot playback (voice pool capped, drops overflow).
     void Play(std::string_view name, float volume = 1.0f);
+
+    /// One-shot playback **at a world position**. The voice is panned left or
+    /// right and attenuated by its distance to the listener, and re-evaluated
+    /// whenever the listener moves (`SetListener`) — so a sound heard while
+    /// walking past an emitter moves with you. Voice-pool rules and the sfx
+    /// bus are unchanged.
+    void PlayAt(std::string_view name, float volume, float x, float y);
+
+    /// Where the ears are, in the same world units as `PlayAt`. Moving the
+    /// listener re-pans every live positional voice; voices started with the
+    /// plain `Play` have no position and are unaffected.
+    void SetListener(float x, float y);
+    /// Distance at which a positional voice has faded to nothing, and half of
+    /// which reaches full stereo separation (so a voice is still audible when
+    /// it is hard-panned). `<= 0` is ignored.
+    void SetListenerRange(float max_distance);
+
+    [[nodiscard]] float ListenerX() const;
+    [[nodiscard]] float ListenerY() const;
+    /// The distance rolloff range (>= 0; always > 0 in practice).
+    [[nodiscard]] float ListenerRange() const;
 
     /// Start the looping music track. When `fade_seconds > 0` the new track
     /// fades in while any track already playing fades out (cross-fade), so
@@ -88,6 +112,10 @@ public:
     [[nodiscard]] std::size_t PlayingCount() const;
     /// Loudest absolute sample of the most recent mixed block (VU meters).
     [[nodiscard]] float Peak() const;
+    /// The same peak per output channel — the difference between them is the
+    /// stereo image, and it is how a panned mix can be metered.
+    [[nodiscard]] float PeakLeft() const;
+    [[nodiscard]] float PeakRight() const;
 
     /// Render `frame_count` stereo frames (interleaved L/R) — the same code
     /// the device callback drives, exposed so tests can mix offline.
@@ -114,14 +142,29 @@ private:
         bool active = false;
         bool loop = false;
         bool music = false;
+        bool positional = false; ///< placed in the world by PlayAt
+        float pos_x = 0.0f;      ///< emitter position (world units)
+        float pos_y = 0.0f;
+        /// Distance attenuation 0..1, recomputed when either side moves. Kept
+        /// *outside* the envelope so rolling it off never disturbs a fade.
+        float atten = 1.0f;
+        /// Stereo placement -1 (hard left) .. 1 (hard right).
+        float pan = 0.0f;
     };
 
-    void StartClip(std::string_view name, float volume, bool loop, bool music,
-                   float fade_seconds);
+    Voice *StartClip(std::string_view name, float volume, bool loop, bool music,
+                     float fade_seconds);
+    /// Wipe a slot back to a clean one-shot state before handing it out.
+    void ResetVoice(Voice &voice, const Clip *clip, float volume) const;
+    /// Split `pan` (-1..1) into left/right multipliers.
+    static void PanGains(float pan, float &left, float &right);
     /// Gain of the envelope right now (before any bus is applied).
     static float EnvelopeGain(const Voice &voice);
     /// Start a ramp from the voice's current gain to `to`.
     static void RampTo(Voice &voice, float to, float seconds, bool ends_voice);
+    /// Re-pan and re-attenuate a positional voice against the listener.
+    /// No-op for unplaced voices. Caller holds the mixer lock.
+    void UpdateSpatial(Voice &voice) const;
 
     struct Device;
     friend struct Device;
@@ -135,6 +178,14 @@ private:
     float bus_music_ = 1.0f;
     bool paused_ = false;
     float peak_ = 0.0f;
+    float peak_left_ = 0.0f;
+    float peak_right_ = 0.0f;
+    /// Listener for positional voices; only PlayAt-placed voices use it.
+    float listener_x_ = 0.0f;
+    float listener_y_ = 0.0f;
+    /// Distance at which a positional voice fades out, and twice the distance
+    /// that reaches full stereo separation.
+    float listener_range_ = kDefaultRange;
     /// Guards every clip/voice field against the device thread. Lives on the
     /// engine rather than in Device so the mixer works with no device at all.
     mutable void *mutex_ = nullptr; // std::mutex*
