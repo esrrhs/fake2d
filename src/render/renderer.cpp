@@ -234,6 +234,46 @@ void Renderer::PresentRenderTarget(int id, Shader *shader, const Color &tint) {
                  active_shader_ ? active_shader_ : Shader::GetDefault2D());
 }
 
+bool Renderer::CopyRenderTarget(int src, int dst, Shader *shader, const Color &tint) {
+    if (!ready_ || src <= 0 || dst <= 0 || src == dst) {
+        return false;
+    }
+    if (active_target_ != 0) {
+        return false; // no nesting: BeginRenderTarget would refuse anyway
+    }
+    const RenderTarget *source = targets_.Get(src);
+    if (source == nullptr || !source->IsValid()) {
+        return false;
+    }
+    if (!BeginRenderTarget(dst)) {
+        return false;
+    }
+    PresentRenderTarget(src, shader, tint);
+    EndRenderTarget();
+    return true;
+}
+
+bool Renderer::ResizeRenderTarget(int id, int width, int height) {
+    if (!ready_ || id <= 0 || active_target_ == id) {
+        return false;
+    }
+    // Validate BEFORE touching the target: Create() destroys the old
+    // attachment first, so handing it a bad size would leave the target
+    // destroyed rather than merely unchanged.
+    if (width <= 0 || height <= 0 || width > RenderTarget::kMaxSize ||
+        height > RenderTarget::kMaxSize) {
+        std::fprintf(stderr,
+                     "fake2d: render target resize %dx%d out of range (1..%d)\n",
+                     width, height, RenderTarget::kMaxSize);
+        return false;
+    }
+    RenderTarget *target = targets_.Get(id);
+    if (target == nullptr) {
+        return false;
+    }
+    return target->Create(width, height);
+}
+
 int Renderer::LoadShaderFromFile(const std::string &vert_path,
                                  const std::string &frag_path) {
     std::ifstream vf(vert_path, std::ios::binary);

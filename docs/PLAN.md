@@ -269,6 +269,18 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 
 ---
 
+## Phase 24 — Multi-pass FX chain (1.18.x)
+
+- [x] **`rt_copy(src, dst, shader)` / `Renderer::CopyRenderTarget`**: one ping-pong pass — blit `src` across the whole canvas of target `dst` through an optional shader. Equivalent to `rt_begin(dst)` + `rt_present(src)` + `rt_end()`, but the failure modes are pre-refused: `src == dst` (a surface cannot be sampled while it is drawn into), the window as either side, and any nesting. `dst` is not cleared (the blit covers the whole canvas)
+- [x] **`rt_resize(id, w, h)` / `Renderer::ResizeRenderTarget`**: reallocate a target, contents lost — the enabler for half/quarter-resolution passes (a blur over a quarter of the pixels costs a quarter of the taps). Refused while that target is bound; **the size is validated before `Create` is called**, because `Create` destroys the old attachment first and a refused resize used to leave the target destroyed (found by the test, fixed in the implementation)
+- [x] `assets/fx_blur.{vert,frag}`: a separable 9-tap Gaussian. `u_dir` is the step **in UV** (the caller owns the resolution, the shader does not need to know it), so `u_dir = 0` samples one texel nine times = a straight copy — the "0 = unchanged" uniform rule again, and what makes each pass measurable. `u_dim` rides along (0 = unchanged) so the composite gain needs no second program
+- [x] **`--fx-test`: 47 headless pixel-probe assertions**: a plain copy is an identity (dot lands at the same canvas position, background too), `u_dir = 0` through the blur shader is still an identity, one pass smears only along its direction (2 px steps: x=+8 lit, y=+8 untouched), two ping-pong passes cover both axes with a small-but-positive corner, self/window/unknown/nested copies refused and a refused copy leaves the destination untouched, resize reports its size, guards (zero size, unknown id, bound target, window) and a refused resize keeps the old attachment, a half-size copy rescales the dot to half coordinates, a grade pass composes on top of a chain, and the window framebuffer survives
+- [x] **`--fx-demo`**: a bloom over a procedural skyline — scene into a full-res target, downsample into a half-res pair, blur H then V twice (two ping-pong pairs for a wider glow), present the sharp scene through the grade shader (vignette), then composite the dimmed glow additively. Radius/strength sliders live-drive `u_dir`/`u_dim`; a SPLIT button (or `s` key) swaps to a split-screen mode that renders the same world from two cameras clipped to their halves
+- [x] Gotchas written down where they bit: a shader present (`rt_present(id, shader)`) restarts the batch, which **resets blend mode** — an additive composite must use `rt_draw` after `draw_set_blend(1)`, not a shader present; and FakeLua int64 params (`rt_create`, `rt_resize`) reject float literals, so canvas constants are `960 + 0`, not `960.0 + 0.0`
+- [x] Verification: `--fx-test` 47/47; `--fx-demo` headless smoke + pixel-checked screenshots of both modes; mutation checks below; all gates re-run green
+
+---
+
 ## Non-goals (for now)
 
 - Full 3D / PBR (Fake2D is strictly focused on high-performance 2D)

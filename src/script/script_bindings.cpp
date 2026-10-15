@@ -1373,6 +1373,33 @@ void RegisterTextApi(fakelua::State *state, Engine *engine) {
                                                           program);
             }));
 
+    // --- multi-pass chains (Phase 24) --------------------------------------
+    // One ping-pong pass: src -> dst through an optional shader. Refuses
+    // src == dst (a surface cannot be sampled while it is being drawn into),
+    // the window as either side, and any nesting.
+    fakelua::RegisterNativeFunction(
+        state, "rt_copy", false,
+        std::function<bool(fakelua::State *, std::int64_t, std::int64_t, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t src, std::int64_t dst,
+                     std::int64_t shader) -> bool {
+                Shader *program = shader == 0 ? nullptr
+                                              : engine->GetRenderer().GetShader(
+                                                    static_cast<int>(shader));
+                return engine->GetRenderer().CopyRenderTarget(
+                    static_cast<int>(src), static_cast<int>(dst), program);
+            }));
+
+    // Reallocate a target at a new size (contents lost). Half- and quarter
+    // resolution passes are why this exists.
+    fakelua::RegisterNativeFunction(
+        state, "rt_resize", false,
+        std::function<bool(fakelua::State *, std::int64_t, std::int64_t, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id, std::int64_t w,
+                     std::int64_t h) -> bool {
+                return engine->GetRenderer().ResizeRenderTarget(
+                    static_cast<int>(id), static_cast<int>(w), static_cast<int>(h));
+            }));
+
     // Point the bound target's canvas camera at a world offset: whole-world
     // draws (map_draw) then render the camera's view into the target, which
     // is what a post-processing pass needs. Returns false when no target is
