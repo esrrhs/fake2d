@@ -7,7 +7,7 @@
 
 **Fake2D** is a lightweight, modern 2D game rendering engine powered by [FakeLua](https://github.com/esrrhs/fakelua): C++ owns the window, GPU resources, and scene graph; FakeLua scripts orchestrate gameplay logic with a per-frame linear arena reset (**zero GC pauses**).
 
-> Status: **1.13 — Phase 19 offscreen render targets (FBO) complete** — everything through 1.12 (scissor clips, nine-slice panels, aligned wrapped text, fixed-step physics, camera follow toolkit, collision filters, tilemap A\* path finding), plus **offscreen render targets**: draw into an FBO with `rt_begin`/`rt_end` and blit it with `rt_draw` for bake-once art (procedural backgrounds, prerendered text, reused at any size) and accumulating effects (motion trails, fog of war). Ships `--rt-test` (38 assertions) and a new **`--rt-demo`** that puts a baked canvas beside a fading feedback trail with an immediate-mode pane for contrast. See the [Implementation Plan](#implementation-plan), [docs/PLAN.md](docs/PLAN.md), the [Scripting Guide](docs/SCRIPTING.md), and [Packaging Notes](docs/PACKAGING.md).
+> Status: **1.14 — Phase 20 UI widgets complete** — everything through 1.13 (scissor clips, nine-slice panels, aligned wrapped text, fixed-step physics, camera follow toolkit, collision filters, tilemap A\* path finding, offscreen render targets), plus four immediate-mode **UI widgets**: sliders, checkboxes, a UTF-8 text field and a scroll container, all string-keyed with values living in the calling script. Ships `--ui-test` (30 assertions) and a new **`--ui-demo`** showing all four wired together. See the [Implementation Plan](#implementation-plan), [docs/PLAN.md](docs/PLAN.md), the [Scripting Guide](docs/SCRIPTING.md), and [Packaging Notes](docs/PACKAGING.md).
 
 ---
 
@@ -100,7 +100,7 @@ fake2d/
 │   └── ui/                  # Anchored widget system
 ├── third_party/             # stb_image, stb_truetype, stb_rect_pack, miniaudio, font8x8
 ├── scripts/                 # Pure-Lua samples: game.lua (breakout), scene_demo.lua, map_demo.lua, platformer_demo.lua, mario.lua, path_demo.lua
-├── examples/hello/          # Samples: breakout, --scene-demo, --map-demo, --platformer-demo, --mario-demo, --slope-demo, --path-demo, --bench, --phys-bench
+├── examples/hello/          # Samples: breakout, --scene-demo, --map-demo, --platformer-demo, --mario-demo, --slope-demo, --path-demo, --rt-demo, --ui-demo, --bench, --phys-bench
 ├── docs/SCRIPTING.md        # Script authoring guide & API reference
 ├── docs/PACKAGING.md        # Linux / Windows / macOS packaging notes
 └── docs/PLAN.md             # Detailed roadmap and milestone checklist
@@ -152,6 +152,7 @@ cmake --build build --parallel
 ./build/bin/fake2d_hello --slope-demo   # tilemap slope lab: 45 deg, rise-64, surface overlay (V)
 ./build/bin/fake2d_hello --path-demo    # maze chase: A* chaser AI + player autopilot (P paths)
 ./build/bin/fake2d_hello --rt-demo      # offscreen targets: baked canvas + fading trail (SPACE/C/R)
+./build/bin/fake2d_hello --ui-demo      # UI widgets: sliders, checkboxes, text field, scroll list
 
 # Physics broadphase benchmark (brute force vs spatial hash grid):
 ./build/bin/fake2d_hello --headless --phys-bench
@@ -227,6 +228,7 @@ codegen constraints), and performance best practices live in the
 | **17 — Scissor, nine-slice & text layout (1.11)** | Presentation | `draw_set_clip` scissor rects with exact flush-boundary semantics, `draw_nine_slice` stretch panels, `draw_text_ex` aligned word-wrapped text with `end_y` block stacking; FBO render targets and more UI widgets deferred | **Done** |
 | **18 — Tilemap A* & maze chase (1.12)** | Navigation | Grid A* over the solidity grid (corner-cut prevention, string-pulled waypoints, `map_find_path` + waypoint readers), `--path-test` (25 assertions), `--path-demo` maze chase: chaser AI with staggered re-paths, player autopilot attract mode, live path polylines | **Done** |
 | **19 — Offscreen render targets (1.13)** | Rendering | `RenderTarget` FBO pool + `rt_begin`/`rt_end`/`rt_clear`/`rt_draw` bindings (bake-once art, accumulating feedback effects), canvas-space drawing with correct V orientation and headless-framebuffer restoration, `--rt-test` (38 assertions), `--rt-demo`; fixed 35-per-frame `GLFW_INVALID_VALUE` key-poll errors | **Done** |
+| **20 — UI widgets (1.14)** | UI | Slider (drag or click-to-jump, grab-offset aware), checkbox (caller owns the value), UTF-8 text input (per-codepoint append/backspace, char-counted limit, focus management, `Input` char callback), scroll container (wheel + draggable thumb, caller clips content), 8 new bindings, `--ui-test` (30 assertions), `--ui-demo` | **Done** |
 
 Detailed checklist: [docs/PLAN.md](docs/PLAN.md).
 

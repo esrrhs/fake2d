@@ -925,13 +925,45 @@ from the anchored corner.
 | `ui_panel(anchor, ox, oy, w, h, r, g, b, a)` | Solid panel quad. |
 | `ui_label(anchor, ox, oy, text, scale, r, g, b, a)` | Auto-measured text. |
 | `ui_button(key, anchor, ox, oy, w, h, text, scale) -> bool` | Returns true exactly on the click-release frame; `key` keeps hover/press state. |
-| `ui_set_origin(x, y)` | Offset added to mouse positions during button hit-testing (set to the camera top-left for a world-anchored HUD). |
+| `ui_slider(key, anchor, ox, oy, w, h, value, min, max) -> number` | Horizontal slider. Drag the thumb (it keeps its grab offset, so it never jumps) or click the track to jump there. Returns the value clamped to `[min, max]` — the caller owns the returned value. |
+| `ui_checkbox(key, anchor, ox, oy, size, checked, label, text_scale) -> bool` | Square box with a tick and an optional right-side label. Returns true exactly on the frame it was clicked; flip your own `checked` then (same contract as `ui_button`). |
+| `ui_text_input(key, anchor, ox, oy, w, h, max_chars) -> bool` | Single-line field. Click to focus (this drops focus from any other field; clicking elsewhere unfocuses). Typed characters append and backspace pops, always in whole UTF-8 codepoints — multi-byte characters never corrupt. `max_chars` counts characters, not bytes; 0 = unlimited. Returns true when the text changed. |
+| `ui_text_get(key) -> string` | Current content of a field ("" for an unknown key). Field content lives in the UI system because scripts cannot own a mutable string. |
+| `ui_text_set(key, text)` | Overwrite a field's content (also how you clear it). |
+| `ui_text_focused() -> string` | Key of the focused field, or "" when none is. |
+| `ui_scroll(key, anchor, ox, oy, w, h, content_height, scroll_y) -> number` | Vertical scrollbar: wheel while hovered (40 px per notch) or drag the thumb. Returns the offset clamped to `[0, content_height - h]`, 0 when the content fits. **The widget only owns the offset and the scrollbar** — clip your content with `draw_set_clip` and draw items at `y - scroll_y`. |
+| `ui_hovered(key) -> bool` | True while the mouse is over the widget with that key (use it to swap cursors or highlight rows). |
+| `ui_set_origin(x, y)` | Offset added to mouse positions during hit-testing (set to the camera top-left for a world-anchored HUD). |
 
 Widgets draw through the camera transform, so passing world coordinates as
 offsets (e.g. `cam_x + 16`) anchors a HUD to the world. For clickable
 world-space buttons, call `ui_set_origin(cam_x, cam_y)` before the widgets
 so mouse hit-testing shifts with the camera — the origin is **not** reset
 automatically; screen-space HUDs leave it at `0, 0`.
+
+A minimal scroll list — the widget owns the offset, you own the rows:
+
+```lua
+local scroll = 0 + 0
+function update(dt)
+    draw_quad(20, 20, 300, 200, 0.1, 0.12, 0.18, 1.0)   -- backdrop
+    draw_set_clip(20, 20, 290, 200)
+    local i = 0 + 0
+    while i < 24 do
+        local y = 20 + i * 30 - scroll
+        if y > 20 - 30 and y < 220 then                  -- cull off-screen rows
+            draw_text("row " .. string.format("%d", i + 1), 30, y + 8, 0.6,
+                      0.9, 0.9, 0.9, 1.0)
+        end
+        i = i + 1
+    end
+    draw_clear_clip()
+    scroll = ui_scroll("list", 0, 20, 20, 300, 200, 24 * 30, scroll)
+    return 0
+end
+```
+
+See `scripts/ui_demo.lua` (`--ui-demo`) for all four widgets wired together.
 
 ### Debugging
 

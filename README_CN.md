@@ -7,7 +7,7 @@
 
 **Fake2D** 是基于 [FakeLua](https://github.com/esrrhs/fakelua) 的现代化轻量 2D 游戏渲染引擎：C++ 宿主掌控窗口、GPU 资源与场景数据；FakeLua 脚本负责编排玩法与实体逻辑，并在每帧边界执行 Arena 线性重置（**零 GC 停顿**）。
 
-> 当前状态：**1.13 — Phase 19 离屏渲染目标（FBO）已完成** — 已包含 1.12 及之前的全部能力（剪裁矩形、九宫格、对齐换行文本、固定步长物理、相机跟随工具、碰撞过滤、瓦片地图 A\* 寻路），并新增**离屏渲染目标**：用 `rt_begin`/`rt_end` 把绘制重定向到 FBO，再用 `rt_draw` 当作精灵贴回，支撑「一次性烘焙」（程序化背景、预渲染文字，任意尺寸复用）与「累积反馈」（运动残影、战争迷雾）两类典型玩法。配套 `--rt-test`（38 条断言）与新的 **`--rt-demo`**：左侧烘焙画布、中间逐帧淡出的拖尾层，右侧放一个即时模式对照区。详见下方[实现计划](#实现计划)、[docs/PLAN.md](docs/PLAN.md)、[脚本编写指南](docs/SCRIPTING.md) 与[跨平台打包说明](docs/PACKAGING.md)。
+> 当前状态：**1.14 — Phase 20 UI 控件已完成** — 已包含 1.13 及之前的全部能力（剪裁矩形、九宫格、对齐换行文本、固定步长物理、相机跟随工具、碰撞过滤、瓦片地图 A\* 寻路、离屏渲染目标），并新增四个即时模式 **UI 控件**：滑杆、复选框、UTF-8 文本输入框与滚动容器，全部以字符串为键、数值保存在调用脚本一侧。配套 `--ui-test`（30 条断言）与新的 **`--ui-demo`**（四个控件联动演示）。详见下方[实现计划](#实现计划)、[docs/PLAN.md](docs/PLAN.md)、[脚本编写指南](docs/SCRIPTING.md) 与[跨平台打包说明](docs/PACKAGING.md)。
 
 ---
 
@@ -90,8 +90,8 @@ fake2d/
 │   ├── scene/               # 节点层级与场景渲染
 │   └── script/              # FakeLua 桥接与原生 API 注册
 ├── third_party/             # stb_image、stb_truetype、stb_rect_pack、miniaudio、font8x8
-├── scripts/                 # 纯 Lua 示例：game.lua（打砖块）、scene_demo.lua、map_demo.lua、platformer_demo.lua、mario.lua、path_demo.lua
-├── examples/hello/          # 示例：打砖块、--scene-demo、--map-demo、--platformer-demo、--mario-demo、--path-demo、--rt-demo、--bench、--phys-bench
+├── scripts/                 # 纯 Lua 示例：game.lua（打砖块）、scene_demo.lua、map_demo.lua、platformer_demo.lua、mario.lua、path_demo.lua、rt_demo.lua、ui_demo.lua
+├── examples/hello/          # 示例：打砖块、--scene-demo、--map-demo、--platformer-demo、--mario-demo、--path-demo、--rt-demo、--ui-demo、--bench、--phys-bench
 ├── docs/SCRIPTING.md        # 脚本编写指南与 API 参考
 ├── docs/PACKAGING.md        # Linux / Windows / macOS 跨平台打包说明
 └── docs/PLAN.md             # 详细路线图与任务清单
@@ -146,6 +146,9 @@ cmake --build build --parallel
 
 # 离屏渲染目标：一次性烘焙画布 + 逐帧淡出的拖尾层（SPACE/C/R）：
 ./build/bin/fake2d_hello --rt-demo
+
+# UI 控件：滑杆、复选框、文本输入框、滚动列表：
+./build/bin/fake2d_hello --ui-demo
 
 # 物理宽相基准（暴力 O(n²) vs 空间哈希网格）：
 ./build/bin/fake2d_hello --headless --phys-bench
@@ -220,6 +223,7 @@ end
 | **17 — 裁剪、九宫格与文本排版 (1.11)** | 表现力 | `draw_set_clip` 剪裁矩形（精确 flush 边界语义）、`draw_nine_slice` 拉伸面板、`draw_text_ex` 对齐换行文本与 `end_y` 段落堆叠；FBO 渲染目标与更多 UI 控件顺延 | **已完成** |
 | **18 — 瓦片地图 A* 与迷宫追逐 (1.12)** | 导航 | 基于 solidity 网格的 A*（防切角、路径拉直、`map_find_path` + 路径点读取），`--path-test`（25 条断言），`--path-demo` 迷宫追逐：错峰重寻路的追踪 AI、玩家自动寻路演示模式、实时路径线 | **已完成** |
 | **19 — 离屏渲染目标 (1.13)** | 渲染 | `RenderTarget` FBO 资源池 + `rt_begin`/`rt_end`/`rt_clear`/`rt_draw` 绑定（一次性烘焙、累积反馈特效），画布坐标系与 V 方向校正、无头 framebuffer 正确恢复，`--rt-test`（38 条断言）、`--rt-demo`；顺带修复每帧 35 次 `GLFW_INVALID_VALUE` 按键轮询报错 | **已完成** |
+| **20 — UI 控件 (1.14)** | UI | 滑杆（拖动或点击跳转、保持抓取偏移）、复选框（调用方持有数值）、UTF-8 文本输入（按码点增删、按字符数限长、焦点管理、`Input` 字符回调）、滚动容器（滚轮 + 可拖动滑块、调用方负责剪裁内容），新增 8 个绑定，`--ui-test`（30 条断言）、`--ui-demo` | **已完成** |
 
 详细任务清单见 [docs/PLAN.md](docs/PLAN.md)。
 

@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string_view>
+#include <vector>
 
 namespace fake2d {
 
@@ -23,6 +24,17 @@ public:
     [[nodiscard]] bool KeyPressed(std::string_view key) const;
     /// True only on the frame the key came back up.
     [[nodiscard]] bool KeyReleased(std::string_view key) const;
+    /// Unicode codepoints typed this frame, in arrival order — everything a
+    /// text field needs. GLFW's char callback already applies the active
+    /// keyboard layout and modifiers, so shift+A arrives as 'A'. Consumed at
+    /// NewFrame, so a frame sees exactly what arrived since the last one.
+    /// Editing keys such as backspace/enter are NOT included: those arrive as
+    /// key events and widgets handle them through KeyPressed.
+    [[nodiscard]] const std::vector<unsigned int> &TextCodepoints() const {
+        return text_input_;
+    }
+    /// True when any text arrived this frame.
+    [[nodiscard]] bool HasTextInput() const { return !text_input_.empty(); }
 
     // --- mouse ---
     /// Cursor position in screen pixels, top-left origin.
@@ -73,6 +85,10 @@ private:
     Vec2 mouse_delta_{0.0f, 0.0f};
     double wheel_ = 0.0;
     double wheel_pending_ = 0.0;
+    /// Codepoints handed to the current frame; the callback fills the pending
+    /// buffer, which NewFrame swaps in (see TextCodepoints).
+    std::vector<unsigned int> text_input_;
+    std::vector<unsigned int> text_pending_;
 };
 
 } // namespace fake2d
