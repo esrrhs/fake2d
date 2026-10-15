@@ -2040,6 +2040,230 @@ int RunFxTest(fake2d::Engine &engine) {
     return failures == 0 ? 0 : 1;
 }
 
+// Masks are the reason an accumulation target is worth keeping around, and
+// until now there was no way to *apply* one: alpha covers pixels over and
+// additive only brightens, so neither can dim a scene by a per-pixel coverage
+// value. Multiply (`result = source * destination`) is that missing piece, and
+// because it is an ordinary batch blend it composes **inside** a bound target
+// — no Begin/End pair, so unlike rt_copy it is not blocked by the no-nesting
+// rule. Everything below is a pixel probe on a target nobody has to see.
+int RunFogTest(fake2d::Engine &engine) {
+    int failures = 0;
+    int checks = 0;
+    auto check = [&](bool ok, const char *what) {
+        ++checks;
+        if (!ok) {
+            ++failures;
+            std::printf("[fog] FAIL %s\n", what);
+        }
+    };
+    // 8-bit channels: a little slack absorbs rounding in the read-back.
+    auto near = [](float a, float b) { return std::fabs(a - b) < 0.02f; };
+
+    fake2d::Renderer &r = engine.GetRenderer();
+    if (!r.IsReady()) {
+        std::printf("[fog] FAIL renderer is not initialised\n");
+        return 1;
+    }
+    fake2d::RenderTargetLibrary &lib = r.GetRenderTargets();
+
+    const int N = 128;
+    const int scene = lib.Create(N, N);
+    const int mask = lib.Create(N, N);
+    const int out = lib.Create(N, N);
+    const int spare = lib.Create(N, N);
+    check(scene > 0 && mask > 0 && out > 0 && spare > 0,
+          "targets: four slots allocated");
+    fake2d::RenderTarget *t_scene = lib.Get(scene);
+    fake2d::RenderTarget *t_mask = lib.Get(mask);
+    fake2d::RenderTarget *t_out = lib.Get(out);
+    fake2d::Color px{};
+
+    const fake2d::Color kMid{0.8f, 0.6f, 0.4f, 1.0f};
+    const fake2d::Color kRed{1.0f, 0.0f, 0.0f, 1.0f};
+    const fake2d::Color kBlack{0.0f, 0.0f, 0.0f, 1.0f};
+
+    // A whole-target helper: fill `id` with one colour, no blending involved.
+    auto fill = [&](int id, const fake2d::Color &c) {
+        if (!r.BeginRenderTarget(id)) {
+            return false;
+        }
+        r.SetBlendMode(fake2d::BlendMode::Alpha);
+        r.ClearActiveTarget(c);
+        r.EndRenderTarget();
+        return true;
+    };
+
+    // --- the mask itself ----------------------------------------------------
+    // Left half revealed (white), right half unexplored (black): the two
+    // extremes of coverage, with a hard edge so a probe cannot sit on the
+    // boundary by accident.
+    check(fill(mask, kBlack), "mask: target binds and clears");
+    r.BeginFrame(0.0f, 0.0f, 0.0f, 1.0f);
+    check(r.BeginRenderTarget(mask), "mask: rebinds for the revealed half");
+    r.DrawQuad(0.0f, 0.0f, 64.0f, 128.0f, fake2d::Color::White());
+    r.EndRenderTarget();
+    check(t_mask->ReadPixel(32, 64, px) && near(px.r, 1.0f) && near(px.g, 1.0f),
+          "mask: the revealed half is white");
+    check(t_mask->ReadPixel(96, 64, px) && near(px.r, 0.0f) && near(px.g, 0.0f),
+          "mask: the unexplored half is black");
+
+    // --- multiply compositing ----------------------------------------------
+    // Scene (mid colour) drawn normally, then the mask drawn *over* it in
+    // multiply mode. This is the whole fog-of-war pipeline in three draws.
+    check(fill(out, fake2d::Color{0.0f, 0.0f, 0.0f, 1.0f}), "out: target binds");
+    r.BeginFrame(0.0f, 0.0f, 0.0f, 1.0f);
+    check(r.BeginRenderTarget(out), "out: rebinds to composite");
+    r.SetBlendMode(fake2d::BlendMode::Alpha);
+    r.DrawQuad(0.0f, 0.0f, static_cast<float>(N), static_cast<float>(N), kMid);
+    r.SetBlendMode(fake2d::BlendMode::Multiply);
+    r.DrawRenderTarget(mask, 0.0f, 0.0f, static_cast<float>(N),
+                       static_cast<float>(N));
+    r.SetBlendMode(fake2d::BlendMode::Alpha);
+    r.EndRenderTarget();
+    check(t_out->ReadPixel(32, 64, px) && near(px.r, 0.8f) && near(px.g, 0.6f) &&
+              near(px.b, 0.4f),
+          "multiply: a white mask leaves the scene untouched");
+    check(t_out->ReadPixel(96, 64, px) && near(px.r, 0.0f) && near(px.g, 0.0f) &&
+              near(px.b, 0.0f),
+          "multiply: a black mask erases the scene to black");
+
+    // Probes sit well inside each half — on the 64 px seam the mask is a
+    // single-texel edge either way and the assertion would read mush.
+
+    // Per-channel: a mask that keeps red but drops green proves this is a
+    // multiplication of channels, not an alpha cover (which would blend every
+    // channel by the same amount) or an inverse.
+    check(fill(mask, kRed), "mask: refilled red");
+    check(fill(out, kMid), "out: refilled mid");
+    r.BeginFrame(0.0f, 0.0f, 0.0f, 1.0f);
+    check(r.BeginRenderTarget(out), "out: rebinds for the per-channel mask");
+    r.SetBlendMode(fake2d::BlendMode::Multiply);
+    r.DrawRenderTarget(mask, 0.0f, 0.0f, static_cast<float>(N),
+                       static_cast<float>(N));
+    r.SetBlendMode(fake2d::BlendMode::Alpha);
+    r.EndRenderTarget();
+    check(t_out->ReadPixel(64, 64, px) && near(px.r, 0.8f),
+          "multiply: the red channel survives a red mask");
+    check(t_out->ReadPixel(64, 64, px) && near(px.g, 0.0f),
+          "multiply: the green channel is dropped by a red mask");
+    check(t_out->ReadPixel(64, 64, px) && near(px.b, 0.0f),
+          "multiply: the blue channel is dropped by a red mask");
+
+    // A half-covered pixel reads half the scene, and — the two-sided part —
+    // neither full nor empty. A true coverage value has to land in between.
+    check(fill(mask, fake2d::Color{0.5f, 0.5f, 0.5f, 1.0f}), "mask: refilled grey");
+    check(fill(out, fake2d::Color::White()), "out: refilled white");
+    r.BeginFrame(0.0f, 0.0f, 0.0f, 1.0f);
+    check(r.BeginRenderTarget(out), "out: rebinds for the partial mask");
+    r.SetBlendMode(fake2d::BlendMode::Multiply);
+    r.DrawRenderTarget(mask, 0.0f, 0.0f, static_cast<float>(N),
+                       static_cast<float>(N));
+    r.SetBlendMode(fake2d::BlendMode::Alpha);
+    r.EndRenderTarget();
+    check(t_out->ReadPixel(64, 64, px) && px.r > 0.3f && px.r < 0.7f,
+          "multiply: a half mask dims to half rather than switching");
+
+    // Blend state is per-draw, so one frame can composite *and* paint: after
+    // the multiply above, an ordinary red quad is still opaque.
+    r.BeginFrame(0.0f, 0.0f, 0.0f, 1.0f);
+    check(r.BeginRenderTarget(out), "out: rebinds for the mixed-blend frame");
+    r.SetBlendMode(fake2d::BlendMode::Alpha);
+    r.DrawQuad(0.0f, 0.0f, static_cast<float>(N), static_cast<float>(N), kBlack);
+    r.SetBlendMode(fake2d::BlendMode::Multiply);
+    r.DrawQuad(0.0f, 0.0f, 32.0f, 32.0f, fake2d::Color::White());
+    r.SetBlendMode(fake2d::BlendMode::Alpha);
+    r.DrawQuad(64.0f, 0.0f, 32.0f, 32.0f, kRed);
+    r.EndRenderTarget();
+    check(t_out->ReadPixel(80, 16, px) && near(px.r, 1.0f) && near(px.g, 0.0f),
+          "blend: switching back to alpha paints opaquely again");
+    // The discriminator: a white multiply quad over a black base stays black,
+    // while an alpha one would paint white there. Its absence is exactly why
+    // "the batch does not split runs on a blend change" passed the suite.
+    check(t_out->ReadPixel(16, 16, px) && near(px.r, 0.0f) && near(px.g, 0.0f),
+          "blend: multiply over a black base stays black");
+    check(t_out->ReadPixel(112, 16, px) && near(px.r, 0.0f),
+          "blend: a multiply quad does not leak past its own rect");
+
+    // --- why multiply and not rt_copy --------------------------------------
+    // Copying another target in while one is bound is refused (nesting), so
+    // compositing two masks could not be expressed at all before this.
+    r.BeginFrame(0.0f, 0.0f, 0.0f, 1.0f);
+    check(r.BeginRenderTarget(out), "nesting: target bound");
+    check(!r.CopyRenderTarget(mask, spare, nullptr),
+          "nesting: rt_copy is refused while a target is bound");
+    // The multiply path has no such restriction: both of these draw into the
+    // bound target legally, in any order, with no feedback read.
+    r.SetBlendMode(fake2d::BlendMode::Multiply);
+    r.DrawRenderTarget(mask, 0.0f, 0.0f, 64.0f, 64.0f);
+    r.SetBlendMode(fake2d::BlendMode::Alpha);
+    r.EndRenderTarget();
+    r.EndFrame();
+    check(r.ActiveRenderTarget() == 0, "nesting: the frame ended and unbound");
+
+    // --- accumulation persists across frames -------------------------------
+    // Fog is memory: a cell revealed on Monday is still revealed on Friday,
+    // and BeginRenderTarget deliberately does not clear.
+    check(fill(mask, kBlack), "accumulation: mask starts empty");
+    r.BeginFrame(0.0f, 0.0f, 0.0f, 1.0f);
+    check(r.BeginRenderTarget(mask), "accumulation: frame 1 binds the mask");
+    r.SetBlendMode(fake2d::BlendMode::Additive);
+    r.DrawQuad(0.0f, 0.0f, 32.0f, 128.0f, fake2d::Color{0.25f, 0.25f, 0.25f, 1.0f});
+    r.SetBlendMode(fake2d::BlendMode::Alpha);
+    r.EndRenderTarget();
+    r.EndFrame();
+    r.BeginFrame(0.0f, 0.0f, 0.0f, 1.0f);
+    check(r.BeginRenderTarget(mask), "accumulation: frame 2 rebinds");
+    r.SetBlendMode(fake2d::BlendMode::Additive);
+    r.DrawQuad(0.0f, 0.0f, 32.0f, 128.0f, fake2d::Color{0.25f, 0.25f, 0.25f, 1.0f});
+    r.SetBlendMode(fake2d::BlendMode::Alpha);
+    r.EndRenderTarget();
+    r.EndFrame();
+    check(t_mask->ReadPixel(16, 64, px) && px.r > 0.3f && px.r < 0.7f,
+          "accumulation: two visits stack into a brighter reveal");
+    check(t_mask->ReadPixel(64, 64, px) && near(px.r, 0.0f),
+          "accumulation: never-visited pixels stay black");
+
+    // Sampling a drawn target is how a script asks about coverage; the same
+    // read-back is what every assertion above is built on, so this pins its
+    // orientation (screens are flipped relative to FBO rows) and its bounds.
+    const float across = static_cast<float>(t_mask->ReadPixel(120, 64, px)
+                                                ? px.r
+                                                : -1.0f);
+    check(across >= 0.0f && near(across, 0.0f), "sample: an in-bounds read succeeds");
+    check(!t_mask->ReadPixel(N, 64, px), "sample: x past the edge is out of range");
+    check(!t_mask->ReadPixel(0, N + 1, px), "sample: y past the edge is out of range");
+    check(!t_mask->ReadPixel(-1, 0, px), "sample: a negative coordinate is out of range");
+
+    // The scene target is untouched by any of this: nothing wrote to it after
+    // its fill, so a mask composite can never mutate its source.
+    check(fill(scene, kMid), "scene: refilled");
+    check(t_scene->ReadPixel(64, 64, px) && near(px.r, 0.8f) && near(px.g, 0.6f),
+          "scene: reading a source target leaves it intact");
+
+    // And the whole pipeline works on the window too, with no target bound.
+    r.BeginFrame(0.0f, 0.0f, 0.0f, 1.0f);
+    r.ClearActiveTarget(fake2d::Color{0.0f, 0.0f, 0.0f, 1.0f});
+    r.SetBlendMode(fake2d::BlendMode::Alpha);
+    r.DrawQuad(100.0f, 100.0f, 200.0f, 100.0f, fake2d::Color::White());
+    r.SetBlendMode(fake2d::BlendMode::Multiply);
+    r.DrawRenderTarget(mask, 100.0f, 100.0f, 200.0f, 100.0f);
+    r.SetBlendMode(fake2d::BlendMode::Alpha);
+    r.EndFrame();
+    std::error_code ec;
+    const std::string shot = "assets/_fog_test.png";
+    std::filesystem::remove(shot, ec);
+    check(r.SaveScreenshot(shot), "screenshot: the window framebuffer is intact");
+    const auto shot_bytes = std::filesystem::file_size(shot, ec);
+    check(!ec && shot_bytes > 0, "screenshot: wrote a non-empty png");
+    std::filesystem::remove(shot, ec);
+
+    lib.Clear();
+    std::printf("[fog] %s: %d checks, %d failures\n", failures == 0 ? "PASS" : "FAIL",
+                checks, failures);
+    return failures == 0 ? 0 : 1;
+}
+
 // Audio is the one subsystem that used to be untestable without hardware:
 // every call was gated on "a device exists", so headless CI exercised none of
 // it. The mixer is now device-independent, and this test drives it directly —
@@ -4241,6 +4465,7 @@ int main(int argc, char **argv) {
     bool ui_test = false;
     bool post_test = false;
     bool fx_test = false;
+    bool fog_test = false;
     bool audio_test = false;
     int max_frames = 0;
     int shot_frame = 30;
@@ -4281,6 +4506,10 @@ int main(int argc, char **argv) {
         } else if (arg == "--ui2-demo") {
             // Round 2: progress bars, radio groups and combo boxes.
             cfg.script_entry = "scripts/ui2_demo.lua";
+        } else if (arg == "--fog-demo") {
+            // Fog of war: an accumulating coverage mask multiplied over the
+            // scene, with a clickable minimap and no binary assets.
+            cfg.script_entry = "scripts/fog_demo.lua";
         } else if (arg == "--post-demo") {
             // Post-processing pass over the whole world + a baked minimap.
             cfg.script_entry = "scripts/post_demo.lua";
@@ -4372,6 +4601,14 @@ int main(int argc, char **argv) {
             cfg.headless = true;
             cfg.script_entry.clear();
             cfg.vsync = false;
+        } else if (arg == "--fog-test") {
+            // Headless self-test of mask compositing: multiply blending, an
+            // accumulation target that persists across frames, and pixel
+            // sampling.
+            fog_test = true;
+            cfg.headless = true;
+            cfg.script_entry.clear();
+            cfg.vsync = false;
         } else if (arg == "--audio-test") {
             // Self-test of the mixer: no device needed, the test drives
             // AudioEngine::Mix itself.
@@ -4431,6 +4668,9 @@ int main(int argc, char **argv) {
     }
     if (fx_test) {
         return RunFxTest(engine);
+    }
+    if (fog_test) {
+        return RunFogTest(engine);
     }
     if (audio_test) {
         return RunAudioTest(engine);

@@ -127,6 +127,7 @@ jobs:
           run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --ui2-demo
           run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --post-demo
           run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --fx-demo
+          run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --fog-demo
           run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --audio-demo
           run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --spatial-demo
           run_xvfb ./build/bin/fake2d_hello --headless --phys-bench
@@ -169,6 +170,10 @@ jobs:
           # assertion count).
           run_xvfb ./build/bin/fake2d_hello --fx-test > fx.log 2>&1
           rc_fx=$?
+          # Mask compositing (exit code gate; the summary line pins the
+          # assertion count).
+          run_xvfb ./build/bin/fake2d_hello --fog-test > fog.log 2>&1
+          rc_fog=$?
           # Mixer self-test driving Mix() directly, no device (exit code
           # gate; the summary line pins the assertion count).
           run_xvfb ./build/bin/fake2d_hello --audio-test > audio.log 2>&1
@@ -184,7 +189,7 @@ jobs:
             --entry scripts/phys_test.lua > phys_test.log 2>&1
           rc_lua=$?
           set -e
-          echo "exit codes: query=$rc_query filter=$rc_filter timestep=$rc_timestep path=$rc_path rt=$rc_rt ui=$rc_ui post=$rc_post fx=$rc_fx audio=$rc_audio mapobj=$rc_mapobj lua=$rc_lua"
+          echo "exit codes: query=$rc_query filter=$rc_filter timestep=$rc_timestep path=$rc_path rt=$rc_rt ui=$rc_ui post=$rc_post fx=$rc_fx fog=$rc_fog audio=$rc_audio mapobj=$rc_mapobj lua=$rc_lua"
           [ "$rc_query" -eq 0 ]
           [ "$rc_filter" -eq 0 ]
           [ "$rc_timestep" -eq 0 ]
@@ -193,6 +198,7 @@ jobs:
           [ "$rc_ui" -eq 0 ]
           [ "$rc_post" -eq 0 ]
           [ "$rc_fx" -eq 0 ]
+          [ "$rc_fog" -eq 0 ]
           [ "$rc_audio" -eq 0 ]
           [ "$rc_mapobj" -eq 0 ]
           [ "$rc_lua" -eq 0 ]
@@ -204,6 +210,7 @@ jobs:
           grep -F "[ui] PASS" ui.log
           grep -F "[post] PASS" post.log
           grep -F "[fx] PASS" fx.log
+          grep -F "[fog] PASS" fog.log
           grep -F "[audio] PASS" audio.log
           grep -F "[script] 0" phys_test.log
           ! grep -E "\[script] (10[0-9][0-9]|200[0-9])" phys_test.log
@@ -428,6 +435,7 @@ jobs:
           ./build/bin/fake2d_hello --ui-test
           ./build/bin/fake2d_hello --post-test
           ./build/bin/fake2d_hello --fx-test
+          ./build/bin/fake2d_hello --fog-test
           ./build/bin/fake2d_hello --audio-test
           ./build/bin/fake2d_hello --map-object-test
           ./build/bin/fake2d_hello --headless --phys-bench
@@ -459,6 +467,7 @@ jobs:
           ./build/bin/fake2d_hello --headless --frames 120 --ui2-demo
           ./build/bin/fake2d_hello --headless --frames 120 --post-demo
           ./build/bin/fake2d_hello --headless --frames 120 --fx-demo
+          ./build/bin/fake2d_hello --headless --frames 120 --fog-demo
           ./build/bin/fake2d_hello --headless --frames 120 --audio-demo
           ./build/bin/fake2d_hello --headless --frames 120 --spatial-demo
 
@@ -500,6 +509,7 @@ jobs:
           ./build/bin/fake2d_hello.exe --ui-test
           ./build/bin/fake2d_hello.exe --post-test
           ./build/bin/fake2d_hello.exe --fx-test
+          ./build/bin/fake2d_hello.exe --fog-test
           ./build/bin/fake2d_hello.exe --audio-test
           ./build/bin/fake2d_hello.exe --map-object-test
           ./build/bin/fake2d_hello.exe --headless --frames 200 \
@@ -520,6 +530,7 @@ jobs:
           ./build/bin/fake2d_hello.exe --headless --frames 120 --ui2-demo
           ./build/bin/fake2d_hello.exe --headless --frames 120 --post-demo
           ./build/bin/fake2d_hello.exe --headless --frames 120 --fx-demo
+          ./build/bin/fake2d_hello.exe --headless --frames 120 --fog-demo
           ./build/bin/fake2d_hello.exe --headless --frames 120 --audio-demo
           ./build/bin/fake2d_hello.exe --headless --frames 120 --spatial-demo
           ./build/bin/fake2d_hello.exe --headless --bench

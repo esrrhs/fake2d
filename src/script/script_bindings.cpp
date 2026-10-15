@@ -1481,6 +1481,31 @@ void RegisterTextApi(fakelua::State *state, Engine *engine) {
             [engine](fakelua::State *) -> std::int64_t {
                 return engine->GetRenderer().ActiveRenderTarget();
             }));
+
+    // --- mask sampling (Phase 26) ------------------------------------------
+    // Read one pixel back out of a target as a single scalar — the query side
+    // of an exploration mask, so "has this point been revealed?" is gameplay
+    // state rather than pixels nobody can inspect. Returns -1 for anything
+    // that is not a real sample (unknown id, out-of-bounds coordinates), which
+    // keeps "0 = unexplored" from being confused with "no such target".
+    fakelua::RegisterNativeFunction(
+        state, "rt_sample", false,
+        std::function<double(fakelua::State *, std::int64_t, std::int64_t,
+                             std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id, std::int64_t x,
+                     std::int64_t y) -> double {
+                const fake2d::RenderTarget *target =
+                    engine->GetRenderer().GetRenderTargets().Get(static_cast<int>(id));
+                if (target == nullptr) {
+                    return -1.0;
+                }
+                fake2d::Color px{};
+                if (!target->ReadPixel(static_cast<int>(x), static_cast<int>(y), px)) {
+                    return -1.0;
+                }
+                return static_cast<double>(px.r * 0.299f + px.g * 0.587f +
+                                           px.b * 0.114f);
+            }));
 }
 
 void RegisterAudioApi(fakelua::State *state, Engine *engine) {
@@ -1777,8 +1802,12 @@ void RegisterBatchApi(fakelua::State *state, Engine *engine) {
         state, "draw_set_blend", false,
         std::function<void(fakelua::State *, std::int64_t)>(
             [engine](fakelua::State *, std::int64_t mode) {
-                engine->GetRenderer().SetBlendMode(mode == 1 ? BlendMode::Additive
-                                                            : BlendMode::Alpha);
+                // 0 alpha (normal transparency), 1 additive (glow), 2 multiply
+                // (masks: result = source * destination). Anything else falls
+                // back to alpha rather than picking a random GL state.
+                engine->GetRenderer().SetBlendMode(
+                    mode == 1 ? BlendMode::Additive
+                              : (mode == 2 ? BlendMode::Multiply : BlendMode::Alpha));
             }));
 }
 
