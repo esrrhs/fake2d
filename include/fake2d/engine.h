@@ -102,6 +102,10 @@ public:
 
     /// Per-frame input snapshot, refreshed after event polling each frame.
     const Input &GetInput() const;
+    /// Mutable handle for synthetic frames: `Input::InjectFrame` lets
+    /// headless tests (and input replays) drive widgets that would otherwise
+    /// need a real mouse and keyboard.
+    Input &GetInput();
 
     /// Best-effort one-shot sound effect player (disabled on audio-less hosts).
     AudioEngine &GetAudio();

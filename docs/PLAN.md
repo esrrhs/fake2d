@@ -281,6 +281,21 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 
 ---
 
+## Phase 25 — UI widgets round 2 (1.19.x)
+
+- [x] **`ProgressBar(anchor, ox, oy, w, h, value, fill, track)` / `ui_bar`**: a pure draw — frame, track, and a fill of `w * t` from the left with the value clamped to 0..1, so a bar fed 1.4 or -0.2 still looks like a bar. No key, no state, nothing to click. The clamp is pixel-asserted **outside** the track (x=120 for over-range, x=4 for under-range): a probe inside the track reads filled either way and the assertion would never fail — the initial 108/30 probes were exactly that vacuous, caught by the mutation check
+- [x] **`RadioButton(key, anchor, ox, oy, size, selected, label, scale)` / `ui_radio`**: one row — a square indicator (inset block when selected, like the checkbox tick) plus a right-side label. Click semantics match `ui_button` exactly: release inside clicks, **releasing outside cancels**. Selection is caller-owned, so a group is N rows and one index, and an already-selected row still reports the click
+- [x] **`ComboBegin(...)` / `ui_combo` and `ComboItem(...)` / `ui_combo_item`**: a combo is composed, not encapsulated — the header draws the current text plus a two-step triangle chevron (down when closed, up when open), and the popup is N item rows the script draws right after. The one deliberate divergence from a button: **a press on the header that releases outside still clicks**, because the list is a popup that swallows the gesture and users flick it. Item rows highlight on hover/selection and report their own clicks, so an open list cannot fall through to whatever is beneath it (the header is a separate widget key)
+- [x] **`Input::InjectFrame(mouse, keys, buttons, wheel, text)` + mutable `Engine::GetInput()`**: fills a frame's input snapshot by hand with the same edge bookkeeping as `NewFrame` (current → previous). This unlocks the click paths — previously unreachable headless — for every widget, not just these four. A synthetic frame is replaced wholesale by the next real one, so nothing can leak into a windowed run
+- [x] 4 new Lua bindings with explicit full arity (`ui_bar`, `ui_radio`, `ui_combo`, `ui_combo_item`); fixtures stub list extended in step
+- [x] **`--ui-test` grows 30 → 52 assertions**: radio press-not-click / release-clicks / outside-cancels / elsewhere-never-clicks / already-selected-still-reports, combo press-not-open / release-clicks / flick-ending-outside-still-clicks / header-does-not-swallow-a-list-click, combo item press-not-pick / release-picks / other-row-not-picked, and the progress bar drawn inside a 128×128 render target with the fill read back in pixels (half fill boundary, track colour, over-range clamped with no spill, under-range with no backwards fill), plus a geometry count for all four widgets
+- [x] **Mutation-checked (4)**: a RadioButton that clicks on press, a ComboBegin whose outside-release no longer clicks, a ProgressBar without the clamp, and an `InjectFrame` that skips the previous-state copy (killing edge detection) — each fails the suite, the last with five failures across every release-path assertion. The clamp mutation initially **passed**, which exposed the vacuous in-track probes above
+- [x] **`--ui2-demo`**: a looping loading bar (sawtooth through empty and full), a pulsing health bar, a slider-driven mana bar whose range reaches 150% to show the clamp, a three-row difficulty radio group and a four-item unit combo with an openable list — all state in file locals, label sets as functions (no file-level tables). Verified by a pixel bounding-box probe (content within 960×540) plus one eyeball pass that caught an overlapping label and an unreadable chevron
+- [x] `--ui2-demo` wired into CI on Linux (xvfb), macOS and Windows
+- [x] Verification: `--ui-test` 52/52; `--ui2-demo` headless smoke + pixel-probed screenshot; headless Lua fixtures 24/24; all gates re-run green
+
+---
+
 ## Non-goals (for now)
 
 - Full 3D / PBR (Fake2D is strictly focused on high-performance 2D)

@@ -86,6 +86,37 @@ public:
                                    float offset_x, float offset_y, float w,
                                    float h, float content_height, float scroll_y);
 
+    /// Horizontal progress bar: `value` is clamped to [0,1] and fills `w`
+    /// from the left. Purely a draw (no key, no interaction) — the caller
+    /// owns the number it shows. `w <= 0` draws nothing.
+    void ProgressBar(UIAnchor anchor, float offset_x, float offset_y, float w,
+                     float h, float value, const Color &fill,
+                     const Color &track = Color{0.14f, 0.17f, 0.24f, 1.0f});
+
+    /// One radio row: a circle instead of a checkbox's square, and true on
+    /// the frame it was clicked. **Group semantics live in the caller** —
+    /// `if ui_radio(key, ..., i == selected, label) then selected = i end`
+    /// — because, like every widget here, the value is the script's.
+    [[nodiscard]] bool RadioButton(std::string_view key, UIAnchor anchor,
+                                   float offset_x, float offset_y, float size,
+                                   bool selected, std::string_view label = {},
+                                   float text_scale = 0.6f);
+
+    /// Combo header (the closed box, or the top of an open list). Returns
+    /// true on the frame it was clicked — the caller owns `open`, so the
+    /// list's lifetime is the script's business, not the widget's.
+    [[nodiscard]] bool ComboBegin(std::string_view key, UIAnchor anchor,
+                                  float offset_x, float offset_y, float w,
+                                  float h, std::string_view label, bool open,
+                                  float text_scale = 0.6f);
+
+    /// One row of an open combo's list. Returns true on the frame it was
+    /// clicked; `selected` only tints it (the current item).
+    [[nodiscard]] bool ComboItem(std::string_view key, UIAnchor anchor,
+                                 float offset_x, float offset_y, float w,
+                                 float h, std::string_view label, bool selected,
+                                 float text_scale = 0.6f);
+
     [[nodiscard]] bool IsHovered(std::string_view key) const;
 
     /// Wire the per-frame input snapshot, camera (viewport) and renderer.

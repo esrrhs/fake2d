@@ -143,6 +143,35 @@ void Input::Attach(void *native_window) {
     }
 }
 
+void Input::InjectFrame(const Vec2 &mouse_pos,
+                        const std::vector<std::string_view> &keys_down,
+                        const std::vector<std::int64_t> &buttons_down, double wheel,
+                        const std::vector<unsigned int> &text) {
+    // Same edge bookkeeping as NewFrame: current becomes previous, then the
+    // new state is written on top.
+    std::copy(keys_, keys_ + kKeyCount, prev_keys_);
+    std::copy(buttons_, buttons_ + kButtonCount, prev_buttons_);
+
+    std::fill(keys_, keys_ + kKeyCount, static_cast<std::uint8_t>(0));
+    std::fill(buttons_, buttons_ + kButtonCount, static_cast<std::uint8_t>(0));
+    for (std::string_view key : keys_down) {
+        const int code = KeyToGlfw(key);
+        if (code >= 0 && code < static_cast<int>(kKeyCount)) {
+            keys_[code] = 1;
+        }
+    }
+    for (std::int64_t button : buttons_down) {
+        if (button >= 0 && button < static_cast<std::int64_t>(kButtonCount)) {
+            buttons_[button] = 1;
+        }
+    }
+
+    mouse_delta_ = {mouse_pos.x - mouse_pos_.x, mouse_pos.y - mouse_pos_.y};
+    mouse_pos_ = mouse_pos;
+    wheel_ = wheel;
+    text_input_ = text;
+}
+
 void Input::NewFrame(void *native_window) {
     GLFWwindow *window = static_cast<GLFWwindow *>(native_window);
     if (window == nullptr) {

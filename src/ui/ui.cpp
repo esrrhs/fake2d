@@ -474,6 +474,170 @@ float UISystem::DrawFittedText(std::string_view text, float x, float y, float w,
     return renderer_->DrawText(text.substr(first), x, y, scale, tint);
 }
 
+void UISystem::ProgressBar(UIAnchor anchor, float offset_x, float offset_y, float w,
+                           float h, float value, const Color &fill, const Color &track) {
+    if (camera_ == nullptr || renderer_ == nullptr) {
+        return;
+    }
+    if (w <= 0.0f || h <= 0.0f) {
+        return;
+    }
+    const Vec2 p = Resolve(anchor, offset_x, offset_y, w, h,
+                           camera_->ViewportWidth(), camera_->ViewportHeight());
+    // Clamp rather than trust: a health bar fed 1.4 or -0.2 should still look
+    // like a bar, and a fill wider than the track would read as a glitch.
+    const float t = value < 0.0f ? 0.0f : (value > 1.0f ? 1.0f : value);
+    renderer_->DrawQuad({p.x - 2.0f, p.y - 2.0f, w + 4.0f, h + 4.0f}, kFrameLine);
+    renderer_->DrawQuad({p.x, p.y, w, h}, track);
+    if (t > 0.0f) {
+        renderer_->DrawQuad({p.x, p.y, w * t, h}, fill);
+    }
+}
+
+bool UISystem::RadioButton(std::string_view key, UIAnchor anchor, float offset_x,
+                           float offset_y, float size, bool selected,
+                           std::string_view label, float text_scale) {
+    if (camera_ == nullptr || renderer_ == nullptr || input_ == nullptr) {
+        return false;
+    }
+    const std::string key_str(key);
+    WidgetState &state = widgets_[key_str];
+
+    const Vec2 p = Resolve(anchor, offset_x, offset_y, size, size,
+                           camera_->ViewportWidth(), camera_->ViewportHeight());
+    const Rect bounds{p.x, p.y, size, size};
+    const Vec2 mouse = Mouse();
+    const bool hover = bounds.Contains(mouse);
+    const bool mouse_down = input_->MouseDown(0);
+    const bool mouse_released = input_->MouseReleased(0);
+
+    bool clicked = false;
+    if (hover) {
+        if (state.pressed && mouse_released) {
+            clicked = true;
+        }
+        state.pressed = mouse_down || (state.pressed && !mouse_released && hover);
+    } else {
+        state.pressed = false;
+    }
+    state.hover = hover;
+
+    renderer_->DrawQuad({p.x - 2.0f, p.y - 2.0f, size + 4.0f, size + 4.0f},
+                        hover ? kThumbHot : kFrameLine);
+    renderer_->DrawQuad(bounds, kField);
+    if (selected) {
+        // Inset block, like the checkbox tick: a ring would need a line
+        // primitive, and this reads at any size.
+        const float inset = size * 0.28f;
+        renderer_->DrawQuad({p.x + inset, p.y + inset, size - inset * 2.0f,
+                             size - inset * 2.0f},
+                            kCheck);
+    }
+    if (!label.empty()) {
+        const float text_h = renderer_->GetFont().LineHeight() * text_scale;
+        DrawFittedText(label, p.x + size + 8.0f, p.y + size * 0.5f - text_h * 0.5f,
+                       0.0f, text_scale, Color::White());
+    }
+    return clicked;
+}
+
+bool UISystem::ComboBegin(std::string_view key, UIAnchor anchor, float offset_x,
+                          float offset_y, float w, float h, std::string_view label,
+                          bool open, float text_scale) {
+    if (camera_ == nullptr || renderer_ == nullptr || input_ == nullptr) {
+        return false;
+    }
+    const std::string key_str(key);
+    WidgetState &state = widgets_[key_str];
+
+    const Vec2 p = Resolve(anchor, offset_x, offset_y, w, h,
+                           camera_->ViewportWidth(), camera_->ViewportHeight());
+    const Rect bounds{p.x, p.y, w, h};
+    const Vec2 mouse = Mouse();
+    const bool hover = bounds.Contains(mouse);
+    const bool mouse_down = input_->MouseDown(0);
+    const bool mouse_released = input_->MouseReleased(0);
+
+    bool clicked = false;
+    if (hover) {
+        if (state.pressed && mouse_released) {
+            clicked = true;
+        }
+        state.pressed = mouse_down || (state.pressed && !mouse_released && hover);
+    } else {
+        // Unlike a button, releasing outside still counts as a click: the
+        // list is a popup that swallows the gesture, and users flick it.
+        if (state.pressed && mouse_released) {
+            clicked = true;
+        }
+        state.pressed = mouse_down;
+    }
+    state.hover = hover;
+
+    const Color fill = open      ? kThumbActive
+                       : (state.pressed ? kThumbActive
+                          : hover       ? kThumbHot
+                                        : kThumb);
+    renderer_->DrawQuad({p.x - 2.0f, p.y - 2.0f, w + 4.0f, h + 4.0f}, kFrameLine);
+    renderer_->DrawQuad(bounds, fill);
+    if (!label.empty()) {
+        const float text_h = renderer_->GetFont().LineHeight() * text_scale;
+        const float left = p.x + 8.0f;
+        DrawFittedText(label, left, p.y + h * 0.5f - text_h * 0.5f, w - 28.0f,
+                       text_scale, Color::White());
+    }
+    // Chevron: a two-step triangle — wide bar on top reads as a down arrow
+    // when closed, and flipping the halves reads as an up arrow when open.
+    const float cx = p.x + w - 20.0f;
+    const float cy = p.y + h * 0.5f - 2.0f;
+    if (open) {
+        renderer_->DrawQuad({cx + 2.0f, cy, 4.0f, 2.0f}, Color::White());
+        renderer_->DrawQuad({cx, cy + 2.0f, 8.0f, 2.0f}, Color::White());
+    } else {
+        renderer_->DrawQuad({cx, cy, 8.0f, 2.0f}, Color::White());
+        renderer_->DrawQuad({cx + 2.0f, cy + 2.0f, 4.0f, 2.0f}, Color::White());
+    }
+    return clicked;
+}
+
+bool UISystem::ComboItem(std::string_view key, UIAnchor anchor, float offset_x,
+                         float offset_y, float w, float h, std::string_view label,
+                         bool selected, float text_scale) {
+    if (camera_ == nullptr || renderer_ == nullptr || input_ == nullptr) {
+        return false;
+    }
+    const std::string key_str(key);
+    WidgetState &state = widgets_[key_str];
+
+    const Vec2 p = Resolve(anchor, offset_x, offset_y, w, h,
+                           camera_->ViewportWidth(), camera_->ViewportHeight());
+    const Rect bounds{p.x, p.y, w, h};
+    const Vec2 mouse = Mouse();
+    const bool hover = bounds.Contains(mouse);
+    const bool mouse_down = input_->MouseDown(0);
+    const bool mouse_released = input_->MouseReleased(0);
+
+    bool clicked = false;
+    if (hover) {
+        if (state.pressed && mouse_released) {
+            clicked = true;
+        }
+        state.pressed = mouse_down || (state.pressed && !mouse_released && hover);
+    } else {
+        state.pressed = false;
+    }
+    state.hover = hover;
+
+    const Color fill = hover ? kThumbHot : (selected ? kThumb : kField);
+    renderer_->DrawQuad(bounds, fill);
+    if (!label.empty()) {
+        const float text_h = renderer_->GetFont().LineHeight() * text_scale;
+        DrawFittedText(label, p.x + 8.0f, p.y + h * 0.5f - text_h * 0.5f, w - 16.0f,
+                       text_scale, Color::White());
+    }
+    return clicked;
+}
+
 bool UISystem::IsHovered(std::string_view key) const {
     if (const WidgetState *state = const_cast<UISystem *>(this)->Find(key)) {
         return state->hover;

@@ -49,6 +49,20 @@ public:
     /// Accumulated vertical wheel movement this frame (positive = away from user).
     [[nodiscard]] double MouseWheel() const { return wheel_; }
 
+    // --- synthetic frames ---------------------------------------------------
+    /// Fill the snapshot by hand instead of polling a window — headless tests
+    /// and input replays have no window to poll. Edge detection behaves the
+    /// same as a real frame: whatever was current becomes "previous", so a
+    /// button held across two injected frames reads as *pressed* only on the
+    /// first and *released* on the frame it stops. A real `NewFrame` (windowed
+    /// run) overwrites this state, so injection can never leak into gameplay.
+    /// Key names are the same as `KeyDown`'s; unknown names are ignored.
+    void InjectFrame(const Vec2 &mouse_pos,
+                     const std::vector<std::string_view> &keys_down,
+                     const std::vector<std::int64_t> &buttons_down,
+                     double wheel = 0.0,
+                     const std::vector<unsigned int> &text = {});
+
     // --- gamepad (GLFW standard mapping, Xbox layout) ---
     // pad is a 0-based joystick slot; disconnected pads read as neutral.
     /// True when a gamepad (Standard Mapping recognized) is present on `pad`.

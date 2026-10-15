@@ -1074,6 +1074,69 @@ void RegisterUiApi(fakelua::State *state, Engine *engine) {
                     label, static_cast<float>(scale));
             }));
 
+    // ---- widgets round 2 (Phase 25) ----------------------------------------
+    // A progress bar is a pure draw: value clamped to 0..1 fills w from the
+    // left, and there is no state to keep.
+    fakelua::RegisterNativeFunction(
+        state, "ui_bar", false,
+        std::function<void(fakelua::State *, std::int64_t, double, double, double,
+                           double, double, double, double, double, double)>(
+            [engine](fakelua::State *, std::int64_t anchor, double ox, double oy,
+                     double w, double h, double value, double r, double g,
+                     double b, double a) {
+                engine->GetUI().ProgressBar(
+                    static_cast<UIAnchor>(anchor), static_cast<float>(ox),
+                    static_cast<float>(oy), static_cast<float>(w),
+                    static_cast<float>(h), static_cast<float>(value),
+                    Color{static_cast<float>(r), static_cast<float>(g),
+                          static_cast<float>(b), static_cast<float>(a)});
+            }));
+
+    // One radio row; the caller owns which index is selected (see the header).
+    fakelua::RegisterNativeFunction(
+        state, "ui_radio", false,
+        std::function<bool(fakelua::State *, std::string_view, std::int64_t, double,
+                           double, double, bool, std::string_view, double)>(
+            [engine](fakelua::State *, std::string_view key, std::int64_t anchor,
+                     double ox, double oy, double size, bool selected,
+                     std::string_view label, double scale) -> bool {
+                return engine->GetUI().RadioButton(
+                    key, static_cast<UIAnchor>(anchor), static_cast<float>(ox),
+                    static_cast<float>(oy), static_cast<float>(size), selected,
+                    label, static_cast<float>(scale));
+            }));
+
+    // A combo is built from one header call plus one call per row: the
+    // popup's open state lives in the script, so nothing about the list is
+    // hidden inside the widget.
+    fakelua::RegisterNativeFunction(
+        state, "ui_combo", false,
+        std::function<bool(fakelua::State *, std::string_view, std::int64_t, double,
+                           double, double, double, std::string_view, bool, double)>(
+            [engine](fakelua::State *, std::string_view key, std::int64_t anchor,
+                     double ox, double oy, double w, double h,
+                     std::string_view label, bool open, double scale) -> bool {
+                return engine->GetUI().ComboBegin(
+                    key, static_cast<UIAnchor>(anchor), static_cast<float>(ox),
+                    static_cast<float>(oy), static_cast<float>(w),
+                    static_cast<float>(h), label, open,
+                    static_cast<float>(scale));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "ui_combo_item", false,
+        std::function<bool(fakelua::State *, std::string_view, std::int64_t, double,
+                           double, double, double, std::string_view, bool, double)>(
+            [engine](fakelua::State *, std::string_view key, std::int64_t anchor,
+                     double ox, double oy, double w, double h,
+                     std::string_view label, bool selected, double scale) -> bool {
+                return engine->GetUI().ComboItem(
+                    key, static_cast<UIAnchor>(anchor), static_cast<float>(ox),
+                    static_cast<float>(oy), static_cast<float>(w),
+                    static_cast<float>(h), label, selected,
+                    static_cast<float>(scale));
+            }));
+
     // The field's text lives in the UI system (scripts cannot own a mutable
     // string), so read it back with ui_text_get and seed it with ui_text_set.
     fakelua::RegisterNativeFunction(
