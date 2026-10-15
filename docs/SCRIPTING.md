@@ -231,8 +231,10 @@ target).
 | `rt_width / rt_height(id) -> n` | Size in pixels (`0` for an unknown id). |
 | `rt_begin(id) -> bool` | Redirect every following draw into the target. Flushes the pending batch first, so nothing already submitted leaks into it. Returns false for id `0`, unknown/destroyed ids, and while another target is already bound (targets do not nest). |
 | `rt_end()` | Flush and return to the window. Called for you at the end of the frame if you forget. |
+| `rt_camera(x, y) -> bool` | Aim the **bound** target's canvas camera at a world offset. A fresh target starts at `(0,0)`; pointing it at `camera_x(), camera_y()` is what makes a whole-world draw (`map_draw`) render the camera's *view* into the target for a post pass. Returns false when no target is bound — the window camera belongs to the game, not to this call. |
 | `rt_clear(r, g, b, a)` | Clear the **bound** surface to a solid colour — the target while one is bound, the screen otherwise. |
 | `rt_draw(id, x, y, w, h)` | Blit the target into a screen/world rect. The vertical flip FBOs need is applied for you, so what you drew is what you get. Drawing a target into itself is ignored. |
+| `rt_present(id, shader)` | Blit the target across the **whole** of whatever is being drawn into — the screen, or another target for a ping-pong pass. `shader` overrides the program for this one blit (`0` = no override) and does not touch `draw_use_shader`'s state, so the rest of the frame keeps its shader. This is the post-processing present: render the world into a target, then `rt_present(scene, fx)`. |
 | `rt_active() -> id` | Currently bound target, `0` for the window. |
 | `rt_destroy(id)` | Free the slot. Releases the target first if it is the bound one; destroying twice is safe. |
 
@@ -261,6 +263,27 @@ Notes: targets hold GPU memory, so create them once (not per frame) and
 destroy what you no longer need. A target's contents survive between frames,
 which is exactly what makes accumulating effects possible — but it also means
 you must `rt_clear` explicitly if you want a clean slate.
+
+**Post-processing** is the third pattern: draw the world into a target, then
+present it through a shader. The HUD goes *after* the present, so the UI
+stays crisp while the picture is graded.
+
+```lua
+-- once: scene_rt = rt_create(960, 540); fx = shader_load(...)
+rt_begin(scene_rt)
+rt_clear(0.05, 0.07, 0.12, 1)
+rt_camera(camera_x(), camera_y())   -- the target's canvas follows the view
+map_draw(map_id)                    -- whole-world draws render the camera's view
+draw_quad(px, py, 28, 28, 1, 0.78, 0.25, 1)
+rt_end()
+rt_present(scene_rt, fx)            -- graded, full-screen
+draw_text("HUD", 16, 16, 1.0, 1, 1, 1, 1)   -- drawn after: never graded
+```
+
+`assets/post_grade.{vert,frag}` is a ready-made grade pass (desaturate,
+brightness, vignette, scanlines) where every uniform defaults to "unchanged";
+`scripts/post_demo.lua` (`--post-demo`) wires it to sliders and a baked
+minimap.
 
 ### Audio
 
@@ -600,7 +623,8 @@ Tile custom properties with `solid = true` (boolean) mark collidable tiles.
 | Function | Description |
 |---|---|
 | `map_load(path) -> id` | Loads tileset images relative to the JSON (cached); 0 on failure. |
-| `map_draw(id)` | Draw all visible layers (internally sorted, one draw per tilesheet). |
+| `map_draw(id)` | Draw all visible layers (internally sorted, one draw per tilesheet). Inside a render target it follows the target's canvas camera, so `rt_camera(camera_x(), camera_y())` renders the camera's view. |
+| `map_draw_scaled(id, scale)` | The whole map at a uniform `scale` about its origin, parallax and layer offsets dropped, image layers skipped — the minimap bake. Draw it inside a target left at `rt_camera(0, 0)`. |
 | `map_solid(id, col, row) -> bool` | Solid cell test. |
 | `map_oneway(id, col, row) -> bool` | One-way platform cell (solid when landing from above). |
 | `map_slope_dir(id, col, row) -> int` | Slope cell: 0 none, 1 rises toward +x, 2 lowers toward +x. |
@@ -892,8 +916,9 @@ bound to unit 0 automatically). Declare your own uniforms on top.
 around the objects that need the effect and avoid calling it per sprite.
 Switching restarts the batch, which resets blend/layer/z draw state — set
 `draw_set_blend` again afterwards if needed. The override never carries
-across frames (each frame starts on the default shader). There is no
-fullscreen post-processing (no render targets); apply effects per object.
+across frames (each frame starts on the default shader). For whole-screen
+effects, render into a target and present it with `rt_present(id, shader)`
+instead of routing every sprite through the override.
 
 A worked example lives in `assets/flag_shimmer.{vert,frag}` and is used by
 `scripts/mario.lua` to make the goal pole shimmer: the fragment stage computes

@@ -552,6 +552,16 @@ void RegisterTilemapApi(fakelua::State *state, Engine *engine) {
                 }
             }));
 
+    // Whole map at a uniform scale with parallax ignored — the minimap bake.
+    fakelua::RegisterNativeFunction(
+        state, "map_draw_scaled", false,
+        std::function<void(fakelua::State *, std::int64_t, double)>(
+            [engine](fakelua::State *, std::int64_t id, double scale) {
+                if (const Tilemap *map = engine->GetTilemaps().Get(static_cast<int>(id))) {
+                    map->DrawScaled(engine->GetRenderer(), static_cast<float>(scale));
+                }
+            }));
+
     // Cell indices/gids take double on the Lua side: math.floor keeps the
     // float type in FakeLua, so casts happen here at the native boundary.
     fakelua::RegisterNativeFunction(
@@ -1345,6 +1355,33 @@ void RegisterTextApi(fakelua::State *state, Engine *engine) {
                 engine->GetRenderer().DrawRenderTarget(
                     static_cast<int>(id), static_cast<float>(x), static_cast<float>(y),
                     static_cast<float>(w), static_cast<float>(h));
+            }));
+
+    // Post-processing present: blit a target across the whole of whatever is
+    // being drawn into (the screen, or another target for a ping-pong pass)
+    // through a shader. id 0 = the window (never presentable), shader 0 =
+    // no override.
+    fakelua::RegisterNativeFunction(
+        state, "rt_present", false,
+        std::function<void(fakelua::State *, std::int64_t, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id, std::int64_t shader) {
+                Shader *program = shader == 0 ? nullptr
+                                              : engine->GetRenderer().GetShader(
+                                                    static_cast<int>(shader));
+                engine->GetRenderer().PresentRenderTarget(static_cast<int>(id),
+                                                          program);
+            }));
+
+    // Point the bound target's canvas camera at a world offset: whole-world
+    // draws (map_draw) then render the camera's view into the target, which
+    // is what a post-processing pass needs. Returns false when no target is
+    // bound.
+    fakelua::RegisterNativeFunction(
+        state, "rt_camera", false,
+        std::function<bool(fakelua::State *, double, double)>(
+            [engine](fakelua::State *, double x, double y) -> bool {
+                return engine->GetRenderer().SetTargetCamera(
+                    static_cast<float>(x), static_cast<float>(y));
             }));
 
     fakelua::RegisterNativeFunction(

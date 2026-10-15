@@ -20,8 +20,7 @@ namespace fake2d {
 Renderer::Renderer() = default;
 
 const Mat4 &Renderer::ActiveViewProjection() const {
-    return active_target_ != 0 ? target_camera_.ViewProjectionMatrix()
-                               : camera_.ViewProjectionMatrix();
+    return ActiveCamera().ViewProjectionMatrix();
 }
 
 Renderer::~Renderer() {
@@ -188,6 +187,51 @@ void Renderer::DrawRenderTarget(int id, float x, float y, float w, float h, cons
     const float final_w = w > 0.0f ? w : static_cast<float>(target->Width());
     const float final_h = h > 0.0f ? h : static_cast<float>(target->Height());
     DrawRenderTarget(id, Rect{x, y, final_w, final_h}, tint);
+}
+
+bool Renderer::SetTargetCamera(float x, float y) {
+    if (!ready_ || active_target_ == 0) {
+        return false;
+    }
+    target_camera_.SetPosition(x, y);
+    // The running batch captured the old view-projection, so restart it —
+    // same contract as UseShaderById.
+    batch_.End();
+    batch_.Begin(ActiveViewProjection(),
+                 active_shader_ ? active_shader_ : Shader::GetDefault2D());
+    return true;
+}
+
+void Renderer::PresentRenderTarget(int id, Shader *shader, const Color &tint) {
+    const RenderTarget *target = targets_.Get(id);
+    if (!ready_ || target == nullptr || !target->IsValid()) {
+        return;
+    }
+    if (active_target_ == id) {
+        return; // sampling the surface being rendered into is undefined
+    }
+    // The quad covers whatever the active camera can see: its position is the
+    // visible rect's top-left, so a scrolling window camera still gets a
+    // full-screen present, and a target's canvas camera fills that target.
+    const Camera2D &cam = ActiveCamera();
+    const Rect src{0.0f, 0.0f, static_cast<float>(target->Width()),
+                   static_cast<float>(target->Height())};
+    const Rect dst{cam.Position().x, cam.Position().y, cam.ViewportWidth(),
+                   cam.ViewportHeight()};
+    if (shader == nullptr) {
+        DrawRenderTarget(id, src, dst, tint);
+        return;
+    }
+    // Isolate the override: the post program is bound for this blit only, so
+    // Renderer::ActiveShader() (and therefore the next batch) is untouched.
+    // Two extra flushes per pass — the price of not leaking a program into
+    // the rest of the frame. Blend/layer/z state resets across them.
+    batch_.End();
+    batch_.Begin(ActiveViewProjection(), shader);
+    batch_.DrawSpriteFlipped(target->Texture(), src, dst, false, true, tint);
+    batch_.End();
+    batch_.Begin(ActiveViewProjection(),
+                 active_shader_ ? active_shader_ : Shader::GetDefault2D());
 }
 
 int Renderer::LoadShaderFromFile(const std::string &vert_path,
