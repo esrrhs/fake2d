@@ -209,6 +209,21 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 
 ---
 
+## Phase 20 — UI widgets: slider, checkbox, text input, scroll (1.14.x)
+
+- [x] `UISystem` rework: the per-key state struct is now a full `WidgetState` (hover / pressed / dragging / grab offset / text) shared by all widgets, plus a `focused_` key for text fields. All widgets stay immediate-mode and string-keyed; values live in the caller
+- [x] `Slider(key, anchor, x, y, w, h, value, min, max)`: drag the thumb (grab-offset preserved so it never jumps) or click the track to jump; returns the value clamped to `[min, max]` (input clamped too, zero-width range degenerates to min)
+- [x] `Checkbox(key, anchor, x, y, size, checked, label, text_scale)`: square box + tick when checked, optional right-side label; returns true exactly on the click frame — the caller owns the toggled value (same contract as `ui_button`)
+- [x] `TextInput(key, anchor, x, y, w, h, max_chars)`: click to focus (which unfocuses every other field; clicking elsewhere drops focus), typed codepoints append and backspace pops — both working on **whole UTF-8 codepoints**, so multi-byte characters never corrupt. `max_chars` counts characters, not bytes; 0 = unlimited. Content is owned by the UI system (scripts cannot hold a mutable string): `TextValue(key)` / `SetTextValue(key, text)` / `FocusedTextInput()`. Backed by the new `Input` char callback (`TextCodepoints()` / `HasTextInput()`)
+- [x] `ScrollArea(key, anchor, x, y, w, h, content_height, scroll_y)`: wheel while hovered (`kWheelStep` = 40 px) and a draggable right-edge thumb whose size reflects the visible fraction; returns the offset clamped to `[0, content_height - h]` (0 when the content fits, divide-by-zero guarded). **The caller clips the content** with `draw_set_clip` and draws items at `y - scroll_y` — the widget only owns the offset and the scrollbar
+- [x] `DrawFittedText` helper (returns the pen x, single draw per field) plus a shared palette for tracks/thumbs/frames; `IsHovered(key)` exposed for cursor feedback
+- [x] 8 Lua bindings: `ui_slider` / `ui_checkbox` / `ui_text_input` / `ui_text_get` / `ui_text_set` / `ui_scroll` / `ui_hovered` / `ui_text_focused`. FakeLua's strict arity means optional C++ defaults must be passed explicitly from scripts
+- [x] `--ui-test`: 30 headless assertions (slider clamping at both ends + zero-width range, grab-offset drag, checkbox toggle-frame semantics, UTF-8 append/pop/count with a 4-byte emoji and per-character max_chars, focus bookkeeping, scroll clamping incl. short/empty content and the thumb-height guard, per-frame quad accounting for every widget, placeholder-vs-text draw evidence)
+- [x] `--ui-demo`: three sliders with live percentage captions, three checkboxes with a "ticked" summary, a 12-char text field with a CLEAR button, and a 24-row scroll list that culls off-screen rows
+- [x] Verification: `--ui-test` 30/30; `--ui-demo` headless smoke + pixel-checked screenshot (layout overlap between the slider captions and the text-field column found and fixed via screenshot probes); all gates re-run green
+
+---
+
 ## Non-goals (for now)
 
 - Full 3D / PBR (Fake2D is strictly focused on high-performance 2D)

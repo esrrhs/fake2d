@@ -132,6 +132,14 @@ void Input::Attach(void *native_window) {
                 input->wheel_pending_ += dy;
             }
         });
+        // Typed characters (one callback per codepoint, layout- and
+        // modifier-aware). Collected into the next frame's snapshot; text
+        // fields read it through TextCodepoints().
+        glfwSetCharCallback(window, [](GLFWwindow *win, unsigned int codepoint) {
+            if (Input *input = static_cast<Input *>(glfwGetWindowUserPointer(win))) {
+                input->text_pending_.push_back(codepoint);
+            }
+        });
     }
 }
 
@@ -163,6 +171,12 @@ void Input::NewFrame(void *native_window) {
 
     wheel_ = wheel_pending_;
     wheel_pending_ = 0.0;
+
+    // Publish the codepoints that arrived since the previous frame (the
+    // callback runs during PollEvents, which precedes NewFrame).
+    text_input_.clear();
+    text_input_.swap(text_pending_);
+    text_pending_.clear();
 
     // Gamepads: poll every joystick slot. Hot-unplug simply reads neutral.
     for (int pad = 0; pad < kPadCount; ++pad) {

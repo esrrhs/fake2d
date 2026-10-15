@@ -1032,6 +1032,94 @@ void RegisterUiApi(fakelua::State *state, Engine *engine) {
                     text, static_cast<float>(scale));
             }));
 
+    // ---- widgets (Phase 20) -------------------------------------------------
+    // Values stay in the script: ui_slider returns the updated value and
+    // ui_checkbox returns true on the frame it was toggled, so the caller
+    // owns the state (same contract as ui_button).
+    fakelua::RegisterNativeFunction(
+        state, "ui_slider", false,
+        std::function<double(fakelua::State *, std::string_view, std::int64_t,
+                             double, double, double, double, double, double, double)>(
+            [engine](fakelua::State *, std::string_view key, std::int64_t anchor,
+                     double ox, double oy, double w, double h, double value,
+                     double min_value, double max_value) -> double {
+                return engine->GetUI().Slider(
+                    key, static_cast<UIAnchor>(anchor), static_cast<float>(ox),
+                    static_cast<float>(oy), static_cast<float>(w),
+                    static_cast<float>(h), static_cast<float>(value),
+                    static_cast<float>(min_value), static_cast<float>(max_value));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "ui_checkbox", false,
+        std::function<bool(fakelua::State *, std::string_view, std::int64_t,
+                           double, double, double, bool, std::string_view, double)>(
+            [engine](fakelua::State *, std::string_view key, std::int64_t anchor,
+                     double ox, double oy, double size, bool checked,
+                     std::string_view label, double scale) -> bool {
+                return engine->GetUI().Checkbox(
+                    key, static_cast<UIAnchor>(anchor), static_cast<float>(ox),
+                    static_cast<float>(oy), static_cast<float>(size), checked,
+                    label, static_cast<float>(scale));
+            }));
+
+    // The field's text lives in the UI system (scripts cannot own a mutable
+    // string), so read it back with ui_text_get and seed it with ui_text_set.
+    fakelua::RegisterNativeFunction(
+        state, "ui_text_input", false,
+        std::function<bool(fakelua::State *, std::string_view, std::int64_t,
+                           double, double, double, double, std::int64_t)>(
+            [engine](fakelua::State *, std::string_view key, std::int64_t anchor,
+                     double ox, double oy, double w, double h,
+                     std::int64_t max_chars) -> bool {
+                return engine->GetUI().TextInput(
+                    key, static_cast<UIAnchor>(anchor), static_cast<float>(ox),
+                    static_cast<float>(oy), static_cast<float>(w),
+                    static_cast<float>(h), static_cast<std::size_t>(max_chars));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "ui_text_get", false,
+        std::function<std::string(fakelua::State *, std::string_view)>(
+            [engine](fakelua::State *, std::string_view key) -> std::string {
+                return std::string(engine->GetUI().TextValue(key));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "ui_text_set", false,
+        std::function<void(fakelua::State *, std::string_view, std::string_view)>(
+            [engine](fakelua::State *, std::string_view key, std::string_view text) {
+                engine->GetUI().SetTextValue(key, text);
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "ui_scroll", false,
+        std::function<double(fakelua::State *, std::string_view, std::int64_t,
+                             double, double, double, double, double, double)>(
+            [engine](fakelua::State *, std::string_view key, std::int64_t anchor,
+                     double ox, double oy, double w, double h, double content_h,
+                     double scroll_y) -> double {
+                return engine->GetUI().ScrollArea(
+                    key, static_cast<UIAnchor>(anchor), static_cast<float>(ox),
+                    static_cast<float>(oy), static_cast<float>(w),
+                    static_cast<float>(h), static_cast<float>(content_h),
+                    static_cast<float>(scroll_y));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "ui_hovered", false,
+        std::function<bool(fakelua::State *, std::string_view)>(
+            [engine](fakelua::State *, std::string_view key) -> bool {
+                return engine->GetUI().IsHovered(key);
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "ui_text_focused", false,
+        std::function<std::string(fakelua::State *)>(
+            [engine](fakelua::State *) -> std::string {
+                return std::string(engine->GetUI().FocusedTextInput());
+            }));
+
     fakelua::RegisterNativeFunction(
         state, "ui_set_origin", false,
         std::function<void(fakelua::State *, double, double)>(

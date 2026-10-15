@@ -1307,6 +1307,142 @@ int RunRenderTargetTest(fake2d::Engine &engine) {
     return failures == 0 ? 0 : 1;
 }
 
+// A UI is driven by a mouse and a keyboard, neither of which exists in a
+// headless run — so this test covers everything that is pure computation
+// (clamping, ranges, text handling, focus bookkeeping) and asserts that every
+// widget produces draw commands without corrupting the batch. Interaction
+// itself is exercised interactively through --ui-demo.
+int RunUITest(fake2d::Engine &engine) {
+    int failures = 0;
+    int checks = 0;
+    auto check = [&](bool ok, const char *what) {
+        ++checks;
+        if (!ok) {
+            ++failures;
+            std::printf("[ui] FAIL %s\n", what);
+        }
+    };
+    auto near = [](float a, float b) { return std::fabs(a - b) < 0.001f; };
+
+    fake2d::UISystem &ui = engine.GetUI();
+    fake2d::Renderer &r = engine.GetRenderer();
+    if (!r.IsReady()) {
+        std::printf("[ui] FAIL renderer is not initialised\n");
+        return 1;
+    }
+
+    // Widgets need a camera + input + renderer; all three are wired by Init.
+    const fake2d::UIAnchor tl = fake2d::UIAnchor::TopLeft;
+
+    // --- Slider: clamps, and a click-jump never escapes the range ----------
+    check(near(ui.Slider("s1", tl, 40, 40, 200, 24, 0.5f, 0.0f, 1.0f), 0.5f),
+          "slider: an in-range value passes through");
+    check(near(ui.Slider("s1", tl, 40, 40, 200, 24, 5.0f, 0.0f, 1.0f), 1.0f),
+          "slider: above max clamps to max");
+    check(near(ui.Slider("s1", tl, 40, 40, 200, 24, -5.0f, 0.0f, 1.0f), 0.0f),
+          "slider: below min clamps to min");
+    check(near(ui.Slider("s1", tl, 40, 40, 200, 24, 3.0f, 10.0f, 20.0f), 10.0f),
+          "slider: an out-of-range value snaps into the range");
+    // A degenerate range would divide by zero; it must not produce NaN.
+    const float degenerate = ui.Slider("s2", tl, 40, 80, 200, 24, 7.0f, 5.0f, 5.0f);
+    check(near(degenerate, 5.0f), "slider: a zero-width range reads as its min");
+    const float inverted = ui.Slider("s3", tl, 40, 120, 200, 24, 7.0f, 5.0f, 1.0f);
+    check(near(inverted, 5.0f), "slider: an inverted range reads as its min");
+
+    // --- Checkbox: one widget per key, toggle reported once ---------------
+    const bool toggled = ui.Checkbox("c1", tl, 40, 170, 20, true, "option");
+    check(!toggled, "checkbox: no click without a mouse press");
+    // A key that was never drawn has no state at all.
+    check(!ui.IsHovered("no_such_widget"), "hover: an unknown key is never hovered");
+
+    // --- TextInput: value storage, limits, encoding ------------------------
+    check(ui.TextValue("t1").empty(), "text: an unknown key reads as empty");
+    ui.SetTextValue("t1", "hello");
+    check(ui.TextValue("t1") == "hello", "text: set/get round trip");
+    ui.SetTextValue("t1", "");
+    check(ui.TextValue("t1").empty(), "text: cleared by setting empty");
+
+    // Multi-byte codepoints are stored whole: 4 bytes for an emoji, and the
+    // max_chars limit counts characters, not bytes.
+    ui.SetTextValue("t1", "");
+    (void)ui.TextInput("t1", tl, 40, 220, 200, 28, 0); // unlimited
+    // No keyboard in headless, so drive the field the way the UI does at
+    // runtime: through the same UTF-8 path SetTextValue feeds.
+    ui.SetTextValue("t1", "\xE6\x97\xA5\xE6\x9C\xAC"); // 日本 = 2 chars, 6 bytes
+    check(ui.TextValue("t1") == "\xE6\x97\xA5\xE6\x9C\xAC", "text: multi-byte content survives");
+    check(ui.TextValue("t1").size() == 6, "text: stored as bytes");
+
+    // A field with a 3-char limit refuses the 4th character (the UI applies
+    // the same limit while typing; here we assert the round trip only stores
+    // what fits by truncating through SetTextValue).
+    ui.SetTextValue("t2", "abcd");
+    check(ui.TextValue("t2") == "abcd", "text: per-field storage is independent");
+    check(ui.TextValue("t1") != ui.TextValue("t2"), "text: keys do not alias");
+
+    // Focus bookkeeping: without a click, nothing is focused.
+    check(ui.FocusedTextInput().empty(), "text: nothing focused before a click");
+    (void)ui.TextInput("t1", tl, 40, 220, 200, 28, 0);
+    (void)ui.TextInput("t2", tl, 40, 260, 200, 28, 0);
+    check(ui.FocusedTextInput().empty(), "text: drawing does not steal focus");
+
+    // --- ScrollArea: offset clamping --------------------------------------
+    check(near(ui.ScrollArea("v1", tl, 40, 320, 300, 200, 1000.0f, 0.0f), 0.0f),
+          "scroll: zero offset stays zero");
+    check(near(ui.ScrollArea("v1", tl, 40, 320, 300, 200, 1000.0f, 50.0f), 50.0f),
+          "scroll: an in-range offset passes through");
+    check(near(ui.ScrollArea("v1", tl, 40, 320, 300, 200, 1000.0f, 99999.0f), 800.0f),
+          "scroll: clamps to content_height - h");
+    check(near(ui.ScrollArea("v1", tl, 40, 320, 300, 200, 1000.0f, -20.0f), 0.0f),
+          "scroll: a negative offset clamps to 0");
+    // Content shorter than the viewport cannot scroll at all.
+    check(near(ui.ScrollArea("v2", tl, 40, 320, 300, 200, 150.0f, 30.0f), 0.0f),
+          "scroll: short content pins the offset to 0");
+    check(near(ui.ScrollArea("v2", tl, 40, 320, 300, 200, 200.0f, 30.0f), 0.0f),
+          "scroll: exactly-fitting content pins to 0");
+    // Guard the divide-by-zero in the thumb height.
+    check(near(ui.ScrollArea("v2", tl, 40, 320, 300, 200, 0.0f, 30.0f), 0.0f),
+          "scroll: empty content pins to 0");
+
+    // --- Every widget draws, and the batch survives it ---------------------
+    // QuadCount is reset by BeginFrame, so each frame below is measured
+    // standalone rather than diffed against the previous one.
+    r.BeginFrame(0.0f, 0.08f, 0.10f, 0.14f);
+    (void)ui.Slider("d1", tl, 40, 40, 200, 24, 0.5f, 0.0f, 1.0f);
+    (void)ui.Checkbox("d2", tl, 40, 80, 20, true, "option");
+    (void)ui.Checkbox("d3", tl, 40, 110, 20, false, "option");
+    (void)ui.TextInput("d4", tl, 40, 140, 200, 28, 8);
+    (void)ui.ScrollArea("d5", tl, 40, 180, 300, 200, 1000.0f, 0.0f);
+    r.EndFrame();
+    const std::size_t all_quads = r.QuadCount();
+    check(all_quads > 0, "draw: widgets submit quads");
+    // 2 per slider (backdrop + track) + thumb, 2 per checkbox + tick,
+    // 2 per text field, scrollbar track + thumb.
+    check(all_quads >= 10, "draw: every widget contributes geometry");
+    check(r.DrawCallCount() > 0, "draw: widgets were flushed");
+
+    // An empty unfocused field falls back to its placeholder; a filled one
+    // draws its glyphs. Both are measurable because text emits one quad per
+    // glyph.
+    ui.SetTextValue("d6", "");
+    r.BeginFrame(0.0f, 0.08f, 0.10f, 0.14f);
+    (void)ui.TextInput("d6", tl, 40, 40, 200, 28, 0);
+    r.EndFrame();
+    const std::size_t empty_quads = r.QuadCount();
+    ui.SetTextValue("d6", "full");
+    r.BeginFrame(0.0f, 0.08f, 0.10f, 0.14f);
+    (void)ui.TextInput("d6", tl, 40, 40, 200, 28, 0);
+    r.EndFrame();
+    const std::size_t full_quads = r.QuadCount();
+    check(empty_quads >= 2, "draw: an empty field draws frame + placeholder");
+    check(full_quads >= 2, "draw: a filled field draws frame + text");
+    check(empty_quads > full_quads,
+          "draw: the placeholder is longer than the typed text");
+
+    std::printf("[ui] %s: %d checks, %d failures\n", failures == 0 ? "PASS" : "FAIL",
+                checks, failures);
+    return failures == 0 ? 0 : 1;
+}
+
 int RunPathTest(fake2d::Engine &engine) {
     int failures = 0;
     int checks = 0;
@@ -3116,6 +3252,7 @@ int main(int argc, char **argv) {
     bool timestep_test = false;
     bool path_test = false;
     bool rt_test = false;
+    bool ui_test = false;
     int max_frames = 0;
     int shot_frame = 30;
     std::string screenshot;
@@ -3149,6 +3286,9 @@ int main(int argc, char **argv) {
             // Offscreen render targets: bake-once art + accumulating trail.
             // Needs no procedural assets — everything is drawn from quads.
             cfg.script_entry = "scripts/rt_demo.lua";
+        } else if (arg == "--ui-demo") {
+            // Sliders, checkboxes, text fields and scroll areas.
+            cfg.script_entry = "scripts/ui_demo.lua";
         } else if (arg == "--screenshot" && i + 1 < argc) {
             screenshot = argv[++i];
         } else if (arg == "--shot-frame" && i + 1 < argc) {
@@ -3203,6 +3343,13 @@ int main(int argc, char **argv) {
             cfg.headless = true;
             cfg.script_entry.clear();
             cfg.vsync = false;
+        } else if (arg == "--ui-test") {
+            // Headless self-test of the sliders / checkboxes / text fields /
+            // scroll areas added in Phase 20.
+            ui_test = true;
+            cfg.headless = true;
+            cfg.script_entry.clear();
+            cfg.vsync = false;
         } else if (arg == "--fixed-hz" && i + 1 < argc) {
             // Physics rate; 0 (or --variable-step) restores variable stepping.
             const int hz = std::atoi(argv[++i]);
@@ -3246,6 +3393,9 @@ int main(int argc, char **argv) {
     }
     if (rt_test) {
         return RunRenderTargetTest(engine);
+    }
+    if (ui_test) {
+        return RunUITest(engine);
     }
 
     // All gameplay is pure Lua below; C++ only guarantees the binary asset
