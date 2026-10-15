@@ -296,6 +296,19 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 
 ---
 
+## Phase 26 — Fog of war: multiply blending & mask sampling (1.20.x)
+
+- [x] **`BlendMode::Multiply` / `draw_set_blend(2)`**: `result = source * destination` (`GL_DST_COLOR, GL_ZERO`) — the missing compositing primitive. Alpha covers pixels over, additive only brightens, so neither can dim a scene by a per-pixel coverage value; multiply makes any grayscale surface a soft mask (white = no-op, black = erase, greys dim per channel). Because it is an ordinary batch blend it composites **inside** a bound target — exactly what `rt_copy` cannot do, since it refuses any nesting — so "scene × mask" is three draws in one target, no extra pass. Documented gotcha: the source RGB drives the result and its alpha does not gate it, so a mask modulates colour, not opacity
+- [x] **`rt_sample(id, x, y)`**: one pixel back out of a target as a scalar (luminance), with draw-space orientation (top-left origin, matching what was drawn). Returns **-1** for anything that is not a real sample — unknown id, out-of-bounds coordinates — so `0` always means a genuine black pixel, never a failed lookup. This is the query side of a mask: "has this world point been revealed?" becomes game state (AI, spawns, minimap tooltips) instead of pixels nobody can inspect
+- [x] **`--fog-test`: 39 headless pixel-probe assertions**: white mask is an identity, black mask erases, a red mask keeps red and drops green/blue (per-channel, which is what distinguishes multiplication from an alpha cover or an inverse), a half mask lands strictly between full and empty, multiply composites inside a bound target where `rt_copy` is refused by nesting, blend mode is per-draw (alpha after multiply in one frame, and multiply over a black base stays black), accumulation persists across frames (two additive visits stack, never-visited stays black), `ReadPixel` bounds and the window surviving a masked draw
+- [x] **Mutation-checked (3)**: multiply degraded to alpha (2 failures), to additive (7), and the batch not splitting runs on a blend change. The last one **passed** at first — there was no probe on "multiply over a black base", the one spot where alpha and multiply visibly differ — which added exactly that probe
+- [x] **`--fog-demo`**: a procedural tile world (deterministic sin-hash, no assets, no RNG) with a fog-of-war pipeline in four steps — reveal stamped additively into a never-cleared mask target, the scene drawn through the target's camera (`rt_camera`), the mask blitted over the whole world with multiply (one transform, so tiles and mask line up by construction), then present + HUD. A baked tile minimap is multiplied by the same mask at 1/8 scale, clicking the minimap jumps the view (and the explorer) there, `F` toggles the fog, `R` forgets, and an "explored %" readout is driven by `rt_sample` on a coarse grid every 12 frames. The tile art is baked once instead of being redrawn 768 times a frame
+- [x] Verified by pixel bounding-box probe (content within 960×540) plus one eyeball pass that caught the `pos` readout overflowing the right edge of the canvas
+- [x] `--fog-test` / `--fog-demo` wired into CI on Linux (xvfb, exit-code + summary-line gate), macOS and Windows
+- [x] Verification: `--fog-test` 39/39; `--fog-demo` headless smoke + pixel-probed screenshot; all gates re-run green
+
+---
+
 ## Non-goals (for now)
 
 - Full 3D / PBR (Fake2D is strictly focused on high-performance 2D)

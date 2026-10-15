@@ -206,6 +206,13 @@ void SpriteBatch::ApplyBlend(BlendMode mode) {
         case BlendMode::Additive:
             glBlendFunc(GL_SRC_ALPHA, GL_ONE);
             break;
+        case BlendMode::Multiply:
+            // src * dst, channel by channel: white is a no-op and black erases
+            // to black, which is exactly how a grayscale mask should behave.
+            // Note the source RGB drives the result and its alpha does not gate
+            // it — modulate the colour, not the opacity, when using this mode.
+            glBlendFunc(GL_DST_COLOR, GL_ZERO);
+            break;
         case BlendMode::Alpha:
         default:
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);

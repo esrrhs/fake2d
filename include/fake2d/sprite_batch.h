@@ -21,10 +21,15 @@ struct LineVertex {
     Color color;
 };
 
-/// Alpha blending (normal transparency) or additive (glow/particles).
+/// Alpha blending (normal transparency), additive (glow/particles) or
+/// multiply (masks). Multiply is what turns an offscreen target into a soft
+/// mask: `result = source * destination`, so a grayscale texture drawn over a
+/// scene dims it per-channel instead of painting over it — the primitive
+/// behind fog-of-war, light maps and silhouette shadows.
 enum class BlendMode : std::uint8_t {
     Alpha = 0,
     Additive = 1,
+    Multiply = 2,
 };
 
 class SpriteBatch {

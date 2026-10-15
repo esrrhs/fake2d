@@ -145,7 +145,7 @@ overlapping content into different layers instead.
 | `batch_set_sorted(bool)` | Enable/disable deferred sorted batching for subsequent frames (stays set across frames). |
 | `draw_set_layer(n)` | Integer layer of subsequent draws; lower layers draw first. Default 0. |
 | `draw_set_z(z)` | Float depth inside the layer; smaller z draws first. Default 0. |
-| `draw_set_blend(mode)` | `0` = normal alpha blending, `1` = additive (`SRC_ALPHA, ONE`) for glow/fire/particles. |
+| `draw_set_blend(mode)` | `0` = normal alpha blending, `1` = additive (`SRC_ALPHA, ONE`) for glow/fire/particles, `2` = multiply (`DST_COLOR, ZERO`) for masks: the incoming quad scales what is already there channel by channel, so white is a no-op, black erases, and greys dim. Note the source **RGB** drives the result and its alpha does not gate it — modulate the colour, not the opacity. Unknown modes fall back to alpha. |
 
 Layer, z and blend reset at the start of each frame. The C++ scene graph
 already sorts itself automatically; these functions are for script-driven
@@ -238,6 +238,7 @@ target).
 | `rt_active() -> id` | Currently bound target, `0` for the window. |
 | `rt_copy(src, dst, shader) -> bool` | One ping-pong pass: blit `src` across the whole canvas of target `dst`, optionally through a shader (`0` = none). Equivalent to `rt_begin(dst)` + `rt_present(src)` + `rt_end()`, but it cannot be got wrong — refuses `src == dst` (a surface cannot be sampled while it is being drawn into), the window as either side, and any nesting. `dst` is not cleared first; clear it manually when the source is translucent. |
 | `rt_resize(id, w, h) -> bool` | Reallocate a target at a new pixel size; the old contents are lost. Half- and quarter-resolution passes are why this exists — a blur over a downsampled surface costs a fraction of the taps. Refused while that target is bound, and a refused resize never destroys the target. |
+| `rt_sample(id, x, y) -> number` | Read one pixel back out as a single scalar (luminance, 0..1). The query side of a mask: "has this world point been revealed?" becomes game state instead of pixels nobody can inspect. Returns **-1** for anything that is not a real sample (unknown id, out-of-bounds coordinates), so `0` always means a genuine black pixel. `x`/`y` are integer target pixels, top-left origin, matching what was drawn. Per-pixel `glReadPixels` is slow — sample a coarse grid on a period, not every texel every frame. |
 | `rt_destroy(id)` | Free the slot. Releases the target first if it is the bound one; destroying twice is safe. |
 
 ```lua
@@ -309,6 +310,37 @@ the step in UV (so `0,0` is a straight copy), and `u_dim` scales the pass for
 an additive composite. `scripts/fx_demo.lua` (`--fx-demo`) builds a bloom out
 of it and shows a split-screen mode; `--fx-test` asserts the whole chain with
 pixel probes.
+
+**Masks and fog** need neither shader nor ping-pong: a coverage value is just
+a picture, and `draw_set_blend(2)` applies it in place. Draw the scene into a
+target, then blit a grayscale mask over it under the same camera transform —
+explored areas stay bright, unexplored ones go black. Because it is an
+ordinary batch blend it composites *inside* a bound target, which `rt_copy`
+cannot do (it refuses any nesting). Keep the mask in its own accumulation
+target that nothing ever clears, stamp it additively as the viewer moves, and
+sample it back with `rt_sample` when gameplay needs to ask about it.
+
+```lua
+-- every frame: reveal, composite, query
+rt_begin(mask_rt)                                   -- accumulate, never clear
+draw_set_blend(1)
+draw_quad(px / 8.0 - 13.0, py / 8.0 - 13.0, 26.0, 26.0, 0.35, 0.35, 0.35, 1.0)
+draw_set_blend(0)
+rt_end()
+
+rt_begin(scene_rt)
+rt_camera(camx, camy)                               -- the view the player sees
+draw_world()
+draw_set_blend(2)                                   -- scene x coverage
+rt_draw(mask_rt, 0.0, 0.0, WORLD_W, WORLD_H)        -- one blit, whole world
+draw_set_blend(0)
+rt_end()
+rt_present(scene_rt, 0)
+```
+
+`scripts/fog_demo.lua` (`--fog-demo`) builds a full fog-of-war world out of
+this — accumulating reveal, a baked minimap multiplied by the same mask, a
+click-to-jump map, and an "explored %" readout driven by `rt_sample`.
 
 ### Audio
 
