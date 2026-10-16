@@ -12,6 +12,11 @@
 --                fade slider at 0 the switch is a hard cut.
 --   * pause    - freezes the mix. Nothing advances (neither cursors nor
 --                fades), so resuming picks up exactly where it stopped.
+--   * files    - audio_load_file decodes a whole file (WAV/FLAC/MP3/OGG) into
+--                a clip; audio_stream registers the same file without decoding
+--                it and reads it in windows as it plays. The BUFFERED readout
+--                is the difference made visible: a decoded track is resident
+--                in full, a streamed one holds one window.
 --
 -- The mixer is independent of the device: audio_peak() reports the loudest
 -- sample of the last block the device consumed, so in a headless run (no
@@ -22,6 +27,16 @@
 --
 -- FakeLua note: chunk-level locals must be initialised, natives take an
 -- exact argument count, and state lives in plain file locals.
+
+-- Streamed vs decoded: registered on the first frame (the engine has no init
+-- hook here), and the readouts are what the panel is about.
+local stream_ready = false
+local stream_ok = false
+local decode_ok = false
+-- Note the `+ 0.0`: a file-level local initialised from a bare literal is a
+-- constant in FakeLua, and these are written every frame.
+local stream_len = 0.0 + 0.0
+local cached_frames = 0.0 + 0.0
 
 local SEGMENTS = 24 + 0
 local SEG_W = 11 + 0
@@ -212,6 +227,48 @@ function update(dt)
     end
     draw_text("peak " .. pct(peak) .. "%", 640, 234, 0.6, 0.75, 0.85, 0.95, 1.0)
     draw_text("playing: " .. track, 640, 258, 0.6, 0.5, 0.58, 0.66, 1.0)
+
+    -- --- decoded file vs streamed track (Phase 29) ------------------------
+    if not stream_ready then
+        stream_ready = true
+        decode_ok = audio_load_file("decoded", "assets/music.wav")
+        stream_ok = audio_stream("streamed", "assets/music.wav")
+        stream_len = audio_clip_len("streamed")
+    end
+
+    draw_text("FILE PLAYBACK", 640, 300, 0.75, 0.62, 0.86, 0.98, 1.0)
+    if ui_button("play_dec", 0, 640, 320, 128, 28, "DECODED", 0.6) then
+        audio_music("decoded", level, crossfade)
+    end
+    if ui_button("play_str", 0, 776, 320, 128, 28, "STREAMED", 0.6) then
+        audio_music("streamed", level, crossfade)
+    end
+    draw_text("assets/music.wav  " .. one_dp(stream_len) .. "s", 640, 358, 0.55,
+              0.5, 0.58, 0.66, 1.0)
+    if not decode_ok or not stream_ok then
+        draw_text("file not found - run from the project root", 640, 378, 0.55,
+                  0.75, 0.55, 0.55, 1.0)
+    else
+        cached_frames = audio_clip_cached("streamed")
+        local dec_frames = audio_clip_cached("decoded")
+        draw_text("buffered " .. pct(dec_frames / (stream_len * 44100.0))
+                  .. " vs " .. pct(cached_frames / (stream_len * 44100.0)),
+                  640, 378, 0.55, 0.75, 0.85, 0.95, 1.0)
+        -- The bar is the whole point: one window wide for a stream, full for
+        -- a decoded file.
+        local total = stream_len * 44100.0
+        if total > 0.0 then
+            draw_quad(640, 396, 260, 10, 0.13, 0.16, 0.24, 1.0)
+            draw_quad(640, 396, 260 * (cached_frames / total), 10,
+                      0.45, 0.86, 0.58, 1.0)
+            draw_quad(640, 412, 260, 10, 0.13, 0.16, 0.24, 1.0)
+            draw_quad(640, 412, 260 * (dec_frames / total), 10,
+                      0.34, 0.55, 0.92, 1.0)
+        end
+        draw_text("streamed (top) vs decoded (bottom)", 640, 430, 0.55,
+                  0.5, 0.58, 0.66, 1.0)
+        draw_text("frames held in memory", 640, 448, 0.55, 0.5, 0.58, 0.66, 1.0)
+    end
 
     -- The logical canvas is 960x540 (1920x1080 at 2x), so nothing here may
     -- sit below y=540 or past x=960.

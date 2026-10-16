@@ -49,6 +49,9 @@ AudioEngine::AudioEngine() {
 
 AudioEngine::~AudioEngine() {
     Shutdown();
+    // Stream decoders hold the file open; clips outlive the device, so this
+    // is the destructor's job, not Shutdown()'s.
+    ReleaseStreams();
     delete static_cast<std::mutex *>(mutex_);
     mutex_ = nullptr;
 }
@@ -105,8 +108,172 @@ bool AudioEngine::AddClip(std::string_view name, const std::vector<float> &mono_
     if (existing != clips_.end()) {
         return false;
     }
-    clips_.push_back(Clip{key, mono_pcm});
+    Clip clip;
+    clip.name = key;
+    clip.pcm = mono_pcm;
+    clips_.push_back(std::move(clip));
     return true;
+}
+
+namespace {
+
+/// The decoder config every file path shares: mono float at the mixer rate,
+/// which makes miniaudio do the channel downmix and the resample itself.
+ma_decoder_config DecoderConfig() {
+    return ma_decoder_config_init(ma_format_f32, 1,
+                                  static_cast<ma_uint32>(fake2d::AudioEngine::kSampleRate));
+}
+
+/// Read the whole file through `decoder` into `pcm`. The decoder is left for
+/// the caller to uninit.
+bool ReadAllPcm(ma_decoder *decoder, std::vector<float> &pcm) {
+    std::vector<float> chunk(4096);
+    for (;;) {
+        ma_uint64 read = 0;
+        if (ma_decoder_read_pcm_frames(decoder, chunk.data(),
+                                       static_cast<ma_uint64>(chunk.size()),
+                                       &read) != MA_SUCCESS) {
+            break;
+        }
+        if (read == 0) {
+            break;
+        }
+        pcm.insert(pcm.end(), chunk.begin(),
+                   chunk.begin() + static_cast<std::ptrdiff_t>(read));
+    }
+    return !pcm.empty();
+}
+
+} // namespace
+
+bool AudioEngine::AddClipFile(std::string_view name, const std::string &path) {
+    const std::string key(name);
+    {
+        std::lock_guard<std::mutex> lock(MixerMutex(mutex_));
+        const auto existing = std::find_if(clips_.begin(), clips_.end(),
+                                           [&](const Clip &c) { return c.name == key; });
+        if (existing != clips_.end()) {
+            return false;
+        }
+    }
+    const ma_decoder_config config = DecoderConfig();
+    ma_decoder decoder{};
+    if (ma_decoder_init_file(path.c_str(), &config, &decoder) != MA_SUCCESS) {
+        return false;
+    }
+    std::vector<float> pcm;
+    const bool ok = ReadAllPcm(&decoder, pcm);
+    ma_decoder_uninit(&decoder);
+    if (!ok) {
+        return false;
+    }
+    return AddClip(key, pcm);
+}
+
+bool AudioEngine::AddStream(std::string_view name, const std::string &path) {
+    const std::string key(name);
+    {
+        std::lock_guard<std::mutex> lock(MixerMutex(mutex_));
+        const auto existing = std::find_if(clips_.begin(), clips_.end(),
+                                           [&](const Clip &c) { return c.name == key; });
+        if (existing != clips_.end()) {
+            return false;
+        }
+    }
+    const ma_decoder_config config = DecoderConfig();
+    auto *decoder = new ma_decoder();
+    if (ma_decoder_init_file(path.c_str(), &config, decoder) != MA_SUCCESS) {
+        delete decoder;
+        return false;
+    }
+    ma_uint64 length = 0;
+    // Frames at the *decoder output* rate, i.e. the mixer rate, which is the
+    // unit the voice cursor runs in.
+    if (ma_decoder_get_length_in_pcm_frames(decoder, &length) != MA_SUCCESS || length == 0) {
+        ma_decoder_uninit(decoder);
+        delete decoder;
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(MixerMutex(mutex_));
+    // Re-check: another thread could have taken the name while decoding.
+    const auto dup = std::find_if(clips_.begin(), clips_.end(),
+                                  [&](const Clip &c) { return c.name == key; });
+    if (dup != clips_.end()) {
+        ma_decoder_uninit(decoder);
+        delete decoder;
+        return false;
+    }
+    Clip clip;
+    clip.name = key;
+    clip.stream = true;
+    clip.decoder = decoder;
+    clip.length_frames = length;
+    // Empty window on purpose: the first mix decodes what it needs.
+    clips_.push_back(std::move(clip));
+    return true;
+}
+
+bool AudioEngine::FillWindow(Clip &clip, std::uint64_t start_frame) {
+    auto *decoder = static_cast<ma_decoder *>(clip.decoder);
+    if (decoder == nullptr) {
+        return false;
+    }
+    // Sequential playback asks for the frame right after the window we just
+    // read, and the decoder is already sitting there — keep reading instead of
+    // seeking. A seek resets the resampler, and a reset at every window
+    // boundary is audible (and makes a stream differ from a straight decode).
+    // A jump — loop wrap, restart, or a second voice — still seeks.
+    const std::uint64_t next = clip.window_start + clip.pcm.size();
+    if (start_frame != next &&
+        ma_decoder_seek_to_pcm_frame(decoder, start_frame) != MA_SUCCESS) {
+        return false;
+    }
+    clip.pcm.assign(kStreamWindowFrames, 0.0f);
+    ma_uint64 read = 0;
+    if (ma_decoder_read_pcm_frames(decoder, clip.pcm.data(),
+                                   static_cast<ma_uint64>(kStreamWindowFrames),
+                                   &read) != MA_SUCCESS) {
+        return false;
+    }
+    clip.pcm.resize(static_cast<std::size_t>(read));
+    clip.window_start = start_frame;
+    return !clip.pcm.empty();
+}
+
+void AudioEngine::ReleaseStreams() {
+    for (Clip &clip : clips_) {
+        if (clip.decoder != nullptr) {
+            auto *decoder = static_cast<ma_decoder *>(clip.decoder);
+            ma_decoder_uninit(decoder);
+            delete decoder;
+            clip.decoder = nullptr;
+        }
+    }
+}
+
+float AudioEngine::ClipDuration(std::string_view name) const {
+    const std::string key(name);
+    std::lock_guard<std::mutex> lock(MixerMutex(mutex_));
+    const auto it = std::find_if(clips_.begin(), clips_.end(),
+                                 [&](const Clip &c) { return c.name == key; });
+    if (it == clips_.end()) {
+        return 0.0f;
+    }
+    const std::uint64_t frames = it->stream ? it->length_frames : it->pcm.size();
+    return static_cast<float>(frames) / static_cast<float>(kSampleRate);
+}
+
+std::size_t AudioEngine::ResidentFrames(std::string_view name) const {
+    const std::string key(name);
+    std::lock_guard<std::mutex> lock(MixerMutex(mutex_));
+    const auto it = std::find_if(clips_.begin(), clips_.end(),
+                                 [&](const Clip &c) { return c.name == key; });
+    if (it == clips_.end()) {
+        return 0;
+    }
+    // A stream's pcm *is* its window, so this reads the same for both kinds —
+    // which is the point: it is the memory a track actually costs right now.
+    return it->pcm.size();
 }
 
 AudioEngine::Voice *AudioEngine::StartClip(std::string_view name, float volume, bool loop,
@@ -120,7 +287,9 @@ AudioEngine::Voice *AudioEngine::StartClip(std::string_view name, float volume, 
     // lock and never hold a Clip* across an unlock.
     auto clip_it = std::find_if(clips_.begin(), clips_.end(),
                                 [&](const Clip &c) { return c.name == key; });
-    if (clip_it == clips_.end() || clip_it->pcm.empty()) {
+    // A stream has no PCM until its first mix, so an empty window is not the
+    // same thing as an empty clip.
+    if (clip_it == clips_.end() || (clip_it->pcm.empty() && !clip_it->stream)) {
         return nullptr;
     }
 
@@ -218,7 +387,7 @@ float AudioEngine::ListenerRange() const {
     return listener_range_;
 }
 
-void AudioEngine::ResetVoice(Voice &voice, const Clip *clip, float volume) const {
+void AudioEngine::ResetVoice(Voice &voice, Clip *clip, float volume) const {
     voice.clip = clip;
     voice.cursor = 0.0;
     voice.step = 1.0;
@@ -538,20 +707,42 @@ void AudioEngine::Mix(float *out, int frame_count) {
             if (!voice.active) {
                 continue;
             }
-            const auto &pcm = voice.clip->pcm;
-            if (pcm.empty()) {
+            Clip &clip = *voice.clip;
+            const bool streaming = clip.stream;
+            // A stream's length is the file's, not the window's: the cursor
+            // runs over the whole track and the window follows it.
+            const std::uint64_t length =
+                streaming ? clip.length_frames
+                          : static_cast<std::uint64_t>(clip.pcm.size());
+            if (length == 0) {
                 voice.active = false;
                 continue;
             }
-            auto index = static_cast<std::size_t>(voice.cursor);
-            if (index >= pcm.size()) {
+            auto index = static_cast<std::uint64_t>(voice.cursor);
+            if (index >= length) {
                 if (voice.loop) {
-                    voice.cursor = std::fmod(voice.cursor, static_cast<double>(pcm.size()));
-                    index = static_cast<std::size_t>(voice.cursor);
+                    voice.cursor = std::fmod(voice.cursor, static_cast<double>(length));
+                    index = static_cast<std::uint64_t>(voice.cursor);
                 } else {
                     voice.active = false;
                     continue;
                 }
+            }
+            float dry = 0.0f;
+            if (streaming) {
+                // Only refill when the cursor leaves the window: a normal mix
+                // block advances a few hundred frames inside one window.
+                if (index < clip.window_start ||
+                    index >= clip.window_start + clip.pcm.size()) {
+                    if (!FillWindow(clip, index)) {
+                        voice.active = false;
+                        continue;
+                    }
+                    index = std::min(index, clip.window_start + clip.pcm.size() - 1);
+                }
+                dry = clip.pcm[static_cast<std::size_t>(index - clip.window_start)];
+            } else {
+                dry = clip.pcm[static_cast<std::size_t>(index)];
             }
             // Envelope -> bus -> master. A music voice that has finished its
             // fade-out leaves the mix here rather than looping forever.
@@ -561,7 +752,7 @@ void AudioEngine::Mix(float *out, int frame_count) {
             float pan_l = 1.0f;
             float pan_r = 1.0f;
             PanGains(voice.pan, pan_l, pan_r);
-            const float sample = pcm[index] * gain;
+            const float sample = dry * gain;
             left += sample * pan_l;
             right += sample * pan_r;
             voice.cursor += voice.step;

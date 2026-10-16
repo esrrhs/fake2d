@@ -1691,6 +1691,43 @@ void RegisterAudioApi(fakelua::State *state, Engine *engine) {
             [engine](fakelua::State *) -> double {
                 return engine->GetAudio().PeakRight();
             }));
+
+    // --- decoded files & streamed tracks (Phase 29) -------------------------
+    // `audio_load_file` decodes the whole file (WAV/FLAC/MP3/OGG-Vorbis,
+    // whatever miniaudio reads) into a clip; `audio_stream` registers the same
+    // file without decoding it and reads it in windows as it plays, which is
+    // what a long music track wants. Both are played by the existing
+    // `audio_music` / `audio_play` — a stream is a clip whose samples arrive
+    // on demand.
+    fakelua::RegisterNativeFunction(
+        state, "audio_load_file", false,
+        std::function<bool(fakelua::State *, std::string_view, std::string_view)>(
+            [engine](fakelua::State *, std::string_view name, std::string_view path) {
+                return engine->GetAudio().AddClipFile(name, std::string(path));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "audio_stream", false,
+        std::function<bool(fakelua::State *, std::string_view, std::string_view)>(
+            [engine](fakelua::State *, std::string_view name, std::string_view path) {
+                return engine->GetAudio().AddStream(name, std::string(path));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "audio_clip_len", false,
+        std::function<double(fakelua::State *, std::string_view)>(
+            [engine](fakelua::State *, std::string_view name) -> double {
+                return engine->GetAudio().ClipDuration(name);
+            }));
+
+    // Frames currently buffered: the whole clip for a decoded file, one window
+    // for a stream — the tell that a track is really being streamed.
+    fakelua::RegisterNativeFunction(
+        state, "audio_clip_cached", false,
+        std::function<double(fakelua::State *, std::string_view)>(
+            [engine](fakelua::State *, std::string_view name) -> double {
+                return static_cast<double>(engine->GetAudio().ResidentFrames(name));
+            }));
 }
 
 void RegisterParticleApi(fakelua::State *state, Engine *engine) {

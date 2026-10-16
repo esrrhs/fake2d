@@ -7,7 +7,7 @@
 
 **Fake2D** 是基于 [FakeLua](https://github.com/esrrhs/fakelua) 的现代化轻量 2D 游戏渲染引擎：C++ 宿主掌控窗口、GPU 资源与场景数据；FakeLua 脚本负责编排玩法与实体逻辑，并在每帧边界执行 Arena 线性重置（**零 GC 停顿**）。
 
-> 当前状态：**1.22 — Phase 28 UI 控件第三批已完成** — 已包含 1.21 及之前的全部能力（剪裁矩形、九宫格、对齐换行文本、固定步长物理、相机跟随工具、碰撞过滤、瓦片地图 A\* 寻路、离屏渲染目标、全屏后处理 + 小地图烘焙、音频混音器、位置音频、ping-pong 趟、自动 uniform、UI 控件第二批、战争迷雾、bloom 级 FX 套件），并新增三个控件：**`ui_window`**（标题栏拖拽面板——返回的是「正在被拖拽」，位置由脚本自持，抓取帧静默所以面板不会跳变）、**`ui_tab`**（激活页由调用方自持，激活页更亮并与下方面板相连）与 **`ui_tree`**（展开行，子项就是一段 if 块），配套 **`input_mouse_dx/_dy`** 提供拖拽所需的逐帧增量。`--ui-test` 现覆盖 76 条；**`--ui3-demo`** 是一个可拖拽的 SETTINGS 窗口，含三个标签页、可折叠树形分组与 `ui_hovered` 工具提示。详见下方[实现计划](#实现计划)、[docs/PLAN.md](docs/PLAN.md)、[脚本编写指南](docs/SCRIPTING.md) 与[跨平台打包说明](docs/PACKAGING.md)。
+> 当前状态：**1.23 — Phase 29 解码文件与流式音乐已完成** — 已包含 1.22 及之前的全部能力（剪裁矩形、九宫格、对齐换行文本、固定步长物理、相机跟随工具、碰撞过滤、瓦片地图 A\* 寻路、离屏渲染目标、全屏后处理 + 小地图烘焙、音频混音器、位置音频、ping-pong 趟、自动 uniform、UI 控件第二批、战争迷雾、bloom 级 FX 套件、UI 控件第三批），并新增**解码音频文件与流式音乐**：`audio_load_file` / `audio_stream` 可注册 miniaudio 解码器支持的所有文件（WAV、FLAC、MP3、OGG/Vorbis），要么整体解码进内存，要么按需回填 8192 帧窗口（约 0.19 s）的流——三分钟的曲目只占几 KB 而不是几 MB——配套 `audio_clip_len` / `audio_clip_cached` 报告时长与驻留帧数，顺序回填不做中途 seek（seek 会重置重采样器、可闻），`--audio-test` 扩到 106 条，`--audio-demo` 新增 FILE PLAYBACK 面板直观展示两种路径的内存差异。详见下方[实现计划](#实现计划)、[docs/PLAN.md](docs/PLAN.md)、[脚本编写指南](docs/SCRIPTING.md) 与[跨平台打包说明](docs/PACKAGING.md)。
 
 ---
 
@@ -235,6 +235,7 @@ end
 | **26 — 战争迷雾 (1.20)** | 渲染 | `BlendMode::Multiply`（`draw_set_blend(2)`，`DST_COLOR, ZERO`——遮罩在已绑定目标内部合成，`rt_copy` 因拒绝嵌套做不到；源 RGB 驱动结果、alpha 不参与门控）、`rt_sample(id, x, y)`（像素查询读回标量，非法读取返回 -1，故 0 恒为真黑）、1 个新绑定、`--fog-test`（39 条像素探针：恒等/擦除/逐通道/半遮罩、目标内合成 vs 嵌套拒绝、逐绘制混合状态、跨帧累积、越界守卫）、`--fog-demo` 程序化战争迷雾世界：累积式探索、烘焙小地图 × 遮罩、点击跳转、`rt_sample` 驱动的探索度读数 | **已完成** |
 | **27 — 动画 pass (1.21)** | 渲染 | 渲染器自动灌入的 uniform：`u_time`（帧时钟，脚本零簿记）与 `u_resolution`（正在绘制的表面，像素参数与分辨率无关）、`assets/fx_bright.*`（bloom 阈值 + 软膝，0/0 即恒等）、`assets/fx_wave.*`（行波扭动；`u_amp` 以像素计，符号已记录——采样点右移画面左移）、`--fx-test` 扩到 80 条（恒等/硬切/软膝、±8 px 四分之一周期、128 与 64 同位移）、`--fx-demo` 链路扩为 `场景 → wave → bright → blur → 合成`，带开关与滑杆 | **已完成** |
 | **28 — UI 控件第三批 (1.22)** | UI | `ui_window`：标题栏拖拽面板（返回「正在被拖拽」，位置由脚本经 `input_mouse_dx/_dy` 自持；抓取帧静默不跳变；按在面板主体上不抓取；按住不放拖出标题栏不丢），`ui_tab`：激活页由调用方自持，更亮、长高 2 px 并去掉下边缘，`ui_tree`：展开行（三个 quad 画的右/下三角），子项就是 if 块，`--ui-test` 扩到 76 条（拖拽路径、点击/取消语义、bar/body/分隔线像素探针、激活页更亮且下探 2 px），`--ui3-demo`：可拖拽 SETTINGS 窗口，三标签页 + 可折叠树 + `ui_hovered` 工具提示 | **已完成** |
+| **29 — 解码文件与流式音乐 (1.23)** | 音频 | `audio_load_file`：miniaudio 解码器支持的任意文件（WAV/FLAC/MP3/OGG-Vorbis）混到单声道、重采样到混音器采样率并注册为 clip，`audio_stream`：同样的文件按 8192 帧窗口按需回填播放——三分钟曲目只占几 KB 而非几 MB——顺序回填避开会重置重采样器的可闻 seek，`audio_clip_len` / `audio_clip_cached` 报告时长与驻留帧数，`--audio-test` 扩到 106 条（流与解码逐块对比、拒绝路径、越尾循环、暂停/恢复/停止），`--audio-demo` 的 FILE PLAYBACK 面板带缓冲对比读数 | **已完成** |
 
 详细任务清单见 [docs/PLAN.md](docs/PLAN.md)。
 
