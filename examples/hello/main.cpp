@@ -2015,6 +2015,122 @@ int RunFxTest(fake2d::Engine &engine) {
 
     r.EndFrame();
 
+    // --- bright pass: the threshold a bloom starts with --------------------
+    // Three probes in one scene: a white highlight, a mid grey and a dark
+    // grey. Everything here is about the *relationship* between them, so the
+    // scene is drawn once and the pass is run over it with different knobs.
+    check(r.ResizeRenderTarget(b, 128, 128), "bright: B goes back to 128x128");
+    const int bright = r.LoadShaderFromFile("assets/fx_bright.vert", "assets/fx_bright.frag");
+    check(bright > 0, "shader: the bright-pass program compiles");
+    check(r.BeginRenderTarget(a), "bright: A binds for the probe scene");
+    r.ClearActiveTarget(fake2d::Color{0.0f, 0.0f, 0.0f, 1.0f});
+    r.DrawQuad(20.0f, 20.0f, 8.0f, 8.0f, fake2d::Color{1.0f, 1.0f, 1.0f, 1.0f});
+    r.DrawQuad(60.0f, 20.0f, 8.0f, 8.0f, fake2d::Color{0.5f, 0.5f, 0.5f, 1.0f});
+    r.DrawQuad(100.0f, 20.0f, 8.0f, 8.0f, fake2d::Color{0.3f, 0.3f, 0.3f, 1.0f});
+    r.EndRenderTarget();
+    check(t_b->IsValid(), "bright: B is live");
+
+    // Defaults: threshold 0 / knee 0 keep everything, so the pass is a copy.
+    if (bright > 0) {
+        r.SetShaderFloat(bright, "u_threshold", 0.0f);
+        r.SetShaderFloat(bright, "u_knee", 0.0f);
+    }
+    check(r.CopyRenderTarget(a, b, r.GetShader(bright)), "bright: the pass runs");
+    check(t_b->ReadPixel(24, 24, px) && near(px.r, 1.0f),
+          "bright: at threshold 0 the highlight is untouched");
+    check(t_b->ReadPixel(104, 24, px) && near(px.r, 0.3f),
+          "bright: at threshold 0 the darkest probe is untouched too");
+
+    // A hard cut at 0.9 keeps the highlight and drops both greys.
+    if (bright > 0) {
+        r.SetShaderFloat(bright, "u_threshold", 0.9f);
+    }
+    check(r.CopyRenderTarget(a, b, r.GetShader(bright)), "bright: the hard cut runs");
+    check(t_b->ReadPixel(24, 24, px) && near(px.r, 1.0f),
+          "bright: the highlight survives a 0.9 threshold");
+    check(t_b->ReadPixel(64, 24, px) && near(px.r, 0.0f),
+          "bright: mid grey is dropped by a 0.9 threshold");
+    check(t_b->ReadPixel(104, 24, px) && near(px.r, 0.0f),
+          "bright: dark grey is dropped by a 0.9 threshold");
+
+    // A soft knee: the mid grey lands strictly between dropped and kept, and
+    // brighter in still means brighter out (the ramp is monotonic, which is
+    // the whole point of a knee — no banding as pixels cross the threshold).
+    if (bright > 0) {
+        r.SetShaderFloat(bright, "u_threshold", 0.5f);
+        r.SetShaderFloat(bright, "u_knee", 0.25f);
+    }
+    check(r.CopyRenderTarget(a, b, r.GetShader(bright)), "bright: the soft knee runs");
+    check(t_b->ReadPixel(64, 24, px) && px.r > 0.05f && px.r < 0.45f,
+          "bright: a knee lets mid grey through partially");
+    check(t_b->ReadPixel(104, 24, px) && px.r < 0.1f,
+          "bright: a knee still drops what is well below it");
+    check(t_b->ReadPixel(24, 24, px) && near(px.r, 1.0f),
+          "bright: a knee does not dim what is well above it");
+
+    // --- animated passes: u_time and u_resolution --------------------------
+    // The renderer stamps both on every loaded shader; a pass that declares
+    // them animates on its own, and one that declares neither is untouched.
+    const int wave = r.LoadShaderFromFile("assets/fx_wave.vert", "assets/fx_wave.frag");
+    check(wave > 0, "shader: the wave program compiles");
+    r.SetTime(1.5f);
+    check(near(r.Time(), 1.5f), "time: the frame clock is readable back");
+
+    // A 4x4 dot at the centre of a 128 target, and the same dot at the centre
+    // of a 64 one: with u_freq = 0 every row displaces together, so the pass
+    // is a pure sideways shift of `u_amp` pixels — no matter the resolution.
+    check(r.BeginRenderTarget(a), "wave: A binds for the dot");
+    r.ClearActiveTarget(fake2d::Color{0.0f, 0.0f, 0.0f, 1.0f});
+    r.DrawQuad(62.0f, 62.0f, 4.0f, 4.0f, fake2d::Color::White());
+    r.EndRenderTarget();
+
+    // At t = 0 every row sits at phase 0, so sin = 0 and nothing moves even
+    // with an amplitude dialled in.
+    if (wave > 0) {
+        r.SetShaderFloat(wave, "u_amp", 8.0f);
+        r.SetShaderFloat(wave, "u_freq", 0.0f);
+        r.SetShaderFloat(wave, "u_speed", 1.0f);
+    }
+    r.SetTime(0.0f);
+    check(r.CopyRenderTarget(a, b, r.GetShader(wave)), "wave: the pass runs at t = 0");
+    check(t_b->ReadPixel(64, 64, px) && is_white(px),
+          "wave: at t = 0 the dot has not moved");
+    check(t_b->ReadPixel(80, 64, px) && is_black(px),
+          "wave: at t = 0 nothing arrives at the shifted position");
+
+    // A quarter period later the sine peaks: +8 pixels, at 128.
+    r.SetTime(1.5707963f);
+    check(r.CopyRenderTarget(a, b, r.GetShader(wave)), "wave: the pass runs at the peak");
+    check(t_b->ReadPixel(72, 64, px) && is_white(px),
+          "wave: the dot moves 8 px right at the peak (128 wide)");
+    check(t_b->ReadPixel(64, 64, px) && is_black(px),
+          "wave: the dot has left its old position (128 wide)");
+
+    // Same pass into a 64 target: still 8 of *its* pixels. This is what the
+    // stamped resolution buys — with the window's size instead, a half-size
+    // pass would shift by a fraction of a pixel and read unchanged.
+    check(r.BeginRenderTarget(c), "wave: C binds for the half-size dot");
+    r.ClearActiveTarget(fake2d::Color{0.0f, 0.0f, 0.0f, 1.0f});
+    r.DrawQuad(30.0f, 30.0f, 4.0f, 4.0f, fake2d::Color::White());
+    r.EndRenderTarget();
+    check(r.ResizeRenderTarget(b, 64, 64), "wave: B goes back to 64x64");
+    check(r.CopyRenderTarget(c, b, r.GetShader(wave)), "wave: the half-size pass runs");
+    check(t_b->ReadPixel(40, 32, px) && is_white(px),
+          "wave: the dot moves 8 px right at the peak (64 wide)");
+    check(t_b->ReadPixel(32, 32, px) && is_black(px),
+          "wave: the dot has left its old position (64 wide)");
+
+    // The clock is the only difference between the two frames above, so this
+    // is the assertion that pins "u_time is actually reaching the program".
+    r.SetTime(4.712389f); // three quarters: the sine is at -1
+    check(r.ResizeRenderTarget(b, 128, 128), "wave: B goes back to 128x128");
+    check(r.CopyRenderTarget(a, b, r.GetShader(wave)), "wave: the trough pass runs");
+    check(t_b->ReadPixel(56, 64, px) && is_white(px),
+          "wave: the dot moves 8 px left at the trough");
+    check(t_b->ReadPixel(64, 64, px) && is_black(px),
+          "wave: the dot has left the centre at the trough");
+    r.SetTime(0.0f);
+
     // --- the window survives the whole chain -------------------------------
     r.BeginFrame(0.0f, 0.0f, 0.0f, 1.0f);
     r.PresentRenderTarget(b, nullptr);
@@ -2033,6 +2149,12 @@ int RunFxTest(fake2d::Engine &engine) {
     }
     if (grade > 0) {
         r.DestroyShader(grade);
+    }
+    if (bright > 0) {
+        r.DestroyShader(bright);
+    }
+    if (wave > 0) {
+        r.DestroyShader(wave);
     }
 
     std::printf("[fx] %s: %d checks, %d failures\n", failures == 0 ? "PASS" : "FAIL",

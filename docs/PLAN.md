@@ -309,6 +309,19 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 
 ---
 
+## Phase 27 — Animated passes: auto uniforms & a bloom-grade FX kit (1.21.x)
+
+- [x] **Auto uniforms, stamped by the renderer**: `u_time` (the frame clock, seconds — fed from `Engine`'s elapsed time every frame) and `u_resolution` (pixels of the surface being drawn into: the target's own size inside a pass, the window's outside one, stamped on `BeginFrame`, `BeginRenderTarget` and `EndRenderTarget`). A shader that declares them animates with **no per-script bookkeeping**; one that does not is untouched (a uniform the program never declared has no location, and setting it is a no-op). The stamp re-binds each program to write, then unbinds, so the next draw's own bind wins
+- [x] **`assets/fx_bright.{vert,frag}`**: the threshold every bloom starts with — Rec.709 luma against `u_threshold` with a soft `u_knee` ramp (hard cuts flicker as pixels cross the line). House rule holds: `threshold = 0, knee = 0` is a straight copy, which is what makes the pass assertable; the knee is clamped a hair above zero inside so smoothstep's edges can never coincide
+- [x] **`assets/fx_wave.{vert,frag}`**: an animated pass — rows displaced sideways by a travelling sine (heat shimmer, water, VHS wobble). `u_amp` is in **pixels**, converted to UV through the stamped `u_resolution`, so the same number displaces by the same amount at any resolution. `u_amp = 0` is a straight copy; `u_time = 0` puts every row at phase zero. Sign note written where it bit: moving the *sample point* right slides the picture **left**, so the shader subtracts to keep a positive amplitude pushing the image right
+- [x] **`--fx-test` grows 47 → 80 assertions**: bright pass (identity at defaults, hard cut keeps only the highlight, a knee lets mid grey through *partially* and stays monotonic), wave (no movement at `t = 0` even with amplitude, ±8 px at the quarter periods, and — the resolution proof — the same 8-pixel displacement at 128 and at 64, which fails if the stamp reported the window size instead of the target's), plus the clock read back through `Time()`
+- [x] **Mutation-checked (3)**: dropping the `u_time` stamp (6 failures), stamping the window size instead of the bound target's (6 — the two half-size probes are the only ones that can see it), and a bright pass that ignores the knee (1). The first run also caught two real bugs before any mutation: the suite's target B was still 64×64 from the resize section (probes out of bounds), and the wave shader's sign moved the image opposite to its amplitude
+- [x] **`--fx-demo`** chain grows to `scene → wave → bright → blur H/V → composite`: the bright pass gates what is allowed to glow (a bloom without it is a haze), the wave wobbles the skyline on the stamped clock, and both get a checkbox and sliders (threshold, amplitude in px, frequency)
+- [x] Verified by pixel bounding-box probe (full-bleed skyline as designed; panel and footer inside 960×540) plus eyeball passes of both the wave-on and wave-off screenshots
+- [x] Verification: `--fx-test` 80/80; `--fx-demo` headless smoke + screenshots of both wave states; all gates re-run green
+
+---
+
 ## Non-goals (for now)
 
 - Full 3D / PBR (Fake2D is strictly focused on high-performance 2D)

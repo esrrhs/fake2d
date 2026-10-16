@@ -45,6 +45,12 @@ public:
     /// End frame and flush all pending draw commands.
     void EndFrame();
 
+    /// The frame clock, in seconds. Fed by the engine every frame and stamped
+    /// onto any custom shader that declares a `u_time` uniform, so an animated
+    /// pass needs no per-script bookkeeping (and no extra binding).
+    void SetTime(float seconds) { time_ = seconds; }
+    [[nodiscard]] float Time() const { return time_; }
+
     void Shutdown();
 
     [[nodiscard]] int Width() const { return width_; }
@@ -220,8 +226,16 @@ private:
     /// the target's own canvas while a render target is bound.
     [[nodiscard]] const Mat4 &ActiveViewProjection() const;
 
+    /// Push `u_time` and `u_resolution` onto every loaded custom shader that
+    /// declares them. Shaders that do not are untouched — a uniform the
+    /// program never declared has no location, and setting one is a no-op.
+    /// The resolution is the surface about to be drawn into, so a pass run at
+    /// half size is told it is running at half size, not at window size.
+    void StampAutoUniforms(int width, int height);
+
     int width_ = 0;
     int height_ = 0;
+    float time_ = 0.0f;
     bool ready_ = false;
 
     Camera2D camera_;

@@ -84,11 +84,32 @@ void Renderer::BeginFrame(float r, float g, float b, float a) {
     active_shader_ = nullptr;
     batch_.ResetStats();
     batch_.ClearClipRect();
+    StampAutoUniforms(width_, height_);
     batch_.Begin(ActiveViewProjection());
 }
 
 void Renderer::BeginFrame(const Color &clear_color) {
     BeginFrame(clear_color.r, clear_color.g, clear_color.b, clear_color.a);
+}
+
+void Renderer::StampAutoUniforms(int width, int height) {
+    if (!ready_ || width <= 0 || height <= 0) {
+        return;
+    }
+    // A handful of slots, so this is a handful of binds per frame — and it is
+    // what lets a pass be written in UV space without the caller also having
+    // to tell it how big the surface is.
+    for (Shader &shader : shaders_) {
+        if (!shader.IsValid()) {
+            continue;
+        }
+        shader.SetFloat("u_time", time_);
+        shader.SetVec2("u_resolution", Vec2{static_cast<float>(width),
+                                            static_cast<float>(height)});
+    }
+    // SetFloat/SetVec2 bind the program to write the uniform; leave nothing
+    // bound so the next draw's own bind is the one that takes effect.
+    glUseProgram(0);
 }
 
 void Renderer::EndFrame() {
@@ -125,6 +146,8 @@ bool Renderer::BeginRenderTarget(int id) {
     // Mark the target active BEFORE Begin: ActiveViewProjection keys off it,
     // so drawing inside the target uses the canvas camera, not the window's.
     active_target_ = id;
+    // A pass at half resolution must be told it is at half resolution.
+    StampAutoUniforms(target->Width(), target->Height());
     batch_.Begin(ActiveViewProjection(), active_shader_);
     return true;
 }
@@ -141,6 +164,7 @@ void Renderer::EndRenderTarget() {
     // Same ordering rule as Begin: leave the target first, then Begin, so the
     // batch restarts with the window's view-projection.
     active_target_ = 0;
+    StampAutoUniforms(width_, height_);
     batch_.Begin(ActiveViewProjection(), active_shader_);
 }
 

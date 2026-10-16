@@ -120,6 +120,10 @@ int Engine::Run(int max_frames) {
         impl_->input.NewFrame(impl_->window.Handle());
         impl_->ui.NewFrame();
         impl_->elapsed += impl_->delta_time;
+        // Custom shaders that declare `u_time` are stamped from this, so an
+        // animated pass advances on its own instead of every script feeding
+        // the uniform by hand.
+        impl_->renderer.SetTime(static_cast<float>(impl_->elapsed));
 
         // Advance gameplay systems; scripts read results / emit per frame.
         impl_->renderer.GetCamera().UpdateEffects(static_cast<float>(impl_->delta_time));
