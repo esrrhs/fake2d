@@ -630,6 +630,74 @@ void RegisterTilemapApi(fakelua::State *state, Engine *engine) {
                 }
             }));
 
+    // `map_anim_*` reads the tile animation clock. The engine advances it
+    // once per frame (Tiled semantics: one clock per tile *id*, so every
+    // cell using the tile is in lockstep), so a script only ever asks what
+    // is playing. Collision deliberately does not follow these: `map_solid`
+    // stays on the base gid.
+    fakelua::RegisterNativeFunction(
+        state, "map_anim_time", false,
+        std::function<double(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id) -> double {
+                const Tilemap *map = engine->GetTilemaps().Get(static_cast<int>(id));
+                return map ? static_cast<double>(map->AnimationTime()) : 0.0;
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_anim_count", false,
+        std::function<std::int64_t(fakelua::State *, std::int64_t, double)>(
+            [engine](fakelua::State *, std::int64_t id, double gid) -> std::int64_t {
+                const Tilemap *map = engine->GetTilemaps().Get(static_cast<int>(id));
+                if (map == nullptr || gid < 0.0) {
+                    return 0;
+                }
+                return map->AnimationFrameCount(static_cast<std::uint32_t>(gid));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_anim_cycle", false,
+        std::function<double(fakelua::State *, std::int64_t, double)>(
+            [engine](fakelua::State *, std::int64_t id, double gid) -> double {
+                const Tilemap *map = engine->GetTilemaps().Get(static_cast<int>(id));
+                if (map == nullptr || gid < 0.0) {
+                    return 0.0;
+                }
+                return static_cast<double>(map->AnimationCycle(
+                    static_cast<std::uint32_t>(gid)));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_anim_index", false,
+        std::function<std::int64_t(fakelua::State *, std::int64_t, double)>(
+            [engine](fakelua::State *, std::int64_t id, double gid) -> std::int64_t {
+                const Tilemap *map = engine->GetTilemaps().Get(static_cast<int>(id));
+                if (map == nullptr || gid < 0.0) {
+                    return -1;
+                }
+                return map->AnimationFrameIndex(static_cast<std::uint32_t>(gid));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_anim_gid", false,
+        std::function<std::int64_t(fakelua::State *, std::int64_t, double)>(
+            [engine](fakelua::State *, std::int64_t id, double gid) -> std::int64_t {
+                const Tilemap *map = engine->GetTilemaps().Get(static_cast<int>(id));
+                if (map == nullptr || gid < 0.0) {
+                    return 0;
+                }
+                return static_cast<std::int64_t>(
+                    map->AnimatedGid(static_cast<std::uint32_t>(gid)));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_anim_reset", false,
+        std::function<void(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id) {
+                if (Tilemap *map = engine->GetTilemaps().Get(static_cast<int>(id))) {
+                    map->ResetAnimation();
+                }
+            }));
+
     fakelua::RegisterNativeFunction(
         state, "map_oneway", false,
         std::function<bool(fakelua::State *, std::int64_t, double, double)>(

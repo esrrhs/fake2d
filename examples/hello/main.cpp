@@ -3350,6 +3350,276 @@ int RunMapObjectTest(fake2d::Engine &engine) {
 }
 
 // ---------------------------------------------------------------------------
+// Phase 30 self-test: Tiled tile animation.
+//
+// The clock is per tile *id*, not per cell (Tiled semantics), so the whole
+// feature is one accumulator plus a frame lookup — and the thing that can go
+// wrong is subtle: a frame index that matches by tile id breaks on a 0,1,0
+// animation, and collision must never follow the animation.
+// ---------------------------------------------------------------------------
+int RunTileTest(fake2d::Engine &engine) {
+    int failures = 0;
+    int checks = 0;
+    auto check = [&](bool ok, const char *what) {
+        ++checks;
+        if (!ok) {
+            ++failures;
+            std::printf("[tile] FAIL %s\n", what);
+        }
+    };
+    auto near = [](float a, float b) { return std::fabs(a - b) < 0.002f; };
+
+    // --- a 4-tile sheet: 0 red, 1 green, 2 blue, 3 yellow (64x16) ---------
+    // Distinct primaries: a probe can name the frame on screen by colour, and
+    // no two frames are a rounding error apart.
+    const std::string sheet_path = "assets/_tile_anim.png";
+    {
+        std::error_code ec;
+        std::filesystem::create_directories("assets", ec);
+        std::vector<std::uint8_t> px(static_cast<std::size_t>(64 * 16 * 4), 0);
+        for (int t = 0; t < 4; ++t) {
+            std::uint8_t r = 0, g = 0, b = 0;
+            switch (t) {
+            case 0: r = 255; break;
+            case 1: g = 255; break;
+            case 2: b = 255; break;
+            default: r = 255; g = 255; break;
+            }
+            for (int y = 0; y < 16; ++y) {
+                for (int x = 0; x < 16; ++x) {
+                    const std::size_t o =
+                        (static_cast<std::size_t>(y) * 64 + t * 16 + x) * 4;
+                    px[o + 0] = r;
+                    px[o + 1] = g;
+                    px[o + 2] = b;
+                    px[o + 3] = 255;
+                }
+            }
+        }
+        stbi_write_png(sheet_path.c_str(), 64, 16, 4, px.data(), 64 * 4);
+    }
+
+    // Set A (gids 1..4): gid 1 is animated over local 2 (100 ms) and local 3
+    // (100 ms); gid 2 is a plain static tile. Set B (gids 5..8): gid 5 loops
+    // local 3 -> local 0 (150 ms each), gid 6 smuggles in a zero-duration
+    // frame (rejected), gid 7 has an empty list (rejected) and gid 8 runs a
+    // four-frame cycle that names the same tile twice — the shape that
+    // catches a frame index derived by *matching* the shown tile id.
+    constexpr const char *kDoc = R"JSON({
+      "orientation": "orthogonal", "width": 3, "height": 2,
+      "tilewidth": 16, "tileheight": 16,
+      "tilesets": [
+        {"firstgid": 1, "name": "a", "tilewidth": 16, "tileheight": 16,
+         "columns": 4, "tilecount": 4, "image": "_tile_anim.png",
+         "imagewidth": 64, "imageheight": 16,
+         "tiles": [
+           {"id": 0, "properties": [{"name": "solid", "type": "bool", "value": true}],
+            "animation": [{"duration": 100, "tileid": 2},
+                          {"duration": 100, "tileid": 3}]},
+           {"id": 1}
+         ]},
+        {"firstgid": 5, "name": "b", "tilewidth": 16, "tileheight": 16,
+         "columns": 4, "tilecount": 4, "image": "_tile_anim.png",
+         "imagewidth": 64, "imageheight": 16,
+         "tiles": [
+           {"id": 0, "animation": [{"duration": 150, "tileid": 3},
+                                   {"duration": 150, "tileid": 0}]},
+           {"id": 1, "animation": [{"duration": 100, "tileid": 2},
+                                   {"duration": 0, "tileid": 3}]},
+           {"id": 2, "animation": []},
+           {"id": 3, "animation": [{"duration": 100, "tileid": 1},
+                                   {"duration": 100, "tileid": 0},
+                                   {"duration": 100, "tileid": 1},
+                                   {"duration": 100, "tileid": 0}]}
+         ]}
+      ],
+      "layers": [{"name": "world", "type": "tilelayer", "visible": true,
+                  "opacity": 1,
+                  "data": [1, 2, 5,
+                           1, 6, 7]}]
+    })JSON";
+
+    fake2d::Tilemap map;
+    check(map.LoadFromString(kDoc, "assets", engine.GetResources()),
+          "parse: the animated map loads");
+    check(map.IsValid() && map.Cols() == 3 && map.Rows() == 2, "parse: 3x2 cells");
+
+    // --- what was parsed ---------------------------------------------------
+    check(map.AnimationFrameCount(1) == 2, "parse: gid 1 has two frames");
+    check(near(map.AnimationCycle(1), 0.2f), "parse: gid 1 cycles in 0.2 s");
+    check(map.AnimationFrameCount(2) == 0, "parse: a tile without animation is static");
+    check(near(map.AnimationCycle(2), 0.0f), "parse: a static tile has no cycle");
+    check(map.AnimationFrameIndex(2) == -1, "parse: a static tile has no frame index");
+    check(map.AnimationFrameCount(99) == 0, "parse: an unknown gid is static");
+    check(map.AnimationFrameCount(0) == 0, "parse: gid 0 is static");
+    // A zero-duration frame would make the phase step degenerate, and an
+    // empty list has no frame to show: both fall back to a static tile
+    // instead of playing something wrong.
+    check(map.AnimationFrameCount(6) == 0, "parse: a zero-duration frame is rejected");
+    check(map.AnimationFrameCount(7) == 0, "parse: an empty animation is rejected");
+    check(map.AnimationFrameCount(5) == 2, "parse: the second tileset animates too");
+    check(near(map.AnimationCycle(5), 0.3f), "parse: gid 5 cycles in 0.3 s");
+    check(map.AnimationFrameCount(8) == 4, "parse: a cycle naming a tile twice keeps 4 frames");
+    check(near(map.AnimationCycle(8), 0.4f), "parse: gid 8 cycles in 0.4 s");
+
+    // --- the clock ---------------------------------------------------------
+    check(near(map.AnimationTime(), 0.0f), "clock: starts at zero");
+    check(map.AnimationFrameIndex(1) == 0, "clock: frame 0 at t = 0");
+    check(map.AnimatedGid(1) == 3, "clock: frame 0 is the animation's first tileid");
+    check(map.AnimatedGid(2) == 2, "clock: a static tile always shows itself");
+    check(map.AnimatedGid(99) == 99, "clock: an unknown gid always shows itself");
+
+    map.Advance(0.05f);
+    check(map.AnimationFrameIndex(1) == 0, "clock: still frame 0 at t = 0.05");
+    map.Advance(0.06f);
+    check(map.AnimationFrameIndex(1) == 1, "clock: frame 1 once t passes 0.1");
+    check(map.AnimatedGid(1) == 4, "clock: frame 1 shows the second tileid");
+    map.Advance(0.09f); // t = 0.20 → wraps
+    check(map.AnimationFrameIndex(1) == 0, "clock: the loop wraps back to frame 0");
+    check(near(map.AnimationTime(), 0.2f), "clock: time accumulates across calls");
+
+    // The two tilesets run on the same clock but different cycles, so at
+    // t = 0.2 set A is back at frame 0 while set B is inside its second frame.
+    check(map.AnimationFrameIndex(5) == 1, "clock: a longer cycle is mid-run where a short one wrapped");
+    check(map.AnimatedGid(5) == 5, "clock: set B's second frame is its own local 0");
+
+    map.Advance(-1.0f);
+    check(near(map.AnimationTime(), 0.2f), "clock: negative dt is ignored");
+    map.ResetAnimation();
+    check(near(map.AnimationTime(), 0.0f), "clock: reset puts the clock back to zero");
+    check(map.AnimationFrameIndex(1) == 0, "clock: reset rewinds to frame 0");
+
+    // A cycle that repeats a tile: the *index* has to walk 0,1,2,3 even though
+    // the shown gid only alternates. Matching the id instead would report 0,1
+    // forever and look plausible on screen.
+    check(map.AnimationFrameIndex(8) == 0 && map.AnimatedGid(8) == 6,
+          "clock: a repeating cycle starts on frame 0");
+    map.Advance(0.1f);
+    check(map.AnimationFrameIndex(8) == 1 && map.AnimatedGid(8) == 5,
+          "clock: frame 1 of the repeating cycle");
+    map.Advance(0.1f);
+    check(map.AnimationFrameIndex(8) == 2 && map.AnimatedGid(8) == 6,
+          "clock: frame 2 repeats frame 0's tile but is not frame 0");
+    map.Advance(0.1f);
+    check(map.AnimationFrameIndex(8) == 3 && map.AnimatedGid(8) == 5,
+          "clock: frame 3 repeats frame 1's tile but is not frame 1");
+    map.ResetAnimation();
+
+    // --- collision does not follow the animation ---------------------------
+    // gid 1 is the solid animated tile; its frames are gids 3 and 4, which are
+    // not solid. A cell holding a frame tile must stay walkable, and the solid
+    // cell must stay solid at every point of the cycle.
+    check(map.SolidAt(0, 0), "solid: the animated tile's cell is solid");
+    check(!map.SolidAt(1, 0), "solid: a cell holding a frame of it is not");
+    bool stayed_solid = true;
+    for (int i = 0; i < 12; ++i) {
+        map.Advance(0.05f);
+        if (!map.SolidAt(0, 0) || map.SolidAt(1, 0)) {
+            stayed_solid = false;
+        }
+    }
+    check(stayed_solid, "solid: the grid never changes under the animation");
+    map.ResetAnimation();
+
+    // --- the drawn picture -------------------------------------------------
+    fake2d::Renderer &r = engine.GetRenderer();
+    if (!r.IsReady()) {
+        std::printf("[tile] FAIL renderer is not initialised\n");
+        ++failures;
+        return failures == 0 ? 0 : 1;
+    }
+    fake2d::RenderTargetLibrary &lib = r.GetRenderTargets();
+    const int rt = lib.Create(64, 64);
+    check(rt > 0, "draw: target allocated");
+    fake2d::RenderTarget *t = lib.Get(rt);
+    fake2d::Color px{};
+    auto is_blue = [](const fake2d::Color &c) {
+        return c.b > 0.7f && c.r < 0.2f && c.g < 0.2f;
+    };
+    auto is_yellow = [](const fake2d::Color &c) {
+        return c.r > 0.7f && c.g > 0.7f && c.b < 0.2f;
+    };
+    auto is_green = [](const fake2d::Color &c) {
+        return c.g > 0.7f && c.r < 0.2f && c.b < 0.2f;
+    };
+    auto is_red = [](const fake2d::Color &c) {
+        return c.r > 0.7f && c.g < 0.2f && c.b < 0.2f;
+    };
+
+    // t = 0: set A frame 0 (blue), set B frame 0 (yellow), static stays green.
+    r.BeginFrame(0.0f, 0.08f, 0.10f, 0.14f);
+    check(r.BeginRenderTarget(rt), "draw: target binds");
+    r.ClearActiveTarget(fake2d::Color{0.0f, 0.0f, 0.0f, 1.0f});
+    map.DrawScaled(r, 1.0f);
+    r.EndRenderTarget();
+    check(t->ReadPixel(8, 8, px) && is_blue(px), "draw: the animated cell shows frame 0");
+    check(t->ReadPixel(8, 24, px) && is_blue(px),
+          "draw: every cell using the tile is in lockstep");
+    check(t->ReadPixel(24, 8, px) && is_green(px), "draw: the static cell never moves");
+    check(t->ReadPixel(40, 8, px) && is_yellow(px), "draw: set B's cell shows its own frame 0");
+
+    // t = 0.12: set A is inside frame 1 (yellow), set B still frame 0.
+    map.Advance(0.12f);
+    check(r.BeginRenderTarget(rt), "draw: target rebinds");
+    r.ClearActiveTarget(fake2d::Color{0.0f, 0.0f, 0.0f, 1.0f});
+    map.DrawScaled(r, 1.0f);
+    r.EndRenderTarget();
+    check(t->ReadPixel(8, 8, px) && is_yellow(px), "draw: the cell advanced to frame 1");
+    check(t->ReadPixel(8, 24, px) && is_yellow(px), "draw: the lockstep cell advanced too");
+    check(t->ReadPixel(24, 8, px) && is_green(px), "draw: the static cell still never moves");
+    check(t->ReadPixel(40, 8, px) && is_yellow(px), "draw: set B is still on frame 0");
+
+    // t = 0.22: set A wrapped back to frame 0, set B moved to frame 1 (red).
+    map.Advance(0.10f);
+    check(r.BeginRenderTarget(rt), "draw: target rebinds again");
+    r.ClearActiveTarget(fake2d::Color{0.0f, 0.0f, 0.0f, 1.0f});
+    map.DrawScaled(r, 1.0f);
+    r.EndRenderTarget();
+    check(t->ReadPixel(8, 8, px) && is_blue(px), "draw: set A wrapped back to frame 0");
+    check(t->ReadPixel(40, 8, px) && is_red(px), "draw: set B moved to frame 1");
+
+    // The minimap bake shares the clock: half scale puts cell (0,0) at (4,4).
+    check(r.BeginRenderTarget(rt), "draw: target binds for the scaled bake");
+    r.ClearActiveTarget(fake2d::Color{0.0f, 0.0f, 0.0f, 1.0f});
+    map.DrawScaled(r, 0.5f);
+    r.EndRenderTarget();
+    check(t->ReadPixel(4, 4, px) && is_blue(px), "scaled: the baked minimap animates too");
+    r.EndFrame();
+
+    // --- the engine ticks loaded maps on its own ---------------------------
+    // Animated tiles ride the frame clock like the animator, so a script plays
+    // water or torches with no bookkeeping at all.
+    {
+        std::error_code ec;
+        std::filesystem::create_directories("assets", ec);
+        const std::string json_path = "assets/_tile_anim.json";
+        {
+            std::ofstream out(json_path);
+            out << kDoc;
+        }
+        const int id = engine.GetTilemaps().Load(json_path, engine.GetResources());
+        check(id > 0, "engine: the map loads into the library");
+        // Run() calls Shutdown() when it returns, and Shutdown clears the
+        // library — so the clock has to be read inside the loop, from the
+        // per-frame hook, not after it.
+        float seen = -1.0f;
+        engine.SetFrameCallback([&](fake2d::Engine &e) {
+            if (const fake2d::Tilemap *m = e.GetTilemaps().Get(id)) {
+                seen = m->AnimationTime();
+            }
+        });
+        engine.Run(20);
+        engine.SetFrameCallback(nullptr);
+        check(seen > 0.0f, "engine: loaded maps advance every frame without a script");
+        engine.GetTilemaps().Destroy(id);
+    }
+
+    std::printf("[tile] %s: %d checks, %d failures\n", failures == 0 ? "PASS" : "FAILED",
+                checks, failures);
+    return failures == 0 ? 0 : 1;
+}
+
+// ---------------------------------------------------------------------------
 // Asset scaffolding for scripts/map_demo.lua: tilesheet + Tiled JSON.
 // Generated on demand so the repo stays binary-asset-free.
 // ---------------------------------------------------------------------------
@@ -4840,6 +5110,171 @@ void EnsureSlopeAssets(bool regen) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Asset scaffolding for scripts/tile_demo.lua: an 8-tile sheet where two of
+// the tiles carry Tiled animations (a 3-frame water cycle, a 2-frame torch),
+// plus the map that uses them. Generated on demand.
+// ---------------------------------------------------------------------------
+
+constexpr int kTaTile = 32;
+constexpr int kTaCols = 30;
+constexpr int kTaRows = 12;
+constexpr int kTaSheetTiles = 8;
+
+/// 256x32 sheet: water a/b/c, torch a/b, sand, grass, stone (in that order).
+void PaintTileAnimSheet(std::uint8_t *p, int w, int h) {
+    auto put = [&](int x, int y, std::uint8_t r, std::uint8_t g, std::uint8_t b) {
+        if (x < 0 || y < 0 || x >= w || y >= h) {
+            return;
+        }
+        const std::size_t o = (static_cast<std::size_t>(y) * w + x) * 4;
+        p[o + 0] = r;
+        p[o + 1] = g;
+        p[o + 2] = b;
+        p[o + 3] = 255;
+    };
+    for (int t = 0; t < kTaSheetTiles; ++t) {
+        const int ox = t * kTaTile;
+        if (t < 3) {
+            // Water: the crest slides down the tile, so the three frames read
+            // as one travelling wave instead of three unrelated blues.
+            const int crest = 6 + t * 7;
+            for (int y = 0; y < kTaTile; ++y) {
+                for (int x = 0; x < kTaTile; ++x) {
+                    const int wave = static_cast<int>(3.0f * std::sin((x + t * 6) * 0.35f));
+                    const int d = std::abs(y - (crest + wave));
+                    std::uint8_t r = 26, g = 96, b = 168;
+                    if (d < 3) {
+                        r = 120; g = 200; b = 244;
+                    } else if (d < 6) {
+                        r = 58; g = 142; b = 206;
+                    }
+                    put(ox + x, y, r, g, b);
+                }
+            }
+        } else if (t < 5) {
+            // Torch: a fixed post, a flame that leans and swells.
+            const bool big = (t == 3);
+            for (int y = 0; y < kTaTile; ++y) {
+                for (int x = 0; x < kTaTile; ++x) {
+                    put(ox + x, y, 0, 0, 0);
+                }
+            }
+            for (int y = 16; y < kTaTile; ++y) {
+                for (int x = 13; x < 19; ++x) {
+                    put(ox + x, y, 96, 68, 44);
+                }
+            }
+            const int cy = big ? 11 : 13;
+            const int rx = big ? 8 : 6;
+            const int lean = big ? 0 : 2;
+            for (int y = 0; y < 20; ++y) {
+                for (int x = 0; x < kTaTile; ++x) {
+                    const float dx = (x - (16 + lean)) / static_cast<float>(rx);
+                    const float dy = (y - cy) / (big ? 9.0f : 7.0f);
+                    const float d = dx * dx + dy * dy;
+                    if (d <= 1.0f) {
+                        const bool core = d < 0.35f;
+                        put(ox + x, y, core ? 252 : 244, core ? 240 : 148, core ? 140 : 44);
+                    }
+                }
+            }
+        } else if (t == 5) {
+            for (int y = 0; y < kTaTile; ++y) {
+                for (int x = 0; x < kTaTile; ++x) {
+                    const bool speck = ((x * 7 + y * 13) % 29) == 0;
+                    put(ox + x, y, speck ? 196 : 222, speck ? 172 : 198, speck ? 118 : 140);
+                }
+            }
+        } else if (t == 6) {
+            for (int y = 0; y < kTaTile; ++y) {
+                for (int x = 0; x < kTaTile; ++x) {
+                    const bool top = y < 7;
+                    put(ox + x, y, top ? 92 : 64, top ? 168 : 132, top ? 76 : 58);
+                }
+            }
+        } else {
+            for (int y = 0; y < kTaTile; ++y) {
+                for (int x = 0; x < kTaTile; ++x) {
+                    const bool edge = x < 2 || y < 2 || x >= kTaTile - 2 || y >= kTaTile - 2;
+                    put(ox + x, y, edge ? 96 : 126, edge ? 96 : 126, edge ? 104 : 134);
+                }
+            }
+        }
+    }
+}
+
+void EnsureTileAnimAssets() {
+    const std::filesystem::path dir = "assets";
+    std::error_code ec;
+    std::filesystem::create_directory(dir, ec);
+
+    const std::filesystem::path sheet_path = dir / "ta_sheet.png";
+    {
+        std::vector<std::uint8_t> sheet(
+            static_cast<std::size_t>(kTaSheetTiles * kTaTile) * kTaTile * 4, 0);
+        PaintTileAnimSheet(sheet.data(), kTaSheetTiles * kTaTile, kTaTile);
+        stbi_write_png(sheet_path.c_str(), kTaSheetTiles * kTaTile, kTaTile, 4,
+                       sheet.data(), kTaSheetTiles * kTaTile * 4);
+    }
+
+    // gids: 1 water (animated), 4 torch (animated), 6 sand, 7 grass, 8 stone.
+    std::vector<int> gids(static_cast<std::size_t>(kTaCols) * kTaRows, 0);
+    auto at = [&](int col, int row) -> int & {
+        return gids[static_cast<std::size_t>(row) * kTaCols + col];
+    };
+    for (int c = 0; c < kTaCols; ++c) {
+        at(c, 7) = 7; // grass line
+        for (int r = 8; r < kTaRows; ++r) {
+            at(c, r) = 8; // stone body
+        }
+    }
+    for (int c = 4; c <= 9; ++c) {
+        at(c, 8) = 1; // pond
+        at(c, 9) = 1;
+    }
+    for (int c = 20; c <= 25; ++c) {
+        at(c, 8) = 6; // sandbar
+    }
+    at(5, 6) = 4;
+    at(12, 6) = 4;
+    at(19, 6) = 4;
+
+    std::ostringstream json;
+    json << "{\n  \"orientation\": \"orthogonal\", \"width\": " << kTaCols
+         << ", \"height\": " << kTaRows << ",\n  \"tilewidth\": " << kTaTile
+         << ", \"tileheight\": " << kTaTile << ",\n"
+         << "  \"tilesets\": [{\n    \"firstgid\": 1, \"name\": \"ta\",\n"
+         << "    \"tilewidth\": " << kTaTile << ", \"tileheight\": " << kTaTile << ",\n"
+         << "    \"columns\": " << kTaSheetTiles << ", \"tilecount\": " << kTaSheetTiles
+         << ",\n    \"image\": \"ta_sheet.png\",\n    \"imagewidth\": "
+         << kTaSheetTiles * kTaTile << ", \"imageheight\": " << kTaTile << ",\n"
+         << "    \"tiles\": [\n"
+         << "      {\"id\": 0, \"animation\": [{\"duration\": 180, \"tileid\": 0},\n"
+         << "                                {\"duration\": 180, \"tileid\": 1},\n"
+         << "                                {\"duration\": 180, \"tileid\": 2}]},\n"
+         << "      {\"id\": 3, \"animation\": [{\"duration\": 250, \"tileid\": 3},\n"
+         << "                                {\"duration\": 250, \"tileid\": 4}]},\n"
+         << "      {\"id\": 6, \"properties\": [{\"name\": \"solid\", \"type\": \"bool\","
+            " \"value\": true}]},\n"
+         << "      {\"id\": 7, \"properties\": [{\"name\": \"solid\", \"type\": \"bool\","
+            " \"value\": true}]}\n"
+         << "    ]\n  }],\n"
+         << "  \"layers\": [{\n    \"name\": \"world\", \"type\": \"tilelayer\",\n"
+         << "    \"visible\": true, \"opacity\": 1, \"data\": [";
+    for (std::size_t i = 0; i < gids.size(); ++i) {
+        if (i % kTaCols == 0) {
+            json << "\n      ";
+        }
+        json << gids[i] << (i + 1 == gids.size() ? "\n" : ", ");
+    }
+    json << "  ]}]\n}\n";
+
+    const std::filesystem::path level_path = dir / "ta_level.json";
+    std::ofstream out(level_path, std::ios::binary);
+    out << json.str();
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -4850,6 +5285,7 @@ int main(int argc, char **argv) {
     cfg.script_entry = "scripts/game.lua";
 
     bool map_demo = false;
+    bool tile_demo = false;
     bool platformer_demo = false;
     bool audio_clips = false;
     bool mario_demo = false;
@@ -4860,6 +5296,7 @@ int main(int argc, char **argv) {
     bool phys_query = false;
     bool phys_filter = false;
     bool map_object = false;
+    bool tile_test = false;
     bool timestep_test = false;
     bool path_test = false;
     bool rt_test = false;
@@ -4885,6 +5322,10 @@ int main(int argc, char **argv) {
         } else if (arg == "--map-demo") {
             map_demo = true;
             cfg.script_entry = "scripts/map_demo.lua";
+        } else if (arg == "--tile-demo") {
+            // Animated tiles: a pond and torches running Tiled tileset cycles.
+            tile_demo = true;
+            cfg.script_entry = "scripts/tile_demo.lua";
         } else if (arg == "--platformer-demo") {
             platformer_demo = true;
             cfg.script_entry = "scripts/platformer_demo.lua";
@@ -4962,6 +5403,12 @@ int main(int argc, char **argv) {
         } else if (arg == "--map-object-test") {
             // Headless self-test of Tiled objectgroup parsing/queries.
             map_object = true;
+            cfg.headless = true;
+            cfg.script_entry.clear();
+            cfg.vsync = false;
+        } else if (arg == "--tile-test") {
+            // Headless self-test of Tiled tileset animation.
+            tile_test = true;
             cfg.headless = true;
             cfg.script_entry.clear();
             cfg.vsync = false;
@@ -5055,6 +5502,9 @@ int main(int argc, char **argv) {
     if (map_object) {
         return RunMapObjectTest(engine);
     }
+    if (tile_test) {
+        return RunTileTest(engine);
+    }
     if (timestep_test) {
         return RunTimestepTest(engine);
     }
@@ -5094,6 +5544,9 @@ int main(int argc, char **argv) {
     }
     if (map_demo) {
         EnsureMapAssets();
+    }
+    if (tile_demo) {
+        EnsureTileAnimAssets();
     }
     if (platformer_demo) {
         EnsurePlatformerAssets();

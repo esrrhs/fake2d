@@ -353,6 +353,21 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 
 ---
 
+## Phase 30 — Animated tiles: Tiled tileset cycles on one clock (1.24.x)
+
+- [x] **Tiled tileset animation parsed**: `tilesets[].tiles[].animation` — a per-tile list of `{duration (ms), tileid (local)}` frames, looped forever from the moment the map loads (there is no one-shot or ping-pong variant in the format). A frame with a zero duration or a broken id makes the phase computation degenerate, so the *whole animation is dropped* and the tile stays static rather than playing something wrong
+- [x] **One clock per tile id, not per cell**: Tiled animates a *tile*, so every cell showing it is in lockstep — which is why the whole feature is a single `anim_time_` accumulator (double, so a long session never loses frame resolution to float drift) plus a frame lookup, not per-cell state
+- [x] **Ticked by the engine**: every loaded map advances once per frame (`TilemapLibrary::AdvanceAll` from the frame loop), like the animator and unlike a script-fed uniform — water and torches play with no script bookkeeping. `Advance(dt)` stays public for tests and scrubbing; negative dt is ignored (time never runs backwards)
+- [x] **The draw is the only consumer**: a cell stores its base gid forever; only the submitted *picture* rides the clock (`AnimatedLocalId` in the tile-layer draw). `SolidAt` / `OneWayAt` / slopes / `GroundYAt` keep reading the base gid, so a tile whose frames differ cannot open a hole in the floor halfway through its cycle — asserted across a full cycle in the test
+- [x] **Queries**: `AnimatedGid` (what is drawn), `AnimationFrameCount` (0 = static), `AnimationCycle` (seconds), `AnimationFrameIndex` (index into the timeline, *not* found by matching the shown tile id — an animation may name the same tile twice, a 0,1,0,1 flicker), `AnimationTime`, `ResetAnimation`; 6 new Lua bindings (`map_anim_time`, `map_anim_count`, `map_anim_cycle`, `map_anim_index`, `map_anim_gid`, `map_anim_reset`) with explicit full arity; the fixture generator's default-stub fallback covers them
+- [x] **`--tile-test` grows the suite to twelve engine self-tests (55 assertions)**: parse (frame counts, cycle lengths, zero-duration and empty rejections, second-tileset keying), the clock (frame 0 at t=0, mid-frame continuity, wrap at the cycle end, accumulation across calls, negative dt, reset), the repeating-cycle index trap (frames 2 and 3 of a 0,1,0,1 cycle are not frames 0 and 1), collision stability across a whole cycle, pixel probes in a render target (the animated cell switches colour with the clock, a static neighbour never moves, the minimap `DrawScaled` bake animates too), and the engine's own tick read from inside the frame hook (`Run()` calls `Shutdown()` on return, which clears the library — the clock is sampled per frame, not after)
+- [x] **Mutation-checked (5)**: dropping the engine's per-frame advance, a frame index stuck at 0, accepting a zero-duration frame, forgetting to resolve the frame in the draw path, and deriving the frame index by matching the shown tile id — each fails the suite; the last one is exactly what the repeating-cycle assertions exist to catch. All restored via file backups, never `git checkout`
+- [x] **`--tile-demo`**: a 30×12 map with a rippling pond (3-frame water cycle) and flickering torches (2-frame), a HUD built from the read-only queries (frame indices, cycle lengths, phase bars, the current shown gid, the solid grid staying put) and a RESET CLOCK button (`map_anim_reset`). Verified by pixel bounding-box probe (content inside 960×540) plus an eyeball pass, and by a cross-frame pixel diff proving the pond really animates
+- [x] `--tile-test` / `--tile-demo` wired into CI on Linux (xvfb), macOS and Windows
+- [x] Verification: `--tile-test` 55/55; `--tile-demo` headless smoke + screenshots; headless Lua fixtures 24/24; all gates re-run green
+
+---
+
 ## Non-goals (for now)
 
 - Full 3D / PBR (Fake2D is strictly focused on high-performance 2D)

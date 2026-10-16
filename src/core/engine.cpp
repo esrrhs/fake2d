@@ -129,6 +129,9 @@ int Engine::Run(int max_frames) {
         impl_->renderer.GetCamera().UpdateEffects(static_cast<float>(impl_->delta_time));
         impl_->particles.Update(static_cast<float>(impl_->delta_time));
         impl_->animations.Update(static_cast<float>(impl_->delta_time));
+        // Animated tiles ride their own clock, like the animator and unlike
+        // a script-fed uniform: water and torches loop with no bookkeeping.
+        impl_->tilemaps.AdvanceAll(static_cast<float>(impl_->delta_time));
 
         // Physics: fixed-step accumulator (config.fixed_dt <= 0 keeps the
         // legacy single variable-dt step). Frames that do not reach a whole
