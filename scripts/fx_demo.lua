@@ -1,6 +1,6 @@
 -- fake2d pure-Lua multi-pass FX demo (--fx-demo).
 --
--- The pieces Phase 24 added, put to work:
+-- The pieces Phase 24 and 27 added, put to work:
 --
 --   rt_copy(src, dst, shader)  one ping-pong pass: blit a target across the
 --                              whole canvas of another, through an optional
@@ -10,12 +10,20 @@
 --   assets/fx_blur.*           a separable Gaussian: u_dir = 0 is a straight
 --                              copy, so a chain can be assembled before a
 --                              single knob is turned
+--   assets/fx_bright.*         the threshold a bloom starts with: keep the
+--                              highlights, drop everything else (u_threshold
+--                              and u_knee; 0/0 is still a straight copy)
+--   assets/fx_wave.*           an animated pass — rows displaced by a
+--                              travelling sine. It declares u_time and
+--                              u_resolution, so the renderer drives the
+--                              animation and the script sets no clock
 --
--- The chain here is a bloom: draw the world into a target, blur it
--- horizontally into a half-size target, blur that vertically, then composite
--- the glow back over the sharp scene additively. Two slider passes (radius and
--- strength), plus a split-screen mode that renders the same world from two
--- cameras side by side — the other thing a target pair is good for.
+-- The chain here is a bloom: draw the world into a target, wobble it through
+-- the wave pass, take the highlights with the bright pass, blur those at half
+-- resolution horizontally then vertically, and composite the glow back over
+-- the sharp scene additively. Plus a split-screen mode that renders the same
+-- world from two cameras side by side — the other thing a target pair is good
+-- for.
 --
 -- FakeLua note: chunk-level locals must be initialised, natives take an exact
 -- argument count, and state lives in plain file locals.
@@ -27,18 +35,32 @@ local HALF_H = 108 + 0
 
 local radius = 2.0 + 0.0
 local strength = 0.65 + 0.0
+local threshold = 0.62 + 0.0
+local knee = 0.18 + 0.0
+local wamp = 6.0 + 0.0
+local wfreq = 9.0 + 0.0
+local bright_on = true
+local wave_on = false
 local split = false
 local inited = false
 local scroll = 0.0 + 0.0
 
 local scene_rt = 0 + 0
+local wave_rt = 0 + 0
+local bright_rt = 0 + 0
 local blur_a = 0 + 0
 local blur_b = 0 + 0
 local blur_fx = 0 + 0
+local bright_fx = 0 + 0
+local wave_fx = 0 + 0
 local grade_fx = 0 + 0
 
 local function pct(v)
     return string.format("%d", math.floor(v * 100 + 0.5))
+end
+
+local function istr(n)
+    return string.format("%d", n)
 end
 
 -- A procedural skyline: no assets, so the demo runs anywhere, and the bright
@@ -67,11 +89,19 @@ end
 local function init()
     inited = true
     scene_rt = rt_create(SCREEN_W, SCREEN_H)
+    -- The wave and the bright pass both run at full resolution: the wave
+    -- displaces pixels (half-res would halve the displacement's meaning, were
+    -- it not for u_resolution) and a threshold picks out highlights that are
+    -- a few pixels wide.
+    wave_rt = rt_create(SCREEN_W, SCREEN_H)
+    bright_rt = rt_create(SCREEN_W, SCREEN_H)
     -- Half resolution: a blur over a quarter of the pixels costs a quarter of
     -- the taps, and the glow is blurry anyway.
     blur_a = rt_create(HALF_W, HALF_H)
     blur_b = rt_create(HALF_W, HALF_H)
     blur_fx = shader_load("assets/fx_blur.vert", "assets/fx_blur.frag")
+    bright_fx = shader_load("assets/fx_bright.vert", "assets/fx_bright.frag")
+    wave_fx = shader_load("assets/fx_wave.vert", "assets/fx_wave.frag")
     grade_fx = shader_load("assets/post_grade.vert", "assets/post_grade.frag")
 end
 
@@ -90,11 +120,33 @@ function update(dt)
     draw_world(-scroll, 0.0)
     rt_end()
 
-    if blur_fx > 0 and scene_rt > 0 and blur_a > 0 and blur_b > 0 and not split then
-        -- 2. downsample into the half-size pair and blur H then V; u_dir is
+    -- 2. the animated wobble. u_time and u_resolution are stamped on every
+    --    loaded shader by the renderer, so there is no clock to feed here —
+    --    and u_amp is in pixels, so it reads the same at any resolution.
+    local sharp = scene_rt
+    if wave_on and wave_fx > 0 and wave_rt > 0 then
+        shader_set_float(wave_fx, "u_amp", wamp)
+        shader_set_float(wave_fx, "u_freq", wfreq)
+        shader_set_float(wave_fx, "u_speed", 2.0)
+        rt_copy(scene_rt, wave_rt, wave_fx)
+        sharp = wave_rt
+    end
+
+    -- 3. the bright pass decides what is allowed to glow: without it the bloom
+    --    smears the whole frame into a haze.
+    local glow_src = sharp
+    if bright_on and bright_fx > 0 and bright_rt > 0 then
+        shader_set_float(bright_fx, "u_threshold", threshold)
+        shader_set_float(bright_fx, "u_knee", knee)
+        rt_copy(sharp, bright_rt, bright_fx)
+        glow_src = bright_rt
+    end
+
+    if blur_fx > 0 and glow_src > 0 and blur_a > 0 and blur_b > 0 and not split then
+        -- 4. downsample into the half-size pair and blur H then V; u_dir is
         --    in UV, so the step is radius / target_width.
         shader_set_float(blur_fx, "u_dim", 0.0)
-        rt_copy(scene_rt, blur_a, 0)
+        rt_copy(glow_src, blur_a, 0)
         shader_set_vec2(blur_fx, "u_dir", radius / HALF_W, 0.0)
         rt_copy(blur_a, blur_b, blur_fx)
         shader_set_vec2(blur_fx, "u_dir", 0.0, radius / HALF_H)
@@ -126,7 +178,7 @@ function update(dt)
             shader_set_float(grade_fx, "u_vignette", 0.35)
             shader_set_float(grade_fx, "u_scanline", 0.0)
         end
-        rt_present(scene_rt, grade_fx)
+        rt_present(sharp, grade_fx)
         if blur_fx > 0 and blur_a > 0 and blur_b > 0 then
             -- Dim the glow into the spare buffer, then composite it additively.
             -- rt_draw (not a shader present) is what keeps the blend: a present
@@ -145,7 +197,7 @@ function update(dt)
     draw_text("rt_copy ping-pong + a separable blur at half resolution", 40, 44,
               0.62, 0.55, 0.66, 0.75, 1.0)
 
-    draw_quad(40, 60, 300, 118, 0.08, 0.10, 0.15, 0.85)
+    draw_quad(40, 60, 300, 292, 0.08, 0.10, 0.15, 0.85)
     radius = ui_slider("radius", 0, 52, 74, 240, 22, radius, 0.0, 6.0)
     strength = ui_slider("strength", 0, 52, 110, 240, 22, strength, 0.0, 1.0)
     draw_text("radius " .. pct(radius / 6.0) .. "%", 300, 78, 0.55,
@@ -161,11 +213,30 @@ function update(dt)
         draw_text("bloom chain", 180, 148, 0.6, 0.55, 0.66, 0.75, 1.0)
     end
 
+    -- The two Phase 27 passes, each with its own switches. The bright pass is
+    -- on by default because a bloom without a threshold is just a haze; the
+    -- wave is off because a wobbling skyline is not for everyone.
+    if ui_checkbox("bright", 0, 52, 180, 18, bright_on, "bright pass", 0.6) then
+        bright_on = not bright_on
+    end
+    threshold = ui_slider("cut", 0, 52, 208, 240, 22, threshold, 0.0, 1.0)
+    draw_text("cut " .. pct(threshold) .. "%", 300, 212, 0.55,
+              0.75, 0.85, 0.95, 1.0)
+    if ui_checkbox("wave", 0, 52, 244, 18, wave_on, "wave pass (u_time)", 0.6) then
+        wave_on = not wave_on
+    end
+    wamp = ui_slider("wamp", 0, 52, 272, 240, 22, wamp, 0.0, 20.0)
+    wfreq = ui_slider("wfreq", 0, 52, 308, 240, 22, wfreq, 0.0, 24.0)
+    draw_text("amp " .. istr(math.floor(wamp)) .. "px", 300, 276, 0.55,
+              0.75, 0.85, 0.95, 1.0)
+    draw_text("freq " .. istr(math.floor(wfreq)), 300, 312, 0.55,
+              0.75, 0.85, 0.95, 1.0)
+
     -- The logical canvas is 960x540 (1920x1080 at 2x), so nothing here may
     -- sit below y=540 or past x=960.
-    draw_text("scene -> blur H -> blur V -> additive composite", 40, 470, 0.7,
-              0.5, 0.6, 0.7, 1.0)
-    draw_text("rt_copy / rt_resize + assets/fx_blur.*  (--fx-test asserts it)",
-              40, 496, 0.6, 0.45, 0.52, 0.6, 1.0)
+    draw_text("scene -> wave -> bright -> blur H/V -> additive composite", 40,
+              470, 0.7, 0.5, 0.6, 0.7, 1.0)
+    draw_text("u_time and u_resolution are stamped by the renderer", 40, 496,
+              0.6, 0.45, 0.52, 0.6, 1.0)
     return 0
 end

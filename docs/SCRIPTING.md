@@ -311,6 +311,23 @@ an additive composite. `scripts/fx_demo.lua` (`--fx-demo`) builds a bloom out
 of it and shows a split-screen mode; `--fx-test` asserts the whole chain with
 pixel probes.
 
+**Auto uniforms**: the renderer stamps two uniforms onto every loaded custom
+shader each frame, and a shader that does not declare them is untouched —
+
+- `u_time` — seconds, the frame clock. An animated pass declares it and moves
+  on its own; no script feeds a clock. `fx_wave.*` uses it for a travelling
+  sine (heat shimmer / water wobble), whose `u_amp` is in *pixels*.
+- `u_resolution` — pixels of the surface being drawn into: the target's own
+  size inside a pass, the window's outside one. This is what makes a
+  pixel-space parameter mean the same thing at any resolution, which
+  `--fx-test` proves by running the same wave at 128 and at 64 and measuring
+  the same displacement.
+
+`assets/fx_bright.{vert,frag}` is the threshold a bloom starts with: keep the
+highlights, drop everything else (`u_threshold`, `u_knee`; `0/0` is a straight
+copy). `--fx-demo` wires both into its chain — bloom only picks up what
+survives the bright pass, and the wave wobbles the skyline.
+
 **Masks and fog** need neither shader nor ping-pong: a coverage value is just
 a picture, and `draw_set_blend(2)` applies it in place. Draw the scene into a
 target, then blit a grayscale mask over it under the same camera transform —
