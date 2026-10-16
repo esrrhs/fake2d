@@ -30,6 +30,10 @@ public:
     static constexpr int kSampleRate = 44100;
     /// Size of the voice pool (one-shot overflow is dropped).
     static constexpr std::size_t kMaxVoices = 32;
+    /// Stream decode window in frames (~0.19 s at 44.1 kHz): big enough that a
+    /// normal mix block never straddles two refills, small enough that a long
+    /// track does not sit in memory.
+    static constexpr std::size_t kStreamWindowFrames = 8192;
     /// Default `SetListenerRange`: a voice a thousand world units away is
     /// silent — roughly one screen width for the demo layouts.
     static constexpr float kDefaultRange = 1000.0f;
@@ -52,6 +56,27 @@ public:
     /// Decode a PCM WAV file (8/16-bit integer, mono/stereo, any rate),
     /// downmix to mono and linearly resample to 44.1 kHz, then register it.
     bool AddClipWav(std::string_view name, const std::string &wav_path);
+
+    /// Decode **any** audio file miniaudio's decoder reads — WAV, FLAC, MP3,
+    /// OGG/Vorbis — downmixed to mono and resampled to the mixer rate, then
+    /// register it. `AddClipWav` stays as the dependency-free WAV path; this
+    /// is the compressed one, and both produce the same clip shape.
+    bool AddClipFile(std::string_view name, const std::string &path);
+
+    /// Register a **streamed** track: nothing is decoded up front, the file is
+    /// read in windows as the voice reaches them, so a five-minute track costs
+    /// a window of memory instead of ~50 MB of PCM. Everything downstream is
+    /// unchanged — a stream is a clip whose samples arrive on demand, so
+    /// `PlayMusic` takes its name like any other. Returns false for a missing
+    /// file, an unknown format, an empty track or a name that is taken.
+    bool AddStream(std::string_view name, const std::string &path);
+
+    /// Length of a clip or stream in seconds (0 when the name is unknown).
+    [[nodiscard]] float ClipDuration(std::string_view name) const;
+    /// PCM frames held in memory right now: the whole clip for a decoded one,
+    /// just the current decode window for a stream (0 before its first mix).
+    /// This is how "streaming" is told apart from "loaded" from outside.
+    [[nodiscard]] std::size_t ResidentFrames(std::string_view name) const;
 
     /// Fire-and-forget one-shot playback (voice pool capped, drops overflow).
     void Play(std::string_view name, float volume = 1.0f);
@@ -125,9 +150,17 @@ private:
     struct Clip {
         std::string name;
         std::vector<float> pcm;
+        /// Streamed tracks: `pcm` holds only the current decode window, and
+        /// new frames are read through `decoder` as the voice reaches them.
+        bool stream = false;
+        void *decoder = nullptr; // ma_decoder*
+        /// Total frames at the mixer rate (the file's length, resampled).
+        std::uint64_t length_frames = 0;
+        /// First frame of the file currently held in `pcm`.
+        std::uint64_t window_start = 0;
     };
     struct Voice {
-        const Clip *clip = nullptr;
+        Clip *clip = nullptr;
         double cursor = 0.0; // samples (double for fractional stepping)
         double step = 1.0;   // samples per output frame (pitch)
         /// Gain envelope: `gain_to` is the settled gain; while `fade_dur > 0`
@@ -155,7 +188,13 @@ private:
     Voice *StartClip(std::string_view name, float volume, bool loop, bool music,
                      float fade_seconds);
     /// Wipe a slot back to a clean one-shot state before handing it out.
-    void ResetVoice(Voice &voice, const Clip *clip, float volume) const;
+    void ResetVoice(Voice &voice, Clip *clip, float volume) const;
+    /// Decode `[start, start + kStreamWindowFrames)` of a streamed clip into
+    /// its window. Called from the mixer, so the caller holds the mutex; on
+    /// failure the voice is dropped rather than left reading a stale window.
+    bool FillWindow(Clip &clip, std::uint64_t start_frame);
+    /// Close and delete every stream decoder (destructor / shutdown path).
+    void ReleaseStreams();
     /// Split `pan` (-1..1) into left/right multipliers.
     static void PanGains(float pan, float &left, float &right);
     /// Gain of the envelope right now (before any bus is applied).

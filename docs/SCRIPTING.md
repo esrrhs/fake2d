@@ -385,10 +385,16 @@ drive `AudioEngine::Mix` itself to assert envelopes offline), but
 | `audio_pause(paused)` / `audio_paused() -> bool` | Freeze the mix: silence out and neither cursors nor fades advance, so resuming picks up exactly where it stopped. |
 | `audio_peak() -> number` | Loudest sample (0–1) of the last block the device consumed — drives VU meters. Reads 0 headless. |
 | `audio_peak_l() / audio_peak_r() -> number` | The same peak per output channel; their difference *is* the stereo image, which is how a panned mix gets metered. |
+| `audio_load_file(name, path) -> bool` | Decode **any** file miniaudio's decoder reads (WAV, FLAC, MP3, OGG/Vorbis) downmixed to mono at the mixer rate, then register it as a playable clip. Whole file sits in memory. |
+| `audio_stream(name, path) -> bool` | Register the same kinds of files as a **streamed** clip: the decoder stays open and an 8192-frame window (~0.19 s) is refilled on demand while the mixer plays, so a 3-minute track costs kilobytes instead of megabytes. |
+| `audio_clip_len(name) -> number` | Duration of a registered clip or stream in seconds (the file's full length, streamed or not; 0 for unknown names). |
+| `audio_clip_cached(name) -> number` | Frames of a clip currently held in memory — the whole file for decoded clips, at most one window for a stream. Feeds "buffered" read-outs. |
 
 `scripts/audio_demo.lua` (`--audio-demo`) is a mixer front panel: bus sliders,
 two looping themes with a live cross-fade slider, SFX buttons on the sfx bus,
-a pause checkbox and a segment VU meter. `scripts/spatial_demo.lua`
+a pause checkbox, a segment VU meter, and a file-playback section that runs the
+same `assets/music.wav` both decoded and streamed with a "buffered" read-out
+comparing what each path holds in memory. `scripts/spatial_demo.lua`
 (`--spatial-demo`) demonstrates placement: emitters fire one-shots at fixed
 world positions while you move the listener (WASD/arrows/mouse) through them,
 with L/R meters and a balance indicator fed by the per-channel peaks.

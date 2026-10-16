@@ -338,6 +338,21 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 
 ---
 
+## Phase 29 — Decoded files & streamed music (1.23.x)
+
+- [x] **`AddClipFile(name, path)` / `audio_load_file`**: decode **any** file miniaudio's decoder reads — WAV, FLAC, MP3, OGG/Vorbis — downmixed to mono and resampled to the mixer rate, then register it under the same clip shape `AddClipWav` produces (which stays as the dependency-free WAV path; miniaudio was already compiled in, so no new vendored code). One call turns a compressed track into one-shot or music material
+- [x] **`AddStream(name, path)` / `audio_stream`**: the same files as **streams** — the decoder stays open, the clip holds an 8192-frame window (~0.19 s at 44.1 kHz) and the mixer refills it on demand as the cursor walks the *file's* full length (`length_frames` read once at open; `pcm` is just the current window). A three-minute track costs kilobytes of residency instead of megabytes, and `PlayMusic`/one-shots work on it unchanged
+- [x] **Sequential refill, not a seek per window**: a refill only seeks when the requested frame isn't exactly the one after the window just read — a seek resets miniaudio's resampler, and resetting at every window boundary is audible (and would make a stream differ from a straight decode). Loop-over-the-tail and jumps do seek
+- [x] **`ClipDuration(name)` / `audio_clip_len`** (full file length, streamed or not) and **`ResidentFrames(name)` / `audio_clip_cached`** (whole file for decoded clips, at most one window for a stream — feeds "buffered" read-outs); streams are released in the destructor; unknown names and failed opens are rejected, re-registering a taken name is rejected
+- [x] 4 new Lua bindings with explicit full arity (`audio_load_file`, `audio_stream`, `audio_clip_len`, `audio_clip_cached`); the fixture generator's default-stub fallback covers them (they need no special return values)
+- [x] **`--audio-test` grows 74 → 106 assertions**: decoded files (length/peak/energy of the same source through the WAV parser vs miniaudio's decoder — *not* sample-identical: the two paths use different resampler interpolators, so the cross-check is on shape, not bits; missing file, unknown format, taken name and unknown name all reject) and streamed tracks (residency stays at one window, `ClipDuration` reads the full file before any refill, a stream and a decode of the same 20 000-frame source agree block-by-block across 40 × 256-frame reads, looping over the tail re-seeks, pause/resume/stop behave)
+- [x] **Mutation-checked (4)**: refilling with an unconditional seek (2 failures — the stream/decode comparison hears the resampler reset), forcing `window_start = 0` (2), decoding everything up front (3 — residency betrays it), and a decoder that stops early (2). All restored via file backups, never `git checkout`
+- [x] **`--audio-demo`** grows a FILE PLAYBACK panel: DECODED / STREAMED buttons for the same `assets/music.wav`, its duration, a `buffered X vs Y` read-out and two bars comparing what each path holds in memory — the whole point of streaming, made visible
+- [x] Verified by pixel bounding-box probe (content within 960×540) plus an eyeball pass of the new panel
+- [x] Verification: `--audio-test` 106/106; `--audio-demo` headless smoke; headless Lua fixtures 24/24; all gates re-run green
+
+---
+
 ## Non-goals (for now)
 
 - Full 3D / PBR (Fake2D is strictly focused on high-performance 2D)

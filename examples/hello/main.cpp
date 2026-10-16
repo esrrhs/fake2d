@@ -2881,6 +2881,173 @@ int RunAudioTest(fake2d::Engine & /*engine*/) {
         std::filesystem::remove(path, ec);
     }
 
+    // --- decoded files (Phase 29) ------------------------------------------
+    // AddClipFile runs the same file through miniaudio's decoder instead of the
+    // hand-rolled WAV parser, so the two paths must agree — that is the whole
+    // point of having both, and it is checkable with no new assets.
+    {
+        fake2d::AudioEngine audio;
+        std::error_code ec;
+        std::filesystem::create_directories("assets", ec);
+        const std::string path = "assets/_audio_test.wav";
+        // A ramp, not a constant: a constant would survive any resample bug.
+        std::vector<float> src(4000);
+        for (std::size_t i = 0; i < src.size(); ++i) {
+            src[i] = 0.6f * std::sin(static_cast<float>(i) * 0.01f);
+        }
+        WriteWav(path, src, 22050);
+        check(audio.AddClipWav("hand", path), "decode: the WAV parser takes it");
+        check(audio.AddClipFile("dec", path), "decode: the file decoder takes it");
+        const float len_hand = audio.ClipDuration("hand");
+        const float len_dec = audio.ClipDuration("dec");
+        check(near(len_hand, len_dec, 0.01f),
+              "decode: both paths report the same length");
+        // Same track, two engines, same gain. The two paths resample with
+        // different interpolators, so they are not sample-identical (a
+        // sub-frame phase offset is expected) — what must agree is the
+        // length and the energy, i.e. "the same audio came out".
+        fake2d::AudioEngine other;
+        check(other.AddClipFile("dec", path), "decode: the second engine registers it");
+        audio.PlayMusic("hand", 1.0f);
+        other.PlayMusic("dec", 1.0f);
+        double energy_a = 0.0;
+        double energy_b = 0.0;
+        float peak_a = 0.0f;
+        float peak_b = 0.0f;
+        for (int block = 0; block < 8; ++block) {
+            std::vector<float> a(512 * 2), b(512 * 2);
+            audio.Mix(a.data(), 512);
+            other.Mix(b.data(), 512);
+            for (int i = 0; i < 512; ++i) {
+                const float sa = a[static_cast<std::size_t>(i) * 2];
+                const float sb = b[static_cast<std::size_t>(i) * 2];
+                energy_a += static_cast<double>(sa) * sa;
+                energy_b += static_cast<double>(sb) * sb;
+                peak_a = std::max(peak_a, std::fabs(sa));
+                peak_b = std::max(peak_b, std::fabs(sb));
+            }
+        }
+        check(peak_a > 0.05f && peak_b > 0.05f, "decode: both paths are audible");
+        check(near(peak_a, peak_b, 0.05f), "decode: both paths peak at the same level");
+        check(std::fabs(energy_a - energy_b) < energy_a * 0.05,
+              "decode: both paths carry the same energy");
+
+        check(!audio.AddClipFile("missing", "assets/_audio_nope.wav"),
+              "decode: a missing file is rejected");
+        check(!audio.AddClipFile("bad", "assets/_audio_test_bad.ogg"),
+              "decode: an unknown format is rejected");
+        check(!audio.AddClipFile("hand", path), "decode: a taken name is refused");
+        check(near(audio.ClipDuration("nope"), 0.0f),
+              "decode: an unknown name has no length");
+        check(audio.ResidentFrames("nope") == 0, "decode: an unknown name holds nothing");
+        std::filesystem::remove(path, ec);
+    }
+
+    // --- streamed tracks (Phase 29) ----------------------------------------
+    {
+        fake2d::AudioEngine audio;
+        std::error_code ec;
+        std::filesystem::create_directories("assets", ec);
+        const std::string path = "assets/_audio_test.wav";
+        // Long enough (0.9 s at 22.05 kHz -> ~1.8 s resampled) that one decode
+        // window is visibly a window and not the whole file.
+        std::vector<float> src(20000);
+        for (std::size_t i = 0; i < src.size(); ++i) {
+            src[i] = 0.6f * std::sin(static_cast<float>(i) * 0.01f);
+        }
+        WriteWav(path, src, 22050);
+
+        check(audio.AddStream("st", path), "stream: a file registers as a stream");
+        check(!audio.AddStream("st", path), "stream: a taken name is refused");
+        check(!audio.AddStream("gone", "assets/_audio_nope.wav"),
+              "stream: a missing file is rejected");
+        // The length is the file's, even though nothing is decoded yet.
+        check(near(audio.ClipDuration("st"), 20000.0f / 22050.0f, 0.01f),
+              "stream: the length is known before any frame is read");
+        check(audio.ResidentFrames("st") == 0,
+              "stream: nothing is decoded before the first mix");
+
+        // Residency: a fresh engine, played just far enough to fill a window.
+        {
+            fake2d::AudioEngine held;
+            check(held.AddStream("st", path), "stream: the residency case registers");
+            held.PlayMusic("st", 1.0f);
+            MixLast(held, 64);
+            check(held.ResidentFrames("st") > 0, "stream: the first mix fills a window");
+            check(held.ResidentFrames("st") <= fake2d::AudioEngine::kStreamWindowFrames,
+                  "stream: only one window is ever held");
+            // 20000 source frames at 22.05 kHz resample to ~40000, so holding
+            // all of them would mean the file was decoded up front.
+            check(held.ResidentFrames("st") < 40000,
+                  "stream: the whole file is not resident");
+        }
+
+        // The real assertion: a streamed track must sound exactly like the
+        // same file decoded up front, including across window refills — hence
+        // the small blocks, which straddle a boundary on purpose. Both engines
+        // start from frame 0, or the comparison would read a phase offset.
+        {
+            fake2d::AudioEngine streamed;
+            fake2d::AudioEngine full;
+            check(streamed.AddStream("st", path), "stream: the comparison case registers");
+            check(full.AddClipFile("whole", path), "stream: the reference clip loads");
+            streamed.PlayMusic("st", 1.0f);
+            full.PlayMusic("whole", 1.0f);
+            bool same = true;
+            float peak = 0.0f;
+            for (int block = 0; block < 40; ++block) {
+                std::vector<float> a(256 * 2), b(256 * 2);
+                streamed.Mix(a.data(), 256);
+                full.Mix(b.data(), 256);
+                for (int i = 0; i < 256; ++i) {
+                    const float l = a[static_cast<std::size_t>(i) * 2];
+                    if (std::fabs(l - b[static_cast<std::size_t>(i) * 2]) > 0.001f) {
+                        same = false;
+                    }
+                    peak = std::max(peak, std::fabs(l));
+                }
+            }
+            check(same, "stream: a streamed track matches the decoded one");
+            check(peak > 0.05f, "stream: it is actually audible");
+        }
+
+        // Looping: the music cursor runs past the end and comes back, which
+        // means re-decoding from the start of the file.
+        const std::uint64_t frames =
+            static_cast<std::uint64_t>(audio.ClipDuration("st") *
+                                       static_cast<float>(kRate)) + 64u;
+        fake2d::AudioEngine loop_audio;
+        check(loop_audio.AddStream("st", path), "stream: the loop case registers");
+        loop_audio.PlayMusic("st", 1.0f);
+        float loop_peak = 0.0f;
+        for (std::uint64_t done = 0; done < frames; done += 512) {
+            const int n = static_cast<int>(std::min<std::uint64_t>(512, frames - done));
+            std::vector<float> out(static_cast<std::size_t>(n) * 2);
+            loop_audio.Mix(out.data(), n);
+            for (int i = 0; i < n; ++i) {
+                loop_peak = std::max(loop_peak,
+                                     std::fabs(out[static_cast<std::size_t>(i) * 2]));
+            }
+        }
+        check(loop_audio.IsMusicPlaying(), "stream: the loop survives the end");
+        check(loop_peak > 0.05f, "stream: frames past the end are still audible");
+
+        // Everything the mixer already guarantees holds for a stream: pausing
+        // freezes it, a fade-out ends it.
+        fake2d::AudioEngine paused;
+        check(paused.AddStream("st", path), "stream: the pause case registers");
+        paused.PlayMusic("st", 1.0f);
+        MixLast(paused, 64);
+        paused.SetPaused(true);
+        check(near(MixLast(paused, 64), 0.0f), "stream: pausing silences it");
+        paused.SetPaused(false);
+        check(std::fabs(MixLast(paused, 64)) > 0.0f, "stream: resuming picks it back up");
+        paused.StopMusic(0.1f);
+        MixLast(paused, static_cast<int>(kRate));
+        check(!paused.IsMusicPlaying(), "stream: stopping ends the track");
+        std::filesystem::remove(path, ec);
+    }
+
     std::printf("[audio] %s: %d checks, %d failures\n", failures == 0 ? "PASS" : "FAIL",
                 checks, failures);
     return failures == 0 ? 0 : 1;
