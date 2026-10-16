@@ -7,7 +7,7 @@
 
 **Fake2D** 是基于 [FakeLua](https://github.com/esrrhs/fakelua) 的现代化轻量 2D 游戏渲染引擎：C++ 宿主掌控窗口、GPU 资源与场景数据；FakeLua 脚本负责编排玩法与实体逻辑，并在每帧边界执行 Arena 线性重置（**零 GC 停顿**）。
 
-> 当前状态：**1.21 — Phase 27 动画 pass 已完成** — 已包含 1.20 及之前的全部能力（剪裁矩形、九宫格、对齐换行文本、固定步长物理、相机跟随工具、碰撞过滤、瓦片地图 A\* 寻路、离屏渲染目标、全屏后处理 + 小地图烘焙、音频混音器、位置音频、ping-pong 趟、UI 控件第二批、战争迷雾），并新增 **自动 uniform**：渲染器每帧把 `u_time`（帧时钟）和 `u_resolution`（正在绘制表面的像素尺寸）灌进每个声明了它们的自定义着色器——动画 pass 不再需要脚本喂时钟，像素为单位的参数在任意分辨率下含义一致。新现成 pass：`assets/fx_bright.*`（bloom 的阈值起点，含软膝）与 `assets/fx_wave.*`（`u_time` 驱动的行波扭动）。`--fx-test` 现覆盖 80 条；**`--fx-demo`** 链路扩为 `场景 → wave → bright → blur → 合成`。详见下方[实现计划](#实现计划)、[docs/PLAN.md](docs/PLAN.md)、[脚本编写指南](docs/SCRIPTING.md) 与[跨平台打包说明](docs/PACKAGING.md)。
+> 当前状态：**1.22 — Phase 28 UI 控件第三批已完成** — 已包含 1.21 及之前的全部能力（剪裁矩形、九宫格、对齐换行文本、固定步长物理、相机跟随工具、碰撞过滤、瓦片地图 A\* 寻路、离屏渲染目标、全屏后处理 + 小地图烘焙、音频混音器、位置音频、ping-pong 趟、自动 uniform、UI 控件第二批、战争迷雾、bloom 级 FX 套件），并新增三个控件：**`ui_window`**（标题栏拖拽面板——返回的是「正在被拖拽」，位置由脚本自持，抓取帧静默所以面板不会跳变）、**`ui_tab`**（激活页由调用方自持，激活页更亮并与下方面板相连）与 **`ui_tree`**（展开行，子项就是一段 if 块），配套 **`input_mouse_dx/_dy`** 提供拖拽所需的逐帧增量。`--ui-test` 现覆盖 76 条；**`--ui3-demo`** 是一个可拖拽的 SETTINGS 窗口，含三个标签页、可折叠树形分组与 `ui_hovered` 工具提示。详见下方[实现计划](#实现计划)、[docs/PLAN.md](docs/PLAN.md)、[脚本编写指南](docs/SCRIPTING.md) 与[跨平台打包说明](docs/PACKAGING.md)。
 
 ---
 
@@ -234,6 +234,7 @@ end
 | **25 — UI 控件第二批 (1.19)** | UI | `ProgressBar`（`ui_bar`，钳制的纯绘制）、`RadioButton`（`ui_radio`，按钮式点击语义、选择权归调用方）、`ComboBegin`/`ComboItem`（`ui_combo`/`ui_combo_item`，组合式下拉，表头容忍甩出点击）、`Input::InjectFrame` + 可变 `Engine::GetInput()`（合成输入帧解锁无头点按路径断言）、4 个新绑定、`--ui-test` 扩到 52 条断言（4 次变异验证——变异暴露了轨道内空转的钳制探针）、`--ui2-demo` | **已完成** |
 | **26 — 战争迷雾 (1.20)** | 渲染 | `BlendMode::Multiply`（`draw_set_blend(2)`，`DST_COLOR, ZERO`——遮罩在已绑定目标内部合成，`rt_copy` 因拒绝嵌套做不到；源 RGB 驱动结果、alpha 不参与门控）、`rt_sample(id, x, y)`（像素查询读回标量，非法读取返回 -1，故 0 恒为真黑）、1 个新绑定、`--fog-test`（39 条像素探针：恒等/擦除/逐通道/半遮罩、目标内合成 vs 嵌套拒绝、逐绘制混合状态、跨帧累积、越界守卫）、`--fog-demo` 程序化战争迷雾世界：累积式探索、烘焙小地图 × 遮罩、点击跳转、`rt_sample` 驱动的探索度读数 | **已完成** |
 | **27 — 动画 pass (1.21)** | 渲染 | 渲染器自动灌入的 uniform：`u_time`（帧时钟，脚本零簿记）与 `u_resolution`（正在绘制的表面，像素参数与分辨率无关）、`assets/fx_bright.*`（bloom 阈值 + 软膝，0/0 即恒等）、`assets/fx_wave.*`（行波扭动；`u_amp` 以像素计，符号已记录——采样点右移画面左移）、`--fx-test` 扩到 80 条（恒等/硬切/软膝、±8 px 四分之一周期、128 与 64 同位移）、`--fx-demo` 链路扩为 `场景 → wave → bright → blur → 合成`，带开关与滑杆 | **已完成** |
+| **28 — UI 控件第三批 (1.22)** | UI | `ui_window`：标题栏拖拽面板（返回「正在被拖拽」，位置由脚本经 `input_mouse_dx/_dy` 自持；抓取帧静默不跳变；按在面板主体上不抓取；按住不放拖出标题栏不丢），`ui_tab`：激活页由调用方自持，更亮、长高 2 px 并去掉下边缘，`ui_tree`：展开行（三个 quad 画的右/下三角），子项就是 if 块，`--ui-test` 扩到 76 条（拖拽路径、点击/取消语义、bar/body/分隔线像素探针、激活页更亮且下探 2 px），`--ui3-demo`：可拖拽 SETTINGS 窗口，三标签页 + 可折叠树 + `ui_hovered` 工具提示 | **已完成** |
 
 详细任务清单见 [docs/PLAN.md](docs/PLAN.md)。
 

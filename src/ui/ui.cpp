@@ -13,8 +13,14 @@ constexpr Color kThumb{0.22f, 0.30f, 0.48f, 1.0f};
 constexpr Color kThumbHot{0.30f, 0.45f, 0.75f, 1.0f};
 constexpr Color kThumbActive{0.34f, 0.55f, 0.92f, 1.0f};
 constexpr Color kFrameLine{0.35f, 0.45f, 0.65f, 1.0f};
+// The quiet border of an inactive tab: visible, but it must not compete with
+// the active one for attention.
+constexpr Color kDimLine{0.18f, 0.22f, 0.34f, 1.0f};
 constexpr Color kField{0.10f, 0.12f, 0.18f, 1.0f};
 constexpr Color kCheck{0.35f, 0.72f, 0.45f, 1.0f};
+// Window body: darker than a field, because text and controls sit on top of
+// it, and lighter than the canvas it covers.
+constexpr Color kPanel{0.07f, 0.09f, 0.14f, 1.0f};
 
 constexpr float kWheelStep = 40.0f; // scroll px per wheel notch
 
@@ -634,6 +640,164 @@ bool UISystem::ComboItem(std::string_view key, UIAnchor anchor, float offset_x,
         const float text_h = renderer_->GetFont().LineHeight() * text_scale;
         DrawFittedText(label, p.x + 8.0f, p.y + h * 0.5f - text_h * 0.5f, w - 16.0f,
                        text_scale, Color::White());
+    }
+    return clicked;
+}
+
+bool UISystem::Window(std::string_view key, UIAnchor anchor, float offset_x,
+                      float offset_y, float w, float h, std::string_view title,
+                      float text_scale) {
+    if (camera_ == nullptr || renderer_ == nullptr || input_ == nullptr) {
+        return false;
+    }
+    const std::string key_str(key);
+    WidgetState &state = widgets_[key_str];
+
+    const Vec2 p = Resolve(anchor, offset_x, offset_y, w, h,
+                           camera_->ViewportWidth(), camera_->ViewportHeight());
+    // The bar is sized off the text so a bigger scale gets a bigger grab
+    // target, with a floor so an empty title still leaves something to hold.
+    const float bar_h = std::max(22.0f,
+                                 renderer_->GetFont().LineHeight() * text_scale + 10.0f);
+    const Rect bar{p.x, p.y, w, bar_h};
+    const Vec2 mouse = Mouse();
+    const bool hover_bar = bar.Contains(mouse);
+    const bool mouse_down = input_->MouseDown(0);
+    const bool mouse_pressed = input_->MousePressed(0);
+
+    // Grab on the press frame, but report the drag only from the next one:
+    // the click that grabs a window also moves the cursor onto it, and
+    // applying that delta would snap the panel under the pointer.
+    bool dragging = false;
+    if (mouse_down) {
+        if (mouse_pressed && hover_bar) {
+            state.dragging = true;
+        }
+        dragging = state.dragging && state.pressed;
+        state.pressed = state.dragging;
+    } else {
+        state.dragging = false;
+        state.pressed = false;
+    }
+    state.hover = hover_bar;
+
+    renderer_->DrawQuad({p.x - 2.0f, p.y - 2.0f, w + 4.0f, h + 4.0f}, kFrameLine);
+    renderer_->DrawQuad({p.x, p.y, w, h}, kPanel);
+    renderer_->DrawQuad(bar, state.dragging ? kThumbActive : kThumb);
+    // A one-pixel rule under the bar: the cheapest way to say "this part
+    // moves the panel, the rest does not".
+    renderer_->DrawQuad({p.x, p.y + bar_h, w, 1.0f}, kFrameLine);
+    if (!title.empty()) {
+        const float text_h = renderer_->GetFont().LineHeight() * text_scale;
+        DrawFittedText(title, p.x + 8.0f, p.y + bar_h * 0.5f - text_h * 0.5f,
+                       w - 16.0f, text_scale, Color::White());
+    }
+    return dragging;
+}
+
+bool UISystem::Tab(std::string_view key, UIAnchor anchor, float offset_x,
+                   float offset_y, float w, float h, std::string_view label,
+                   bool active, float text_scale) {
+    if (camera_ == nullptr || renderer_ == nullptr || input_ == nullptr) {
+        return false;
+    }
+    const std::string key_str(key);
+    WidgetState &state = widgets_[key_str];
+
+    const Vec2 p = Resolve(anchor, offset_x, offset_y, w, h,
+                           camera_->ViewportWidth(), camera_->ViewportHeight());
+    const Rect bounds{p.x, p.y, w, h};
+    const Vec2 mouse = Mouse();
+    const bool hover = bounds.Contains(mouse);
+    const bool mouse_down = input_->MouseDown(0);
+    const bool mouse_released = input_->MouseReleased(0);
+
+    bool clicked = false;
+    if (hover) {
+        if (state.pressed && mouse_released) {
+            clicked = true;
+        }
+        state.pressed = mouse_down || (state.pressed && !mouse_released && hover);
+    } else {
+        state.pressed = false;
+    }
+    state.hover = hover;
+
+    // An active tab sits brighter than its idle siblings and grows 2 px,
+    // dropping its bottom edge so it reads as connected to the panel below.
+    const float grow = active ? 2.0f : 0.0f;
+    const Color fill = active  ? kThumb
+                       : (state.pressed ? kThumbHot
+                          : hover       ? kThumbHot
+                                        : kField);
+    if (!active) {
+        renderer_->DrawQuad({p.x - 2.0f, p.y - 2.0f, w + 4.0f, h + 4.0f}, kDimLine);
+    } else {
+        renderer_->DrawQuad({p.x - 2.0f, p.y - 2.0f, 2.0f, h + 2.0f + grow}, kFrameLine);
+        renderer_->DrawQuad({p.x + w, p.y - 2.0f, 2.0f, h + 2.0f + grow}, kFrameLine);
+        renderer_->DrawQuad({p.x - 2.0f, p.y - 2.0f, w + 4.0f, 2.0f}, kFrameLine);
+    }
+    renderer_->DrawQuad({p.x, p.y, w, h + grow}, fill);
+    if (!label.empty()) {
+        const float text_h = renderer_->GetFont().LineHeight() * text_scale;
+        DrawFittedText(label, p.x + 8.0f, p.y + h * 0.5f - text_h * 0.5f, w - 16.0f,
+                       text_scale, active ? Color::White()
+                                          : Color{0.72f, 0.78f, 0.86f, 1.0f});
+    }
+    return clicked;
+}
+
+bool UISystem::Tree(std::string_view key, UIAnchor anchor, float offset_x,
+                    float offset_y, float w, float h, std::string_view label,
+                    bool open, float text_scale) {
+    if (camera_ == nullptr || renderer_ == nullptr || input_ == nullptr) {
+        return false;
+    }
+    const std::string key_str(key);
+    WidgetState &state = widgets_[key_str];
+
+    const Vec2 p = Resolve(anchor, offset_x, offset_y, w, h,
+                           camera_->ViewportWidth(), camera_->ViewportHeight());
+    const Rect bounds{p.x, p.y, w, h};
+    const Vec2 mouse = Mouse();
+    const bool hover = bounds.Contains(mouse);
+    const bool mouse_down = input_->MouseDown(0);
+    const bool mouse_released = input_->MouseReleased(0);
+
+    bool clicked = false;
+    if (hover) {
+        if (state.pressed && mouse_released) {
+            clicked = true;
+        }
+        state.pressed = mouse_down || (state.pressed && !mouse_released && hover);
+    } else {
+        state.pressed = false;
+    }
+    state.hover = hover;
+
+    renderer_->DrawQuad(bounds, hover ? kThumbHot : Color::Clear());
+    // Disclosure triangle in three bars: widening to the right reads as ">",
+    // narrowing downwards reads as "v". Three quads, no line primitives (and
+    // no scissor worries — those are not clipped).
+    const float cx = p.x + 4.0f;
+    const float cy = p.y + h * 0.5f;
+    if (open) {
+        renderer_->DrawQuad({cx, cy - 3.0f, 7.0f, 2.0f}, Color{0.85f, 0.90f, 0.96f, 1.0f});
+        renderer_->DrawQuad({cx + 1.0f, cy - 1.0f, 5.0f, 2.0f},
+                            Color{0.85f, 0.90f, 0.96f, 1.0f});
+        renderer_->DrawQuad({cx + 2.0f, cy + 1.0f, 3.0f, 2.0f},
+                            Color{0.85f, 0.90f, 0.96f, 1.0f});
+    } else {
+        renderer_->DrawQuad({cx, cy - 3.0f, 2.0f, 2.0f}, Color{0.85f, 0.90f, 0.96f, 1.0f});
+        renderer_->DrawQuad({cx + 2.0f, cy - 2.0f, 2.0f, 4.0f},
+                            Color{0.85f, 0.90f, 0.96f, 1.0f});
+        renderer_->DrawQuad({cx + 4.0f, cy - 1.0f, 2.0f, 6.0f},
+                            Color{0.85f, 0.90f, 0.96f, 1.0f});
+    }
+    if (!label.empty()) {
+        const float text_h = renderer_->GetFont().LineHeight() * text_scale;
+        DrawFittedText(label, p.x + 18.0f, p.y + h * 0.5f - text_h * 0.5f,
+                       w - 24.0f, text_scale, Color::White());
     }
     return clicked;
 }

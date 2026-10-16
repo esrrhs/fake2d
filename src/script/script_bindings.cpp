@@ -1123,6 +1123,51 @@ void RegisterUiApi(fakelua::State *state, Engine *engine) {
                     static_cast<float>(scale));
             }));
 
+    // A titled panel dragged by its bar; the position lives in the script, so
+    // the caller needs the per-frame mouse delta to move it.
+    fakelua::RegisterNativeFunction(
+        state, "ui_window", false,
+        std::function<bool(fakelua::State *, std::string_view, std::int64_t, double,
+                           double, double, double, std::string_view, double)>(
+            [engine](fakelua::State *, std::string_view key, std::int64_t anchor,
+                     double ox, double oy, double w, double h,
+                     std::string_view title, double scale) -> bool {
+                return engine->GetUI().Window(
+                    key, static_cast<UIAnchor>(anchor), static_cast<float>(ox),
+                    static_cast<float>(oy), static_cast<float>(w),
+                    static_cast<float>(h), title, static_cast<float>(scale));
+            }));
+
+    // One tab of a tab bar; which tab is active is the caller's.
+    fakelua::RegisterNativeFunction(
+        state, "ui_tab", false,
+        std::function<bool(fakelua::State *, std::string_view, std::int64_t, double,
+                           double, double, double, std::string_view, bool, double)>(
+            [engine](fakelua::State *, std::string_view key, std::int64_t anchor,
+                     double ox, double oy, double w, double h,
+                     std::string_view label, bool active, double scale) -> bool {
+                return engine->GetUI().Tab(
+                    key, static_cast<UIAnchor>(anchor), static_cast<float>(ox),
+                    static_cast<float>(oy), static_cast<float>(w),
+                    static_cast<float>(h), label, active,
+                    static_cast<float>(scale));
+            }));
+
+    // A disclosure row; `open` is the caller's, so children are an if-block.
+    fakelua::RegisterNativeFunction(
+        state, "ui_tree", false,
+        std::function<bool(fakelua::State *, std::string_view, std::int64_t, double,
+                           double, double, double, std::string_view, bool, double)>(
+            [engine](fakelua::State *, std::string_view key, std::int64_t anchor,
+                     double ox, double oy, double w, double h,
+                     std::string_view label, bool open, double scale) -> bool {
+                return engine->GetUI().Tree(
+                    key, static_cast<UIAnchor>(anchor), static_cast<float>(ox),
+                    static_cast<float>(oy), static_cast<float>(w),
+                    static_cast<float>(h), label, open,
+                    static_cast<float>(scale));
+            }));
+
     fakelua::RegisterNativeFunction(
         state, "ui_combo_item", false,
         std::function<bool(fakelua::State *, std::string_view, std::int64_t, double,
@@ -2116,6 +2161,18 @@ void RegisterInputApi(fakelua::State *state, Engine *engine) {
         state, "input_mouse_y", false,
         std::function<double(fakelua::State *)>(
             [input](fakelua::State *) { return static_cast<double>(input->MousePosition().y); }));
+
+    // Per-frame movement of the cursor. This is what a drag needs: a window,
+    // a scrollbar or a node editor all move by the delta, not to the position.
+    fakelua::RegisterNativeFunction(
+        state, "input_mouse_dx", false,
+        std::function<double(fakelua::State *)>(
+            [input](fakelua::State *) { return static_cast<double>(input->MouseDelta().x); }));
+
+    fakelua::RegisterNativeFunction(
+        state, "input_mouse_dy", false,
+        std::function<double(fakelua::State *)>(
+            [input](fakelua::State *) { return static_cast<double>(input->MouseDelta().y); }));
 
     fakelua::RegisterNativeFunction(
         state, "input_mouse_down", false,

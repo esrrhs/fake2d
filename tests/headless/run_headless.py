@@ -1,12 +1,25 @@
 #!/usr/bin/env python3
 """Cross-platform runner for the fake2d headless gameplay fixtures.
 
-Assembles head + game script + tail chunks (see generate_fixtures.py) and
-drives each scenario through the flua CLI under every FakeLua backend:
+Writes each scenario as a small DIRECTORY of Lua files and drives it through
+the flua CLI under every FakeLua backend:
+
+    a_head.lua   native API stubs + embedded real Tiled grids
+    b_body.lua   the game script, its update(dt) renamed to fix_game_step(dt)
+    c_tail.lua   the scenario driver: boot, frame loop, assertions
 
     jit_type=0  TCC JIT
     jit_type=1  GCC JIT (the engine default)
     jit_type=2  interpreter
+
+The flua CLI (fakelua #33) drives a fixed init/update/fini lifecycle in
+package "main" and resets the frame arena between top-level Calls, so the
+runner passes --once: the tail's init() runs the whole scenario — boot, the
+frame loop over the game's renamed fix_game_step(dt), assertions — in one
+Call, the execution model the harness (and its tuned frame counts) was built
+against. Each file is its own compilation unit and declares the package
+itself; that also keeps every main-chunk function far from the interpreter's
+255-register ceiling, which the old single concatenated chunk now trips.
 
 Pure Python 3 standard library, so it runs identically on Linux, macOS and
 Windows runners. Exit code is non-zero if any case fails or crashes.
@@ -63,8 +76,10 @@ def run_case(flua, chunk, jit_type, name, frames, extra_env):
     env.update(extra_env)
     env["FIX_SCENARIO"] = name
     env["FIX_FRAMES"] = str(frames)
+    # --once: init() runs the whole scenario in one top-level Call (the
+    # harness's execution model); the host's per-frame update loop is unused.
     proc = subprocess.run(
-        [str(flua), f"--jit_type={jit_type}", str(chunk)],
+        [str(flua), "--once", f"--jit_type={jit_type}", str(chunk)],
         env=env, capture_output=True, text=True, encoding="utf-8",
         errors="replace",
     )
@@ -98,13 +113,29 @@ def main():
     head = (workdir / "m_head.lua").read_text()
     tail = (workdir / "m_tail.lua").read_text()
 
+    # One scenario = one directory of files, passed to flua as a whole (the
+    # CLI compiles every .lua inside in filename order). Each file is its own
+    # chunk — its own main-chunk register budget — and declares package
+    # "main" itself; cross-file references resolve at runtime.
     chunk_paths = {}
     for _, script, _, _ in scenarios:
         if script not in chunk_paths:
             body = (args.repo / script).read_text()
-            out = workdir / ("t_" + Path(script).name)
-            out.write_text(head + body + tail, newline="\n")
-            chunk_paths[script] = out
+            # The game scripts expose update(dt) for the engine's per-frame
+            # call; the driver tail owns the name the flua host looks up, so
+            # rename the game's to fix_game_step(dt) — exactly one
+            # definition per script.
+            assert body.count("function update(dt)") == 1, script
+            body = body.replace("function update(dt)",
+                                "function fix_game_step(dt)", 1)
+            scen_dir = workdir / ("d_" + Path(script).stem)
+            scen_dir.mkdir(parents=True, exist_ok=True)
+            (scen_dir / "a_head.lua").write_text(head, newline="\n")
+            (scen_dir / "b_body.lua").write_text('package "main"\n\n' + body,
+                                                 newline="\n")
+            (scen_dir / "c_tail.lua").write_text('package "main"\n\n' + tail,
+                                                 newline="\n")
+            chunk_paths[script] = scen_dir
 
     total = 0
     failures = 0

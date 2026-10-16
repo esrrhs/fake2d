@@ -322,6 +322,22 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 
 ---
 
+## Phase 28 — UI widgets round 3: window, tab, tree (1.22.x)
+
+- [x] **`Window(key, anchor, ox, oy, w, h, title, scale)` / `ui_window`**: a titled panel dragged by its bar (bar height sized off the text, floor 22 px, plus a one-pixel rule that says "this part moves the panel"). It reports *being dragged*, not a position — the position stays with the caller, moved by the per-frame `input_mouse_dx/_dy`. The grab frame is deliberately silent, so the panel never jumps by whatever distance the cursor travelled to reach the bar; dragging survives the cursor leaving the bar while the button is down, and a press on the body never grabs
+- [x] **`Tab(key, anchor, ox, oy, w, h, label, active, scale)` / `ui_tab`**: one tab of a tab bar; which tab is active is the caller's (an index in the script, like every value here). Click semantics match a button (release inside clicks, releasing outside cancels). The active tab sits **brighter**, grows 2 px and drops its bottom edge so it reads as connected to the panel below; idle siblings go dark (`kField` fill, `kDimLine` border). The first revision inverted this — the active tab was drawn in the dark panel colour and the idle ones bright — which the eyeball pass on the VIDEO tab screenshot caught; the fix came with a pixel assertion ("active brighter than idle") that now pins the promise
+- [x] **`Tree(key, anchor, ox, oy, w, h, label, open, scale)` / `ui_tree`**: a disclosure row — a triangle that points right when closed and down when open (three quads, no line primitives, so no scissor worries), plus a label; the children are a plain `if open` block in the script. A toggle fires once per click, then goes quiet while held
+- [x] **`input_mouse_dx` / `input_mouse_dy`**: the per-frame cursor movement a drag needs — a window, a scrollbar or a node editor all move by the delta, not to the position
+- [x] 5 new Lua bindings with explicit full arity (`ui_window`, `ui_tab`, `ui_tree`, `input_mouse_dx`, `input_mouse_dy`); fixtures stub list extended in step
+- [x] **`--ui-test` grows 52 → 76 assertions**: window (grab frame silent, holding-and-moving drags, the same delta readable through `MouseDelta`, release ends it, motion without a button is nothing, and a press on the body neither grabs nor drags), tab (press-not-select, release-selects, outside-release cancels, a tab away from the cursor never clicks), tree (press-not-toggle, release-toggles, holding still never re-toggles, an idle frame is quiet), plus pixel probes in render targets — the window's bar/body/rule land where they should with no spill, the active tab is brighter than an idle one, and the active tab's fill reaches 2 px past its declared height
+- [x] **Mutation-checked (6)**: a drag that reports motion on the grab frame, a window whose whole body is a handle, a tree that toggles every frame while held, a window bar drawn in the body colour, the active tab drawn dark (the inversion above), and the 2 px grow removed — each fails the suite; the grow mutation initially **passed** and earned the "drops its bottom edge" probe
+- [x] **`--ui3-demo`**: a draggable SETTINGS window with three tabs — audio (three labelled mixer sliders + mute), video (two collapsible tree groups, display open with brightness/gamma, effects closed with bloom/fog), controls (radio + combo) — a RECENTER button that puts the panel back, and hover tooltips built from plain quads + `draw_text` + `ui_hovered`. The window position is two file locals clamped so the title bar can never leave the canvas
+- [x] Verified by pixel bounding-box probe (content within 960×540) plus eyeball passes of the audio tab and the video tab (the latter caught the tab-style inversion)
+- [x] `--ui3-demo` wired into CI on Linux (xvfb), macOS and Windows
+- [x] Verification: `--ui-test` 76/76; `--ui3-demo` headless smoke + pixel-probed screenshots of both tabs; headless Lua fixtures; all gates re-run green
+
+---
+
 ## Non-goals (for now)
 
 - Full 3D / PBR (Fake2D is strictly focused on high-performance 2D)
