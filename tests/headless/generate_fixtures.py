@@ -2,12 +2,13 @@
 """Generate FakeLua headless fixtures for the fake2d gameplay demos.
 
 Fake2d gameplay scripts only expose update(dt); they expect the engine's
-native functions. To exercise their real logic without a window/GPU we
-concatenate one chunk per demo:
+native functions. To exercise their real logic without a window/GPU the
+runner (run_headless.py) builds one DIRECTORY of chunks per demo and drives
+it with `flua --once` (the flua host's fixed lifecycle, fakelua #33):
 
-    m_head.lua (native API stubs + embedded real Tiled grids)
-    + scripts/<demo>.lua
-    + m_tail.lua (scenario driver: runs N frames, asserts log codes)
+    m_head.lua  (native API stubs + embedded real Tiled grids)
+    scripts/<demo>.lua  (its update(dt) renamed to fix_game_step(dt))
+    m_tail.lua  (scenario driver: init boots, runs N frames, asserts)
 
 The stubs are generated from the actual C++ bindings
 (src/script/script_bindings.cpp) so argument counts always match what the
@@ -125,9 +126,10 @@ def build_prelude(mario_grid, plat_grid, slope_grid, object_section):
 -- C++ semantics mirrored: solid map gids are 1..9 and 14; entity handles
 -- pack (generation << 32 | slot); entity enumeration is slot ordered.
 
--- Tables created during chunk init are const in FakeLua. Persistent table
--- locals start nil from a function call and are created in fix_boot()
--- (driver runs it from main). Numeric keys are forced to floats.
+-- The harness runs each scenario as ONE top-level Call (the runner drives
+-- flua with --once and does the frame loop inside init), so plain Lua tables
+-- live as long as the scenario needs. Numeric keys are forced to floats
+-- (generic table opcode).
 local function fix_nilval()
     return nil
 end
@@ -446,6 +448,8 @@ function input_key_pressed(k) return false end
 function input_key_released(k) return false end
 function input_mouse_x() return 0.0 end
 function input_mouse_y() return 0.0 end
+function input_mouse_dx() return 0.0 end
+function input_mouse_dy() return 0.0 end
 function input_mouse_down(b) return false end
 function input_mouse_pressed(b) return false end
 function input_mouse_wheel() return 0.0 end
@@ -576,9 +580,13 @@ function ui_bar(a, b, c, d, e, f, g, h, i, j) end
 function ui_radio(a, b, c, d, e, f, g, h) return false end
 function ui_combo(a, b, c, d, e, f, g, h, i) return false end
 function ui_combo_item(a, b, c, d, e, f, g, h, i) return false end
+-- Phase 28 widgets round 3.
+function ui_window(a, b, c, d, e, f, g, h) return false end
+function ui_tab(a, b, c, d, e, f, g, h, i) return false end
+function ui_tree(a, b, c, d, e, f, g, h, i) return false end
 
 -- Reset every persistent state slot. Defined last so all locals above are
--- in scope; the driver calls this once from main().
+-- in scope; the driver calls this once from init().
 function fix_boot()
     fix_logs = fix_newtable()
     fix_seen = fix_newtable()
@@ -609,6 +617,13 @@ end
 
 
 TAIL = '''-- AUTO-GENERATED driver tail. Scenario selected by FIX_SCENARIO.
+--
+-- The flua CLI (fakelua #33) drives a fixed init/update/fini lifecycle and
+-- resets the frame arena between top-level Calls, so the runner drives it
+-- with --once and init is the whole show: boot, run N frames of the renamed
+-- game step, assert, report -- one Call, the execution model this harness
+-- (and its tuned frame counts) was built against. The game body exposes its
+-- per-frame step as fix_game_step(dt); the runner does the rename.
 
 local function fix_expect(code, label, fails)
     if fix_has(code) then
@@ -641,18 +656,22 @@ local function fix_forbid(code, label, fails)
     return fails
 end
 
-function main()
-    fix_boot()
-    local sc = os.getenv("FIX_SCENARIO")
-    local frames = 300
-    local fr = os.getenv("FIX_FRAMES")
-    if fr ~= nil then frames = tonumber(fr) end
+local fix_scenario = "platformer_smoke"
+local fix_frames = 300 + 0
+
+-- Split into helpers so no single function grows near the interpreter's
+-- 255-register ceiling (mario.lua's own step is already close to it).
+local function fix_run_frames()
     local i = 0
-    while i < frames do
-        update(1.0 / 60.0)
+    while i < fix_frames do
+        fix_game_step(1.0 / 60.0)
         i = i + 1
     end
+    return 0
+end
 
+local function fix_assert()
+    local sc = fix_scenario
     local fails = 0
     if sc == "mario_smoke" then
         fails = fix_expect(900112, "mario: map loads 112 cols", fails)
@@ -689,11 +708,25 @@ function main()
         fails = fix_expect(900001, "slope: lab initializes", fails)
         fails = fix_expect_range(900000, 900099, "slope: feet trace logs", fails)
     else
-        print("PASS platformer: " .. string.format("%d", frames) .. " frames ran clean")
+        print("PASS platformer: " .. string.format("%d", fix_frames) .. " frames ran clean")
     end
 
     print("FAILURES " .. string.format("%d", fails))
     return fails
+end
+
+function init()
+    fix_boot()
+    local env_sc = os.getenv("FIX_SCENARIO")
+    if env_sc ~= nil then fix_scenario = env_sc end
+    local fr = os.getenv("FIX_FRAMES")
+    if fr ~= nil then fix_frames = tonumber(fr) end
+    fix_run_frames()
+    return fix_assert()
+end
+
+function fini()
+    return 0
 end
 '''
 
@@ -751,8 +784,12 @@ def write_fixtures(repo: Path, out: Path):
         if name not in custom:
             auto.append(emit_default_stub(name, ret, _arity))
 
-    (out / "m_head.lua").write_text(prelude + "\n" + "\n".join(auto) + "\n",
-                                   newline="\n")
+    # The flua CLI drives a fixed init/update/fini lifecycle in package
+    # "main" (fakelua #33), so the assembled chunk declares the package up
+    # front and every function below (stubs, game body, driver tail) lands
+    # in it.
+    (out / "m_head.lua").write_text('package "main"\n\n' + prelude + "\n"
+                                    + "\n".join(auto) + "\n", newline="\n")
     (out / "m_tail.lua").write_text(TAIL, newline="\n")
     return len(custom), len(api) - len(custom)
 

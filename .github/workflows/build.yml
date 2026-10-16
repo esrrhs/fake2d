@@ -125,6 +125,7 @@ jobs:
           run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --rt-demo
           run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --ui-demo
           run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --ui2-demo
+          run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --ui3-demo
           run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --post-demo
           run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --fx-demo
           run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --fog-demo
@@ -465,6 +466,7 @@ jobs:
           ./build/bin/fake2d_hello --headless --frames 120 --rt-demo
           ./build/bin/fake2d_hello --headless --frames 120 --ui-demo
           ./build/bin/fake2d_hello --headless --frames 120 --ui2-demo
+          ./build/bin/fake2d_hello --headless --frames 120 --ui3-demo
           ./build/bin/fake2d_hello --headless --frames 120 --post-demo
           ./build/bin/fake2d_hello --headless --frames 120 --fx-demo
           ./build/bin/fake2d_hello --headless --frames 120 --fog-demo
@@ -528,6 +530,7 @@ jobs:
           ./build/bin/fake2d_hello.exe --headless --frames 120 --rt-demo
           ./build/bin/fake2d_hello.exe --headless --frames 120 --ui-demo
           ./build/bin/fake2d_hello.exe --headless --frames 120 --ui2-demo
+          ./build/bin/fake2d_hello.exe --headless --frames 120 --ui3-demo
           ./build/bin/fake2d_hello.exe --headless --frames 120 --post-demo
           ./build/bin/fake2d_hello.exe --headless --frames 120 --fx-demo
           ./build/bin/fake2d_hello.exe --headless --frames 120 --fog-demo

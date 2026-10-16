@@ -117,6 +117,35 @@ public:
                                  float h, std::string_view label, bool selected,
                                  float text_scale = 0.6f);
 
+    /// A titled panel that can be dragged by its title bar. Returns true on
+    /// the frames the title bar is actually being dragged — **not** on the
+    /// frame the grab starts, so the panel never jumps by the whole delta of
+    /// the click that grabbed it. The position stays with the caller:
+    /// `if ui_window(k, 0, wx, wy, w, h, title) then wx = wx + input_mouse_dx()
+    /// ... end`. Dragging survives the cursor leaving the bar (as long as the
+    /// button stays down), which is what every window manager does.
+    [[nodiscard]] bool Window(std::string_view key, UIAnchor anchor,
+                              float offset_x, float offset_y, float w, float h,
+                              std::string_view title, float text_scale = 0.6f);
+
+    /// One tab of a tab bar: `active` tabs sit brighter and lose their bottom
+    /// edge, so they read as attached to the panel below. Returns true on the
+    /// frame it was clicked (release inside; releasing outside cancels) —
+    /// which tab is active is the caller's, like every value here.
+    [[nodiscard]] bool Tab(std::string_view key, UIAnchor anchor,
+                           float offset_x, float offset_y, float w, float h,
+                           std::string_view label, bool active,
+                           float text_scale = 0.6f);
+
+    /// A disclosure row for trees and setting groups: a triangle that points
+    /// right when closed and down when open, plus a label. Returns true on
+    /// the frame it was clicked; the caller owns `open`, so the children are
+    /// a plain if-block.
+    [[nodiscard]] bool Tree(std::string_view key, UIAnchor anchor,
+                            float offset_x, float offset_y, float w, float h,
+                            std::string_view label, bool open,
+                            float text_scale = 0.6f);
+
     [[nodiscard]] bool IsHovered(std::string_view key) const;
 
     /// Wire the per-frame input snapshot, camera (viewport) and renderer.

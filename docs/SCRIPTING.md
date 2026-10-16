@@ -490,6 +490,7 @@ camera_snap(0.0, 0.0)   -- on every level reset
 | `input_key_pressed(name) -> bool` | Key went down **this** frame. |
 | `input_key_released(name) -> bool` | Key came up this frame. |
 | `input_mouse_x() / input_mouse_y()` | Cursor position in pixels. |
+| `input_mouse_dx() / input_mouse_dy()` | Per-frame cursor movement — what a drag needs: a window, a scrollbar or a node editor moves by the delta, not to the position. |
 | `input_mouse_down(button) -> bool` / `input_mouse_pressed(button) -> bool` | Button: `0` left, `1` right, `2` middle. |
 | `input_mouse_wheel()` | Wheel delta accumulated this frame. |
 
@@ -1056,6 +1057,9 @@ from the anchored corner.
 | `ui_radio(key, anchor, ox, oy, size, selected, label, text_scale) -> bool` | One radio row: a square indicator plus a right-side label. Returns true exactly on the click-release frame (releasing outside cancels, like `ui_button`). Selection is caller-owned — a group is N rows and one index. |
 | `ui_combo(key, anchor, ox, oy, w, h, label, open, text_scale) -> bool` | Combo header: the field's current text plus a chevron. Returns true on the click-release frame — **including a flick that ends outside the header**, because the popup list swallows the gesture. Toggle your own `open` then. |
 | `ui_combo_item(key, anchor, ox, oy, w, h, label, selected, text_scale) -> bool` | One row of an open combo list. Draws the label with a hover/selected highlight and returns true on the click-release frame over that row. Draw the list right after the header so the rows sit on top of what is behind them. |
+| `ui_window(key, anchor, ox, oy, w, h, title, text_scale) -> bool` | A titled panel dragged by its title bar (a press on the body never grabs; the drag survives the cursor leaving the bar while the button is down). Returns true on the frames it is **being dragged** — not on the grab frame, so the panel never jumps by the distance the cursor travelled to reach the bar. The position stays with you: add `input_mouse_dx/dy` when it returns true, and clamp so the bar can always be grabbed again. |
+| `ui_tab(key, anchor, ox, oy, w, h, label, active, text_scale) -> bool` | One tab of a tab bar; which tab is active is caller-owned (an index). The active tab sits brighter, grows 2 px and drops its bottom edge so it reads as connected to the panel below. Returns true on the click-release frame (releasing outside cancels). |
+| `ui_tree(key, anchor, ox, oy, w, h, label, open, text_scale) -> bool` | A disclosure row: a triangle pointing right (closed) or down (open) plus a label. Returns true on the click-release frame — toggle your own `open`; the children are a plain `if open then ... end` block. |
 | `ui_hovered(key) -> bool` | True while the mouse is over the widget with that key (use it to swap cursors or highlight rows). |
 | `ui_set_origin(x, y)` | Offset added to mouse positions during hit-testing (set to the camera top-left for a world-anchored HUD). |
 
@@ -1088,9 +1092,11 @@ end
 ```
 
 See `scripts/ui_demo.lua` (`--ui-demo`) for the Phase 20 widgets wired
-together, and `scripts/ui2_demo.lua` (`--ui2-demo`) for the round-2 set: a
+together, `scripts/ui2_demo.lua` (`--ui2-demo`) for the round-2 set: a
 looping progress bar, a slider-driven bar that clamps past 100%, a radio
-group and a combo box with an openable list.
+group and a combo box with an openable list, and `scripts/ui3_demo.lua`
+(`--ui3-demo`) for the round-3 set: a draggable SETTINGS window with a
+three-tab bar, collapsible tree groups and `ui_hovered`-driven tooltips.
 
 ### Debugging
 

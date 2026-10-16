@@ -1570,6 +1570,118 @@ int RunUITest(fake2d::Engine &engine) {
     r.EndFrame();
     check(r.QuadCount() >= 8, "draw: the round-2 widgets submit geometry");
 
+    // --- widgets round 3 (Phase 28) ---------------------------------------
+    // A drag is two frames: grab, then move with the button still down. The
+    // grab frame must NOT report motion, or the panel jumps by whatever
+    // distance the cursor happened to travel to reach the title bar.
+    in.InjectFrame({60.0f, 50.0f}, no_keys, left);
+    check(!ui.Window("w1", tl, 40, 40, 200, 120, "settings", 0.6),
+          "window: the frame that grabs it reports no motion");
+    in.InjectFrame({80.0f, 60.0f}, no_keys, left);
+    check(ui.Window("w1", tl, 40, 40, 200, 120, "settings", 0.6),
+          "window: holding and moving drags it");
+    check(in.MouseDelta().x > 0.0f && in.MouseDelta().y > 0.0f,
+          "window: the same movement is readable as a delta");
+    in.InjectFrame({90.0f, 70.0f}, no_keys, none);
+    check(!ui.Window("w1", tl, 40, 40, 200, 120, "settings", 0.6),
+          "window: releasing ends the drag");
+    in.InjectFrame({100.0f, 80.0f}, no_keys, none);
+    check(!ui.Window("w1", tl, 40, 40, 200, 120, "settings", 0.6),
+          "window: moving without a button held is not a drag");
+    // The body is not a handle: only the bar moves the panel.
+    in.InjectFrame({60.0f, 150.0f}, no_keys, left);
+    check(!ui.Window("w1", tl, 40, 40, 200, 120, "settings", 0.6),
+          "window: a press on the body does not grab it");
+    in.InjectFrame({80.0f, 160.0f}, no_keys, left);
+    check(!ui.Window("w1", tl, 40, 40, 200, 120, "settings", 0.6),
+          "window: dragging from the body does nothing");
+
+    // Tabs: one click each, and cancelling works like a button.
+    in.InjectFrame({50.0f, 50.0f}, no_keys, left);
+    check(!ui.Tab("t0", tl, 40, 40, 80, 24, "audio", true, 0.6),
+          "tab: a press alone does not select");
+    in.InjectFrame({50.0f, 50.0f}, no_keys, none);
+    check(ui.Tab("t0", tl, 40, 40, 80, 24, "audio", true, 0.6),
+          "tab: releasing over it selects it");
+    in.InjectFrame({50.0f, 50.0f}, no_keys, left);
+    in.InjectFrame({500.0f, 500.0f}, no_keys, none);
+    check(!ui.Tab("t0", tl, 40, 40, 80, 24, "audio", true, 0.6),
+          "tab: releasing outside cancels");
+    check(!ui.Tab("t1", tl, 130, 40, 80, 24, "video", false, 0.6),
+          "tab: a tab away from the cursor is not selected");
+
+    // A tree node is a toggle, so it must fire once and then go quiet —
+    // unlike a drag, which is meant to keep firing.
+    in.InjectFrame({50.0f, 90.0f}, no_keys, left);
+    check(!ui.Tree("n0", tl, 40, 80, 160, 20, "graphics", false, 0.6),
+          "tree: a press alone does not toggle");
+    in.InjectFrame({50.0f, 90.0f}, no_keys, none);
+    check(ui.Tree("n0", tl, 40, 80, 160, 20, "graphics", false, 0.6),
+          "tree: releasing over the row toggles it");
+    check(!ui.Tree("n0", tl, 40, 80, 160, 20, "graphics", true, 0.6),
+          "tree: holding still does not toggle again");
+    in.InjectFrame({50.0f, 90.0f}, no_keys, none);
+    check(!ui.Tree("n0", tl, 40, 80, 160, 20, "graphics", true, 0.6),
+          "tree: an idle frame never toggles");
+
+    // --- round 3 in pixels -------------------------------------------------
+    // A window is mostly a silhouette, so what is worth probing is that the
+    // bar, the body and the rule between them land where they should.
+    fake2d::RenderTargetLibrary &ui3_lib = r.GetRenderTargets();
+    const int win_rt = ui3_lib.Create(128, 128);
+    fake2d::RenderTarget *t_win = ui3_lib.Get(win_rt);
+    if (t_win != nullptr) {
+        r.BeginFrame(0.0f, 0.0f, 0.0f, 1.0f);
+        check(r.BeginRenderTarget(win_rt), "window: target binds");
+        r.ClearActiveTarget(fake2d::Color{0.0f, 0.0f, 0.0f, 1.0f});
+        const bool win_drag = ui.Window("pw", tl, 10, 10, 100, 80, "title", 0.6);
+        check(!win_drag, "window: a fresh window is not being dragged");
+        r.EndRenderTarget();
+        r.EndFrame();
+        // Probe inside the bar (y=20) and inside the body (y=70): the bar is
+        // the lighter of the two, and the body is not the canvas colour.
+        check(t_win->ReadPixel(60, 20, px) && near_u8(px.b, 0.48f),
+              "window: the title bar is drawn in the bar colour");
+        check(t_win->ReadPixel(60, 70, px) && near_u8(px.b, 0.14f),
+              "window: the body is drawn below the bar");
+        check(t_win->ReadPixel(60, 96, px) && near_u8(px.b, 0.0f),
+              "window: nothing spills past the bottom edge");
+        ui3_lib.Destroy(win_rt);
+    }
+
+    // The active tab must be the BRIGHT one — an earlier revision drew the
+    // active tab in the dark panel colour and the idle ones bright, which is
+    // the exact inverse of what the header promises. Probe both fills.
+    const int tab_rt = ui3_lib.Create(200, 40);
+    fake2d::RenderTarget *t_tab = ui3_lib.Get(tab_rt);
+    if (t_tab != nullptr) {
+        r.BeginFrame(0.0f, 0.0f, 0.0f, 1.0f);
+        check(r.BeginRenderTarget(tab_rt), "tab: target binds");
+        r.ClearActiveTarget(fake2d::Color{0.0f, 0.0f, 0.0f, 1.0f});
+        (void)ui.Tab("on", tl, 10, 10, 80, 20, "on", true, 0.6);
+        (void)ui.Tab("off", tl, 110, 10, 80, 20, "off", false, 0.6);
+        r.EndRenderTarget();
+        r.EndFrame();
+        float on_b = -1.0f, off_b = -1.0f;
+        if (t_tab->ReadPixel(50, 20, px)) { on_b = px.b; }
+        if (t_tab->ReadPixel(150, 20, px)) { off_b = px.b; }
+        check(on_b > off_b + 0.05f,
+              "tab: the active tab is brighter than an idle one");
+        // The active tab grows 2 px past its declared height: y=31 is still
+        // fill (10+20+1), and would be background if the grow were removed.
+        check(t_tab->ReadPixel(50, 31, px) && near_u8(px.b, 0.48f),
+              "tab: the active tab drops its bottom edge (grows 2 px)");
+        ui3_lib.Destroy(tab_rt);
+    }
+
+    // Every new widget contributes geometry.
+    r.BeginFrame(0.0f, 0.08f, 0.10f, 0.14f);
+    (void)ui.Window("q4", tl, 20, 20, 160, 100, "panel", 0.6);
+    (void)ui.Tab("q5", tl, 20, 130, 70, 24, "one", true, 0.6);
+    (void)ui.Tree("q6", tl, 20, 160, 160, 20, "node", false, 0.6);
+    r.EndFrame();
+    check(r.QuadCount() >= 8, "draw: the round-3 widgets submit geometry");
+
     // Injection is a test affordance: a real frame replaces it, so nothing
     // synthetic can leak into a windowed run.
     in.InjectFrame({0.0f, 0.0f}, no_keys, none);
@@ -4628,6 +4740,9 @@ int main(int argc, char **argv) {
         } else if (arg == "--ui2-demo") {
             // Round 2: progress bars, radio groups and combo boxes.
             cfg.script_entry = "scripts/ui2_demo.lua";
+        } else if (arg == "--ui3-demo") {
+            // Round 3: a draggable window, a tab bar and collapsible trees.
+            cfg.script_entry = "scripts/ui3_demo.lua";
         } else if (arg == "--fog-demo") {
             // Fog of war: an accumulating coverage mask multiplied over the
             // scene, with a clickable minimap and no binary assets.
