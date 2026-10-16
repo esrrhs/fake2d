@@ -205,6 +205,36 @@ bool Tilemap::ParseImpl(std::string_view json, std::string_view base_dir,
                     ts.slope_gids[ts.firstgid +
                                   static_cast<std::uint32_t>(local_id)] = info;
                 }
+
+                // Frame animation (Tiled: tilesets[].tiles[].animation is a
+                // list of {duration (ms), tileid (local)}). Tiled loops it
+                // forever from the moment the map loads; there is no
+                // one-shot or ping-pong variant in the format.
+                const auto anim_it = tile_json.find("animation");
+                if (anim_it != tile_json.end() && anim_it->is_array() &&
+                    !anim_it->empty()) {
+                    Tileset::TileAnim anim;
+                    bool usable = true;
+                    for (const auto &frame : *anim_it) {
+                        const auto fid = frame.value("tileid", -1);
+                        const int ms = frame.value("duration", 0);
+                        if (fid < 0 || ms <= 0) {
+                            // A zero-duration or broken frame would make the
+                            // phase computation degenerate; drop the whole
+                            // animation rather than play it wrong.
+                            usable = false;
+                            break;
+                        }
+                        anim.frames.push_back(static_cast<std::uint32_t>(fid));
+                        anim.durations_ms.push_back(ms);
+                        anim.total_ms += ms;
+                    }
+                    if (usable && anim.total_ms > 0) {
+                        ts.anim_gids[ts.firstgid +
+                                     static_cast<std::uint32_t>(local_id)] =
+                            std::move(anim);
+                    }
+                }
             }
         }
         tilesets_.push_back(std::move(ts));
@@ -406,6 +436,77 @@ bool Tilemap::ResolveTile(std::uint32_t gid, const Tileset *&out_set,
     out_set = ts;
     out_local_id = gid - ts->firstgid;
     return true;
+}
+
+const Tilemap::Tileset::TileAnim *Tilemap::FindAnim(std::uint32_t gid) const {
+    const Tileset *ts = FindTileset(gid);
+    if (ts == nullptr) {
+        return nullptr;
+    }
+    const auto it = ts->anim_gids.find(gid);
+    return it == ts->anim_gids.end() ? nullptr : &it->second;
+}
+
+std::uint32_t Tilemap::AnimatedLocalId(const Tileset &ts,
+                                       std::uint32_t local) const {
+    const auto it = ts.anim_gids.find(ts.firstgid + local);
+    if (it == ts.anim_gids.end() || it->second.frames.empty()) {
+        return local;
+    }
+    return it->second.frames[static_cast<std::size_t>(FrameIndexAt(it->second))];
+}
+
+int Tilemap::FrameIndexAt(const Tileset::TileAnim &anim) const {
+    const double cycle = static_cast<double>(anim.total_ms) / 1000.0;
+    // One shared clock: Tiled animates per tile id, so every cell using the
+    // tile is in lockstep. fmod keeps a long session from drifting.
+    double t = cycle > 0.0 ? std::fmod(anim_time_, cycle) : 0.0;
+    if (t < 0.0) {
+        t += cycle;
+    }
+    double acc = 0.0;
+    for (std::size_t i = 0; i < anim.frames.size(); ++i) {
+        acc += static_cast<double>(anim.durations_ms[i]) / 1000.0;
+        // Frame i covers [start_i, start_i + duration_i); landing exactly on
+        // the boundary means the frame just ended.
+        if (t < acc) {
+            return static_cast<int>(i);
+        }
+    }
+    return static_cast<int>(anim.frames.size()) - 1;
+}
+
+void Tilemap::Advance(float dt) {
+    if (dt > 0.0f) {
+        anim_time_ += static_cast<double>(dt);
+    }
+}
+
+std::uint32_t Tilemap::AnimatedGid(std::uint32_t gid) const {
+    const Tileset *ts = nullptr;
+    std::uint32_t local = 0;
+    if (!ResolveTile(gid, ts, local)) {
+        return gid;
+    }
+    return ts->firstgid + AnimatedLocalId(*ts, local);
+}
+
+int Tilemap::AnimationFrameCount(std::uint32_t gid) const {
+    const Tileset::TileAnim *anim = FindAnim(gid);
+    return anim == nullptr ? 0 : static_cast<int>(anim->frames.size());
+}
+
+float Tilemap::AnimationCycle(std::uint32_t gid) const {
+    const Tileset::TileAnim *anim = FindAnim(gid);
+    return anim == nullptr ? 0.0f : static_cast<float>(anim->total_ms) / 1000.0f;
+}
+
+int Tilemap::AnimationFrameIndex(std::uint32_t gid) const {
+    const Tileset::TileAnim *anim = FindAnim(gid);
+    // Index, not "find the local id in the list": an animation may name the
+    // same tile twice (a 0,1,0,1 flicker), and matching by id would report
+    // the first frame that happens to look like the current one.
+    return anim == nullptr ? -1 : FrameIndexAt(*anim);
 }
 
 std::uint32_t Tilemap::GidAt(std::size_t layer, int col, int row) const {
@@ -832,6 +933,11 @@ void Tilemap::DrawTileLayer(SpriteBatch &batch, const Layer &layer, int layer_in
             if (texture == nullptr) {
                 continue;
             }
+            // The cell stores the base gid forever; only the *picture* rides
+            // the animation clock. Slopes below still look the base gid up,
+            // so a tile whose frames differ in height cannot change the
+            // surface the player walks on mid-cycle.
+            local = AnimatedLocalId(*ts, local);
             const int sheet_col = static_cast<int>(local % static_cast<std::uint32_t>(ts->columns));
             const int sheet_row = static_cast<int>(local / static_cast<std::uint32_t>(ts->columns));
             const Rect src{
@@ -1045,6 +1151,17 @@ const Tilemap *TilemapLibrary::Get(int id) const {
 void TilemapLibrary::Destroy(int id) {
     if (id > 0 && id <= static_cast<int>(kMaxMaps)) {
         slots_[id - 1] = Slot{};
+    }
+}
+
+void TilemapLibrary::AdvanceAll(float dt) {
+    if (dt <= 0.0f) {
+        return;
+    }
+    for (Slot &slot : slots_) {
+        if (slot.used && slot.map != nullptr) {
+            slot.map->Advance(dt);
+        }
     }
 }
 

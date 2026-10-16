@@ -117,6 +117,7 @@ jobs:
             --screenshot scene.png
           test -s scene.png
           run_xvfb ./build/bin/fake2d_hello --headless --bench
+          run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --tile-demo
           run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --map-demo
           run_xvfb ./build/bin/fake2d_hello --headless --frames 180 --platformer-demo
           run_xvfb ./build/bin/fake2d_hello --headless --frames 180 --mario-demo
@@ -183,6 +184,10 @@ jobs:
           # gate; the summary line pins the assertion count).
           run_xvfb ./build/bin/fake2d_hello --map-object-test > map_object.log 2>&1
           rc_mapobj=$?
+          # Tiled tileset animation (exit code gate; the summary line pins
+          # the assertion count).
+          run_xvfb ./build/bin/fake2d_hello --tile-test > tile.log 2>&1
+          rc_tile=$?
           # Same surface through the Lua bindings; PASS is the [script] 0 line.
           # Capture BOTH streams: under xvfb-run the child's stderr is not
           # reliably caught by a bare `2>` redirection.
@@ -190,7 +195,7 @@ jobs:
             --entry scripts/phys_test.lua > phys_test.log 2>&1
           rc_lua=$?
           set -e
-          echo "exit codes: query=$rc_query filter=$rc_filter timestep=$rc_timestep path=$rc_path rt=$rc_rt ui=$rc_ui post=$rc_post fx=$rc_fx fog=$rc_fog audio=$rc_audio mapobj=$rc_mapobj lua=$rc_lua"
+          echo "exit codes: query=$rc_query filter=$rc_filter timestep=$rc_timestep path=$rc_path rt=$rc_rt ui=$rc_ui post=$rc_post fx=$rc_fx fog=$rc_fog audio=$rc_audio mapobj=$rc_mapobj tile=$rc_tile lua=$rc_lua"
           [ "$rc_query" -eq 0 ]
           [ "$rc_filter" -eq 0 ]
           [ "$rc_timestep" -eq 0 ]
@@ -202,11 +207,13 @@ jobs:
           [ "$rc_fog" -eq 0 ]
           [ "$rc_audio" -eq 0 ]
           [ "$rc_mapobj" -eq 0 ]
+          [ "$rc_tile" -eq 0 ]
           [ "$rc_lua" -eq 0 ]
           grep -F "[phys-filter] PASS" phys_filter.log
           grep -F "[timestep] PASS" timestep.log
           grep -F "[path] PASS" path.log
           grep -F "[map-obj] PASS" map_object.log
+          grep -F "[tile] PASS" tile.log
           grep -F "[rt] PASS" rt.log
           grep -F "[ui] PASS" ui.log
           grep -F "[post] PASS" post.log
@@ -430,6 +437,7 @@ jobs:
           export DYLD_LIBRARY_PATH="$FLINSTALL/lib:${DYLD_LIBRARY_PATH:-}"
           ./build/bin/fake2d_hello --phys-query-test
           ./build/bin/fake2d_hello --phys-filter-test
+          ./build/bin/fake2d_hello --tile-test
           ./build/bin/fake2d_hello --timestep-test
           ./build/bin/fake2d_hello --path-test
           ./build/bin/fake2d_hello --rt-test
@@ -458,6 +466,7 @@ jobs:
           ./build/bin/fake2d_hello --headless --frames 90 --scene-demo \
             --screenshot scene-mac.png
           test -s scene-mac.png
+          ./build/bin/fake2d_hello --headless --frames 120 --tile-demo
           ./build/bin/fake2d_hello --headless --frames 120 --map-demo
           ./build/bin/fake2d_hello --headless --frames 180 --platformer-demo
           ./build/bin/fake2d_hello --headless --frames 180 --mario-demo
@@ -505,6 +514,7 @@ jobs:
           # Pure-CPU physics query self-test (exit code) + Lua binding test.
           ./build/bin/fake2d_hello.exe --phys-query-test
           ./build/bin/fake2d_hello.exe --phys-filter-test
+          ./build/bin/fake2d_hello.exe --tile-test
           ./build/bin/fake2d_hello.exe --timestep-test
           ./build/bin/fake2d_hello.exe --path-test
           ./build/bin/fake2d_hello.exe --rt-test
@@ -522,6 +532,7 @@ jobs:
           ./build/bin/fake2d_hello.exe --headless --frames 40 --scene-demo \
             --screenshot scene.png
           test -s scene.png
+          ./build/bin/fake2d_hello.exe --headless --frames 120 --tile-demo
           ./build/bin/fake2d_hello.exe --headless --frames 120 --map-demo
           ./build/bin/fake2d_hello.exe --headless --frames 180 --platformer-demo
           ./build/bin/fake2d_hello.exe --headless --frames 180 --mario-demo

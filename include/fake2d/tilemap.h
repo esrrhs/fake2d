@@ -168,6 +168,31 @@ public:
     /// Gid of the first tile layer at the cell (0 empty).
     [[nodiscard]] std::uint32_t TileAt(int col, int row) const;
 
+    // --- tile animation (Tiled tilesets[].tiles[].animation) ---------------
+    /// Advance the animation clock. Tiled animates *per tile id*, not per
+    /// cell: every cell showing an animated tile shows the same frame at the
+    /// same time, which is why this is a single clock and not per-cell state.
+    /// Negative dt is ignored (time never runs backwards). The engine ticks
+    /// every loaded map once per frame, so scripts need no bookkeeping.
+    void Advance(float dt);
+    /// Put the clock back to zero (reload / a paused menu scrubbing).
+    void ResetAnimation() { anim_time_ = 0.0; }
+    /// Seconds on the animation clock.
+    [[nodiscard]] float AnimationTime() const {
+        return static_cast<float>(anim_time_);
+    }
+    /// The gid currently **drawn** for a base gid — `gid` itself when the
+    /// tile is static or unknown. Collision never follows this: `SolidAt`
+    /// and friends stay on the base gid, so an animating tile cannot turn
+    /// solid ground into a hole halfway through its cycle.
+    [[nodiscard]] std::uint32_t AnimatedGid(std::uint32_t gid) const;
+    /// Frame count of a tile's animation (0 = static / unknown).
+    [[nodiscard]] int AnimationFrameCount(std::uint32_t gid) const;
+    /// Length of one cycle in seconds (0 = static / unknown).
+    [[nodiscard]] float AnimationCycle(std::uint32_t gid) const;
+    /// Index of the frame a tile is showing (-1 = static / unknown).
+    [[nodiscard]] int AnimationFrameIndex(std::uint32_t gid) const;
+
     /// Draw every visible layer. Batched in one sorted scope so same-sheet
     /// tiles merge regardless of their gid interleaving.
     void Draw(Renderer &renderer) const;
@@ -198,6 +223,16 @@ private:
             int rise = 0;         ///< triangle height in pixels (0 = tile height)
         };
         std::unordered_map<std::uint32_t, SlopeInfo> slope_gids;
+        /// One Tiled tile animation: a loop of frames with per-frame
+        /// durations in **milliseconds** (the unit Tiled exports).
+        struct TileAnim {
+            std::vector<std::uint32_t> frames; ///< local tile ids
+            std::vector<int> durations_ms;
+            int total_ms = 0;
+        };
+        /// Keyed by absolute gid (firstgid + local id), like the property
+        /// sets above, so lookups during the draw stay one hash.
+        std::unordered_map<std::uint32_t, TileAnim> anim_gids;
     };
 
     bool ParseImpl(std::string_view json, std::string_view base_dir,
@@ -205,6 +240,14 @@ private:
     [[nodiscard]] const Tileset *FindTileset(std::uint32_t gid) const;
     bool ResolveTile(std::uint32_t gid, const Tileset *&out_set,
                      std::uint32_t &out_local_id) const;
+    /// Local id a base local id is showing this instant (identity when the
+    /// tile is static) — the draw path's one hook into animation.
+    [[nodiscard]] std::uint32_t AnimatedLocalId(const Tileset &ts,
+                                                std::uint32_t local) const;
+    /// Which frame of `anim` the clock is inside right now.
+    [[nodiscard]] int FrameIndexAt(const Tileset::TileAnim &anim) const;
+    /// Animation record of a gid, or null when static/unknown.
+    [[nodiscard]] const Tileset::TileAnim *FindAnim(std::uint32_t gid) const;
 
     /// Submit every tile of one layer. `scale` multiplies the destination
     /// rect about the map origin; with `cam` null the layer is drawn flat
@@ -223,6 +266,9 @@ private:
     /// Buffered A* result (world-space waypoints); mutable so FindPath can
     /// stay const like the other queries.
     mutable std::vector<Vec2> path_;
+    /// Animation clock in seconds; double so a long session never loses
+    /// frame resolution to float drift.
+    double anim_time_ = 0.0;
 };
 
 /// Fixed-slot store of loaded tile maps (1-based ids, 0 = invalid).
@@ -236,6 +282,9 @@ public:
     [[nodiscard]] const Tilemap *Get(int id) const;
     void Destroy(int id);
     void Clear();
+    /// Advance the animation clock of every loaded map. The engine calls
+    /// this once per frame, so animated water or torches play on their own.
+    void AdvanceAll(float dt);
 
 private:
     struct Slot {

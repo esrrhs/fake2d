@@ -737,6 +737,12 @@ Tile custom properties with `solid = true` (boolean) mark collidable tiles.
 | `map_tilew(id) / map_tileh(id) -> n` | Cell size in pixels. |
 | `map_layer_count(id) -> n` | Number of parsed layers (tile + image + object, in Tiled order). |
 | `map_layer_parallax_x/y(id, idx) -> f` | Layer parallax factors (defaults 1.0). |
+| `map_anim_time(id) -> number` | Seconds on the map's tile-animation clock. The engine advances every loaded map once per frame — animated tiles play with no script bookkeeping. |
+| `map_anim_count(id, gid) -> n` | Frames of a tile's Tiled `animation` (0 = static or unknown). |
+| `map_anim_cycle(id, gid) -> number` | Length of one animation cycle in seconds (0 = static). |
+| `map_anim_index(id, gid) -> n` | Which frame the tile is showing right now (-1 = static). |
+| `map_anim_gid(id, gid) -> gid` | The gid currently **drawn** for a base gid — `gid` itself when static. Only the picture moves: `map_solid` and friends keep reading the base gid, so an animated tile cannot open a hole in the floor. |
+| `map_anim_reset(id)` | Put the animation clock back to zero. |
 
 `col`/`row` are accepted as floats and truncated to int at the native
 boundary, so passing `math.floor(x / map_tilew(id))` directly is safe

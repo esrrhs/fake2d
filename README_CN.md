@@ -7,7 +7,7 @@
 
 **Fake2D** 是基于 [FakeLua](https://github.com/esrrhs/fakelua) 的现代化轻量 2D 游戏渲染引擎：C++ 宿主掌控窗口、GPU 资源与场景数据；FakeLua 脚本负责编排玩法与实体逻辑，并在每帧边界执行 Arena 线性重置（**零 GC 停顿**）。
 
-> 当前状态：**1.23 — Phase 29 解码文件与流式音乐已完成** — 已包含 1.22 及之前的全部能力（剪裁矩形、九宫格、对齐换行文本、固定步长物理、相机跟随工具、碰撞过滤、瓦片地图 A\* 寻路、离屏渲染目标、全屏后处理 + 小地图烘焙、音频混音器、位置音频、ping-pong 趟、自动 uniform、UI 控件第二批、战争迷雾、bloom 级 FX 套件、UI 控件第三批），并新增**解码音频文件与流式音乐**：`audio_load_file` / `audio_stream` 可注册 miniaudio 解码器支持的所有文件（WAV、FLAC、MP3、OGG/Vorbis），要么整体解码进内存，要么按需回填 8192 帧窗口（约 0.19 s）的流——三分钟的曲目只占几 KB 而不是几 MB——配套 `audio_clip_len` / `audio_clip_cached` 报告时长与驻留帧数，顺序回填不做中途 seek（seek 会重置重采样器、可闻），`--audio-test` 扩到 106 条，`--audio-demo` 新增 FILE PLAYBACK 面板直观展示两种路径的内存差异。详见下方[实现计划](#实现计划)、[docs/PLAN.md](docs/PLAN.md)、[脚本编写指南](docs/SCRIPTING.md) 与[跨平台打包说明](docs/PACKAGING.md)。
+> 当前状态：**1.24 — Phase 30 动画瓦片已完成** — 已包含 1.23 及之前的全部能力（剪裁矩形、九宫格、对齐换行文本、固定步长物理、相机跟随工具、碰撞过滤、瓦片地图 A\* 寻路、离屏渲染目标、全屏后处理 + 小地图烘焙、音频混音器、位置音频、ping-pong 趟、自动 uniform、UI 控件第二批、战争迷雾、bloom 级 FX 套件、UI 控件第三批、解码文件与流式音乐），并新增**动画瓦片**：解析 Tiled tileset 的 `animation` 循环，由引擎每帧推进一个统一时钟（每个已加载地图自动走表，脚本零簿记），按瓦片 *id* 动画——使用同一瓦片的所有格子同步播放，配套只读查询（`map_anim_time/_count/_cycle/_index/_gid/_reset`），且只有「画面」随钟走——`map_solid` 与整个碰撞网格始终读基础 gid。`--tile-test` 新增为第十二项引擎自测（55 条）；**`--tile-demo`** 演示池塘涟漪与火把闪烁。详见下方[实现计划](#实现计划)、[docs/PLAN.md](docs/PLAN.md)、[脚本编写指南](docs/SCRIPTING.md) 与[跨平台打包说明](docs/PACKAGING.md)。
 
 ---
 
@@ -236,6 +236,7 @@ end
 | **27 — 动画 pass (1.21)** | 渲染 | 渲染器自动灌入的 uniform：`u_time`（帧时钟，脚本零簿记）与 `u_resolution`（正在绘制的表面，像素参数与分辨率无关）、`assets/fx_bright.*`（bloom 阈值 + 软膝，0/0 即恒等）、`assets/fx_wave.*`（行波扭动；`u_amp` 以像素计，符号已记录——采样点右移画面左移）、`--fx-test` 扩到 80 条（恒等/硬切/软膝、±8 px 四分之一周期、128 与 64 同位移）、`--fx-demo` 链路扩为 `场景 → wave → bright → blur → 合成`，带开关与滑杆 | **已完成** |
 | **28 — UI 控件第三批 (1.22)** | UI | `ui_window`：标题栏拖拽面板（返回「正在被拖拽」，位置由脚本经 `input_mouse_dx/_dy` 自持；抓取帧静默不跳变；按在面板主体上不抓取；按住不放拖出标题栏不丢），`ui_tab`：激活页由调用方自持，更亮、长高 2 px 并去掉下边缘，`ui_tree`：展开行（三个 quad 画的右/下三角），子项就是 if 块，`--ui-test` 扩到 76 条（拖拽路径、点击/取消语义、bar/body/分隔线像素探针、激活页更亮且下探 2 px），`--ui3-demo`：可拖拽 SETTINGS 窗口，三标签页 + 可折叠树 + `ui_hovered` 工具提示 | **已完成** |
 | **29 — 解码文件与流式音乐 (1.23)** | 音频 | `audio_load_file`：miniaudio 解码器支持的任意文件（WAV/FLAC/MP3/OGG-Vorbis）混到单声道、重采样到混音器采样率并注册为 clip，`audio_stream`：同样的文件按 8192 帧窗口按需回填播放——三分钟曲目只占几 KB 而非几 MB——顺序回填避开会重置重采样器的可闻 seek，`audio_clip_len` / `audio_clip_cached` 报告时长与驻留帧数，`--audio-test` 扩到 106 条（流与解码逐块对比、拒绝路径、越尾循环、暂停/恢复/停止），`--audio-demo` 的 FILE PLAYBACK 面板带缓冲对比读数 | **已完成** |
+| **30 — 动画瓦片 (1.24)** | 渲染 | 解析 Tiled tileset 的 `animation` 循环（坏帧丢弃整段动画而不是播错），引擎每帧推进「每瓦片 id 一个时钟」——水与火把零簿记自动播放，使用同一瓦片的格子全部同步；只有绘制画面随钟走，`map_solid` 与碰撞网格始终读基础 gid；只读查询 `map_anim_time/_count/_cycle/_index/_gid` + `map_anim_reset`（索引沿时间线走，0,1,0,1 闪烁被如实报告）；`--tile-test` 新增为第十二项引擎自测、55 条断言（5 个变异全被捕获）；`--tile-demo`：池塘涟漪、火把闪烁、由查询构建的 HUD 与 RESET CLOCK 按钮 | **已完成** |
 
 详细任务清单见 [docs/PLAN.md](docs/PLAN.md)。
 
