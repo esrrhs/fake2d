@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "fake2d/entity_store.h"
 
 namespace fake2d {

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 #include "fake2d/math.h"
 #include "fake2d/sprite_batch.h"
 #include "fake2d/texture.h"

@@ -1,5 +1,6 @@
 #include "fake2d/resource_manager.h"
 
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
