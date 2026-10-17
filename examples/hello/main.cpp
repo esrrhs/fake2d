@@ -5214,7 +5214,7 @@ void EnsureTileAnimAssets() {
         std::vector<std::uint8_t> sheet(
             static_cast<std::size_t>(kTaSheetTiles * kTaTile) * kTaTile * 4, 0);
         PaintTileAnimSheet(sheet.data(), kTaSheetTiles * kTaTile, kTaTile);
-        stbi_write_png(sheet_path.c_str(), kTaSheetTiles * kTaTile, kTaTile, 4,
+        stbi_write_png(sheet_path.string().c_str(), kTaSheetTiles * kTaTile, kTaTile, 4,
                        sheet.data(), kTaSheetTiles * kTaTile * 4);
     }
 

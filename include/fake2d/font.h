@@ -14,6 +14,10 @@
 // wingdi.h DrawText macro (windows.h may precede this header); Font owns it.
 #undef DrawText
 #endif
+#if defined(_WIN32) && defined(DrawTextEx)
+// ... and DrawTextEx -> DrawTextExA/W, which masks the aligned-text API.
+#undef DrawTextEx
+#endif
 
 namespace fake2d {
 

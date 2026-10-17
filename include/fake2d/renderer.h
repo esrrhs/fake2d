@@ -19,6 +19,10 @@
 // fakelua); drop the wingdi.h DrawText macro that masks the renderer API.
 #undef DrawText
 #endif
+#if defined(_WIN32) && defined(DrawTextEx)
+// ... and DrawTextEx -> DrawTextExA/W, which masks the aligned-text API.
+#undef DrawTextEx
+#endif
 
 namespace fake2d {
 
