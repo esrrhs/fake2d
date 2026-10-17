@@ -1,5 +1,6 @@
 #include "fake2d/tilemap.h"
 
+#include <cstdint>
 #include <nlohmann/json.hpp>
 
 #include <algorithm>

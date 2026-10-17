@@ -9,6 +9,7 @@
 #include "fake2d/tilemap.h"
 #include "fake2d/ui.h"
 
+#include <cstdint>
 #include <cmath>
 #include <functional>
 #include <string_view>

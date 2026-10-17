@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 #include "fake2d/math.h"
 #include "fake2d/physics.h"
 #include "fake2d/renderer.h"

@@ -12,6 +12,7 @@
 #pragma GCC diagnostic pop
 #endif
 
+#include <cstdint>
 #include <cstdio>
 #include <string>
 

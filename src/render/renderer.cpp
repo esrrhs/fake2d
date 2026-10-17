@@ -3,6 +3,7 @@
 
 #include "stb/stb_image_write.h"
 
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <fstream>

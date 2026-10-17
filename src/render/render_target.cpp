@@ -1,6 +1,7 @@
 #include "fake2d/render_target.h"
 #include "gl.h"
 
+#include <cstdint>
 #include <cstdio>
 #include <utility>
 

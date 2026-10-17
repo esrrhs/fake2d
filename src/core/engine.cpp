@@ -4,6 +4,7 @@
 
 #include "platform/window.h"
 
+#include <cstdint>
 #include <chrono>
 #include <cstdio>
 
