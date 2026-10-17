@@ -1,7 +1,10 @@
 #include "fake2d/shader.h"
 #include "gl.h"
 
+#include <cctype>
 #include <cstdio>
+#include <cstdlib>
+#include <string>
 #include <vector>
 
 namespace fake2d {
@@ -29,6 +32,116 @@ GLuint CompileShader(GLenum type, std::string_view source) {
         return 0;
     }
     return shader;
+}
+
+bool IsIdentChar(char c) {
+    return std::isalnum(static_cast<unsigned char>(c)) || c == '_';
+}
+
+// True when `line` starts with `word` followed by whitespace.
+bool StartsWithWord(std::string_view line, std::string_view word) {
+    return line.size() > word.size() && line.substr(0, word.size()) == word &&
+           (line[word.size()] == ' ' || line[word.size()] == '\t');
+}
+
+// GLSL 1.30+ sources (the "#version 330 core" every shipped asset uses) do not
+// compile on a legacy 2.1 context, which only understands GLSL 1.20 — macOS
+// falls back to exactly that when no 3.3 core pixel format is available. This
+// rewrites the subset the engine's shaders use into 1.20: the version line,
+// layout() qualifiers (attribute locations are bound before linking instead),
+// in/out declarations to attribute/varying, the fragment output to
+// gl_FragColor, and texture() to texture2D(). Sources that already target
+// 1.20 (or carry no #version) are returned unchanged.
+std::string DowngradeToGlsl120(std::string_view src, bool vertex) {
+    // Find the #version directive; only 1.30+ sources are rewritten.
+    {
+        const auto pos = src.find("#version");
+        if (pos == std::string_view::npos) return std::string(src);
+        const int version = std::atoi(std::string(src.substr(pos + 8, 8)).c_str());
+        if (version < 130) return std::string(src);
+    }
+
+    std::string out;
+    out.reserve(src.size() + 64);
+    std::size_t start = 0;
+    while (start <= src.size()) {
+        std::size_t end = src.find('\n', start);
+        const bool last = end == std::string_view::npos;
+        if (last) end = src.size();
+        std::string_view line = src.substr(start, end - start);
+
+        std::size_t indent = 0;
+        while (indent < line.size() && (line[indent] == ' ' || line[indent] == '\t')) ++indent;
+        std::string_view body = line.substr(indent);
+        const std::string lead(line.substr(0, indent));
+
+        if (body.substr(0, 8) == "#version") {
+            out += "#version 120";
+        } else {
+            // layout (location = N) in vec2 a_pos;  ->  in vec2 a_pos;
+            std::string_view decl = body;
+            if (decl.substr(0, 6) == "layout") {
+                const auto close = decl.find(')');
+                if (close != std::string_view::npos) {
+                    decl = decl.substr(close + 1);
+                    while (!decl.empty() && (decl[0] == ' ' || decl[0] == '\t')) {
+                        decl.remove_prefix(1);
+                    }
+                }
+            }
+            if (StartsWithWord(decl, "smooth")) {
+                decl.remove_prefix(6);
+                while (!decl.empty() && (decl[0] == ' ' || decl[0] == '\t')) {
+                    decl.remove_prefix(1);
+                }
+            }
+            if (StartsWithWord(decl, "in")) {
+                out += lead + (vertex ? "attribute" : "varying") + std::string(decl.substr(2));
+            } else if (StartsWithWord(decl, "out")) {
+                if (vertex) {
+                    out += lead + "varying" + std::string(decl.substr(3));
+                } else {
+                    // out vec4 frag_color;  ->  #define frag_color gl_FragColor
+                    std::string_view rest = decl.substr(3);
+                    const auto semi = rest.find(';');
+                    if (semi != std::string_view::npos) rest = rest.substr(0, semi);
+                    std::size_t e = rest.size();
+                    while (e > 0 && !IsIdentChar(rest[e - 1])) --e;
+                    std::size_t b = e;
+                    while (b > 0 && IsIdentChar(rest[b - 1])) --b;
+                    out += "#define " + std::string(rest.substr(b, e - b)) + " gl_FragColor";
+                }
+            } else if (decl.size() != body.size()) {
+                // A layout() qualifier on something else (e.g. a uniform):
+                // keep the declaration without it.
+                out += lead + std::string(decl);
+            } else {
+                out += std::string(line);
+            }
+        }
+        if (last) break;
+        out += '\n';
+        start = end + 1;
+    }
+
+    // texture(...) -> texture2D(...): only the bare builtin name, not
+    // identifiers that merely contain it (u_texture, texture2D, ...).
+    std::string result;
+    result.reserve(out.size() + 32);
+    constexpr std::string_view kTex = "texture";
+    for (std::size_t i = 0; i < out.size();) {
+        if (out.compare(i, kTex.size(), kTex) == 0 && (i == 0 || !IsIdentChar(out[i - 1]))) {
+            std::size_t j = i + kTex.size();
+            while (j < out.size() && (out[j] == ' ' || out[j] == '\t')) ++j;
+            if (j < out.size() && out[j] == '(') {
+                result += "texture2D";
+                i += kTex.size();
+                continue;
+            }
+        }
+        result += out[i++];
+    }
+    return result;
 }
 
 const char *kDefaultVertexShader = R"(#version 330 core
@@ -124,6 +237,16 @@ Shader &Shader::operator=(Shader &&other) noexcept {
 
 bool Shader::LoadFromSource(std::string_view vert_src, std::string_view frag_src) {
     Destroy();
+
+    // Legacy 2.1 contexts only take GLSL 1.20: rewrite 1.30+ sources down.
+    std::string legacy_vert;
+    std::string legacy_frag;
+    if (glcaps::legacy_mode) {
+        legacy_vert = DowngradeToGlsl120(vert_src, true);
+        legacy_frag = DowngradeToGlsl120(frag_src, false);
+        vert_src = legacy_vert;
+        frag_src = legacy_frag;
+    }
 
     GLuint vert = CompileShader(GL_VERTEX_SHADER, vert_src);
     if (!vert) return false;
