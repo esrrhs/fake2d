@@ -141,6 +141,26 @@ void Input::Attach(void *native_window) {
                 input->text_pending_.push_back(codepoint);
             }
         });
+        // Capture button press edges even if released within the same polling frame
+        // (crucial for macOS trackpad tap-to-click).
+        glfwSetMouseButtonCallback(window, [](GLFWwindow *win, int button, int action, int /*mods*/) {
+            if (Input *input = static_cast<Input *>(glfwGetWindowUserPointer(win))) {
+                if (button >= 0 && button < static_cast<int>(kButtonCount)) {
+                    if (action == GLFW_PRESS) {
+                        input->had_mouse_press_[button] = 1;
+                    }
+                }
+            }
+        });
+        glfwSetKeyCallback(window, [](GLFWwindow *win, int key, int /*scancode*/, int action, int /*mods*/) {
+            if (Input *input = static_cast<Input *>(glfwGetWindowUserPointer(win))) {
+                if (key >= 0 && key < static_cast<int>(kKeyCount)) {
+                    if (action == GLFW_PRESS) {
+                        input->had_key_press_[key] = 1;
+                    }
+                }
+            }
+        });
     }
 }
 
@@ -148,6 +168,11 @@ void Input::InjectFrame(const Vec2 &mouse_pos,
                         const std::vector<std::string_view> &keys_down,
                         const std::vector<std::int64_t> &buttons_down, double wheel,
                         const std::vector<unsigned int> &text) {
+    std::fill(had_mouse_press_, had_mouse_press_ + kButtonCount, static_cast<std::uint8_t>(0));
+    std::fill(tap_hold_, tap_hold_ + kButtonCount, static_cast<std::uint8_t>(0));
+    std::fill(had_key_press_, had_key_press_ + kKeyCount, static_cast<std::uint8_t>(0));
+    std::fill(key_tap_hold_, key_tap_hold_ + kKeyCount, static_cast<std::uint8_t>(0));
+
     // Same edge bookkeeping as NewFrame: current becomes previous, then the
     // new state is written on top.
     std::copy(keys_, keys_ + kKeyCount, prev_keys_);
@@ -187,10 +212,38 @@ void Input::NewFrame(void *native_window) {
     // them anyway — scanning the whole array would spam the error callback
     // 35 times per frame. The skipped slots stay 0 (never pressed).
     for (int key = GLFW_KEY_SPACE; key <= GLFW_KEY_LAST; ++key) {
-        keys_[key] = static_cast<std::uint8_t>(glfwGetKey(window, key) == GLFW_PRESS);
+        const bool physical_down = (glfwGetKey(window, key) == GLFW_PRESS);
+        if (key_tap_hold_[key]) {
+            key_tap_hold_[key] = 0;
+            keys_[key] = static_cast<std::uint8_t>(physical_down ? 1 : 0);
+            had_key_press_[key] = 0;
+        } else if (physical_down) {
+            keys_[key] = 1;
+            had_key_press_[key] = 0;
+        } else if (had_key_press_[key]) {
+            keys_[key] = 1;
+            key_tap_hold_[key] = 1;
+            had_key_press_[key] = 0;
+        } else {
+            keys_[key] = 0;
+        }
     }
     for (int button = 0; button < static_cast<int>(kButtonCount); ++button) {
-        buttons_[button] = static_cast<std::uint8_t>(glfwGetMouseButton(window, button) == GLFW_PRESS);
+        const bool physical_down = (glfwGetMouseButton(window, button) == GLFW_PRESS);
+        if (tap_hold_[button]) {
+            tap_hold_[button] = 0;
+            buttons_[button] = static_cast<std::uint8_t>(physical_down ? 1 : 0);
+            had_mouse_press_[button] = 0;
+        } else if (physical_down) {
+            buttons_[button] = 1;
+            had_mouse_press_[button] = 0;
+        } else if (had_mouse_press_[button]) {
+            buttons_[button] = 1;
+            tap_hold_[button] = 1;
+            had_mouse_press_[button] = 0;
+        } else {
+            buttons_[button] = 0;
+        }
     }
 
     double x = 0.0;

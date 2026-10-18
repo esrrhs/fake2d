@@ -91,6 +91,10 @@ private:
     std::uint8_t prev_keys_[kKeyCount] = {};
     std::uint8_t buttons_[kButtonCount] = {};
     std::uint8_t prev_buttons_[kButtonCount] = {};
+    std::uint8_t had_mouse_press_[kButtonCount] = {};
+    std::uint8_t tap_hold_[kButtonCount] = {};
+    std::uint8_t had_key_press_[kKeyCount] = {};
+    std::uint8_t key_tap_hold_[kKeyCount] = {};
     std::uint8_t pad_connected_[kPadCount] = {};
     std::uint8_t pad_buttons_[kPadCount][kPadButtonCount] = {};
     std::uint8_t prev_pad_buttons_[kPadCount][kPadButtonCount] = {};
