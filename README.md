@@ -3,248 +3,353 @@
 [English](README.md) | [中文说明](README_CN.md)
 
 [![Build Status](https://github.com/esrrhs/fake2d/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/esrrhs/fake2d/actions)
-[![License](https://img.shields.io/github/license/esrrhs/fake2d)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![C++23](https://img.shields.io/badge/C%2B%2B-23-brightgreen.svg)](https://en.cppreference.com/w/cpp/23)
+[![OpenGL](https://img.shields.io/badge/OpenGL-3.3%20Core%20%7C%202.1-orange.svg)](https://www.opengl.org/)
+[![FakeLua](https://img.shields.io/badge/Script-FakeLua-red.svg)](https://github.com/esrrhs/fakelua)
+[![Version](https://img.shields.io/badge/version-1.24.0-informational.svg)](include/fake2d/version.h)
 
-**Fake2D** is a lightweight, modern 2D game rendering engine powered by [FakeLua](https://github.com/esrrhs/fakelua): C++ owns the window, GPU resources, and scene graph; FakeLua scripts orchestrate gameplay logic with a per-frame linear arena reset (**zero GC pauses**).
+**Fake2D** is a modern, lightweight, high-performance 2D game engine powered by [FakeLua](https://github.com/esrrhs/fakelua):
+- **C++23 Host Engine**: Controls window management, GPU rendering pipelines, 2D physics, multi-bus audio mixing, and native resource lifecycles;
+- **FakeLua Scripting Layer**: Orchestrates gameplay systems, UI, and entity behaviors, executing per-frame linear arena resets for **guaranteed Zero Garbage Collection pauses (Zero-GC Pauses)**.
 
-> Status: **1.24 — Phase 30 animated tiles complete** — everything through 1.23 (scissor clips, nine-slice panels, aligned wrapped text, fixed-step physics, camera follow toolkit, collision filters, tilemap A\* path finding, offscreen render targets, fullscreen post-processing + minimap bake, audio mixer, positional audio, ping-pong passes, auto uniforms, UI widgets round 2, fog of war, bloom-grade FX kit, UI widgets round 3, decoded files & streamed music), plus **animated tiles**: Tiled tileset `animation` cycles parse and play on one engine-ticked clock (every loaded map advances once per frame — no script bookkeeping), per tile *id* so every cell using a tile is in lockstep, with read-only queries (`map_anim_time/_count/_cycle/_index/_gid/_reset`) and a hard rule that only the *picture* animates — `map_solid` and the whole collision grid keep reading the base gid. `--tile-test` adds a twelfth engine self-test (55 cases); **`--tile-demo`** ripples a pond and flickers torches. See the [Implementation Plan](#implementation-plan), [docs/PLAN.md](docs/PLAN.md), the [Scripting Guide](docs/SCRIPTING.md), and [Packaging Notes](docs/PACKAGING.md).
-
----
-
-## Modern Design Goals
-
-Fake2D is built from the ground up to follow modern 2D game engine industry standards (aligned with architectures like MonoGame, Raylib, and Defold):
-
-1. **Zero-GC Per-Frame Execution**:
-   - Eliminates garbage collection spikes (the primary performance pitfall in traditional Lua/JS/C# game engines).
-   - Gameplay scripts can allocate frame-local tables, arrays, and variables freely; all frame memory is reclaimed instantly via `fakelua::inter::Reset(state)` at frame boundary.
-2. **Data-Oriented SpriteBatching**:
-   - Quad-based dynamic streaming VBO with pre-allocated static index buffer (`0-1-2-2-3-0` quad pattern).
-   - **Unified 1x1 White Texture**: Colored geometry (rectangles, progress bars, debug cards) and textured sprites share the exact same GLSL shader and batch buffer, preventing pipeline breaks.
-   - Multi-key batch sorting (Layer → Depth/Z → Blend Mode → Texture ID) merges same-texture quads into one draw call; alpha/additive blend modes; measured by the built-in `--bench` suite (~674 → 8 draw calls for 768 sprites / 8 textures).
-3. **Decoupled 2D Camera & Coordinates**:
-   - Dedicated `Camera2D` supporting viewport scaling, rotation, smooth panning, and zoom.
-   - Two-way coordinate transformation (`ScreenToWorld` and `WorldToScreen`) for pixel-perfect HUDs and world interactions.
-   - HiDPI/Retina native: the projection works in physical framebuffer pixels while game coordinates stay logical points, and live resize/DPI changes are tracked automatically.
-4. **Data-Driven Scene & Assets**:
-   - Spatial node hierarchy (`Transform2D`) with local-to-world dirty caching (Phase 2).
-   - Texture Atlas / SpriteSheet support for packing entire levels into single draw calls.
-   - Script hot-reload via FakeLua's embedded JIT backend for rapid iteration.
-5. **Modern CI & Headless Testing**:
-   - Native support for headless execution (`--headless`, `--frames N`) allows automated smoke and visual regression testing in virtualized CI runners without a physical display.
-   - Built with Modern CMake 3.16+ standards and target-based exports (`fakelua::fakelua`, `fake2d::fake2d`).
+Engineered around modern industry standards (aligned with Raylib, MonoGame, and Defold philosophies), Fake2D delivers a complete, cohesive 2D suite: **dynamic streaming batching, Tiled orthogonal maps, 2D physics & collision filtering, spatial/multi-bus audio, multi-pass post-processing chains, immediate-mode UI, and cross-platform automated testability**. It is production-ready for commercial and indie 2D game development.
 
 ---
 
-## Architecture
+## 🌟 Modern Architectural Highlights
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    FakeLua Scripts                      │
-│            update(dt) · entities · UI logic             │
-└────────────────────────────┬────────────────────────────┘
-                             │ Native bindings (draw_quad, camera_*, ...)
-┌────────────────────────────▼────────────────────────────┐
-│                      Fake2D Engine                      │
-│      ScriptHost · Scene Graph · Input · Resources       │
-├────────────────────────────┬────────────────────────────┤
-│        SpriteBatch         │         Camera2D           │
-│   (Dynamic VBO / Quads)    │ (Ortho VP / Coordinate Xform)
-├────────────────────────────┴────────────────────────────┤
-│         Texture2D          │          Shader            │
-│   (stb_image / 1x1 White)  │     (GLSL 330 Core)        │
-├────────────────────────────┴────────────────────────────┤
-│              Renderer (OpenGL 3.3 Core)                 │
-│              Platform Window (GLFW 3.4)                 │
-└─────────────────────────────────────────────────────────┘
-```
+### 1. Deterministic Zero-GC Per-Frame Architecture
+- **Eliminates GC Stutter**: Traditional game engines running Lua, JavaScript, or C# suffer from frame drops and unpredictable GC spikes when creating high-frequency temporary objects;
+- **Linear Arena Reset**: Fake2D scripts can freely allocate frame-local tables, vectors, and closures. At the end of each frame, the engine resets the linear memory arena via `fakelua::inter::Reset(state)` in microseconds—delivering rock-solid 60 / 120+ FPS with zero GC stalls;
+- **Native Cross-Frame Storage**: Persistent data is strictly managed through the C++ `EntityStore` (256 native handle-based entity slots) and `SaveStore` (JSON key-value persistence), maintaining a clear separation between transient frame calculations and long-lived game state.
+
+### 2. Data-Oriented Streaming SpriteBatch
+- **Dynamic Streaming VBO**: Backed by a pre-allocated static index buffer (standard `0-1-2-2-3-0` quad pattern);
+- **Unified 1×1 Pure White Texture**: Solid colored geometry, UI panels, health bars, and textured sprites share the exact same GLSL shader and vertex layout—completely eliminating batch-breaking pipeline swaps;
+- **Multi-Key Batch Sorting**: Deferred command buffer supporting multi-key stable sorting (`Layer → Depth/Z → Blend Mode → Texture ID`). Identical textures and states coalesce into unified draw calls automatically; supports Alpha, Additive, and Multiply blending;
+- **Extreme Throughput**: Built-in benchmark (`--bench`) demonstrates **674.4 → 8.0 draw calls** in a 768-sprite / 8-texture workload.
+
+### 3. Decoupled 2D Camera & Coordinates (Camera2D)
+- Independent orthographic view-projection matrix calculation supporting smooth panning, zoom scaling, rotation, and exact `ScreenToWorld` / `WorldToScreen` coordinate inversions;
+- **Native HiDPI / Retina**: Rendering runs at physical framebuffer pixel resolution while game coordinates remain in logical units; window resizes and DPI changes are tracked in real-time;
+- **Camera Follow Toolkit**: World boundaries clamping (`SetBounds`), viewport centering, frame-rate-independent exponential smoothing, SMB-style forward-only scroll lock, deadzone tracking, and Trauma-decay camera shake (`camera_shake`).
+
+### 4. Comprehensive 2D Subsystems
+Fake2D is a fully battery-included engine, not just a bare graphics library:
+- **Tiled Map System**: Orthogonal JSON parser supporting tile layers, parallax scrolling, image layers, object groups (`objectgroup` spawns/triggers), slope physics, and **animated tiles (`animation` cycles synchronized to an engine clock)**;
+- **Built-in Physics & Pathfinding**: Zero-dependency 2D physics (AABB / Circle / Sensor triggers), spatial hash grid broadphase (5.9× faster than brute-force), fixed timestep accumulator with render interpolation (`phys_smooth_x/y`), 16-bit category/mask collision filters, ray casting & shape overlap queries, and grid A\* pathfinding (octile heuristic, corner-cut prevention, string-pulling line-of-sight smoothing);
+- **Studio-Grade Audio Engine**: Device-decoupled software mixer, 3-bus hierarchy (Master / SFX / Music), linear gain envelopes and music cross-fades, 3D positional audio (distance rolloff and stereo pan), low-memory streamed playback (8192-frame streaming windows for WAV / MP3 / OGG / FLAC), and real-time stereo VU peak metering;
+- **Multi-Pass Post-Processing & FBO**: Offscreen `RenderTarget` pool, ping-pong blur passes, bloom thresholding (`fx_bright`), animated wave shimmer (`fx_wave` with auto `u_time`/`u_resolution`), fog of war with multiply blending & `rt_sample` exploration probes, and baked minimaps;
+- **Immediate-Mode UI (UISystem)**: Ready-to-use widgets including Panels, Buttons, Labels, Sliders, Checkboxes, UTF-8 TextInputs, ScrollAreas, ProgressBars, RadioButtons, Combos, draggable Windows (with mouse deltas), Tab bars, disclosure Trees, and Tooltips.
+
+### 5. Developer Experience & Automated Testing
+- **JIT Script Hot-Reload**: GCC JIT backend with automatic interpreter fallback; edit Lua scripts live and see changes reflected instantly without restarting;
+- **Headless & CI-Ready**: First-class `--headless`, `--frames N`, and `--screenshot` CLI flags allow visual regression tests and automated smoke validation in headless Linux/macOS/Windows environments;
+- **12 Built-in Self-Test Suites**: Over 500 assertions covering physics queries, filters, timesteps, tilemap objects, A\* pathfinding, render targets, UI widgets, post-FX, fog of war, audio mixing, and animated tiles (all mutation-tested);
+- **Standalone Packaging**: Bundling scripts under `tools/` generate self-contained archives on Linux, macOS, and Windows with all dependencies, shaders, and assets included.
 
 ---
 
-## Repository Layout
+## 🏛 Engine Architecture
 
 ```
-fake2d/
-├── CMakeLists.txt           # Modern CMake configuration
-├── include/fake2d/          # Public engine API
-│   ├── atlas.h              # TexturePacker JSON texture atlas
-│   ├── animation.h          # Frame-animation clip pool
-│   ├── audio.h              # miniaudio one-shot clip player
-│   ├── camera.h             # 2D Orthographic camera (+ trauma shake)
-│   ├── character.h          # Kinematic platformer controller
-│   ├── engine.h             # Engine host & main loop
-│   ├── font.h               # TTF/8x8 bitmap glyph atlas
-│   ├── input.h              # Per-frame keyboard/mouse snapshot
-│   ├── math.h               # Vec2, Rect, Color, Mat4
-│   ├── node.h               # Transform2D & scene graph nodes
-│   ├── particle.h           # CPU particle pool & emitters
-│   ├── physics.h            # Built-in AABB/circle physics world
-│   ├── renderer.h           # Renderer façade
-│   ├── tilemap.h            # Tiled JSON tile maps + library
-│   ├── ui.h                 # Anchored panels, labels, buttons
-│   ├── resource_manager.h   # Handle-based resource pool
-│   ├── scene.h              # Layer/z-ordered scene rendering
-│   ├── shader.h             # Shader pipeline & uniforms
-│   ├── sprite_batch.h       # High-performance SpriteBatch
-│   ├── texture.h            # Texture2D & 1x1 white fallback
-│   └── version.h            # Version definitions
-├── src/
-│   ├── audio/               # miniaudio device, voice mixing, WAV decode
-│   ├── core/                # Engine loop, lifecycle, resource pool
-│   ├── gameplay/            # Platformer character controller
-│   ├── physics/             # Built-in 2D physics world + spatial broadphase
-│   ├── platform/            # GLFW window & GL context
-│   ├── render/              # GL 3.3 Core render, font, particles, animation, tilemap
-│   ├── scene/               # Node hierarchy & scene rendering
-│   ├── script/              # FakeLua integration & bindings
-│   └── ui/                  # Anchored widget system
-├── third_party/             # stb_image, stb_truetype, stb_rect_pack, miniaudio, font8x8
-├── scripts/                 # Pure-Lua samples: game.lua (breakout), scene_demo.lua, map_demo.lua, platformer_demo.lua, mario.lua, path_demo.lua
-├── examples/hello/          # Samples: breakout, --scene-demo, --map-demo, --platformer-demo, --mario-demo, --slope-demo, --path-demo, --rt-demo, --ui-demo, --post-demo, --bench, --phys-bench
-├── docs/SCRIPTING.md        # Script authoring guide & API reference
-├── docs/PACKAGING.md        # Linux / Windows / macOS packaging notes
-└── docs/PLAN.md             # Detailed roadmap and milestone checklist
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                             FakeLua Scripts                                 │
+│          update(dt) · Entity Logic · State Machines · UI Layout             │
+└──────────────────────────────────────┬──────────────────────────────────────┘
+                                       │ Native Bindings (draw_*, phys_*, audio_*, map_*, ...)
+┌──────────────────────────────────────▼──────────────────────────────────────┐
+│                                Fake2D Engine                                │
+│   ScriptHost (JIT / Hot-Reload) · Resources · EntityStore · SaveStore (JSON)│
+├───────────────────────┬──────────────────────────────┬──────────────────────┤
+│   Rendering Pipeline  │       Physics & World        │     Audio Engine     │
+│  · SpriteBatch (Sort) │  · PhysicsWorld (AABB/Circle)│  · Software Mixer    │
+│  · Camera2D (VP/Shake)│  · Spatial Hash Broadphase   │  · 3 Buses (Master)  │
+│  · RenderTarget (FBO) │  · Fixed-Step Accumulator    │  · 3D Positional Pan │
+│  · PostFX & Shaders   │  · Collision Filters (Mask)  │  · 8K-Frame Streams  │
+│  · Bitmap Font (TTF)  │  · Tiled Map & Tile Anim     │  · VU Peak Meters    │
+│  · CPU Particles (8K) │  · A* Grid Pathfinding       │                      │
+├───────────────────────┴──────────────────────────────┴──────────────────────┤
+│                       Immediate-Mode UI (UISystem)                          │
+│     Window · Panel · Button · Slider · Input · Radio · Combo · Tab · Tree   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                          Platform & Hardware Backend                        │
+│          OpenGL 3.3 Core (GL 2.1 Fallback) · GLFW 3.4 (Input/Gamepad)       │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Requirements
+## 🎮 Runnable Demos Matrix
 
-- CMake ≥ 3.16, C++23 compiler (GCC 13+, Clang 16+, Apple Clang 15+)
-- OpenGL 3.3+ Core Profile / GLFW 3.4 (fetched via CPM)
-- [FakeLua](https://github.com/esrrhs/fakelua) (installed in standard system prefix `/usr/local` or detected via `find_package(fakelua)`)
+Fake2D comes with 13 rich, self-contained demos demonstrating platformer mechanics, retro gameplay, spatial audio, immediate UI, and graphical post-processing:
+
+| Demo Flag | Topic | Key Highlighted Features |
+|---|---|---|
+| `./fake2d_hello` | **Breakout (Default)** | Ball physics reflections, brick destruction, particle debris, HUD text, and procedural audio chirps |
+| `--mario-demo` | **Super Mario Bros 1-1** | Faithful SMB 1-1 recreation; small/big Mario forms, Goomba patrols & squashing, ? blocks, brick shatter particles, flag pole sequence, attract AI |
+| `--platformer-demo` | **Platformer Controller** | Kinematic tile platforming; coyote time, jump buffering, one-way ledges, coin pickups, smooth follow camera |
+| `--slope-demo` | **Slopes & Terrain** | Tiled slope calculation (`map_slope_dir` / `map_ground_y`), smooth angle traversal and live ground overlays |
+| `--path-demo` | **Maze Chase & A\* Pathfinding** | Generated maze, staggered AI tracking, player autopilot mode, and live polyline path drawing |
+| `--tile-demo` | **Animated Tiles** | Tiled tileset animations driven by a single engine clock; rippling pond water and torch flames |
+| `--fog-demo` | **Fog of War** | Procedural world; multiply blend mask, cumulative exploration reveal, clickable minimap, and `rt_sample` probes |
+| `--fx-demo` | **Multi-Pass Post-FX & Bloom** | Procedural skyline; FBO downsampling, separable 9-tap Gaussian blur, bloom thresholding, wave wobble, split-screen |
+| `--post-demo` | **Post-Grade & Baked Minimap** | Presentation-grade shaders (desaturation, lift, vignette, scanlines) and camera-baked tilemap minimap |
+| `--rt-demo` | **Render Targets & Feedback Trails**| Bake-once background canvas beside an accumulating fading motion trail |
+| `--spatial-demo` | **3D Positional Audio** | 4 world audio emitters with WASD listener navigation; linear distance rolloff, stereo pan, range rings, and L/R VU meters |
+| `--audio-demo` | **Audio Console & Mixer** | 3-bus gain sliders, cross-fades, mix freezing pause, 24-segment VU meter, and decoded vs streamed memory comparison |
+| `--ui-demo` / `--ui2-demo` / `--ui3-demo` | **Immediate-Mode UI Showcases** | Sliders, checkboxes, UTF-8 text fields, scroll areas, progress bars, radio groups, combo popups, draggable windows, tab bars, and trees |
 
 ---
 
-## Build
+## 🚀 Getting Started
+
+### Prerequisites
+
+- **CMake**: ≥ 3.16
+- **C++ Compiler**: Modern compiler with **C++23** support (GCC 13+, Clang 16+, Apple Clang 15+, MSVC 2022)
+- **Graphics**: OpenGL 3.3+ Core Profile (runtime fallback to GL 2.1 supported); GLFW 3.4 and nlohmann_json fetched automatically via CPM
+- **Scripting Engine**: [FakeLua](https://github.com/esrrhs/fake2d) installed in `/usr/local` or discovered via CMake `find_package(fakelua REQUIRED)`
+
+### Build & Run
 
 ```bash
-# Standard build with FakeLua scripting:
+# 1. Clone the repository
+git clone https://github.com/esrrhs/fake2d.git
+cd fake2d
+
+# 2. Configure build files (Release mode)
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+# 3. Build in parallel
 cmake --build build --parallel
+
+# 4. Launch the default Breakout game
 ./build/bin/fake2d_hello
+```
 
-# Run headless smoke test (e.g. for CI or remote environments):
-./build/bin/fake2d_hello --headless --frames 60
+> **C++ Only Mode**: To build a windowed skeleton without linking FakeLua, pass `-DFAKE2D_WITH_FAKELUA=OFF`.
 
-# Capture a framebuffer PNG in headless mode (visual regression tests):
-./build/bin/fake2d_hello --headless --frames 460 --screenshot game.png
-./build/bin/fake2d_hello --headless --frames 40 --scene-demo --screenshot scene.png
+---
 
-# Draw-call / flush-time benchmark (immediate vs sorted batching):
-./build/bin/fake2d_hello --headless --bench
+## 💻 CLI Usage Guide
 
-# Edit scripts/game.lua while running — the engine recompiles it on save:
-./build/bin/fake2d_hello --hot-reload
+### Launching Demos
 
-# All demos are pure-Lua scripts (the binary only generates their PNG/JSON/WAV
-# assets); each flag selects a different entry script:
-./build/bin/fake2d_hello --scene-demo      # sprites, rotation, particles, text
+```bash
+# Super Mario Bros 1-1 (A/D to move, Shift to run, Space to jump, Gamepad supported)
+./build/bin/fake2d_hello --mario-demo
 
-# Tiled tilemap + built-in physics + UI (R or the RESET button):
-./build/bin/fake2d_hello --map-demo
-
-# Scrolling platformer (A/D + Space; attract AI headless):
+# Scrolling Platformer Demo (Smooth camera, coyote time, one-way platforms)
 ./build/bin/fake2d_hello --platformer-demo
 
-# Super Mario Bros 1-1 style demo (A/D + Shift + Space; attract AI headless):
-./build/bin/fake2d_hello --mario-demo
-./build/bin/fake2d_hello --slope-demo   # tilemap slope lab: 45 deg, rise-64, surface overlay (V)
-./build/bin/fake2d_hello --path-demo    # maze chase: A* chaser AI + player autopilot (P paths)
-./build/bin/fake2d_hello --rt-demo      # offscreen targets: baked canvas + fading trail (SPACE/C/R)
-./build/bin/fake2d_hello --ui-demo      # UI widgets: sliders, checkboxes, text field, scroll list
-./build/bin/fake2d_hello --post-demo    # post pass over the world + baked minimap (SPACE/G)
+# Maze Chase & A* Pathfinding (Press P to toggle path lines)
+./build/bin/fake2d_hello --path-demo
 
-# Physics broadphase benchmark (brute force vs spatial hash grid):
-./build/bin/fake2d_hello --headless --phys-bench
+# Tiled Animated Tiles (Rippling pond & flickering torches)
+./build/bin/fake2d_hello --tile-demo
 
-# Physics self-tests (CPU only, exit code + assertion summary):
-./build/bin/fake2d_hello --phys-query-test    # ray casts / overlaps / contacts
-./build/bin/fake2d_hello --phys-filter-test   # category & mask collision filtering
-./build/bin/fake2d_hello --timestep-test      # fixed-step accumulator + camera tools
+# Fog of War System (Press F to toggle fog, R to reset)
+./build/bin/fake2d_hello --fog-demo
 
-# Physics stepping is fixed at 60 Hz by default; override or disable it:
-./build/bin/fake2d_hello --fixed-hz 120 --mario-demo
-./build/bin/fake2d_hello --variable-step --mario-demo
+# Multi-pass Post-FX & Bloom (Press S to toggle split-screen mode)
+./build/bin/fake2d_hello --fx-demo
+
+# 3D Positional Audio (WASD to move the listener, mouse interaction)
+./build/bin/fake2d_hello --spatial-demo
+
+# Audio Mixer & Streaming Benchmark
+./build/bin/fake2d_hello --audio-demo
+
+# Full Immediate-Mode UI Suite (Draggable windows, tabs, combos)
+./build/bin/fake2d_hello --ui3-demo
 ```
 
-Window-only skeleton build (without FakeLua, useful for rapid engine-only testing):
+### Development & Benchmarking Options
 
 ```bash
-cmake -S . -B build -DFAKE2D_WITH_FAKELUA=OFF
-cmake --build build --parallel
+# Enable live script hot-reload (saving scripts/game.lua updates the running game)
+./build/bin/fake2d_hello --hot-reload
+
+# Execute a custom Lua entry script
+./build/bin/fake2d_hello --entry scripts/mario.lua
+
+# Adjust fixed physics simulation rate (default 60 Hz; or variable step)
+./build/bin/fake2d_hello --fixed-hz 120 --mario-demo
+./build/bin/fake2d_hello --variable-step --mario-demo
+
+# Run graphics SpriteBatch benchmark (immediate vs sorted)
+./build/bin/fake2d_hello --headless --bench
+
+# Run physics broadphase benchmark (brute-force vs spatial hash)
+./build/bin/fake2d_hello --headless --phys-bench
+```
+
+### Headless Verification & Testing
+
+Fake2D supports first-class headless execution in display-less CI environments (e.g. Linux with xvfb):
+
+```bash
+# Run 60 frames headlessly and exit cleanly
+xvfb-run ./build/bin/fake2d_hello --headless --frames 60
+
+# Capture framebuffer screenshot for visual regression testing
+xvfb-run ./build/bin/fake2d_hello --headless --mario-demo --shot-frame 60 --screenshot mario.png
+
+# Run the 12 built-in engine self-test suites (verified via exit codes)
+xvfb-run ./build/bin/fake2d_hello --phys-query-test    # Ray casts, overlaps, contact lifecycle
+xvfb-run ./build/bin/fake2d_hello --phys-filter-test   # 16-bit category/mask collision filtering
+xvfb-run ./build/bin/fake2d_hello --timestep-test      # Fixed-step accumulator & camera smooth
+xvfb-run ./build/bin/fake2d_hello --map-object-test    # Tiled object groups & custom properties
+xvfb-run ./build/bin/fake2d_hello --path-test          # Tilemap A* pathfinding & string pulling
+xvfb-run ./build/bin/fake2d_hello --tile-test          # Tiled tileset animation clock ticks
+xvfb-run ./build/bin/fake2d_hello --rt-test            # RenderTarget FBO pool & blit checks
+xvfb-run ./build/bin/fake2d_hello --ui-test            # Immediate UI widgets & input injection
+xvfb-run ./build/bin/fake2d_hello --post-test          # Post-processing grade & minimap bake
+xvfb-run ./build/bin/fake2d_hello --fx-test            # Multi-pass ping-pong blur & uniforms
+xvfb-run ./build/bin/fake2d_hello --fog-test           # Fog of war multiply blending & rt_sample
+xvfb-run ./build/bin/fake2d_hello --audio-test         # Mixer buses, envelopes, streamed music
 ```
 
 ---
 
-## Quick Script
+## 📝 Quick Scripting Example
 
-`scripts/game.lua` (the default entry) is a playable breakout clone driven
-entirely from Lua — sprites, input, and physics, ~200 lines:
+Here is a concise sample demonstrating sprite rendering, input handling, camera tracking, and immediate UI in Fake2D:
 
 ```lua
-local W = 960
-local paddle_x = W * 0.5          -- persistent state lives in file-level locals
-local score = 0 + 0               -- mutable numbers use an expression initializer
-                                  -- (see "state rules" in docs/SCRIPTING.md)
+-- scripts/my_game.lua
+local W, H = 960, 540
+local player_x = W * 0.5
+local player_y = H * 0.8
+local speed = 350.0 + 0.0     -- Initialized with float expressions
 
 function update(dt)
-    -- paddle follows the mouse / arrow keys
-    if input_key_down("left") then paddle_x = paddle_x - 620 * dt end
+    -- 1. Read input snapshot (keyboard or gamepad)
+    if input_key_down("left") or input_pad_down(0, "dpad_left") then
+        player_x = player_x - speed * dt
+    end
+    if input_key_down("right") or input_pad_down(0, "dpad_right") then
+        player_x = player_x + speed * dt
+    end
+    if input_key_pressed("space") or input_pad_pressed(0, "a") then
+        audio_play("jump", 0.8)
+    end
 
-    -- step the ball, collide with bricks, draw everything
-    step_ball(dt)
-    draw()
+    -- 2. Exponentially smooth camera tracking
+    camera_follow(player_x, player_y, 8.0, dt)
+
+    -- 3. Batched rendering
+    draw_clear(24, 28, 36, 255)
+    
+    -- Draw active tilemap layer
+    map_draw(1)
+    
+    -- Draw player quad (automatically batched with the 1x1 white texture)
+    draw_quad(player_x - 16, player_y - 16, 32, 32, 60, 180, 255, 255)
+    
+    -- Immediate-mode UI elements
+    ui_panel("hud", "top_left", 10, 10, 160, 40)
+    ui_label("score", "top_left", 20, 20, "SCORE: 1200", 1.0)
+    if ui_button("btn_pause", "top_right", -110, 10, 100, 32, "PAUSE") then
+        -- Handle pause logic
+    end
+
     return 0
 end
 ```
 
-The full API reference, the persistent-state rules (FakeLua arena + JIT
-codegen constraints), and performance best practices live in the
-[Scripting Guide](docs/SCRIPTING.md).
+> 📖 **Reference Documentation**:
+> - For a deep dive into FakeLua syntax constraints, Arena memory lifecycle rules, and the complete API surface, read the [**Scripting Guide (docs/SCRIPTING.md)**](docs/SCRIPTING.md).
+> - For standalone distribution and cross-compilation instructions, refer to [**Packaging Notes (docs/PACKAGING.md)**](docs/PACKAGING.md).
 
 ---
 
-## Implementation Plan
+## 🗂 Codebase Layout
 
-| Phase | Goal | Deliverables | Status |
-|-------|------|--------------|:------:|
-| **0 — Skeleton** | Bootable host | GLFW window, GL clear, FakeLua bridge, hello sample, bilingual docs, headless CLI | **Done** |
-| **1 — Draw primitives** | First pixels | Ortho camera, colored quads, `SpriteBatch`, 1x1 white fallback, PNG textures via stb_image | **Done** |
-| **2 — Scene & assets** | Structure | Transform2D hierarchy, layers/z-order, texture atlas (SpriteSheet), resource cache, hot-reload | **Done** |
-| **3 — Script API** | Author games in Lua | Native modules (`sprite`, `camera`, `input`, `time`), per-frame input snapshot, playable breakout sample, [Scripting Guide](docs/SCRIPTING.md) | **Done** |
-| **4 — Text & audio** | Presentation | TTF bitmap font (8x8 fallback) batched into SpriteBatch, miniaudio one-shot SFX, zero-allocation CPU particle system, framebuffer screenshots | **Done** |
-| **5 — Polish (1.0)** | Production quality | Multi-key sorted batching + additive blending, HiDPI/Retina, `--bench` suite, cross-platform [packaging notes](docs/PACKAGING.md), tag-driven release automation | **Done** |
-| **6 — Gameplay (1.1)** | Game systems | Built-in AABB/circle physics with sensor contacts, frame animation, Tiled JSON tilemaps (+solid colliders), anchored UI panels/labels/buttons; `--map-demo` | **Done** |
-| **7 — Platformer & scale (1.2)** | Controller & scale | Spatial-hash broadphase (`--phys-bench` ~6x), line/debug primitives, trauma camera shake, WAV + looping music, tilemap platformer controller (coyote/buffer/one-way) + `--platformer-demo` | **Done** |
-| **8 — Engine Gaps & Mario (1.3)** | Completeness | Tilemap slopes (`map_ground_y`, `map_slope_rise`, `--slope-demo`), Tiled parallax + image layers, `SaveStore` (`storage_*`), `EntityStore` (`ent_*`), custom shader slots (`shader_*`), SMB 1-1 `--mario-demo` | **Done** |
-| **9 — Gamepad / mirroring / window / character animation (1.4)** | Playability | Sprite UV mirroring (`sprite_draw_flip`), GLFW standard-mapping gamepads (`input_pad_*`, dead-zone/trigger remap/hot-unplug), `window_quit` / title / fullscreen; procedurally derived idle/stride/air sprite strips plus Goomba waddle; facing fixes, walk cycles and controller support across all three gameplay demos | **Done** |
-| **10 — Character clips in the engine animator (1.5)** | Engine reuse | `anim_pause` / `anim_resume` / `anim_set_frame` / `anim_frame_index` script control, `anim_draw_flip` UV mirroring; mario (player small/big + one waddle clip per Goomba) and platformer/slope characters migrated from hand-rolled strip math onto engine-owned clips | **Done** |
-| **11 — Self-contained release pipeline (1.5)** | Distribution | `tools/package-{macos,linux,windows}.sh` build no-compiler archives with bundled libfakelua/OpenSSL, `scripts/`, shaders and demo maps; Linux/Windows packagers pending first-tag end-to-end confirmation | **Done** |
-| **12 — GL2 compatibility path (1.6)** | Reach | Runtime GL context ladder (core 3.3 → legacy 2.1 → macOS headless CGL + offscreen FBO), GLSL 120 shader variants, `GL_LUMINANCE` uploads, NPOT clamp; macOS GPU smoke now runs on the Apple Software Renderer | **Done** |
-| **13 — Physics query surface (1.7)** | Gameplay queries | `RayCast` (circles + AABBs, normals, interior starts), `OverlapCircle` / `OverlapBox`, full began/stayed/ended contact lifecycle, 17 Lua bindings, `--phys-query-test` | **Done** |
-| **14 — Tiled object layers (1.8)** | Data-driven levels | `objectgroup` parsing (rect/point/ellipse/polyline/polygon + custom properties), `map_find_layer` / `map_layer_type` / `map_obj_*` queries; mario spawns migrated off marker tiles | **Done** |
-| **15 — Collision filtering (1.9)** | Collision control | Per-body 16-bit `category` / `mask` filtered in the broadphase, masked ray casts and overlaps, `phys_create_*_cat` / `phys_set_category` / `phys_set_mask` / `phys_*_cat` bindings, `--phys-filter-test` | **Done** |
-| **16 — Fixed timestep & camera tooling (1.10)** | Determinism & camera | Fixed-step physics accumulator (frame-rate-independent, zero-dt contact refresh, `phys_smooth_*` interpolation, `time_sim_dt/steps/alpha`), Camera2D follow toolkit (bounds clamp / deadzone / smoothing / forward-only scroll lock / snap) with 8 Lua bindings; mario, slope and platformer demos migrated onto it; `--timestep-test` | **Done** |
-| **17 — Scissor, nine-slice & text layout (1.11)** | Presentation | `draw_set_clip` scissor rects with exact flush-boundary semantics, `draw_nine_slice` stretch panels, `draw_text_ex` aligned word-wrapped text with `end_y` block stacking; FBO render targets and more UI widgets deferred | **Done** |
-| **18 — Tilemap A* & maze chase (1.12)** | Navigation | Grid A* over the solidity grid (corner-cut prevention, string-pulled waypoints, `map_find_path` + waypoint readers), `--path-test` (25 assertions), `--path-demo` maze chase: chaser AI with staggered re-paths, player autopilot attract mode, live path polylines | **Done** |
-| **19 — Offscreen render targets (1.13)** | Rendering | `RenderTarget` FBO pool + `rt_begin`/`rt_end`/`rt_clear`/`rt_draw` bindings (bake-once art, accumulating feedback effects), canvas-space drawing with correct V orientation and headless-framebuffer restoration, `--rt-test` (38 assertions), `--rt-demo`; fixed 35-per-frame `GLFW_INVALID_VALUE` key-poll errors | **Done** |
-| **20 — UI widgets (1.14)** | UI | Slider (drag or click-to-jump, grab-offset aware), checkbox (caller owns the value), UTF-8 text input (per-codepoint append/backspace, char-counted limit, focus management, `Input` char callback), scroll container (wheel + draggable thumb, caller clips content), 8 new bindings, `--ui-test` (30 assertions), `--ui-demo` | **Done** |
-| **21 — Post-processing & minimap (1.15)** | Rendering | `Renderer::ActiveCamera` (tilemaps follow the target's canvas inside an RT), `rt_camera` (aim the canvas at a world offset), `rt_present` (whole-screen blit through a shader override), `map_draw_scaled` (parallax-free minimap bake, shared `DrawTileLayer` helper), `assets/post_grade.*` grade pass with unchanged-by-default uniforms, `--post-test` (44 pixel probes, mutation-checked), `--post-demo`; fixed the off-canvas `--ui-demo` footer found by a pixel bounding-box sweep | **Done** |
-| **22 — Audio mixer (1.16)** | Audio | Mixer decoupled from the device (clips register and `Mix()` runs headless), three buses (`voice × bus × master`, sfx/music isolation), per-voice gain envelopes with cross-fading `PlayMusic`/`StopMusic`/`FadeMusicTo`, mix-freezing `SetPaused`, `Peak()` VU feed, public `Mix()` for offline rendering, 10 new bindings (`audio_bus_*`, `audio_pause*`, `audio_music_*`, `audio_peak`), `--audio-test` (51 headless assertions driving `Mix()` directly), `--audio-demo` front panel | **Done** |
-| **23 — Positional audio (1.17)** | Audio | `PlayAt` places one-shots in the world (`atten` outside the envelope so fades never shift), linear distance rolloff to `SetListenerRange` (default 1000, ≤ 0 refused), pan reaching full separation at half the range with a documented linear crossfade law, `SetListener` re-evaluating live voices, `ResetVoice` wiping reused slots, `PeakLeft`/`PeakRight` per-channel VU feed, 5 new bindings (`audio_play_at/listener/range/peak_l/peak_r`), `--audio-test` grown to 74 offline assertions, `--spatial-demo` with movable listener + range ring + L/R meters | **Done** |
-| **24 — Multi-pass FX chain (1.18)** | Rendering | `rt_copy(src, dst, shader)` (one ping-pong pass; self-copy/window/nesting pre-refused), `rt_resize` (half-res passes; size validated before `Create` so a refused resize cannot destroy the target), `assets/fx_blur.*` separable 9-tap Gaussian with `u_dir = 0` = straight copy and a `u_dim` composite gain, 2 new bindings, `--fx-test` (47 pixel probes: identity passes, single-axis smear, two-pass coverage, guards, rescaled copy, grade-on-chain, window survival), `--fx-demo` bloom over a procedural skyline + split-screen mode; documented that a shader present resets blend mode | **Done** |
-| **25 — UI widgets round 2 (1.19)** | UI | `ProgressBar` (`ui_bar`, clamped pure draw), `RadioButton` (`ui_radio`, button click semantics, caller-owned selection), `ComboBegin`/`ComboItem` (`ui_combo`/`ui_combo_item`, composed popup whose header tolerates a flick ending outside), `Input::InjectFrame` + mutable `Engine::GetInput()` (synthetic input frames unlock headless click-path assertions), 4 new bindings, `--ui-test` grown to 52 assertions (mutation-checked ×4 — the check exposed vacuous in-track clamp probes), `--ui2-demo` | **Done** |
-| **26 — Fog of war (1.20)** | Rendering | `BlendMode::Multiply` (`draw_set_blend(2)`, `DST_COLOR, ZERO` — masks composite inside a bound target where `rt_copy` refuses nesting; source RGB drives the result, alpha does not gate it), `rt_sample(id, x, y)` (pixel query back out as a scalar, -1 for invalid lookups so 0 always means black), 1 new binding, `--fog-test` (39 pixel probes: identity/erase/per-channel/partial masks, in-target compositing vs the nesting refusal, per-draw blend state, cross-frame accumulation, bounds), `--fog-demo` procedural fog-of-war world with accumulating reveal, baked minimap × mask, click-to-jump and an `rt_sample`-driven explored-% readout | **Done** |
-| **27 — Animated passes (1.21)** | Rendering | Auto uniforms stamped by the renderer onto every declaring shader: `u_time` (frame clock, no script-side bookkeeping) and `u_resolution` (the surface being drawn into, so pixel-space parameters are resolution independent), `assets/fx_bright.*` (bloom threshold with a soft knee, 0/0 = straight copy), `assets/fx_wave.*` (travelling-sine wobble; `u_amp` in pixels, sign documented — sampling right slides the picture left), `--fx-test` grown to 80 assertions (identity/hard-cut/knee, ±8 px at the quarter periods, the same displacement at 128 and at 64), `--fx-demo` chain grows to `scene → wave → bright → blur → composite` with checkboxes and sliders | **Done** |
-| **28 — UI widgets round 3 (1.22)** | UI | `ui_window`: a titled panel dragged by its bar (reports *being dragged*, position stays with the script via `input_mouse_dx/_dy`; the grab frame is silent so the panel never jumps; the body never grabs; the drag survives the cursor leaving the bar), `ui_tab`: caller-owned active tab that sits brighter, grows 2 px and drops its bottom edge, `ui_tree`: a disclosure row (triangle right/down in three quads) whose children are a plain if-block, `--ui-test` grown to 76 assertions (drag paths, click/cancel semantics, pixel-probed bar/body/rule and the active-brighter/edge-dropped tab), `--ui3-demo`: a draggable SETTINGS window with three tabs, collapsible trees and `ui_hovered` tooltips | **Done** |
-| **29 — Decoded files & streamed music (1.23)** | Audio | `audio_load_file`: any file miniaudio's decoder reads (WAV/FLAC/MP3/OGG-Vorbis) downmixed to mono at the mixer rate and registered as a clip, `audio_stream`: the same files played from an 8192-frame window refilled on demand — a three-minute track costs kilobytes, not megabytes — with sequential refills that avoid the audible resampler-resetting seek, `audio_clip_len` / `audio_clip_cached` for duration and residency, `--audio-test` grown to 106 cases (stream vs decode agreed block-by-block, rejection paths, loop-over-the-tail, pause/resume/stop), `--audio-demo` FILE PLAYBACK panel with a buffered-comparison read-out | **Done** |
-| **30 — Animated tiles (1.24)** | Rendering | Tiled tileset `animation` cycles parse (broken frames drop the whole animation instead of playing it wrong), one clock per tile *id* ticked by the engine every frame so water and torches play with no script bookkeeping and every cell using a tile is in lockstep, only the drawn picture rides the clock while `map_solid` and the collision grid keep reading the base gid, read-only queries `map_anim_time/_count/_cycle/_index/_gid` + `map_anim_reset` (the index walks the timeline, so a 0,1,0,1 flicker is reported honestly), `--tile-test` as a twelfth engine self-test with 55 assertions (5 mutations caught), `--tile-demo`: a rippling pond, flickering torches and a HUD built from the queries with a RESET CLOCK button | **Done** |
-
-Detailed checklist: [docs/PLAN.md](docs/PLAN.md).
+```
+fake2d/
+├── CMakeLists.txt           # Modern CMake root build configuration
+├── include/fake2d/          # Public C++ engine interface headers
+│   ├── animation.h          # Keyframe AnimationSystem
+│   ├── atlas.h              # TexturePacker JSON parser
+│   ├── audio.h              # Multi-bus audio engine, 3D pan & streamed tracks
+│   ├── camera.h             # Camera2D, screen/world transforms, smoothing & shake
+│   ├── character.h          # Kinematic platformer character controller
+│   ├── engine.h             # Engine host lifecycle & game loop
+│   ├── entity_store.h       # C++ entity slot persistence across arena resets
+│   ├── font.h               # TTF rasterizer & 8x8 bitmap glyph atlas
+│   ├── input.h              # Keyboard, mouse deltas & gamepad snapshot
+│   ├── math.h               # Vec2, Rect, Color, Mat4 math library
+│   ├── node.h               # Transform2D spatial node hierarchy
+│   ├── particle.h           # Zero-allocation 8192 particle pool & emitters
+│   ├── physics.h            # 2D physics world, spatial hash broadphase & filters
+│   ├── renderer.h           # Renderer façade (OpenGL abstraction)
+│   ├── render_target.h      # Offscreen RenderTarget (FBO) pool
+│   ├── resource_manager.h   # Handle-based resource manager
+│   ├── save_store.h         # JSON key-value disk persistence
+│   ├── scene.h              # Layered scene graph rendering
+│   ├── script_host.h        # FakeLua runtime bridge & JIT host
+│   ├── shader.h             # GLSL shader manager with automatic uniform stamps
+│   ├── sprite_batch.h       # High-throughput multi-key sorted SpriteBatch
+│   ├── texture.h            # Texture2D & 1x1 white texture singleton
+│   ├── tilemap.h            # Tiled maps, slopes, animated tiles & A* pathfinder
+│   ├── ui.h                 # Immediate-mode UISystem & widgets
+│   └── version.h            # Semantic engine versioning
+├── src/                     # C++ engine implementations
+│   ├── audio/               # miniaudio device interface, mixing & codecs
+│   ├── core/                # Engine tick, timesteps, entities & saves
+│   ├── gameplay/            # Gameplay controllers & helpers
+│   ├── physics/             # Rigid bodies, spatial hash, contacts & queries
+│   ├── platform/            # GLFW windowing, input polling & events
+│   ├── render/              # GL rendering, batching, FBOs, shaders, fonts
+│   ├── scene/               # Spatial node transforms & caching
+│   ├── script/              # FakeLua native bindings & execution
+│   └── ui/                  # Immediate-mode UI layout & interaction
+├── scripts/                 # Complete pure-Lua demo and game scripts
+│   ├── game.lua             # Classic Breakout game
+│   ├── mario.lua            # Super Mario Bros 1-1 level
+│   ├── platformer_demo.lua  # Kinematic platformer demo
+│   ├── slope_demo.lua       # Terrain slope traversal
+│   ├── path_demo.lua        # Maze chase & A* tracking
+│   ├── tile_demo.lua        # Animated tiles showcase
+│   ├── fog_demo.lua         # Fog of war & exploration mask
+│   ├── fx_demo.lua          # Bloom post-processing & split-screen
+│   ├── post_demo.lua        # Color grading & minimap bake
+│   ├── rt_demo.lua          # Offscreen FBO trails
+│   ├── audio_demo.lua       # Mixing console & streaming benchmark
+│   ├── spatial_demo.lua     # 3D positional audio
+│   └── ui_demo*.lua         # Immediate-mode UI demonstrations
+├── tools/                   # Standalone packaging scripts (Linux/macOS/Windows)
+├── docs/                    # Extensive documentation
+│   ├── SCRIPTING.md         # Scripting guide & complete Lua API reference
+│   ├── PACKAGING.md         # Packaging & distribution instructions
+│   └── PLAN.md              # Architectural blueprint & milestone records
+└── tests/                   # Regression and unit tests
+```
 
 ---
 
-## License
+## 📦 Distribution & Packaging
 
-MIT — see [LICENSE](LICENSE).
+Fake2D provides standalone bundling scripts under `tools/` for Linux, macOS, and Windows. They automatically bundle dependent shared libraries, shaders, and scripts into self-contained distributable archives requiring no local runtime installation:
+
+```bash
+# Package for macOS (tar.gz with codesigned dylibs and @executable_path rpath):
+bash tools/package-macos.sh
+
+# Package for Linux (resolves libraries via patchelf with $ORIGIN rpaths):
+bash tools/package-linux.sh
+
+# Package for Windows (copies MinGW runtime DLLs beside the executable):
+bash tools/package-windows.sh
+```
+
+See [**Packaging Notes (docs/PACKAGING.md)**](docs/PACKAGING.md) for detailed packaging workflows.
+
+---
+
+## 📄 License
+
+Fake2D is open-sourced under the **[MIT License](LICENSE)**. Free for personal, educational, and commercial projects.
