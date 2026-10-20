@@ -3,245 +3,353 @@
 [English](README.md) | [中文说明](README_CN.md)
 
 [![Build Status](https://github.com/esrrhs/fake2d/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/esrrhs/fake2d/actions)
-[![License](https://img.shields.io/github/license/esrrhs/fake2d)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![C++23](https://img.shields.io/badge/C%2B%2B-23-brightgreen.svg)](https://en.cppreference.com/w/cpp/23)
+[![OpenGL](https://img.shields.io/badge/OpenGL-3.3%20Core%20%7C%202.1-orange.svg)](https://www.opengl.org/)
+[![FakeLua](https://img.shields.io/badge/Script-FakeLua-red.svg)](https://github.com/esrrhs/fakelua)
+[![Version](https://img.shields.io/badge/version-1.24.0-informational.svg)](include/fake2d/version.h)
 
-**Fake2D** 是基于 [FakeLua](https://github.com/esrrhs/fakelua) 的现代化轻量 2D 游戏渲染引擎：C++ 宿主掌控窗口、GPU 资源与场景数据；FakeLua 脚本负责编排玩法与实体逻辑，并在每帧边界执行 Arena 线性重置（**零 GC 停顿**）。
+**Fake2D** 是基于 [FakeLua](https://github.com/esrrhs/fakelua) 驱动的现代化、轻量级、高性能 2D 游戏引擎：
+- **C++23 宿主引擎**：掌管窗口管理、GPU 渲染管线、空间物理、音频混音与底层资源生命周期；
+- **FakeLua 脚本层**：高效编排游戏玩法、UI 与实体交互，并在每帧边界执行 Arena 线性重置，实现**彻底的零垃圾回收停顿（Zero-GC Pauses）**。
 
-> 当前状态：**1.24 — Phase 30 动画瓦片已完成** — 已包含 1.23 及之前的全部能力（剪裁矩形、九宫格、对齐换行文本、固定步长物理、相机跟随工具、碰撞过滤、瓦片地图 A\* 寻路、离屏渲染目标、全屏后处理 + 小地图烘焙、音频混音器、位置音频、ping-pong 趟、自动 uniform、UI 控件第二批、战争迷雾、bloom 级 FX 套件、UI 控件第三批、解码文件与流式音乐），并新增**动画瓦片**：解析 Tiled tileset 的 `animation` 循环，由引擎每帧推进一个统一时钟（每个已加载地图自动走表，脚本零簿记），按瓦片 *id* 动画——使用同一瓦片的所有格子同步播放，配套只读查询（`map_anim_time/_count/_cycle/_index/_gid/_reset`），且只有「画面」随钟走——`map_solid` 与整个碰撞网格始终读基础 gid。`--tile-test` 新增为第十二项引擎自测（55 条）；**`--tile-demo`** 演示池塘涟漪与火把闪烁。详见下方[实现计划](#实现计划)、[docs/PLAN.md](docs/PLAN.md)、[脚本编写指南](docs/SCRIPTING.md) 与[跨平台打包说明](docs/PACKAGING.md)。
-
----
-
-## 现代化设计目标
-
-Fake2D 从设计之初即对齐现代 2D 游戏引擎工业标准（参考 MonoGame、Raylib 与 Defold 等成熟架构）：
-
-1. **零 GC 停顿的每帧运行模型（Zero-GC Per-Frame Architecture）**：
-   - 彻底解决传统脚本引擎（如 Love2D、Cocos-Lua、Unity C#）在高频逻辑下由垃圾回收器引发的卡顿（GC Spikes）；
-   - 脚本每帧可自由创建临时 table、向量与计算数据，帧末通过 `fakelua::inter::Reset(state)` 瞬间回收整个线性 Arena 内存，保持丝滑的 60/120+ FPS 稳定帧率。
-2. **数据驱动的现代流式合批（Data-Oriented SpriteBatching）**：
-   - 动态流式写入 VBO，搭配静态共享索引缓冲区（`0-1-2-2-3-0` 规则每 Quad 6 个索引）；
-   - **内置 1×1 纯白单例贴图**：纯色矩形、UI 背景卡片与贴图精灵复用完全相同的 GLSL 着色器与合批队列，彻底消除因绘制色块而打断批次的管线切换开销；
-   - 多键合批排序（Layer → Depth/Z → 混合模式 → Texture ID），同纹理四边形自动合并为一次绘制；支持 Alpha/加法两种混合模式；内置 `--bench` 基准实测 768 精灵 / 8 纹理下约 674 → 8 次 DrawCall。
-3. **彻底解耦的 2D 相机与视口系统**：
-   - 独立的 `Camera2D`，支持视口缩放（Zoom）、平移、旋转及 `ScreenToWorld` / `WorldToScreen` 逆矩阵坐标反查，满足像素级 UI 与世界交互需求；
-   - 原生 HiDPI / Retina：投影工作在物理帧缓冲像素，游戏坐标保持逻辑点；窗口缩放与 DPI 变化实时跟踪。
-4. **数据驱动的场景与资源体系**：
-   - 空间节点树层级（`Transform2D`）与局部/全局 Dirty 变换缓存（Phase 2）；
-   - 支持图集（Texture Atlas / SpriteSheet），将整套关卡资源合并为单张大图合批绘制；
-   - 结合 FakeLua JIT 后端支持脚本热重载，无需重启进程即可即时迭代玩法。
-5. **现代 CI 与无头自动化测试（Headless Ready）**：
-   - 原生支持 `--headless` 与 `--frames N` 参数，使引擎能够在无物理显示设备的虚拟机、Docker 容器或 GitHub Actions CI 中自动化完成冒烟测试与回归验证；
-   - 遵循 Modern CMake 规范构建，采用标准包导出（`find_package(fakelua REQUIRED)`）。
+Fake2D 采用现代工业级 2D 引擎架构（对齐 Raylib、MonoGame、Defold 设计哲学），拥有完备的**渲染批处理、Tiled 瓦片地图、空间物理与碰撞、多总线/空间音频、后处理特效链、即时模式 UI 与跨平台自动化测试系统**，现已具备成熟的商业级 2D 游戏开发与交付能力。
 
 ---
 
-## 架构示意
+## 🌟 核心设计理念
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                     FakeLua 脚本层                      │
-│             update(dt) · 实体管理 · UI 逻辑              │
-└────────────────────────────┬────────────────────────────┘
-                             │ Native 原生绑定 (draw_quad, camera_*, ...)
-┌────────────────────────────▼────────────────────────────┐
-│                      Fake2D Engine                      │
-│       ScriptHost · 场景图 · 输入快照 · 资源管理器       │
-├────────────────────────────┬────────────────────────────┤
-│        SpriteBatch         │         Camera2D           │
-│   (动态 VBO / Quad 流)     │ (正交 VP 矩阵 / 坐标反查变换)
-├────────────────────────────┴────────────────────────────┤
-│         Texture2D          │          Shader            │
-│    (stb_image / 1x1 白图)  │     (GLSL 330 Core)        │
-├────────────────────────────┴────────────────────────────┤
-│              Renderer（OpenGL 3.3 Core）                │
-│              Platform Window（GLFW 3.4）                │
-└─────────────────────────────────────────────────────────┘
-```
+### 1. 彻底消除 GC 停顿的每帧运行模型（Zero-GC Per-Frame Architecture）
+- **无卡顿稳定高帧率**：传统脚本引擎（如 Love2D、Cocos-Lua、Unity C#）在高频运行实体分配与临时计算时，极易因垃圾回收器回收引发卡顿掉帧（GC Spikes）；
+- **线性 Arena 帧回收**：Fake2D 脚本在每帧逻辑中可自由创建临时 table、向量与闭包运算数据。帧末引擎统一执行 `fakelua::inter::Reset(state)`，数微秒内瞬时复位整个内存区域，保证丝滑稳定的 60 / 120+ FPS 运行体验；
+- **跨帧持久存储体系**：提供 C++ 接管的 `EntityStore`（256 个持久原生实体槽位）与 `SaveStore`（JSON 键值存档），持久状态与帧内瞬态数据边界清晰。
+
+### 2. 数据驱动的动态流式合批（Data-Oriented SpriteBatching）
+- **动态 VBO 流式写入**：搭配静态预分配共享索引缓冲区（`0-1-2-2-3-0` 规则每 Quad 6 个索引）；
+- **1×1 纯白单例贴图**：纯色色块、进度条、UI 面板背景与纹理精灵共享完全相同的 GLSL 着色器管线，彻底消除因绘制纯色图元打断批次的开销；
+- **多键智能排序合批**：支持延迟指令缓冲与多键稳定排序（Layer → Depth/Z → Blend Mode → Texture ID）。同纹理与同状态四边形自动合并绘制；支持 Alpha 覆盖、Additive 加法与 Multiply 正片叠底混合；
+- **超高渲染吞吐**：内置 `--bench` 实测，在 768 精灵 / 8 纹理场景下，DrawCall 从 674 次大幅降低至 **8 次**。
+
+### 3. 解耦的 2D 摄像机与视口系统（Camera2D）
+- 独立摄像机变换矩阵（正交 VP 矩阵），支持平滑平移、视口缩放（Zoom）、旋转及 `ScreenToWorld` / `WorldToScreen` 逆矩阵精准坐标反查；
+- **原生 HiDPI / Retina 适配**：底层投影自适应物理帧缓冲分辨率，脚本游戏坐标统一使用逻辑点，窗口尺寸与系统 DPI 变动实时同步跟踪；
+- **完备的相机工具箱**：世界边界自动钳制（`SetBounds`）、视口居中、平滑阻尼跟随（Smoothing）、跟随时死区（Deadzone）、经典卷轴单向锁（Forward-only Scroll Lock）与 Trauma 创伤衰减屏幕震动（`camera_shake`）。
+
+### 4. 完备的现代化 2D 子系统生态
+Fake2D 不仅是渲染器，更是一套自洽完备的 2D 游戏开发平台：
+- **Tiled 瓦片系统**：支持正交 JSON 地图、视差图层（Parallax）、图片层、对象层（`objectgroup` 刷怪点/触发区）、斜坡地表物理、以及**动态瓦片循环动画（Animated Tiles）**；
+- **内置物理与导航**：零外部依赖轻量 2D 物理引擎（AABB / Circle / Sensor）、空间哈希宽相加速（Spatial Hash Grid）、Fixed Timestep 物理模拟累加器（附带姿态渲染插值）、16 位碰撞过滤（Category / Mask）、射线检测与形状探测、A\* 寻路（防切角与视线拉直）；
+- **专业级音频系统**：设备解耦的纯软件混音核心、三总线路由（Master / SFX / Music）、平滑交叉淡入淡出（Cross-fade Envelopes）、3D 空间位置音频（距离线性衰减与立体声声相 Pan）、大曲目 8192 帧按需流式回填（支持 WAV/MP3/OGG/FLAC）；
+- **多趟后处理与 FBO**：离屏渲染目标（RenderTarget）、Ping-Pong 缓冲交换、Bloom 辉光、可分离 9 抽头高斯模糊、波浪扭曲特效、战争迷雾（Fog of War）以及全景小地图烘焙；
+- **即时模式 UI（Immediate-Mode UI）**：开箱即用的 UI 控件库（Panel、Button、Label、Slider、Checkbox、TextInput、ScrollArea、ProgressBar、RadioButton、Combo、可拖拽 Window、Tab 标签页、Tree 折叠树、Tooltip）。
+
+### 5. 现代化工程化与极佳开发者体验
+- **JIT 脚本热重载**：支持 GCC JIT 与解释器双模式，在运行中修改 Lua 脚本保存即刻生效，无需重启进程；
+- **无头测试与 CI/CD**：内置原生 `--headless`、`--frames N` 与 `--screenshot` 参数，可在无物理显示器的虚拟机、Docker 容器中运行自动化回归验证与帧缓冲像素级比对；
+- **12 项内置自测试套件**：涵盖物理查询、碰撞过滤、时间步长、地图对象、A\* 寻路、离屏 FBO、即时 UI、后处理链、战争迷雾、音频混音、动画瓦片等，所有测试用例均经过变异测试（Mutation-tested）验证；
+- **开箱即用独立打包**：提供自动化打包脚本，一键生成包含依赖库的独立二进制压缩包，分发给玩家免安装环境。
 
 ---
 
-## 目录结构
+## 🏛 引擎架构拓扑
 
 ```
-fake2d/
-├── CMakeLists.txt           # Modern CMake 工程配置
-├── include/fake2d/          # 对外公共头文件
-│   ├── atlas.h              # TexturePacker JSON 图集
-│   ├── audio.h              # miniaudio 一次性音效播放器
-│   ├── camera.h             # 2D 正交相机
-│   ├── engine.h             # 引擎宿主与主循环
-│   ├── font.h               # TTF / 8x8 位图字形图集
-│   ├── input.h              # 每帧键盘/鼠标输入快照
-│   ├── math.h               # Vec2, Rect, Color, Mat4
-│   ├── node.h               # Transform2D 与场景图节点
-│   ├── particle.h           # CPU 粒子池与发射器
-│   ├── renderer.h           # 渲染器门面
-│   ├── resource_manager.h   # 句柄式资源池
-│   ├── scene.h              # 图层/Z 序场景渲染
-│   ├── shader.h             # 着色器管线与 Uniform 缓存
-│   ├── sprite_batch.h       # 高性能 SpriteBatch
-│   ├── texture.h            # 纹理与 1x1 白图单例
-│   └── version.h            # 版本定义
-├── src/
-│   ├── audio/               # miniaudio 设备与语音混音
-│   ├── core/                # 引擎循环、生命周期与资源池
-│   ├── platform/            # GLFW 窗口与 GL 上下文管理
-│   ├── render/              # OpenGL 3.3 Core 渲染、字体、粒子
-│   ├── scene/               # 节点层级与场景渲染
-│   └── script/              # FakeLua 桥接与原生 API 注册
-├── third_party/             # stb_image、stb_truetype、stb_rect_pack、miniaudio、font8x8
-├── scripts/                 # 纯 Lua 示例：game.lua（打砖块）、scene_demo.lua、map_demo.lua、platformer_demo.lua、mario.lua、path_demo.lua、rt_demo.lua、ui_demo.lua、post_demo.lua
-├── examples/hello/          # 示例：打砖块、--scene-demo、--map-demo、--platformer-demo、--mario-demo、--path-demo、--rt-demo、--ui-demo、--post-demo、--bench、--phys-bench
-├── docs/SCRIPTING.md        # 脚本编写指南与 API 参考
-├── docs/PACKAGING.md        # Linux / Windows / macOS 跨平台打包说明
-└── docs/PLAN.md             # 详细路线图与任务清单
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            FakeLua 业务脚本层                               │
+│              update(dt) · 实体管理 · 状态机 · 关卡逻辑 · UI 编排            │
+└──────────────────────────────────────┬──────────────────────────────────────┘
+                                       │ Native 绑定 (draw_*, phys_*, audio_*, map_*, ...)
+┌──────────────────────────────────────▼──────────────────────────────────────┐
+│                                Fake2D Engine                                │
+│    ScriptHost (JIT/热重载) · 资源管理器 · 实体槽位 (EntityStore) · 存档 (SaveStore)   │
+├───────────────────────┬──────────────────────────────┬──────────────────────┤
+│      渲染管线         │          物理与世界          │       音频引擎       │
+│  · SpriteBatch (合批) │  · PhysicsWorld (AABB/圆/宽相)│  · AudioEngine (混音) │
+│  · Camera2D (视口变换)│  · 空间哈希网格 (SpatialHash)│  · 3 总线 (Master/SFX)│
+│  · RenderTarget (FBO) │  · 固定步长累加器 (Fixed-dt) │  · 3D 空间位置声像   │
+│  · PostFX (多趟后处理)│  · 碰撞过滤 (Category/Mask)  │  · 8K 帧流式播放     │
+│  · 字体 (TTF/8x8位图) │  · Tiled 地图 (解析/渲染/对象)│  · VU 峰值电平监控   │
+│  · CPU 粒子池 (8192)  │  · A* 寻路网格 (防切角/拉直) │                      │
+├───────────────────────┴──────────────────────────────┴──────────────────────┤
+│                           即时模式 UI 控件库 (UISystem)                      │
+│     窗口 · 面板 · 按钮 · 滑条 · 输入框 · 复选框 · 单选 · 下拉 · 滚动 · 标签 · 树     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                          底层平台抽象与硬件接口                              │
+│         OpenGL 3.3 Core (向下兼容 GL 2.1) · GLFW 3.4 (窗口/手柄/输入快照)   │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 环境要求
+## 🎮 精彩内置 Demo 矩阵
 
-- CMake ≥ 3.16，C++23 编译器（GCC 13+, Clang 16+, Apple Clang 15+）
-- OpenGL 3.3+ Core Profile / GLFW 3.4（由 CPM 自动拉取）
-- [FakeLua](https://github.com/esrrhs/fakelua)（已安装至标准路径 `/usr/local` 或由 CMake `find_package(fakelua)` 发现）
+Fake2D 仓库自带 13 个可直接运行的高质量 Demo，涵盖平台跳跃、经典街机、迷宫寻路、即时 UI、战争迷雾、多趟后处理与空间音频等各个维度：
+
+| Demo 启动参数 | 演示主题 | 核心特性亮点 |
+|---|---|---|
+| `./fake2d_hello` | **经典打砖块 (Breakout)** | 默认入口；物理反弹、砖块碰撞消除、粒子碎屑飞溅、HUD 文本与音效合成 |
+| `--mario-demo` | **超级马里奥兄弟 1-1** | 完整复刻 SMB 1-1；大/小双形态、板栗仔巡逻与踩扁、顶砖块碎裂粒子、问号箱、旗杆结算流程、Attract 自动巡航 |
+| `--platformer-demo` | **平台跳跃与手柄控制器** | 瓦片跳跃控制：土狼时间（Coyote Time）、跳跃预输入缓冲、单向板平台穿越、金币收集、平滑跟随相机 |
+| `--slope-demo` | **斜坡地形控制器** | Tiled 斜坡解析（`map_slope_dir`/`map_ground_y`），角色沿倾斜地面平滑贴合走动与实时地表高度计算 |
+| `--path-demo` | **迷宫追逐与 A\* 寻路** | 迷宫地图，错峰重寻路的追踪 AI，玩家自动航路演示模式，实时 A\* 路径折线显示（防切角与视线拉直） |
+| `--tile-demo` | **Tiled 动画瓦片** | 引擎统一时钟推进 tileset 动画；池塘水面波光涟漪与跳动火把循环播放，碰撞网格与显示画面解耦 |
+| `--fog-demo` | **战争迷雾与小地图** | 过程化大世界；Multiply 混合模式遮罩、探索区域跨帧累积擦除、无视差小地图联动与 `rt_sample` 探索度采样 |
+| `--fx-demo` | **多趟后处理与 Bloom 辉光** | 过程化赛博天际线；FBO 降采样、双趟可分离高斯模糊、Bloom 阈值提取、波浪动态扭曲与分屏（Split-screen）对比 |
+| `--post-demo` | **全屏调色与烘焙小地图** | 调色着色器（灰度、对比度拉伸、暗角 Vignette、扫描线 Scanlines）与即时渲染视口烘焙小地图 |
+| `--rt-demo` | **离屏渲染与运动拖尾** | RenderTarget 离屏烘焙、残影拖尾累积反馈（仅淡出不清屏），对比即时渲染模式 |
+| `--spatial-demo` | **3D 空间位置音频** | 4 个世界音源循环发声，WASD 移动侦听者；动态距离线性衰减、立体声声相 Pan、衰减范围圈与 L/R 双通道 VU 电平表 |
+| `--audio-demo` | **专业音频调音台** | 三总线增益滑块、交叉淡入淡出（Cross-fade）、混音冻结暂停、24 段实时 VU 电平表、解码与 8K 帧流式播放内存对比 |
+| `--ui-demo` / `--ui2-demo` / `--ui3-demo` | **即时模式 UI 全家桶** | 滑块、复选框、UTF-8 文本输入、滚动列表、进度条、单选组、下拉菜单、拖拽窗口（带 mouse delta 拖拽）、标签页与折叠树 |
 
 ---
 
-## 编译运行
+## 🚀 快速上手
+
+### 环境依赖
+
+- **CMake**：≥ 3.16
+- **C++ 编译器**：支持 **C++23** 的现代化编译器（GCC 13+、Clang 16+、Apple Clang 15+、MSVC 2022）
+- **图形与窗口**：OpenGL 3.3+ Core Profile（支持运行时后备至 GL 2.1）；GLFW 3.4 与 nlohmann_json 会由 CPM 自动拉取或使用本地依赖
+- **脚本引擎**：[FakeLua](https://github.com/esrrhs/fakelua)（可通过系统的 `/usr/local` 自动由 CMake `find_package(fakelua REQUIRED)` 发现）
+
+### 编译构建
 
 ```bash
-# 标准编译（链接 FakeLua 脚本引擎）：
+# 1. 克隆代码库
+git clone https://github.com/esrrhs/fake2d.git
+cd fake2d
+
+# 2. 生成构建工程（Release 优化模式）
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+# 3. 编译构建
 cmake --build build --parallel
+
+# 4. 运行默认打砖块小游戏
 ./build/bin/fake2d_hello
+```
 
-# 运行无头模式冒烟测试（适用于 CI 或无显示设备环境）：
-./build/bin/fake2d_hello --headless --frames 60
+> **纯 C++ 骨架模式**：如果本地暂未安装 FakeLua，可传入 `-DFAKE2D_WITH_FAKELUA=OFF` 编译纯 C++ 骨架工程用于底层图形与硬件调试。
 
-# 无头模式导出帧缓冲 PNG（视觉回归测试）：
-./build/bin/fake2d_hello --headless --frames 460 --screenshot game.png
-./build/bin/fake2d_hello --headless --frames 40 --scene-demo --screenshot scene.png
+---
 
-# DrawCall / 合批刷新耗时基准（立即模式 vs 排序合批）：
-./build/bin/fake2d_hello --headless --bench
+## 💻 命令行运行手册
 
-# 运行中编辑 scripts/game.lua，保存后引擎自动重新编译（热重载）：
-./build/bin/fake2d_hello --hot-reload
+### 体验精选 Demos
 
-# 所有 demo 均为纯 Lua 脚本（二进制只负责生成 PNG/JSON/WAV 素材），
-# 每个参数对应一个入口脚本：
-./build/bin/fake2d_hello --scene-demo      # 精灵、旋转、粒子、文字
-
-# Tiled 瓦片地图 + 内置物理 + UI（按 R 或点击 RESET 重置）：
-./build/bin/fake2d_hello --map-demo
-
-# 滚动平台跳跃关卡（A/D 移动、空格跳跃；无头模式自动演示）：
-./build/bin/fake2d_hello --platformer-demo
-
-# 经典超级马里奥兄弟 1-1 关卡（A/D 移动、Shift 加速、空格跳跃；无头模式自动演示）：
+```bash
+# 超级马里奥兄弟 1-1（A/D 移动、Shift 奔跑加速、空格跳跃，也支持手柄）
 ./build/bin/fake2d_hello --mario-demo
 
-# 迷宫追逐：A* 追踪 AI + 玩家自动寻路演示（P 切换路径线）：
+# 滚动平台跳跃演示（平滑相机、金币、单向平台）
+./build/bin/fake2d_hello --platformer-demo
+
+# 迷宫追逐与 A* 路径规划（按 P 切换路径线绘制）
 ./build/bin/fake2d_hello --path-demo
 
-# 离屏渲染目标：一次性烘焙画布 + 逐帧淡出的拖尾层（SPACE/C/R）：
-./build/bin/fake2d_hello --rt-demo
+# Tiled 动态瓦片动画（水波泛光与火把闪烁）
+./build/bin/fake2d_hello --tile-demo
 
-# UI 控件：滑杆、复选框、文本输入框、滚动列表：
-./build/bin/fake2d_hello --ui-demo
+# 战争迷雾系统（F 切换全景迷雾，R 重置探索）
+./build/bin/fake2d_hello --fog-demo
 
-# 后处理：世界画进目标后经着色器呈现 + 烘焙小地图（SPACE/G）：
-./build/bin/fake2d_hello --post-demo
+# 多趟后处理 Bloom 辉光与分屏模式（按 S 切换分屏）
+./build/bin/fake2d_hello --fx-demo
 
-# 物理宽相基准（暴力 O(n²) vs 空间哈希网格）：
-./build/bin/fake2d_hello --headless --phys-bench
+# 3D 空间位置音频（WASD 移动玩家听者，鼠标滚轮互动）
+./build/bin/fake2d_hello --spatial-demo
 
-# 物理自测（纯 CPU，退出码 + 断言汇总）：
-./build/bin/fake2d_hello --phys-query-test    # 射线 / 重叠 / 接触生命周期
-./build/bin/fake2d_hello --phys-filter-test   # category 与 mask 碰撞过滤
-./build/bin/fake2d_hello --timestep-test      # 固定步长累加器 + 相机工具
+# 调音台界面（流式 vs 预解码播放、三总线控制）
+./build/bin/fake2d_hello --audio-demo
 
-# 物理默认固定 60 Hz 步进；可调整频率或回退可变步长：
-./build/bin/fake2d_hello --fixed-hz 120 --mario-demo
-./build/bin/fake2d_hello --variable-step --mario-demo
+# 即时模式 UI 展示（窗口拖拽、选项卡、下拉菜单）
+./build/bin/fake2d_hello --ui3-demo
 ```
 
-仅窗口骨架模式（不链接 FakeLua，用于纯 C++ 基础测试）：
+### 生产力与调试选项
 
 ```bash
-cmake -S . -B build -DFAKE2D_WITH_FAKELUA=OFF
-cmake --build build --parallel
+# 开启脚本热重载（运行期间修改 scripts/game.lua 保存即刻在游戏内生效）
+./build/bin/fake2d_hello --hot-reload
+
+# 运行指定的 Lua 脚本
+./build/bin/fake2d_hello --entry scripts/mario.lua
+
+# 调整物理固定更新频率（默认 60 Hz，可调整为 120 Hz 或回退至变步长）
+./build/bin/fake2d_hello --fixed-hz 120 --mario-demo
+./build/bin/fake2d_hello --variable-step --mario-demo
+
+# 运行图形合批性能基准测试（立即模式 vs 排序多键合批）
+./build/bin/fake2d_hello --headless --bench
+
+# 运行物理碰撞宽相基准测试（暴力扫描 vs 空间哈希网格）
+./build/bin/fake2d_hello --headless --phys-bench
+```
+
+### 无头模式与自动化 CI 验证（Headless & Testing）
+
+Fake2D 原生支持无头运行模式，可在无 X11/Wayland 物理显示器的 Linux CI 机器（配合 xvfb）上完整运行全部图形与逻辑：
+
+```bash
+# 运行 60 帧无头测试并平稳退出
+xvfb-run ./build/bin/fake2d_hello --headless --frames 60
+
+# 无头截取指定帧缓冲导出为 PNG（用于视觉回归像素比对）
+xvfb-run ./build/bin/fake2d_hello --headless --mario-demo --shot-frame 60 --screenshot mario_snap.png
+
+# 运行 12 组内置无头自测试套件（通过退出码断言执行结果）
+xvfb-run ./build/bin/fake2d_hello --phys-query-test    # 射线检测、形状重叠、接触生命周期
+xvfb-run ./build/bin/fake2d_hello --phys-filter-test   # 16位 Category/Mask 碰撞过滤
+xvfb-run ./build/bin/fake2d_hello --timestep-test      # 固定步长物理累加器与相机平滑
+xvfb-run ./build/bin/fake2d_hello --map-object-test    # Tiled 对象层与自定义属性
+xvfb-run ./build/bin/fake2d_hello --path-test          # 瓦片地图 A* 寻路（防切角与拉直）
+xvfb-run ./build/bin/fake2d_hello --tile-test          # Tiled 动画瓦片时钟推进
+xvfb-run ./build/bin/fake2d_hello --rt-test            # 离屏 FBO 渲染目标生命周期
+xvfb-run ./build/bin/fake2d_hello --ui-test            # 即时模式 UI 与输入注入测试
+xvfb-run ./build/bin/fake2d_hello --post-test          # 全屏后处理与小地图烘焙
+xvfb-run ./build/bin/fake2d_hello --fx-test            # 多趟 Ping-Pong 后处理链与高斯模糊
+xvfb-run ./build/bin/fake2d_hello --fog-test           # 战争迷雾 Multiply 混合与像素采样
+xvfb-run ./build/bin/fake2d_hello --audio-test         # 纯软件混音核心、包络、流式播放
 ```
 
 ---
 
-## 快速脚本
+## 📝 极简脚本范例
 
-`scripts/game.lua`（默认入口）是一个完全由 Lua 驱动的可玩打砖块小游戏——
-精灵、输入、物理，约 200 行：
+Fake2D 的 Lua 脚本设计极度简洁且符合现代 2D 逻辑直觉。下方以一个具有**精灵绘制、输入控制、物理与声音**的极简脚本为例：
 
 ```lua
-local W = 960
-local paddle_x = W * 0.5          -- 持久状态保存在文件级 local 中
-local score = 0 + 0               -- 可变数值必须用表达式初始化
-                                  -- （详见 docs/SCRIPTING.md 的状态规则）
+-- scripts/my_game.lua
+local W, H = 960, 540
+local player_x = W * 0.5
+local player_y = H * 0.8
+local speed = 350.0 + 0.0     -- 数值初始化为浮点表达式
 
 function update(dt)
-    -- 挡板跟随鼠标 / 方向键
-    if input_key_down("left") then paddle_x = paddle_x - 620 * dt end
+    -- 1. 获取每帧键盘/手柄输入
+    if input_key_down("left") or input_pad_down(0, "dpad_left") then
+        player_x = player_x - speed * dt
+    end
+    if input_key_down("right") or input_pad_down(0, "dpad_right") then
+        player_x = player_x + speed * dt
+    end
+    if input_key_pressed("space") or input_pad_pressed(0, "a") then
+        audio_play("jump", 0.8)
+    end
 
-    -- 推进球、碰撞砖块、绘制所有元素
-    step_ball(dt)
-    draw()
+    -- 2. 摄像机平滑跟随玩家
+    camera_follow(player_x, player_y, 8.0, dt)
+
+    -- 3. 绘制游戏内容（SpriteBatch 自动合批）
+    draw_clear(24, 28, 36, 255)
+    
+    -- 绘制瓦片地图层
+    map_draw(1)
+    
+    -- 绘制玩家色块矩形或精灵
+    draw_quad(player_x - 16, player_y - 16, 32, 32, 60, 180, 255, 255)
+    
+    -- 绘制即时模式 UI
+    ui_panel("hud", "top_left", 10, 10, 160, 40)
+    ui_label("score", "top_left", 20, 20, "SCORE: 1200", 1.0)
+    if ui_button("btn_pause", "top_right", -110, 10, 100, 32, "PAUSE") then
+        -- 点击按钮逻辑
+    end
+
     return 0
 end
 ```
 
-完整的 API 参考、持久状态规则（FakeLua Arena 与 JIT codegen 约束）以及性能
-最佳实践见[脚本编写指南](docs/SCRIPTING.md)。
+> 📖 **进阶开发文档**：
+> - 想要深入了解 FakeLua 语法规范、状态存储规则以及完整 API 清单，请参阅 [**脚本编写指南（docs/SCRIPTING.md）**](docs/SCRIPTING.md)。
+> - 想要了解如何跨平台将游戏打包含依赖打包分发，请参阅 [**跨平台打包说明（docs/PACKAGING.md）**](docs/PACKAGING.md)。
 
 ---
 
-## 实现计划
+## 🗂 目录结构全览
 
-| 阶段 | 目标 | 交付物 | 状态 |
-|------|------|--------|:----:|
-| **0 — 骨架** | 可启动宿主 | GLFW 窗口、GL 清屏、FakeLua 桥接、hello 示例、双语文档、CLI 无头测试参数 | **已完成** |
-| **1 — 绘制图元** | 第一批像素 | 正交相机、色块四边形、`SpriteBatch` 动态合批、1x1 白图优化、stb_image 贴图加载 | **已完成** |
-| **2 — 场景与资源** | 结构化支撑 | `Transform2D` 节点层级、图层与 Z 序、图集（SpriteSheet）、资源缓存、GCC JIT 脚本热更 | **已完成** |
-| **3 — 脚本 API** | 脚本制作游戏 | 封装 `sprite`、`camera`、`input`、`time` 等原生模块；每帧输入快照；可玩打砖块示例；[脚本编写指南](docs/SCRIPTING.md) | **已完成** |
-| **4 — 文字与音频** | 表现力增强 | TTF 位图字体（8x8 兜底）合批渲染、miniaudio 一次性音效、零分配 CPU 粒子系统、帧缓冲截图 | **已完成** |
-| **5 — 打磨交付 (1.0)** | 商业可交付质量 | 多键排序合批 + 加法混合、HiDPI/Retina、`--bench` 基准、[跨平台打包说明](docs/PACKAGING.md)、标签触发的发布自动化 | **已完成** |
-| **6 — 玩法基础 (1.1)** | 游戏系统 | 内置 AABB/圆形物理与传感器接触事件、精灵帧动画、Tiled JSON 瓦片地图（含固体碰撞体导出）、锚点 UI 面板/标签/按钮；`--map-demo` | **已完成** |
-| **7 — 平台跳跃与规模 (1.2)** | 控制器与性能 | 空间哈希宽相（`--phys-bench` 约 6 倍）、线条/调试图元、Trauma 相机震动、WAV 与循环音乐、瓦片平台跳跃控制器（土狼/缓冲/单向平台）+ `--platformer-demo` | **已完成** |
-| **8 — 引擎短板与马里奥 (1.3)** | 完整度 | 瓦片斜坡（`map_ground_y`）、Tiled 视差与图片层、`SaveStore` 存档（`storage_*`）、`EntityStore` 原生实体槽位（`ent_*`）、自定义 Shader 槽位（`shader_*`）、SMB 1-1 `--mario-demo` | **已完成** |
-| **9 — 手柄 / 镜像 / 窗口 / 角色动画 (1.4)** | 可玩性 | 精灵 UV 镜像（`sprite_draw_flip`）、GLFW 标准映射手柄（`input_pad_*`，死区/扳机重映射/热插拔）、`window_quit` / 标题 / 全屏；程序化派生的待机/迈腿/跳跃精灵表与栗宝宝摇摆帧，三个玩法 Demo 朝向修正、走路动画与手柄支持 | **已完成** |
-| **10 — 角色动画纳入引擎动画系统 (1.5)** | 引擎复用 | 脚本控帧 `anim_pause` / `anim_resume` / `anim_set_frame` / `anim_frame_index`、翻转绘制 `anim_draw_flip`；马里奥（大小形态 + 每只栗宝宝一个摇摆 clip）与平台/斜坡角色从手算帧矩形迁移到引擎持有的动画 clip | **已完成** |
-| **11 — 自带依赖的发布流水线 (1.5)** | 分发 | `tools/package-{macos,linux,windows}.sh` 产出免编译压缩包（内置 libfakelua / OpenSSL、`scripts/`、着色器与示例地图）；Linux / Windows 打包脚本待首个 tag 端到端验证 | **已完成** |
-| **12 — GL2 兼容渲染路径 (1.6)** | 覆盖面 | 运行时 GL 上下文阶梯（core 3.3 → legacy 2.1 → macOS 无头 CGL + 离屏 FBO）、GLSL 120 着色器变体、`GL_LUMINANCE` 上传、NPOT clamp；macOS GPU 冒烟跑在 Apple 软件渲染器上 | **已完成** |
-| **13 — 物理查询能力 (1.7)** | 玩法查询 | `RayCast`（圆 + AABB、法线、起点在内部）、`OverlapCircle` / `OverlapBox`、完整 began/stayed/ended 接触生命周期、17 个 Lua 绑定、`--phys-query-test` | **已完成** |
-| **14 — Tiled 对象层 (1.8)** | 数据化关卡 | `objectgroup` 解析（矩形/点/椭圆/折线/多边形 + 自定义属性）、`map_find_layer` / `map_layer_type` / `map_obj_*` 查询；马里奥刷怪从标记瓦片迁移到对象层 | **已完成** |
-| **15 — 碰撞过滤 (1.9)** | 碰撞控制 | 每个刚体的 16 位 `category` / `mask`，宽相阶段即过滤；带掩码的射线与重叠查询；`phys_create_*_cat` / `phys_set_category` / `phys_set_mask` / `phys_*_cat` 绑定；`--phys-filter-test` | **已完成** |
-| **16 — 固定步长与相机工具 (1.10)** | 确定性与相机 | 固定步长物理累加器（与帧率无关、零步长接触刷新、`phys_smooth_*` 渲染插值、`time_sim_dt/steps/alpha`），Camera2D 跟随工具（边界钳制 / 死区 / 平滑 / 只进不退滚动锁 / snap）共 8 个 Lua 绑定；马里奥、斜坡与平台 Demo 全部迁移其上；`--timestep-test` | **已完成** |
-| **17 — 裁剪、九宫格与文本排版 (1.11)** | 表现力 | `draw_set_clip` 剪裁矩形（精确 flush 边界语义）、`draw_nine_slice` 拉伸面板、`draw_text_ex` 对齐换行文本与 `end_y` 段落堆叠；FBO 渲染目标与更多 UI 控件顺延 | **已完成** |
-| **18 — 瓦片地图 A* 与迷宫追逐 (1.12)** | 导航 | 基于 solidity 网格的 A*（防切角、路径拉直、`map_find_path` + 路径点读取），`--path-test`（25 条断言），`--path-demo` 迷宫追逐：错峰重寻路的追踪 AI、玩家自动寻路演示模式、实时路径线 | **已完成** |
-| **19 — 离屏渲染目标 (1.13)** | 渲染 | `RenderTarget` FBO 资源池 + `rt_begin`/`rt_end`/`rt_clear`/`rt_draw` 绑定（一次性烘焙、累积反馈特效），画布坐标系与 V 方向校正、无头 framebuffer 正确恢复，`--rt-test`（38 条断言）、`--rt-demo`；顺带修复每帧 35 次 `GLFW_INVALID_VALUE` 按键轮询报错 | **已完成** |
-| **20 — UI 控件 (1.14)** | UI | 滑杆（拖动或点击跳转、保持抓取偏移）、复选框（调用方持有数值）、UTF-8 文本输入（按码点增删、按字符数限长、焦点管理、`Input` 字符回调）、滚动容器（滚轮 + 可拖动滑块、调用方负责剪裁内容），新增 8 个绑定，`--ui-test`（30 条断言）、`--ui-demo` | **已完成** |
-| **21 — 后处理与小地图 (1.15)** | 渲染 | `Renderer::ActiveCamera`（RT 内 tilemap 跟随目标画布相机）、`rt_camera`（把画布对准世界偏移）、`rt_present`（经着色器覆盖的全屏 blit）、`map_draw_scaled`（无视差小地图烘焙，抽出的 `DrawTileLayer` 共享 helper）、`assets/post_grade.*` 默认恒等的调色着色器、`--post-test`（44 条像素探针，经变异验证）、`--post-demo`；顺带修复像素边界扫描发现的 `--ui-demo` 页脚画出画布问题 | **已完成** |
-| **22 — 音频混音器 (1.16)** | 音频 | 混音器与设备解耦（无设备也能注册 clip 并直接跑 `Mix()`）、三条总线（`voice × bus × master`，sfx/music 隔离）、每声道增益包络（`PlayMusic` 交叉淡入淡出、`StopMusic` 淡出、`FadeMusicTo` 斜坡）、冻结混音的 `SetPaused`、`Peak()` VU 数据源、公开 `Mix()` 供离线渲染，新增 10 个绑定（`audio_bus_*`、`audio_pause*`、`audio_music_*`、`audio_peak`），`--audio-test`（51 条直接驱动 `Mix()` 的无头断言）、`--audio-demo` 调音台面板 | **已完成** |
-| **23 — 位置音频 (1.17)** | 音频 | `PlayAt` 把一次性音效放进世界（`atten` 独立于包络，衰减不动淡入淡出）、向 `SetListenerRange` 线性衰减到静音（默认 1000，≤ 0 拒绝）、声像半程即达全分离并采用显式文档化的线性交叉规律、`SetListener` 重新评估正在发声的 voice、`ResetVoice` 清空复用槽位、`PeakLeft`/`PeakRight` 逐声道 VU 数据源，新增 5 个绑定（`audio_play_at/listener/range/peak_l/peak_r`），`--audio-test` 扩到 74 条离线断言，`--spatial-demo`（可移动听者 + 范围环 + L/R 电平表） | **已完成** |
-| **24 — 多趟后处理链 (1.18)** | 渲染 | `rt_copy(src, dst, shader)`（一趟 ping-pong；自拷贝/窗口/嵌套提前拒绝）、`rt_resize`（半分辨率 pass；先校验尺寸再 `Create`，拒绝 resize 不会销毁目标）、`assets/fx_blur.*` 可分离 9 抽头高斯（`u_dir = 0` 即恒等，`u_dim` 合成增益）、2 个新绑定、`--fx-test`（47 条像素探针：恒等 pass、单轴拖影、双趟覆盖、守卫、缩放拷贝、链上叠加 grade、窗口存活）、`--fx-demo` 程序化天际线 bloom + 分屏模式；记录"带着色器的 present 会重置混合模式"的坑 | **已完成** |
-| **25 — UI 控件第二批 (1.19)** | UI | `ProgressBar`（`ui_bar`，钳制的纯绘制）、`RadioButton`（`ui_radio`，按钮式点击语义、选择权归调用方）、`ComboBegin`/`ComboItem`（`ui_combo`/`ui_combo_item`，组合式下拉，表头容忍甩出点击）、`Input::InjectFrame` + 可变 `Engine::GetInput()`（合成输入帧解锁无头点按路径断言）、4 个新绑定、`--ui-test` 扩到 52 条断言（4 次变异验证——变异暴露了轨道内空转的钳制探针）、`--ui2-demo` | **已完成** |
-| **26 — 战争迷雾 (1.20)** | 渲染 | `BlendMode::Multiply`（`draw_set_blend(2)`，`DST_COLOR, ZERO`——遮罩在已绑定目标内部合成，`rt_copy` 因拒绝嵌套做不到；源 RGB 驱动结果、alpha 不参与门控）、`rt_sample(id, x, y)`（像素查询读回标量，非法读取返回 -1，故 0 恒为真黑）、1 个新绑定、`--fog-test`（39 条像素探针：恒等/擦除/逐通道/半遮罩、目标内合成 vs 嵌套拒绝、逐绘制混合状态、跨帧累积、越界守卫）、`--fog-demo` 程序化战争迷雾世界：累积式探索、烘焙小地图 × 遮罩、点击跳转、`rt_sample` 驱动的探索度读数 | **已完成** |
-| **27 — 动画 pass (1.21)** | 渲染 | 渲染器自动灌入的 uniform：`u_time`（帧时钟，脚本零簿记）与 `u_resolution`（正在绘制的表面，像素参数与分辨率无关）、`assets/fx_bright.*`（bloom 阈值 + 软膝，0/0 即恒等）、`assets/fx_wave.*`（行波扭动；`u_amp` 以像素计，符号已记录——采样点右移画面左移）、`--fx-test` 扩到 80 条（恒等/硬切/软膝、±8 px 四分之一周期、128 与 64 同位移）、`--fx-demo` 链路扩为 `场景 → wave → bright → blur → 合成`，带开关与滑杆 | **已完成** |
-| **28 — UI 控件第三批 (1.22)** | UI | `ui_window`：标题栏拖拽面板（返回「正在被拖拽」，位置由脚本经 `input_mouse_dx/_dy` 自持；抓取帧静默不跳变；按在面板主体上不抓取；按住不放拖出标题栏不丢），`ui_tab`：激活页由调用方自持，更亮、长高 2 px 并去掉下边缘，`ui_tree`：展开行（三个 quad 画的右/下三角），子项就是 if 块，`--ui-test` 扩到 76 条（拖拽路径、点击/取消语义、bar/body/分隔线像素探针、激活页更亮且下探 2 px），`--ui3-demo`：可拖拽 SETTINGS 窗口，三标签页 + 可折叠树 + `ui_hovered` 工具提示 | **已完成** |
-| **29 — 解码文件与流式音乐 (1.23)** | 音频 | `audio_load_file`：miniaudio 解码器支持的任意文件（WAV/FLAC/MP3/OGG-Vorbis）混到单声道、重采样到混音器采样率并注册为 clip，`audio_stream`：同样的文件按 8192 帧窗口按需回填播放——三分钟曲目只占几 KB 而非几 MB——顺序回填避开会重置重采样器的可闻 seek，`audio_clip_len` / `audio_clip_cached` 报告时长与驻留帧数，`--audio-test` 扩到 106 条（流与解码逐块对比、拒绝路径、越尾循环、暂停/恢复/停止），`--audio-demo` 的 FILE PLAYBACK 面板带缓冲对比读数 | **已完成** |
-| **30 — 动画瓦片 (1.24)** | 渲染 | 解析 Tiled tileset 的 `animation` 循环（坏帧丢弃整段动画而不是播错），引擎每帧推进「每瓦片 id 一个时钟」——水与火把零簿记自动播放，使用同一瓦片的格子全部同步；只有绘制画面随钟走，`map_solid` 与碰撞网格始终读基础 gid；只读查询 `map_anim_time/_count/_cycle/_index/_gid` + `map_anim_reset`（索引沿时间线走，0,1,0,1 闪烁被如实报告）；`--tile-test` 新增为第十二项引擎自测、55 条断言（5 个变异全被捕获）；`--tile-demo`：池塘涟漪、火把闪烁、由查询构建的 HUD 与 RESET CLOCK 按钮 | **已完成** |
-
-详细任务清单见 [docs/PLAN.md](docs/PLAN.md)。
+```
+fake2d/
+├── CMakeLists.txt           # Modern CMake 工程主配置
+├── include/fake2d/          # C++ 对外公共接口与模块头文件
+│   ├── animation.h          # 关键帧动画系统（AnimationSystem）
+│   ├── atlas.h              # TexturePacker JSON 图集解析
+│   ├── audio.h              # 音频引擎、混音器、空间音频与流式播放
+│   ├── camera.h             # 2D 正交相机、视口反查、平滑跟随与震屏
+│   ├── character.h          # 平台跳跃角色控制器（土狼时间/跳跃缓冲）
+│   ├── engine.h             # 引擎宿主生命周期与主循环
+│   ├── entity_store.h       # C++ 实体槽位管理（穿越 Arena 帧重置）
+│   ├── font.h               # TTF / 8x8 位图字体图集与排版
+│   ├── input.h              # 键盘、鼠标、增量拖拽与手柄输入快照
+│   ├── math.h               # Vec2, Rect, Color, Mat4 数学库
+│   ├── node.h               # Transform2D 空间层级节点树
+│   ├── particle.h           # 零分配 8192 粒子池与发射器
+│   ├── physics.h            # 内置 2D 物理世界、空间哈希宽相与碰撞过滤
+│   ├── renderer.h           # 渲染器门面（OpenGL 上下文封装）
+│   ├── render_target.h      # 离屏渲染目标（FBO）与多趟后处理
+│   ├── resource_manager.h   # 句柄式纹理/着色器资源管理器
+│   ├── save_store.h         # JSON 键值持久化存档
+│   ├── scene.h              # 场景图渲染门面
+│   ├── script_host.h        # FakeLua 脚本宿主桥接
+│   ├── shader.h             # 着色器管线与自动 Uniform 注入
+│   ├── sprite_batch.h       # 高性能多键排序流式 SpriteBatch
+│   ├── texture.h            # Texture2D 与 1x1 白图单例
+│   ├── tilemap.h            # Tiled 地图、对象层、斜坡、动画瓦片与 A* 寻路
+│   ├── ui.h                 # 即时模式 UI 控件系统（UISystem）
+│   └── version.h            # 语义化版本定义
+├── src/                     # C++ 实现源码
+│   ├── audio/               # miniaudio 设备驱动、混音算法与格式解码
+│   ├── core/                # 引擎循环、时间步长、实体与存档
+│   ├── gameplay/            # 玩法控制器与控制器逻辑
+│   ├── physics/             # 刚体模拟、空间网格、碰撞检测与查询
+│   ├── platform/            # GLFW 窗口生命周期、输入轮询与事件
+│   ├── render/              # OpenGL 渲染、合批、FBO、着色器、字体、粒子
+│   ├── scene/               # 变换缓存与节点树
+│   ├── script/              # FakeLua 原生 API 绑定与交互
+│   └── ui/                  # 即时模式 UI 几何计算与状态机
+├── scripts/                 # 丰富纯 Lua 游戏与系统 Demo 脚本集
+│   ├── game.lua             # 经典打砖块游戏
+│   ├── mario.lua            # 超级马里奥兄弟 1-1 关卡
+│   ├── platformer_demo.lua  # 平台跳跃关卡
+│   ├── slope_demo.lua       # 斜坡地面测试
+│   ├── path_demo.lua        # 迷宫追逐与 A* 寻路
+│   ├── tile_demo.lua        # 动态瓦片动画
+│   ├── fog_demo.lua         # 战争迷雾与动态遮罩
+│   ├── fx_demo.lua          # Bloom 后处理与分屏渲染
+│   ├── post_demo.lua        # 全屏调色与小地图
+│   ├── rt_demo.lua          # 离屏渲染与运动拖尾
+│   ├── audio_demo.lua       # 混音器调音台
+│   ├── spatial_demo.lua     # 3D 空间音频
+│   └── ui_demo*.lua         # 即时模式 UI 集合
+├── tools/                   # Linux / macOS / Windows 自包含打包脚本
+├── docs/                    # 详尽文档手册
+│   ├── SCRIPTING.md         # 脚本编写指南与完整 Lua API 手册
+│   ├── PACKAGING.md         # 跨平台自包含打包发布说明
+│   └── PLAN.md              # 架构规范与历史里程碑记录
+└── tests/                   # 自动化集成测试与测试夹具
+```
 
 ---
 
-## 许可证
+## 📦 跨平台打包与发布（Distribution）
 
-MIT — 详见 [LICENSE](LICENSE)。
+Fake2D 提供了针对 Linux、macOS 与 Windows 的一键独立可再发行打包工具（位于 `tools/` 目录），会自动解析依赖动态库并打包着色器、脚本和资源，产出可直接分发的免安装压缩包：
+
+```bash
+# macOS 打包（生成 .tar.gz，内含已签名 dylibs 与 @executable_path 链接）：
+bash tools/package-macos.sh
+
+# Linux 打包（基于 patchelf 设置 $ORIGIN rpath，打包全部依赖 so）：
+bash tools/package-linux.sh
+
+# Windows 打包（MSYS2 / MinGW 收集运行时 DLL 与可执行程序）：
+bash tools/package-windows.sh
+```
+
+详细打包参数与依赖分析见 [**跨平台打包说明（docs/PACKAGING.md）**](docs/PACKAGING.md)。
+
+---
+
+## 📄 开源许可证
+
+Fake2D 基于 **[MIT License](LICENSE)** 协议开源。无论是个人爱好、学术研究还是商业游戏项目，均可自由免费使用。
