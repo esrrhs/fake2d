@@ -150,6 +150,18 @@ jobs:
           # line pins the assertion count).
           run_xvfb ./build/bin/fake2d_hello --phys-filter-test > phys_filter.log 2>&1
           rc_filter=$?
+          # Rigid-body solver: rotation, inertia, friction, stacks (exit code gate).
+          run_xvfb ./build/bin/fake2d_hello --phys-rigid-test > phys_rigid.log 2>&1
+          rc_rigid=$?
+          # Kinematic bodies, sleeping, joints and anti-tunneling (exit code gate).
+          run_xvfb ./build/bin/fake2d_hello --phys-extended-test > phys_extended.log 2>&1
+          rc_extended=$?
+          # Angry Birds demo smoke: slingshot, stacks, contact-driven scoring.
+          run_xvfb ./build/bin/fake2d_hello --headless --angry-birds-demo --frames 240 > birds.log 2>&1
+          rc_birds=$?
+          # LIMBO demo smoke: ragdoll + rope + bridge + water + severing.
+          run_xvfb ./build/bin/fake2d_hello --headless --limbo-demo --frames 240 > limbo.log 2>&1
+          rc_limbo=$?
           # Fixed-step accumulator + camera tools (exit code gate).
           run_xvfb ./build/bin/fake2d_hello --timestep-test > timestep.log 2>&1
           rc_timestep=$?
@@ -195,9 +207,13 @@ jobs:
             --entry scripts/phys_test.lua > phys_test.log 2>&1
           rc_lua=$?
           set -e
-          echo "exit codes: query=$rc_query filter=$rc_filter timestep=$rc_timestep path=$rc_path rt=$rc_rt ui=$rc_ui post=$rc_post fx=$rc_fx fog=$rc_fog audio=$rc_audio mapobj=$rc_mapobj tile=$rc_tile lua=$rc_lua"
+          echo "exit codes: query=$rc_query filter=$rc_filter rigid=$rc_rigid extended=$rc_extended birds=$rc_birds limbo=$rc_limbo timestep=$rc_timestep path=$rc_path rt=$rc_rt ui=$rc_ui post=$rc_post fx=$rc_fx fog=$rc_fog audio=$rc_audio mapobj=$rc_mapobj tile=$rc_tile lua=$rc_lua"
           [ "$rc_query" -eq 0 ]
           [ "$rc_filter" -eq 0 ]
+          [ "$rc_rigid" -eq 0 ]
+          [ "$rc_extended" -eq 0 ]
+          [ "$rc_birds" -eq 0 ]
+          [ "$rc_limbo" -eq 0 ]
           [ "$rc_timestep" -eq 0 ]
           [ "$rc_path" -eq 0 ]
           [ "$rc_rt" -eq 0 ]
@@ -210,6 +226,8 @@ jobs:
           [ "$rc_tile" -eq 0 ]
           [ "$rc_lua" -eq 0 ]
           grep -F "[phys-filter] PASS" phys_filter.log
+          grep -F "[phys-rigid] PASS" phys_rigid.log
+          grep -F "[phys-extended] PASS" phys_extended.log
           grep -F "[timestep] PASS" timestep.log
           grep -F "[path] PASS" path.log
           grep -F "[map-obj] PASS" map_object.log
@@ -437,6 +455,10 @@ jobs:
           export DYLD_LIBRARY_PATH="$FLINSTALL/lib:${DYLD_LIBRARY_PATH:-}"
           ./build/bin/fake2d_hello --phys-query-test
           ./build/bin/fake2d_hello --phys-filter-test
+          ./build/bin/fake2d_hello --phys-rigid-test
+          ./build/bin/fake2d_hello --phys-extended-test
+          ./build/bin/fake2d_hello --headless --angry-birds-demo --frames 120
+          ./build/bin/fake2d_hello --headless --limbo-demo --frames 120
           ./build/bin/fake2d_hello --tile-test
           ./build/bin/fake2d_hello --timestep-test
           ./build/bin/fake2d_hello --path-test
@@ -514,6 +536,10 @@ jobs:
           # Pure-CPU physics query self-test (exit code) + Lua binding test.
           ./build/bin/fake2d_hello.exe --phys-query-test
           ./build/bin/fake2d_hello.exe --phys-filter-test
+          ./build/bin/fake2d_hello.exe --phys-rigid-test
+          ./build/bin/fake2d_hello.exe --phys-extended-test
+          ./build/bin/fake2d_hello.exe --headless --angry-birds-demo --frames 120
+          ./build/bin/fake2d_hello.exe --headless --limbo-demo --frames 120
           ./build/bin/fake2d_hello.exe --tile-test
           ./build/bin/fake2d_hello.exe --timestep-test
           ./build/bin/fake2d_hello.exe --path-test

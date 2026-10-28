@@ -7,7 +7,7 @@
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-brightgreen.svg)](https://en.cppreference.com/w/cpp/23)
 [![OpenGL](https://img.shields.io/badge/OpenGL-3.3%20Core%20%7C%202.1-orange.svg)](https://www.opengl.org/)
 [![FakeLua](https://img.shields.io/badge/Script-FakeLua-red.svg)](https://github.com/esrrhs/fakelua)
-[![Version](https://img.shields.io/badge/version-1.24.0-informational.svg)](include/fake2d/version.h)
+[![Version](https://img.shields.io/badge/version-1.26.0-informational.svg)](include/fake2d/version.h)
 
 **Fake2D** 是基于 [FakeLua](https://github.com/esrrhs/fakelua) 驱动的现代化、轻量级、高性能 2D 游戏引擎：
 - **C++23 宿主引擎**：掌管窗口管理、GPU 渲染管线、空间物理、音频混音与底层资源生命周期；
@@ -38,7 +38,7 @@ Fake2D 采用现代工业级 2D 引擎架构（对齐 Raylib、MonoGame、Defold
 ### 4. 完备的现代化 2D 子系统生态
 Fake2D 不仅是渲染器，更是一套自洽完备的 2D 游戏开发平台：
 - **Tiled 瓦片系统**：支持正交 JSON 地图、视差图层（Parallax）、图片层、对象层（`objectgroup` 刷怪点/触发区）、斜坡地表物理、以及**动态瓦片循环动画（Animated Tiles）**；
-- **内置物理与导航**：零外部依赖轻量 2D 物理引擎（AABB / Circle / Sensor）、空间哈希宽相加速（Spatial Hash Grid）、Fixed Timestep 物理模拟累加器（附带姿态渲染插值）、16 位碰撞过滤（Category / Mask）、射线检测与形状探测、A\* 寻路（防切角与视线拉直）；
+- **内置物理与导航**：零外部依赖 2D 刚体引擎（圆 / 朝向盒 / 凸多边形），按密度求质量与转动惯量、顺序冲量 +  Coulomb 摩擦与 warm starting、运动学刚体、阻尼、自动休眠、距离/绳索/铰链（马达与限位）/焊接关节、子步防穿透；空间哈希宽相（约为暴力检测 5 倍）、Fixed Timestep 与姿态渲染插值、16 位碰撞过滤（Category / Mask）、射线检测与形状探测、A\* 寻路（防切角与视线拉直）；
 - **专业级音频系统**：设备解耦的纯软件混音核心、三总线路由（Master / SFX / Music）、平滑交叉淡入淡出（Cross-fade Envelopes）、3D 空间位置音频（距离线性衰减与立体声声相 Pan）、大曲目 8192 帧按需流式回填（支持 WAV/MP3/OGG/FLAC）；
 - **多趟后处理与 FBO**：离屏渲染目标（RenderTarget）、Ping-Pong 缓冲交换、Bloom 辉光、可分离 9 抽头高斯模糊、波浪扭曲特效、战争迷雾（Fog of War）以及全景小地图烘焙；
 - **即时模式 UI（Immediate-Mode UI）**：开箱即用的 UI 控件库（Panel、Button、Label、Slider、Checkbox、TextInput、ScrollArea、ProgressBar、RadioButton、Combo、可拖拽 Window、Tab 标签页、Tree 折叠树、Tooltip）。
@@ -46,7 +46,7 @@ Fake2D 不仅是渲染器，更是一套自洽完备的 2D 游戏开发平台：
 ### 5. 现代化工程化与极佳开发者体验
 - **JIT 脚本热重载**：支持 GCC JIT 与解释器双模式，在运行中修改 Lua 脚本保存即刻生效，无需重启进程；
 - **无头测试与 CI/CD**：内置原生 `--headless`、`--frames N` 与 `--screenshot` 参数，可在无物理显示器的虚拟机、Docker 容器中运行自动化回归验证与帧缓冲像素级比对；
-- **12 项内置自测试套件**：涵盖物理查询、碰撞过滤、时间步长、地图对象、A\* 寻路、离屏 FBO、即时 UI、后处理链、战争迷雾、音频混音、动画瓦片等，所有测试用例均经过变异测试（Mutation-tested）验证；
+- **14 项内置自测试套件**：620+ 断言，涵盖刚体动力学、关节、休眠、防穿透、物理查询、碰撞过滤、时间步长、地图对象、A\* 寻路、离屏 FBO、即时 UI、后处理链、战争迷雾、音频混音、动画瓦片等，所有测试用例均经过变异测试（Mutation-tested）验证；
 - **开箱即用独立打包**：提供自动化打包脚本，一键生成包含依赖库的独立二进制压缩包，分发给玩家免安装环境。
 
 ---
@@ -83,12 +83,14 @@ Fake2D 不仅是渲染器，更是一套自洽完备的 2D 游戏开发平台：
 
 ## 🎮 精彩内置 Demo 矩阵
 
-Fake2D 仓库自带 13 个可直接运行的高质量 Demo，涵盖平台跳跃、经典街机、迷宫寻路、即时 UI、战争迷雾、多趟后处理与空间音频等各个维度：
+Fake2D 仓库自带 15 个可直接运行的高质量 Demo，涵盖平台跳跃、经典街机、迷宫寻路、即时 UI、战争迷雾、多趟后处理与空间音频等各个维度：
 
 | Demo 启动参数 | 演示主题 | 核心特性亮点 |
 |---|---|---|
 | `./fake2d_hello` | **经典打砖块 (Breakout)** | 默认入口；物理反弹、砖块碰撞消除、粒子碎屑飞溅、HUD 文本与音效合成 |
 | `--mario-demo` | **超级马里奥兄弟 1-1** | 完整复刻 SMB 1-1；大/小双形态、板栗仔巡逻与踩扁、顶砖块碎裂粒子、问号箱、旗杆结算流程、Attract 自动巡航 |
+| `--angry-birds-demo` | **愤怒的小鸟沙盒** | 弹弓冲量发射、休眠塔堆、接触事件爆猪与计分、相机跟随与合成音效 |
+| `--limbo-demo` | **LIMBO 多关节沙盒** | 6 段铰链布娃娃、9 节绳索与铰链吊桥、浮力水体、死亡断肢后仍互相牵引 |
 | `--platformer-demo` | **平台跳跃与手柄控制器** | 瓦片跳跃控制：土狼时间（Coyote Time）、跳跃预输入缓冲、单向板平台穿越、金币收集、平滑跟随相机 |
 | `--slope-demo` | **斜坡地形控制器** | Tiled 斜坡解析（`map_slope_dir`/`map_ground_y`），角色沿倾斜地面平滑贴合走动与实时地表高度计算 |
 | `--path-demo` | **迷宫追逐与 A\* 寻路** | 迷宫地图，错峰重寻路的追踪 AI，玩家自动航路演示模式，实时 A\* 路径折线显示（防切角与视线拉直） |
@@ -140,6 +142,12 @@ cmake --build build --parallel
 ```bash
 # 超级马里奥兄弟 1-1（A/D 移动、Shift 奔跑加速、空格跳跃，也支持手柄）
 ./build/bin/fake2d_hello --mario-demo
+
+# 愤怒的小鸟沙盒（拖拽发射，相机跟随 + 音效，R 重开）
+./build/bin/fake2d_hello --angry-birds-demo
+
+# LIMBO 多关节沙盒（A/D 移动、SPACE 跳、E 抓绳、K 断肢、R 重置）
+./build/bin/fake2d_hello --limbo-demo
 
 # 滚动平台跳跃演示（平滑相机、金币、单向平台）
 ./build/bin/fake2d_hello --platformer-demo
@@ -197,9 +205,11 @@ xvfb-run ./build/bin/fake2d_hello --headless --frames 60
 # 无头截取指定帧缓冲导出为 PNG（用于视觉回归像素比对）
 xvfb-run ./build/bin/fake2d_hello --headless --mario-demo --shot-frame 60 --screenshot mario_snap.png
 
-# 运行 12 组内置无头自测试套件（通过退出码断言执行结果）
+# 运行 14 组内置无头自测试套件（通过退出码断言执行结果）
 xvfb-run ./build/bin/fake2d_hello --phys-query-test    # 射线检测、形状重叠、接触生命周期
 xvfb-run ./build/bin/fake2d_hello --phys-filter-test   # 16位 Category/Mask 碰撞过滤
+xvfb-run ./build/bin/fake2d_hello --phys-rigid-test    # 转动惯量、摩擦与堆叠稳定性
+xvfb-run ./build/bin/fake2d_hello --phys-extended-test # 关节、休眠、运动学与防穿透
 xvfb-run ./build/bin/fake2d_hello --timestep-test      # 固定步长物理累加器与相机平滑
 xvfb-run ./build/bin/fake2d_hello --map-object-test    # Tiled 对象层与自定义属性
 xvfb-run ./build/bin/fake2d_hello --path-test          # 瓦片地图 A* 寻路（防切角与拉直）
@@ -310,6 +320,8 @@ fake2d/
 ├── scripts/                 # 丰富纯 Lua 游戏与系统 Demo 脚本集
 │   ├── game.lua             # 经典打砖块游戏
 │   ├── mario.lua            # 超级马里奥兄弟 1-1 关卡
+│   ├── angry_birds_demo.lua # 弹弓刚体沙盒
+│   ├── limbo_demo.lua       # 布娃娃 / 绳索 / 吊桥 / 浮力沙盒
 │   ├── platformer_demo.lua  # 平台跳跃关卡
 │   ├── slope_demo.lua       # 斜坡地面测试
 │   ├── path_demo.lua        # 迷宫追逐与 A* 寻路

@@ -732,6 +732,747 @@ int RunPhysicsFilterTest(fake2d::Engine &engine) {
     return failures == 0 ? 0 : 1;
 }
 
+// Rigid-body self-test (Phase 31): mass/inertia from shape, off-centre
+// impulses, oriented-box ray casts, friction, restitution, containment
+// push-out and a five-box stack. Headless CPU-only. Prints [phys-rigid]
+// lines; non-zero on fail.
+int RunPhysicsRigidTest(fake2d::Engine &engine) {
+    (void)engine;
+    int failures = 0;
+    int checks = 0;
+    auto check = [&](bool ok, const char *what) {
+        ++checks;
+        if (!ok) {
+            ++failures;
+            std::printf("[phys-rigid] FAIL %s\n", what);
+        }
+    };
+    auto near = [](float a, float b, float tol) { return std::fabs(a - b) <= tol; };
+
+    // ---- Mass / inertia from shape and density -----------------------------
+    {
+        fake2d::PhysicsWorld world;
+        world.SetGravity({0.0f, 0.0f});
+
+        fake2d::BodyConfig box_cfg;
+        box_cfg.half_extents = {10.0f, 10.0f};
+        const fake2d::BodyId box = world.CreateBody(box_cfg);
+        check(near(world.Mass(box), 400.0f, 0.01f), "box mass = density * area");
+
+        fake2d::BodyConfig circle_cfg;
+        circle_cfg.radius = 10.0f;
+        circle_cfg.half_extents = {10.0f, 10.0f};
+        const fake2d::BodyId circle = world.CreateBody(circle_cfg);
+        check(near(world.Mass(circle), 314.159f, 0.05f), "circle mass = density * pi r^2");
+
+        fake2d::BodyConfig poly_cfg;
+        const fake2d::Vec2 square[4] = {{-10.0f, -10.0f}, {10.0f, -10.0f},
+                                        {10.0f, 10.0f}, {-10.0f, 10.0f}};
+        poly_cfg.SetVertices(square, 4);
+        const fake2d::BodyId poly = world.CreateBody(poly_cfg);
+        check(near(world.Mass(poly), 400.0f, 0.05f), "polygon square mass matches the box");
+
+        fake2d::BodyConfig static_cfg;
+        static_cfg.type = fake2d::BodyType::Static;
+        static_cfg.half_extents = {10.0f, 10.0f};
+        const fake2d::BodyId static_box = world.CreateBody(static_cfg);
+        check(near(world.Mass(static_box), 0.0f, 1e-6f), "static body reports zero mass");
+
+        // Density edits are honoured by the lazily computed mass.
+        if (fake2d::BodyConfig *cfg = world.Get(box)) {
+            cfg->density = 2.0f;
+        }
+        check(near(world.Mass(box), 800.0f, 0.01f), "mass follows a density edit");
+
+        // Static bodies never react to impulses.
+        world.ApplyImpulse(static_box, {100.0f, 100.0f}, {0.0f, 0.0f});
+        const fake2d::BodyConfig *static_now = world.Get(static_box);
+        check(static_now != nullptr && static_now->velocity.x == 0.0f &&
+                  static_now->velocity.y == 0.0f,
+              "static body ignores impulses");
+    }
+
+    // ---- Off-centre impulse: linear + angular response ---------------------
+    {
+        fake2d::PhysicsWorld world;
+        world.SetGravity({0.0f, 0.0f});
+        fake2d::BodyConfig cfg;
+        cfg.half_extents = {10.0f, 10.0f};
+        cfg.restitution = 0.0f;
+        cfg.friction = 0.0f;
+        const fake2d::BodyId body = world.CreateBody(cfg);
+
+        world.ApplyImpulse(body, {0.0f, 100.0f}, {10.0f, 0.0f});
+        const fake2d::BodyConfig *after = world.Get(body);
+        check(after != nullptr && near(after->velocity.y, 0.25f, 1e-3f),
+              "centred mass: impulse / mass sets the velocity");
+        check(after != nullptr && after->angular_velocity > 0.03f,
+              "off-centre impulse spins the body");
+
+        for (int f = 0; f < 10; ++f) {
+            world.Step(1.0f / 60.0f);
+        }
+        const fake2d::BodyConfig *later = world.Get(body);
+        check(later != nullptr && later->rotation > 0.001f,
+              "angular velocity keeps integrating into rotation");
+    }
+
+    // ---- Oriented box: vertices and ray casts ------------------------------
+    {
+        fake2d::PhysicsWorld world;
+        world.SetGravity({0.0f, 0.0f});
+        fake2d::BodyConfig cfg;
+        cfg.type = fake2d::BodyType::Static;
+        cfg.half_extents = {10.0f, 10.0f};
+        cfg.rotation = 3.14159265f * 0.75f;
+        cfg.position = {50.0f, 50.0f};
+        const fake2d::BodyId box = world.CreateBody(cfg);
+
+        // Quarter turn puts the local (-10,-10) corner at (+10,-10).
+        fake2d::BodyConfig quarter = cfg;
+        quarter.rotation = 3.14159265f * 0.5f;
+        const fake2d::BodyId turned = world.CreateBody(quarter);
+        check(world.WorldVertexCount(turned) == 4, "boxes expose four world vertices");
+        const fake2d::Vec2 v0 = world.WorldVertex(turned, 0);
+        check(near(v0.x, 60.0f, 0.01f) && near(v0.y, 40.0f, 0.01f),
+              "world vertex follows the rotation");
+
+        // 45 degree box: the +x ray hits the left corner at x = -h*sqrt(2).
+        fake2d::BodyConfig rotated;
+        rotated.type = fake2d::BodyType::Static;
+        rotated.half_extents = {10.0f, 10.0f};
+        rotated.rotation = 3.14159265f * 0.25f;
+        const fake2d::BodyId diamond = world.CreateBody(rotated);
+        fake2d::RayHit hit;
+        check(world.RayCast({-100.0f, 0.0f}, {100.0f, 0.0f}, hit),
+              "ray hits a rotated box");
+        check(hit.body == diamond, "rotated hit reports the box");
+        check(near(hit.point.x, -14.1421f, 0.05f) && near(hit.point.y, 0.0f, 0.05f),
+              "rotated box entry point is the diagonal support");
+        check(near(hit.distance, 85.8579f, 0.1f), "rotated box hit distance");
+
+        // A ray fired along a rotated face normal hits that face squarely, so
+        // the returned normal is unambiguous. Local up (0,-1) rotates to
+        // (sin r, -cos r) and the face sits half_extents.x from the centre.
+        fake2d::BodyConfig tilted;
+        tilted.type = fake2d::BodyType::Static;
+        tilted.half_extents = {10.0f, 10.0f};
+        tilted.rotation = 0.3f;
+        tilted.position = {300.0f, 0.0f};
+        const fake2d::BodyId tilted_box = world.CreateBody(tilted);
+        const float sr = std::sin(0.3f);
+        const float cr = std::cos(0.3f);
+        const fake2d::Vec2 face_normal{sr, -cr};
+        const fake2d::Vec2 tilted_center{300.0f, 0.0f};
+        check(world.RayCast(tilted_center + face_normal * 100.0f, tilted_center, hit),
+              "ray hits a tilted box along its face normal");
+        check(hit.body == tilted_box, "tilted hit reports the box");
+        check(near(hit.normal.x, sr, 1e-3f) && near(hit.normal.y, -cr, 1e-3f),
+              "tilted face normal follows the rotation");
+        check(near(hit.distance, 90.0f, 0.05f),
+              "tilted face hit distance is start minus half extent");
+        check(near(hit.point.x, tilted_center.x + face_normal.x * 10.0f, 0.05f) &&
+                  near(hit.point.y, tilted_center.y + face_normal.y * 10.0f, 0.05f),
+              "tilted face hit point lies on the face");
+        (void)box;
+    }
+
+    // ---- Friction: sliding box decelerates --------------------------------
+    {
+        fake2d::PhysicsWorld world;
+        world.SetGravity({0.0f, 900.0f});
+        fake2d::BodyConfig floor_cfg;
+        floor_cfg.type = fake2d::BodyType::Static;
+        floor_cfg.position = {0.0f, 100.0f};
+        floor_cfg.half_extents = {400.0f, 10.0f};
+        floor_cfg.user_id = 1;
+        world.CreateBody(floor_cfg);
+
+        auto make_slider = [&](float x, float friction) {
+            fake2d::BodyConfig cfg;
+            cfg.position = {x, 80.0f};
+            cfg.half_extents = {10.0f, 10.0f};
+            cfg.velocity = {100.0f, 0.0f};
+            cfg.restitution = 0.0f;
+            cfg.friction = friction;
+            return world.CreateBody(cfg);
+        };
+        const fake2d::BodyId sticky = make_slider(-100.0f, 0.5f);
+        const fake2d::BodyId slippery = make_slider(100.0f, 0.0f);
+
+        for (int f = 0; f < 60; ++f) {
+            world.Step(1.0f / 60.0f);
+        }
+        const fake2d::BodyConfig *a = world.Get(sticky);
+        const fake2d::BodyConfig *b = world.Get(slippery);
+        check(a != nullptr && b != nullptr, "sliders alive");
+        if (a && b) {
+            check(a->velocity.x < 50.0f, "friction removes most horizontal speed");
+            check(near(b->velocity.x, 100.0f, 0.5f), "frictionless slider keeps its speed");
+            check(a->position.x < b->position.x - 10.0f,
+                  "friction slider travels less than the frictionless one");
+        }
+    }
+
+    // ---- Restitution: ball bounces off the floor --------------------------
+    {
+        fake2d::PhysicsWorld world;
+        world.SetGravity({0.0f, 900.0f});
+        fake2d::BodyConfig floor_cfg;
+        floor_cfg.type = fake2d::BodyType::Static;
+        floor_cfg.position = {0.0f, 100.0f};
+        floor_cfg.half_extents = {200.0f, 10.0f};
+        world.CreateBody(floor_cfg);
+
+        fake2d::BodyConfig ball_cfg;
+        ball_cfg.position = {0.0f, 20.0f};
+        ball_cfg.radius = 5.0f;
+        ball_cfg.half_extents = {5.0f, 5.0f};
+        ball_cfg.restitution = 0.6f;
+        ball_cfg.friction = 0.0f;
+        const fake2d::BodyId ball = world.CreateBody(ball_cfg);
+
+        float min_y = 1000.0f;
+        for (int f = 0; f < 120; ++f) {
+            world.Step(1.0f / 60.0f);
+            const fake2d::BodyConfig *cfg = world.Get(ball);
+            if (cfg != nullptr) {
+                min_y = std::min(min_y, cfg->position.y);
+            }
+        }
+        const fake2d::BodyConfig *cfg = world.Get(ball);
+        check(min_y < 75.0f, "ball bounces back up (restitution works)");
+        check(cfg != nullptr && cfg->position.y < 89.0f,
+              "ball never tunnels through the floor");
+    }
+
+    // ---- Containment: a circle inside a box is pushed out ------------------
+    {
+        fake2d::PhysicsWorld world;
+        world.SetGravity({0.0f, 0.0f});
+        fake2d::BodyConfig box_cfg;
+        box_cfg.type = fake2d::BodyType::Static;
+        box_cfg.half_extents = {20.0f, 20.0f};
+        world.CreateBody(box_cfg);
+
+        fake2d::BodyConfig circle_cfg;
+        circle_cfg.position = {1.0f, 0.0f};
+        circle_cfg.radius = 5.0f;
+        circle_cfg.half_extents = {5.0f, 5.0f};
+        circle_cfg.restitution = 0.0f;
+        circle_cfg.friction = 0.0f;
+        const fake2d::BodyId circle = world.CreateBody(circle_cfg);
+        for (int f = 0; f < 60; ++f) {
+            world.Step(1.0f / 60.0f);
+        }
+        const fake2d::BodyConfig *cfg = world.Get(circle);
+        const float dist = cfg != nullptr
+                               ? std::sqrt(cfg->position.x * cfg->position.x +
+                                           cfg->position.y * cfg->position.y)
+                               : 0.0f;
+        check(cfg != nullptr && dist > 24.0f, "deep containment is corrected outwards");
+    }
+
+    // ---- Stack: five boxes stay in place ----------------------------------
+    {
+        fake2d::PhysicsWorld world;
+        world.SetGravity({0.0f, 900.0f});
+        fake2d::BodyConfig floor_cfg;
+        floor_cfg.type = fake2d::BodyType::Static;
+        floor_cfg.position = {0.0f, 300.0f};
+        floor_cfg.half_extents = {200.0f, 10.0f};
+        world.CreateBody(floor_cfg);
+
+        fake2d::BodyId boxes[5];
+        for (int i = 0; i < 5; ++i) {
+            fake2d::BodyConfig cfg;
+            cfg.position = {0.0f, 285.0f - static_cast<float>(i) * 10.0f};
+            cfg.half_extents = {20.0f, 5.0f};
+            cfg.restitution = 0.0f;
+            cfg.friction = 0.5f;
+            boxes[i] = world.CreateBody(cfg);
+        }
+        for (int f = 0; f < 240; ++f) {
+            world.Step(1.0f / 60.0f);
+        }
+        bool stable = true;
+        for (int i = 0; i < 5; ++i) {
+            const fake2d::BodyConfig *cfg = world.Get(boxes[i]);
+            if (cfg == nullptr ||
+                std::fabs(cfg->position.y - (285.0f - static_cast<float>(i) * 10.0f)) > 2.0f ||
+                std::fabs(cfg->position.x) > 2.0f || std::fabs(cfg->rotation) > 0.2f) {
+                stable = false;
+            }
+        }
+        check(stable, "five-box stack stays put for 240 frames");
+
+        // Tipping: a box dropped onto the stack edge should start rotating.
+        fake2d::BodyConfig dropper_cfg;
+        dropper_cfg.position = {18.0f, 200.0f};
+        dropper_cfg.half_extents = {20.0f, 5.0f};
+        dropper_cfg.restitution = 0.0f;
+        dropper_cfg.friction = 0.5f;
+        const fake2d::BodyId dropper = world.CreateBody(dropper_cfg);
+        float max_omega = 0.0f;
+        for (int f = 0; f < 90; ++f) {
+            world.Step(1.0f / 60.0f);
+            const fake2d::BodyConfig *cfg = world.Get(dropper);
+            if (cfg != nullptr) {
+                max_omega = std::max(max_omega, std::fabs(cfg->angular_velocity));
+            }
+        }
+        check(max_omega > 0.5f, "an edge landing converts contact into spin");
+    }
+
+    // ---- Force / torque accumulation and rotation interpolation -----------
+    {
+        fake2d::PhysicsWorld world;
+        world.SetGravity({0.0f, 0.0f});
+        fake2d::BodyConfig cfg;
+        cfg.half_extents = {10.0f, 10.0f};
+        cfg.friction = 0.0f;
+        cfg.restitution = 0.0f;
+        const fake2d::BodyId body = world.CreateBody(cfg);
+        world.ApplyForce(body, {0.0f, 400.0f}, {0.0f, 0.0f});
+        world.Step(1.0f / 60.0f);
+        const fake2d::BodyConfig *after = world.Get(body);
+        check(after != nullptr && near(after->velocity.y, 400.0f / 400.0f / 60.0f, 1e-3f),
+              "force integrates as F/m * dt");
+
+        fake2d::PhysicsWorld spin_world;
+        spin_world.SetGravity({0.0f, 0.0f});
+        fake2d::BodyConfig spin_cfg;
+        spin_cfg.half_extents = {10.0f, 10.0f};
+        spin_cfg.angular_velocity = 1.0f;
+        spin_cfg.friction = 0.0f;
+        const fake2d::BodyId spinner = spin_world.CreateBody(spin_cfg);
+        spin_world.SetInterpAlpha(0.5f);
+        spin_world.Step(1.0f / 60.0f);
+        const fake2d::BodyConfig *spin_cfg_now = spin_world.Get(spinner);
+        check(spin_cfg_now != nullptr &&
+                  near(spin_cfg_now->rotation, 1.0f / 60.0f, 1e-4f),
+              "angular velocity integrates the rotation");
+        check(near(spin_world.SmoothRotation(spinner), 0.5f / 60.0f, 1e-4f),
+              "SmoothRotation interpolates toward the current step");
+    }
+
+    std::printf("[phys-rigid] %s: %d checks, %d failures\n",
+                failures == 0 ? "PASS" : "FAILED", checks, failures);
+    return failures == 0 ? 0 : 1;
+}
+
+// Extended rigid-body self-test (Phase 32): kinematic platforms, damping,
+// sleeping/waking, joints (distance/rope/revolute/weld, motor and limits),
+// joint collision filtering, contact-point payload, fixed rotation and
+// substepped anti-tunneling. Headless CPU-only. Prints [phys-extended] lines;
+// non-zero on fail.
+int RunPhysicsExtendedTest(fake2d::Engine &engine) {
+    (void)engine;
+    int failures = 0;
+    int checks = 0;
+    auto check = [&](bool ok, const char *what) {
+        ++checks;
+        if (!ok) {
+            ++failures;
+            std::printf("[phys-extended] FAIL %s\n", what);
+        }
+    };
+    auto near = [](float a, float b, float tol) { return std::fabs(a - b) <= tol; };
+    auto step_n = [](fake2d::PhysicsWorld &world, int frames) {
+        for (int f = 0; f < frames; ++f) {
+            world.Step(1.0f / 60.0f);
+        }
+    };
+
+    // ---- Kinematic bodies: driven platforms, infinite mass ---------------
+    {
+        fake2d::PhysicsWorld world;
+        world.SetGravity({0.0f, 900.0f});
+        fake2d::BodyConfig platform_cfg;
+        platform_cfg.type = fake2d::BodyType::Kinematic;
+        platform_cfg.position = {100.0f, 300.0f};
+        platform_cfg.half_extents = {80.0f, 10.0f};
+        platform_cfg.velocity = {60.0f, 0.0f};
+        platform_cfg.friction = 0.8f;
+        const fake2d::BodyId platform = world.CreateBody(platform_cfg);
+
+        fake2d::BodyConfig box_cfg;
+        box_cfg.position = {100.0f, 280.0f};
+        box_cfg.half_extents = {10.0f, 10.0f};
+        box_cfg.friction = 0.8f;
+        box_cfg.restitution = 0.0f;
+        const fake2d::BodyId box = world.CreateBody(box_cfg);
+
+        step_n(world, 60);
+        const fake2d::BodyConfig *p = world.Get(platform);
+        const fake2d::BodyConfig *b = world.Get(box);
+        check(p != nullptr && near(p->position.y, 300.0f, 0.1f),
+              "kinematic body ignores gravity");
+        check(p != nullptr && p->position.x > 150.0f,
+              "kinematic body integrates its velocity");
+        check(p != nullptr && near(p->velocity.x, 60.0f, 0.1f),
+              "kinematic body is not pushed back by contacts");
+        check(b != nullptr && b->position.x > 130.0f,
+              "friction carries a rider on a moving platform");
+    }
+
+    // ---- Damping ----------------------------------------------------------
+    {
+        fake2d::PhysicsWorld world;
+        world.SetGravity({0.0f, 0.0f});
+        fake2d::BodyConfig cfg;
+        cfg.half_extents = {10.0f, 10.0f};
+        cfg.velocity = {100.0f, 0.0f};
+        cfg.angular_velocity = 5.0f;
+        cfg.linear_damping = 2.0f;
+        cfg.angular_damping = 3.0f;
+        cfg.allow_sleep = false;
+        const fake2d::BodyId body = world.CreateBody(cfg);
+        step_n(world, 60);
+        const fake2d::BodyConfig *now = world.Get(body);
+        check(now != nullptr && now->velocity.x > 9.0f && now->velocity.x < 18.0f,
+              "linear damping decays speed by 1/(1+d*dt)");
+        check(now != nullptr && now->angular_velocity > 0.15f &&
+                  now->angular_velocity < 0.40f,
+              "angular damping decays spin");
+    }
+
+    // ---- Sleeping and waking ---------------------------------------------
+    {
+        fake2d::PhysicsWorld world;
+        world.SetGravity({0.0f, 900.0f});
+        fake2d::BodyConfig floor_cfg;
+        floor_cfg.type = fake2d::BodyType::Static;
+        floor_cfg.position = {0.0f, 110.0f};
+        floor_cfg.half_extents = {200.0f, 10.0f};
+        world.CreateBody(floor_cfg);
+
+        auto resting_box = [&](float x, bool allow_sleep) {
+            fake2d::BodyConfig cfg;
+            cfg.position = {x, 90.0f};
+            cfg.half_extents = {10.0f, 10.0f};
+            cfg.friction = 0.5f;
+            cfg.restitution = 0.0f;
+            cfg.allow_sleep = allow_sleep;
+            return world.CreateBody(cfg);
+        };
+        const fake2d::BodyId sleeper = resting_box(0.0f, true);
+        const fake2d::BodyId stayer = resting_box(80.0f, false);
+
+        step_n(world, 120);
+        check(world.IsSleeping(sleeper), "a quiet body falls asleep");
+        check(!world.IsSleeping(stayer), "allow_sleep=false keeps the body awake");
+
+        world.SetSleepEnabled(false);
+        check(!world.IsSleeping(sleeper), "disabling sleeping wakes every body");
+        world.SetSleepEnabled(true);
+        step_n(world, 90);
+        check(world.IsSleeping(sleeper), "reenabled sleeping puts it back to rest");
+
+        world.ApplyImpulse(sleeper, {0.0f, -2000.0f}, {0.0f, 90.0f});
+        check(!world.IsSleeping(sleeper), "an impulse wakes a sleeping body");
+        const fake2d::BodyConfig *now = world.Get(sleeper);
+        check(now != nullptr && now->velocity.y < -1.0f, "the wake impulse moved it");
+
+        // Slot reuse must not revive a stale handle.
+        const fake2d::BodyId doomed = world.CreateBody(fake2d::BodyConfig{});
+        world.DestroyBody(doomed);
+        const fake2d::BodyId fresh = world.CreateBody(fake2d::BodyConfig{});
+        check(world.Get(doomed) == nullptr, "stale body handle stays invalid");
+        check(world.Get(fresh) != nullptr, "reused slot returns a fresh handle");
+    }
+
+    // ---- Distance joint (rigid rod) and rope (max distance) ---------------
+    {
+        fake2d::PhysicsWorld world;
+        world.SetGravity({0.0f, 900.0f});
+        fake2d::BodyConfig anchor_cfg;
+        anchor_cfg.type = fake2d::BodyType::Static;
+        anchor_cfg.position = {0.0f, 0.0f};
+        anchor_cfg.half_extents = {5.0f, 5.0f};
+        const fake2d::BodyId anchor = world.CreateBody(anchor_cfg);
+
+        fake2d::BodyConfig bob_cfg;
+        bob_cfg.position = {100.0f, 0.0f};
+        bob_cfg.half_extents = {10.0f, 10.0f};
+        bob_cfg.friction = 0.0f;
+        bob_cfg.restitution = 0.0f;
+        const fake2d::BodyId bob = world.CreateBody(bob_cfg);
+
+        fake2d::JointConfig joint_cfg;
+        joint_cfg.type = fake2d::JointType::Distance;
+        const fake2d::JointId rod =
+            world.CreateJoint(joint_cfg, anchor, bob);
+        check(rod != fake2d::kInvalidJoint && world.JointCount() == 1,
+              "distance joint created");
+        step_n(world, 120);
+        check(near(world.JointDistance(rod), 100.0f, 1.0f),
+              "distance joint keeps the rod length");
+        const fake2d::BodyConfig *b = world.Get(bob);
+        check(b != nullptr && b->position.y > 10.0f,
+              "the rod swings under gravity");
+        world.DestroyJoint(rod);
+        check(world.JointCount() == 0 && world.GetJoint(rod) == nullptr,
+              "destroyed joint handle is stale");
+        check(world.JointDistance(rod) == 0.0f, "stale joint reads zero distance");
+    }
+
+    {
+        fake2d::PhysicsWorld world;
+        world.SetGravity({0.0f, 0.0f});
+        fake2d::BodyConfig anchor_cfg;
+        anchor_cfg.type = fake2d::BodyType::Static;
+        anchor_cfg.half_extents = {5.0f, 5.0f};
+        const fake2d::BodyId anchor = world.CreateBody(anchor_cfg);
+        fake2d::BodyConfig body_cfg;
+        body_cfg.position = {150.0f, 0.0f};
+        body_cfg.half_extents = {5.0f, 5.0f};
+        const fake2d::BodyId body = world.CreateBody(body_cfg);
+        fake2d::JointConfig rope_cfg;
+        rope_cfg.type = fake2d::JointType::Rope;
+        rope_cfg.length = 100.0f;
+        const fake2d::JointId rope = world.CreateJoint(rope_cfg, anchor, body);
+        float max_distance = 0.0f;
+        for (int f = 0; f < 90; ++f) {
+            world.Step(1.0f / 60.0f);
+            if (f > 2) {
+                max_distance = std::max(max_distance, world.JointDistance(rope));
+            }
+        }
+        check(max_distance < 103.0f, "rope pulls a stretched body back to its limit");
+        check(world.JointDistance(rope) < 105.0f, "rope length converges");
+
+        // Slack: a rope inside its range never pushes.
+        fake2d::BodyConfig loose_cfg;
+        loose_cfg.position = {0.0f, 500.0f};
+        loose_cfg.half_extents = {5.0f, 5.0f};
+        const fake2d::BodyId loose = world.CreateBody(loose_cfg);
+        fake2d::BodyConfig far_cfg;
+        far_cfg.position = {60.0f, 500.0f};
+        far_cfg.half_extents = {5.0f, 5.0f};
+        const fake2d::BodyId slack = world.CreateBody(far_cfg);
+        fake2d::JointConfig slack_rope;
+        slack_rope.type = fake2d::JointType::Rope;
+        slack_rope.length = 100.0f;
+        const fake2d::JointId jid = world.CreateJoint(slack_rope, loose, slack);
+        step_n(world, 30);
+        check(near(world.JointDistance(jid), 60.0f, 1.0f),
+              "a slack rope applies no force");
+    }
+
+    // ---- Revolute: hinge, motor, limits ----------------------------------
+    {
+        fake2d::PhysicsWorld world;
+        world.SetGravity({0.0f, 0.0f});
+        fake2d::BodyConfig anchor_cfg;
+        anchor_cfg.type = fake2d::BodyType::Static;
+        anchor_cfg.half_extents = {5.0f, 5.0f};
+        const fake2d::BodyId anchor = world.CreateBody(anchor_cfg);
+
+        fake2d::BodyConfig wheel_cfg;
+        wheel_cfg.half_extents = {10.0f, 10.0f};
+        const fake2d::BodyId wheel = world.CreateBody(wheel_cfg);
+
+        fake2d::JointConfig hinge_cfg;
+        hinge_cfg.type = fake2d::JointType::Revolute;
+        hinge_cfg.enable_motor = true;
+        hinge_cfg.motor_speed = 2.0f;
+        hinge_cfg.max_motor_torque = 1.0e7f;
+        const fake2d::JointId hinge = world.CreateJoint(hinge_cfg, anchor, wheel);
+        step_n(world, 60);
+        const fake2d::BodyConfig *w = world.Get(wheel);
+        check(w != nullptr && near(w->angular_velocity, 2.0f, 0.2f),
+              "revolute motor reaches its target speed");
+        check(w != nullptr && near(w->rotation, 2.0f, 0.2f),
+              "motor spin integrates into rotation");
+        check(!world.IsSleeping(wheel), "a motorised joint never sleeps");
+        world.DestroyJoint(hinge);
+    }
+
+    {
+        fake2d::PhysicsWorld world;
+        world.SetGravity({0.0f, 900.0f});
+        fake2d::BodyConfig anchor_cfg;
+        anchor_cfg.type = fake2d::BodyType::Static;
+        anchor_cfg.half_extents = {5.0f, 5.0f};
+        const fake2d::BodyId anchor = world.CreateBody(anchor_cfg);
+
+        fake2d::BodyConfig arm_cfg;
+        arm_cfg.position = {100.0f, 0.0f};
+        arm_cfg.half_extents = {10.0f, 5.0f};
+        const fake2d::BodyId arm = world.CreateBody(arm_cfg);
+
+        fake2d::JointConfig hinge_cfg;
+        hinge_cfg.type = fake2d::JointType::Revolute;
+        hinge_cfg.local_anchor_b = {-100.0f, 0.0f}; // hinge at the world origin
+        hinge_cfg.enable_limit = true;
+        hinge_cfg.lower_angle = -0.3f;
+        hinge_cfg.upper_angle = 0.3f;
+        const fake2d::JointId hinge = world.CreateJoint(hinge_cfg, anchor, arm);
+        step_n(world, 180);
+        const fake2d::BodyConfig *a = world.Get(arm);
+        check(a != nullptr && std::fabs(a->rotation) <= 0.36f,
+              "revolute limit holds the relative angle");
+        const fake2d::Vec2 pa = world.JointAnchorA(hinge);
+        const fake2d::Vec2 pb = world.JointAnchorB(hinge);
+        check((pa - pb).Length() < 1.0f, "hinge anchors stay coincident");
+    }
+
+    // ---- Weld: rigid pair ------------------------------------------------
+    {
+        fake2d::PhysicsWorld world;
+        world.SetGravity({0.0f, 0.0f});
+        fake2d::BodyConfig a_cfg;
+        a_cfg.position = {0.0f, 0.0f};
+        a_cfg.half_extents = {10.0f, 10.0f};
+        const fake2d::BodyId a = world.CreateBody(a_cfg);
+        fake2d::BodyConfig b_cfg;
+        b_cfg.position = {30.0f, 0.0f};
+        b_cfg.half_extents = {10.0f, 10.0f};
+        const fake2d::BodyId b = world.CreateBody(b_cfg);
+
+        fake2d::JointConfig weld_cfg;
+        weld_cfg.type = fake2d::JointType::Weld;
+        weld_cfg.local_anchor_a = {10.0f, 0.0f};
+        weld_cfg.local_anchor_b = {-10.0f, 0.0f};
+        const fake2d::JointId weld = world.CreateJoint(weld_cfg, a, b);
+        world.ApplyImpulse(b, {0.0f, -400.0f}, {30.0f, 0.0f});
+        step_n(world, 60);
+        const fake2d::BodyConfig *ab = world.Get(a);
+        const fake2d::BodyConfig *bb = world.Get(b);
+        check(ab != nullptr && bb != nullptr &&
+                  std::fabs(bb->rotation - ab->rotation) < 0.02f,
+              "weld locks the relative angle");
+        check((world.JointAnchorA(weld) - world.JointAnchorB(weld)).Length() < 0.5f,
+              "weld anchors stay coincident");
+    }
+
+    // ---- Joint collision filtering ---------------------------------------
+    {
+        fake2d::PhysicsWorld world;
+        world.SetGravity({0.0f, 0.0f});
+        fake2d::BodyConfig a_cfg;
+        a_cfg.radius = 12.0f;
+        a_cfg.half_extents = {12.0f, 12.0f};
+        a_cfg.restitution = 0.0f;
+        a_cfg.friction = 0.0f;
+        const fake2d::BodyId a = world.CreateBody(a_cfg);
+        fake2d::BodyConfig b_cfg = a_cfg;
+        const fake2d::BodyId b = world.CreateBody(b_cfg);
+
+        fake2d::JointConfig joint_cfg;
+        joint_cfg.type = fake2d::JointType::Distance;
+        joint_cfg.length = 0.001f;
+        const fake2d::JointId jid = world.CreateJoint(joint_cfg, a, b);
+        step_n(world, 10);
+        check(world.Contacts().empty() && world.StayedContacts().empty(),
+              "connected bodies skip collisions by default");
+
+        if (fake2d::JointConfig *cfg = world.GetJoint(jid)) {
+            cfg->collide_connected = true;
+        }
+        bool began = false;
+        for (int f = 0; f < 10 && !began; ++f) {
+            world.Step(1.0f / 60.0f);
+            began = !world.Contacts().empty();
+        }
+        check(began, "collide_connected re-enables the pair");
+    }
+
+    // ---- Contact point payload -------------------------------------------
+    {
+        fake2d::PhysicsWorld world;
+        world.SetGravity({0.0f, 900.0f});
+        fake2d::BodyConfig floor_cfg;
+        floor_cfg.type = fake2d::BodyType::Static;
+        floor_cfg.position = {0.0f, 110.0f};
+        floor_cfg.half_extents = {200.0f, 10.0f};
+        floor_cfg.user_id = 1;
+        world.CreateBody(floor_cfg);
+        fake2d::BodyConfig ball_cfg;
+        ball_cfg.position = {0.0f, 50.0f};
+        ball_cfg.radius = 5.0f;
+        ball_cfg.half_extents = {5.0f, 5.0f};
+        ball_cfg.restitution = 0.0f;
+        ball_cfg.user_id = 2;
+        world.CreateBody(ball_cfg);
+
+        bool found = false;
+        fake2d::Vec2 point{0.0f, 0.0f};
+        fake2d::Vec2 normal{0.0f, 0.0f};
+        for (int f = 0; f < 120 && !found; ++f) {
+            world.Step(1.0f / 60.0f);
+            for (const fake2d::ContactEvent &ev : world.Contacts()) {
+                if (ev.user_a == 2 || ev.user_b == 2) {
+                    found = true;
+                    point = ev.point;
+                    normal = ev.normal;
+                }
+            }
+        }
+        check(found, "ball-floor began event is reported");
+        check(found && near(point.y, 100.0f, 1.5f),
+              "contact point sits on the floor surface");
+        check(found && ((normal.y < -0.9f) || (normal.y > 0.9f)),
+              "contact normal is vertical");
+    }
+
+    // ---- Fixed rotation ---------------------------------------------------
+    {
+        fake2d::PhysicsWorld world;
+        world.SetGravity({0.0f, 0.0f});
+        fake2d::BodyConfig cfg;
+        cfg.half_extents = {10.0f, 10.0f};
+        cfg.fixed_rotation = true;
+        const fake2d::BodyId body = world.CreateBody(cfg);
+        world.ApplyImpulse(body, {0.0f, 100.0f}, {10.0f, 0.0f});
+        check(near(world.Get(body)->angular_velocity, 0.0f, 1e-6f),
+              "fixed rotation rejects angular impulses");
+        step_n(world, 30);
+        check(near(world.Get(body)->rotation, 0.0f, 1e-6f),
+              "fixed rotation never changes the angle");
+    }
+
+    // ---- Anti-tunneling: fast tiny bullet vs thin wall -------------------
+    {
+        fake2d::PhysicsWorld world;
+        world.SetGravity({0.0f, 0.0f});
+        fake2d::BodyConfig wall_cfg;
+        wall_cfg.type = fake2d::BodyType::Static;
+        wall_cfg.position = {500.0f, 0.0f};
+        wall_cfg.half_extents = {2.0f, 100.0f};
+        wall_cfg.restitution = 0.0f;
+        wall_cfg.friction = 0.0f;
+        world.CreateBody(wall_cfg);
+
+        fake2d::BodyConfig bullet_cfg;
+        bullet_cfg.position = {100.0f, 0.0f};
+        bullet_cfg.radius = 1.0f;
+        bullet_cfg.half_extents = {1.0f, 1.0f};
+        bullet_cfg.velocity = {2400.0f, 0.0f};
+        bullet_cfg.restitution = 0.0f;
+        bullet_cfg.friction = 0.0f;
+        const fake2d::BodyId bullet = world.CreateBody(bullet_cfg);
+
+        int max_substeps = 0;
+        for (int f = 0; f < 30; ++f) {
+            world.Step(1.0f / 60.0f);
+            max_substeps = std::max(max_substeps, world.SubstepsLastStep());
+        }
+        const fake2d::BodyConfig *now = world.Get(bullet);
+        check(max_substeps > fake2d::PhysicsWorld::kSubsteps,
+              "fast bodies trigger extra substeps");
+        check(now != nullptr && now->position.x < 500.0f,
+              "bullet does not tunnel through the thin wall");
+        check(now != nullptr && now->velocity.x < 100.0f,
+              "the wall stops the bullet");
+    }
+
+    std::printf("[phys-extended] %s: %d checks, %d failures\n",
+                failures == 0 ? "PASS" : "FAILED", checks, failures);
+    return failures == 0 ? 0 : 1;
+}
+
 // Fixed-step / camera-tooling self-test (Phase 16). Headless CPU-only:
 // the zero-dt contact pass used by the accumulator, render interpolation,
 // and the camera follow / deadzone / bounds helpers. Prints [timestep] lines;
@@ -5295,6 +6036,9 @@ int main(int argc, char **argv) {
     bool phys_bench = false;
     bool phys_query = false;
     bool phys_filter = false;
+    bool phys_rigid = false;
+    bool phys_extended = false;
+    bool angry_demo = false;
     bool map_object = false;
     bool tile_test = false;
     bool timestep_test = false;
@@ -5319,6 +6063,16 @@ int main(int argc, char **argv) {
             cfg.hot_reload = true;
         } else if (arg == "--scene-demo") {
             cfg.script_entry = "scripts/scene_demo.lua";
+        } else if (arg == "--angry-birds-demo") {
+            // Slingshot physics sandbox: drag the bird, release, topple the
+            // towers (joints-free rigid bodies, stacking and impulses).
+            angry_demo = true;
+            cfg.script_entry = "scripts/angry_birds_demo.lua";
+        } else if (arg == "--limbo-demo") {
+            // Joint-heavy sandbox: ragdoll, rope chain, rope bridge, buoyancy
+            // and death severing (dynamic joint creation at runtime).
+            angry_demo = true; // shares the synthesized SFX set
+            cfg.script_entry = "scripts/limbo_demo.lua";
         } else if (arg == "--map-demo") {
             map_demo = true;
             cfg.script_entry = "scripts/map_demo.lua";
@@ -5397,6 +6151,20 @@ int main(int argc, char **argv) {
         } else if (arg == "--phys-filter-test") {
             // Headless CPU-only self-test of category/mask collision filtering.
             phys_filter = true;
+            cfg.headless = true;
+            cfg.script_entry.clear();
+            cfg.vsync = false;
+        } else if (arg == "--phys-rigid-test") {
+            // Headless CPU-only self-test of the rigid-body solver: rotation,
+            // inertia, oriented ray casts, friction, restitution and stacks.
+            phys_rigid = true;
+            cfg.headless = true;
+            cfg.script_entry.clear();
+            cfg.vsync = false;
+        } else if (arg == "--phys-extended-test") {
+            // Headless CPU-only self-test of kinematic bodies, damping,
+            // sleeping, joints, contact points and anti-tunneling.
+            phys_extended = true;
             cfg.headless = true;
             cfg.script_entry.clear();
             cfg.vsync = false;
@@ -5499,6 +6267,12 @@ int main(int argc, char **argv) {
     if (phys_filter) {
         return RunPhysicsFilterTest(engine);
     }
+    if (phys_rigid) {
+        return RunPhysicsRigidTest(engine);
+    }
+    if (phys_extended) {
+        return RunPhysicsExtendedTest(engine);
+    }
     if (map_object) {
         return RunMapObjectTest(engine);
     }
@@ -5551,6 +6325,11 @@ int main(int argc, char **argv) {
     if (platformer_demo) {
         EnsurePlatformerAssets();
         engine.GetAudio().AddClipWav("music", "assets/music.wav");
+    }
+    if (angry_demo) {
+        // Launch / impact / pop / win / lose clips come from the same
+        // synthesized set the breakout sample uses.
+        EnsureGameAudio(engine.GetAudio());
     }
     if (audio_clips) {
         // SFX come from EnsureGameAudio; the two looping themes are

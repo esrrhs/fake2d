@@ -7,7 +7,7 @@
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-brightgreen.svg)](https://en.cppreference.com/w/cpp/23)
 [![OpenGL](https://img.shields.io/badge/OpenGL-3.3%20Core%20%7C%202.1-orange.svg)](https://www.opengl.org/)
 [![FakeLua](https://img.shields.io/badge/Script-FakeLua-red.svg)](https://github.com/esrrhs/fakelua)
-[![Version](https://img.shields.io/badge/version-1.24.0-informational.svg)](include/fake2d/version.h)
+[![Version](https://img.shields.io/badge/version-1.26.0-informational.svg)](include/fake2d/version.h)
 
 **Fake2D** is a modern, lightweight, high-performance 2D game engine powered by [FakeLua](https://github.com/esrrhs/fakelua):
 - **C++23 Host Engine**: Controls window management, GPU rendering pipelines, 2D physics, multi-bus audio mixing, and native resource lifecycles;
@@ -38,7 +38,7 @@ Engineered around modern industry standards (aligned with Raylib, MonoGame, and 
 ### 4. Comprehensive 2D Subsystems
 Fake2D is a fully battery-included engine, not just a bare graphics library:
 - **Tiled Map System**: Orthogonal JSON parser supporting tile layers, parallax scrolling, image layers, object groups (`objectgroup` spawns/triggers), slope physics, and **animated tiles (`animation` cycles synchronized to an engine clock)**;
-- **Built-in Physics & Pathfinding**: Zero-dependency 2D physics (AABB / Circle / Sensor triggers), spatial hash grid broadphase (5.9× faster than brute-force), fixed timestep accumulator with render interpolation (`phys_smooth_x/y`), 16-bit category/mask collision filters, ray casting & shape overlap queries, and grid A\* pathfinding (octile heuristic, corner-cut prevention, string-pulling line-of-sight smoothing);
+- **Built-in Physics & Pathfinding**: Zero-dependency 2D rigid bodies (circles, oriented boxes and convex polygons) with density-derived mass/inertia, sequential impulses with warm starting and Coulomb friction, kinematic bodies, damping, automatic sleeping, distance/rope/revolute/weld joints (motors and limits), substepped anti-tunneling, spatial hash grid broadphase (≈5× faster than brute force), fixed timestep with render interpolation (`phys_smooth_x/y`), 16-bit category/mask filters, ray casts & shape overlaps, and grid A\* pathfinding (octile heuristic, corner-cut prevention, string-pulling line-of-sight smoothing);
 - **Studio-Grade Audio Engine**: Device-decoupled software mixer, 3-bus hierarchy (Master / SFX / Music), linear gain envelopes and music cross-fades, 3D positional audio (distance rolloff and stereo pan), low-memory streamed playback (8192-frame streaming windows for WAV / MP3 / OGG / FLAC), and real-time stereo VU peak metering;
 - **Multi-Pass Post-Processing & FBO**: Offscreen `RenderTarget` pool, ping-pong blur passes, bloom thresholding (`fx_bright`), animated wave shimmer (`fx_wave` with auto `u_time`/`u_resolution`), fog of war with multiply blending & `rt_sample` exploration probes, and baked minimaps;
 - **Immediate-Mode UI (UISystem)**: Ready-to-use widgets including Panels, Buttons, Labels, Sliders, Checkboxes, UTF-8 TextInputs, ScrollAreas, ProgressBars, RadioButtons, Combos, draggable Windows (with mouse deltas), Tab bars, disclosure Trees, and Tooltips.
@@ -46,7 +46,7 @@ Fake2D is a fully battery-included engine, not just a bare graphics library:
 ### 5. Developer Experience & Automated Testing
 - **JIT Script Hot-Reload**: GCC JIT backend with automatic interpreter fallback; edit Lua scripts live and see changes reflected instantly without restarting;
 - **Headless & CI-Ready**: First-class `--headless`, `--frames N`, and `--screenshot` CLI flags allow visual regression tests and automated smoke validation in headless Linux/macOS/Windows environments;
-- **12 Built-in Self-Test Suites**: Over 500 assertions covering physics queries, filters, timesteps, tilemap objects, A\* pathfinding, render targets, UI widgets, post-FX, fog of war, audio mixing, and animated tiles (all mutation-tested);
+- **14 Built-in Self-Test Suites**: Over 620 assertions covering rigid-body dynamics, joints, sleeping, anti-tunneling, physics queries, filters, timesteps, tilemap objects, A\* pathfinding, render targets, UI widgets, post-FX, fog of war, audio mixing, and animated tiles (all mutation-tested);
 - **Standalone Packaging**: Bundling scripts under `tools/` generate self-contained archives on Linux, macOS, and Windows with all dependencies, shaders, and assets included.
 
 ---
@@ -83,12 +83,14 @@ Fake2D is a fully battery-included engine, not just a bare graphics library:
 
 ## 🎮 Runnable Demos Matrix
 
-Fake2D comes with 13 rich, self-contained demos demonstrating platformer mechanics, retro gameplay, spatial audio, immediate UI, and graphical post-processing:
+Fake2D comes with 15 rich, self-contained demos demonstrating platformer mechanics, retro gameplay, spatial audio, immediate UI, and graphical post-processing:
 
 | Demo Flag | Topic | Key Highlighted Features |
 |---|---|---|
 | `./fake2d_hello` | **Breakout (Default)** | Ball physics reflections, brick destruction, particle debris, HUD text, and procedural audio chirps |
 | `--mario-demo` | **Super Mario Bros 1-1** | Faithful SMB 1-1 recreation; small/big Mario forms, Goomba patrols & squashing, ? blocks, brick shatter particles, flag pole sequence, attract AI |
+| `--angry-birds-demo` | **Angry Birds Sandbox** | Slingshot impulse launch, stacked towers that sleep and wake, contact-driven pig pops, camera follow, synthesized SFX |
+| `--limbo-demo` | **LIMBO Jointed Sandbox** | 6-part revolute ragdoll, 9-node rope chain and revolute bridge, buoyancy water, and sever-on-death pieces that stay tethered |
 | `--platformer-demo` | **Platformer Controller** | Kinematic tile platforming; coyote time, jump buffering, one-way ledges, coin pickups, smooth follow camera |
 | `--slope-demo` | **Slopes & Terrain** | Tiled slope calculation (`map_slope_dir` / `map_ground_y`), smooth angle traversal and live ground overlays |
 | `--path-demo` | **Maze Chase & A\* Pathfinding** | Generated maze, staggered AI tracking, player autopilot mode, and live polyline path drawing |
@@ -140,6 +142,12 @@ cmake --build build --parallel
 ```bash
 # Super Mario Bros 1-1 (A/D to move, Shift to run, Space to jump, Gamepad supported)
 ./build/bin/fake2d_hello --mario-demo
+
+# Angry Birds sandbox (drag, release; camera follows the shot, SFX; R restarts)
+./build/bin/fake2d_hello --angry-birds-demo
+
+# LIMBO-style jointed sandbox (A/D, SPACE, E rope, K sever, R reset)
+./build/bin/fake2d_hello --limbo-demo
 
 # Scrolling Platformer Demo (Smooth camera, coyote time, one-way platforms)
 ./build/bin/fake2d_hello --platformer-demo
@@ -197,9 +205,11 @@ xvfb-run ./build/bin/fake2d_hello --headless --frames 60
 # Capture framebuffer screenshot for visual regression testing
 xvfb-run ./build/bin/fake2d_hello --headless --mario-demo --shot-frame 60 --screenshot mario.png
 
-# Run the 12 built-in engine self-test suites (verified via exit codes)
+# Run the 14 built-in engine self-test suites (verified via exit codes)
 xvfb-run ./build/bin/fake2d_hello --phys-query-test    # Ray casts, overlaps, contact lifecycle
 xvfb-run ./build/bin/fake2d_hello --phys-filter-test   # 16-bit category/mask collision filtering
+xvfb-run ./build/bin/fake2d_hello --phys-rigid-test    # Rotational inertia, friction, resting stacks
+xvfb-run ./build/bin/fake2d_hello --phys-extended-test # Joints, sleeping, kinematic bodies, anti-tunneling
 xvfb-run ./build/bin/fake2d_hello --timestep-test      # Fixed-step accumulator & camera smooth
 xvfb-run ./build/bin/fake2d_hello --map-object-test    # Tiled object groups & custom properties
 xvfb-run ./build/bin/fake2d_hello --path-test          # Tilemap A* pathfinding & string pulling
@@ -284,7 +294,7 @@ fake2d/
 │   ├── math.h               # Vec2, Rect, Color, Mat4 math library
 │   ├── node.h               # Transform2D spatial node hierarchy
 │   ├── particle.h           # Zero-allocation 8192 particle pool & emitters
-│   ├── physics.h            # 2D physics world, spatial hash broadphase & filters
+│   ├── physics.h            # Rigid bodies, joints, sleeping & broadphase
 │   ├── renderer.h           # Renderer façade (OpenGL abstraction)
 │   ├── render_target.h      # Offscreen RenderTarget (FBO) pool
 │   ├── resource_manager.h   # Handle-based resource manager
@@ -310,6 +320,8 @@ fake2d/
 ├── scripts/                 # Complete pure-Lua demo and game scripts
 │   ├── game.lua             # Classic Breakout game
 │   ├── mario.lua            # Super Mario Bros 1-1 level
+│   ├── angry_birds_demo.lua # Slingshot rigid-body sandbox
+│   ├── limbo_demo.lua       # Ragdoll, rope, bridge & buoyancy sandbox
 │   ├── platformer_demo.lua  # Kinematic platformer demo
 │   ├── slope_demo.lua       # Terrain slope traversal
 │   ├── path_demo.lua        # Maze chase & A* tracking

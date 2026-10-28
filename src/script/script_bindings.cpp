@@ -26,6 +26,19 @@ BodyId ResolveBody(std::int64_t handle) {
     return static_cast<BodyId>(static_cast<std::uint64_t>(handle));
 }
 
+JointId ResolveJoint(std::int64_t handle) {
+    return static_cast<JointId>(static_cast<std::uint64_t>(handle));
+}
+
+/// World point -> body-local point (inverse of the body transform).
+Vec2 WorldToLocalPoint(const BodyConfig &cfg, const Vec2 &world) {
+    const float dx = world.x - cfg.position.x;
+    const float dy = world.y - cfg.position.y;
+    const float c = std::cos(cfg.rotation);
+    const float s = std::sin(cfg.rotation);
+    return {dx * c + dy * s, -dx * s + dy * c};
+}
+
 void RegisterPhysicsApi(fakelua::State *state, Engine *engine) {
     auto create_body = [engine](double x, double y, double hw, double hh, double radius) -> std::int64_t {
         BodyConfig cfg;
@@ -65,6 +78,9 @@ void RegisterPhysicsApi(fakelua::State *state, Engine *engine) {
                     b->type = is_static ? BodyType::Static : BodyType::Dynamic;
                     if (is_static) {
                         b->velocity = {0.0f, 0.0f};
+                        b->angular_velocity = 0.0f;
+                    } else {
+                        engine->GetPhysics().WakeBody(ResolveBody(id));
                     }
                 }
             }));
@@ -102,6 +118,7 @@ void RegisterPhysicsApi(fakelua::State *state, Engine *engine) {
             [engine](fakelua::State *, std::int64_t id, double x, double y) {
                 if (BodyConfig *b = engine->GetPhysics().Get(ResolveBody(id))) {
                     b->position = {static_cast<float>(x), static_cast<float>(y)};
+                    engine->GetPhysics().WakeBody(ResolveBody(id));
                 }
             }));
 
@@ -111,6 +128,7 @@ void RegisterPhysicsApi(fakelua::State *state, Engine *engine) {
             [engine](fakelua::State *, std::int64_t id, double vx, double vy) {
                 if (BodyConfig *b = engine->GetPhysics().Get(ResolveBody(id))) {
                     b->velocity = {static_cast<float>(vx), static_cast<float>(vy)};
+                    engine->GetPhysics().WakeBody(ResolveBody(id));
                 }
             }));
 
@@ -121,6 +139,310 @@ void RegisterPhysicsApi(fakelua::State *state, Engine *engine) {
                 if (BodyConfig *b = engine->GetPhysics().Get(ResolveBody(id))) {
                     b->user_id = user;
                 }
+            }));
+
+    // ---- Rigid-body state: rotation, angular velocity, mass -----------------
+    fakelua::RegisterNativeFunction(
+        state, "phys_set_rot", false,
+        std::function<void(fakelua::State *, std::int64_t, double)>(
+            [engine](fakelua::State *, std::int64_t id, double radians) {
+                if (BodyConfig *b = engine->GetPhysics().Get(ResolveBody(id))) {
+                    b->rotation = static_cast<float>(radians);
+                    engine->GetPhysics().WakeBody(ResolveBody(id));
+                }
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "phys_set_ang_vel", false,
+        std::function<void(fakelua::State *, std::int64_t, double)>(
+            [engine](fakelua::State *, std::int64_t id, double omega) {
+                if (BodyConfig *b = engine->GetPhysics().Get(ResolveBody(id))) {
+                    b->angular_velocity = static_cast<float>(omega);
+                    engine->GetPhysics().WakeBody(ResolveBody(id));
+                }
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "phys_set_friction", false,
+        std::function<void(fakelua::State *, std::int64_t, double)>(
+            [engine](fakelua::State *, std::int64_t id, double friction) {
+                if (BodyConfig *b = engine->GetPhysics().Get(ResolveBody(id))) {
+                    b->friction = static_cast<float>(friction);
+                }
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "phys_set_density", false,
+        std::function<void(fakelua::State *, std::int64_t, double)>(
+            [engine](fakelua::State *, std::int64_t id, double density) {
+                if (BodyConfig *b = engine->GetPhysics().Get(ResolveBody(id))) {
+                    b->density = static_cast<float>(density);
+                    engine->GetPhysics().WakeBody(ResolveBody(id));
+                }
+            }));
+
+    fakelua::RegisterNativeFunction(state, "phys_rot", false,
+        std::function<double(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id) -> double {
+                const BodyConfig *b = engine->GetPhysics().Get(ResolveBody(id));
+                return b != nullptr ? static_cast<double>(b->rotation) : 0.0;
+            }));
+    fakelua::RegisterNativeFunction(state, "phys_ang_vel", false,
+        std::function<double(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id) -> double {
+                const BodyConfig *b = engine->GetPhysics().Get(ResolveBody(id));
+                return b != nullptr ? static_cast<double>(b->angular_velocity) : 0.0;
+            }));
+    fakelua::RegisterNativeFunction(state, "phys_friction", false,
+        std::function<double(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id) -> double {
+                const BodyConfig *b = engine->GetPhysics().Get(ResolveBody(id));
+                return b != nullptr ? static_cast<double>(b->friction) : 0.0;
+            }));
+    fakelua::RegisterNativeFunction(state, "phys_mass", false,
+        std::function<double(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id) -> double {
+                return static_cast<double>(engine->GetPhysics().Mass(ResolveBody(id)));
+            }));
+    fakelua::RegisterNativeFunction(state, "phys_smooth_rot", false,
+        std::function<double(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id) -> double {
+                return static_cast<double>(
+                    engine->GetPhysics().SmoothRotation(ResolveBody(id)));
+            }));
+
+    // Impulses / forces act in world space at a world-space point, so an
+    // off-centre hit also spins the body.
+    fakelua::RegisterNativeFunction(
+        state, "phys_apply_impulse", false,
+        std::function<void(fakelua::State *, std::int64_t, double, double, double, double)>(
+            [engine](fakelua::State *, std::int64_t id, double ix, double iy,
+                     double px, double py) {
+                engine->GetPhysics().ApplyImpulse(
+                    ResolveBody(id), {static_cast<float>(ix), static_cast<float>(iy)},
+                    {static_cast<float>(px), static_cast<float>(py)});
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "phys_apply_force", false,
+        std::function<void(fakelua::State *, std::int64_t, double, double, double, double)>(
+            [engine](fakelua::State *, std::int64_t id, double fx, double fy,
+                     double px, double py) {
+                engine->GetPhysics().ApplyForce(
+                    ResolveBody(id), {static_cast<float>(fx), static_cast<float>(fy)},
+                    {static_cast<float>(px), static_cast<float>(py)});
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "phys_apply_torque", false,
+        std::function<void(fakelua::State *, std::int64_t, double)>(
+            [engine](fakelua::State *, std::int64_t id, double torque) {
+                engine->GetPhysics().ApplyTorque(ResolveBody(id),
+                                                 static_cast<float>(torque));
+            }));
+
+    // Convex polygon creator: phys_create_poly(x, y, x1, y1, x2, y2, ...).
+    // Vararg because the vertex count is the caller's choice (3..8).
+    fakelua::RegisterNativeFunction(
+        state, "phys_create_poly", 2, true,
+        fakelua::NativeFuncCallback(
+            [engine](fakelua::State *st, fakelua::CVar *args, int n) -> fakelua::CVar {
+                BodyConfig cfg;
+                cfg.position = {static_cast<float>(fakelua::inter::CVarToNumber(args[0])),
+                                static_cast<float>(fakelua::inter::CVarToNumber(args[1]))};
+                Vec2 points[kMaxPolygonVertices];
+                int count = 0;
+                for (int i = 2; i + 1 < n && count < kMaxPolygonVertices; i += 2) {
+                    points[count++] = {
+                        static_cast<float>(fakelua::inter::CVarToNumber(args[i])),
+                        static_cast<float>(fakelua::inter::CVarToNumber(args[i + 1]))};
+                }
+                if (count < 3) {
+                    return fakelua::inter::NativeToFakeluaInt(st, 0);
+                }
+                cfg.SetVertices(points, static_cast<std::size_t>(count));
+                const BodyId id = engine->GetPhysics().CreateBody(cfg);
+                return fakelua::inter::NativeToFakeluaInt(
+                    st, static_cast<long long>(static_cast<std::uint64_t>(id)));
+            }));
+
+    // World-space vertices for rendering rotated polygons.
+    fakelua::RegisterNativeFunction(state, "phys_vertex_count", false,
+        std::function<std::int64_t(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id) -> std::int64_t {
+                return engine->GetPhysics().WorldVertexCount(ResolveBody(id));
+            }));
+    const auto vertex_reader = [engine](std::int64_t id, int index, bool x_axis) -> double {
+        const Vec2 p = engine->GetPhysics().WorldVertex(ResolveBody(id), static_cast<int>(index));
+        return static_cast<double>(x_axis ? p.x : p.y);
+    };
+    fakelua::RegisterNativeFunction(state, "phys_vertex_x", false,
+        std::function<double(fakelua::State *, std::int64_t, std::int64_t)>(
+            [vertex_reader](fakelua::State *, std::int64_t id, std::int64_t i) {
+                return vertex_reader(id, static_cast<int>(i), true);
+            }));
+    fakelua::RegisterNativeFunction(state, "phys_vertex_y", false,
+        std::function<double(fakelua::State *, std::int64_t, std::int64_t)>(
+            [vertex_reader](fakelua::State *, std::int64_t id, std::int64_t i) {
+                return vertex_reader(id, static_cast<int>(i), false);
+            }));
+
+    // ---- Body modes, damping and sleeping -----------------------------------
+    fakelua::RegisterNativeFunction(
+        state, "phys_set_kinematic", false,
+        std::function<void(fakelua::State *, std::int64_t, bool)>(
+            [engine](fakelua::State *, std::int64_t id, bool kinematic) {
+                if (BodyConfig *b = engine->GetPhysics().Get(ResolveBody(id))) {
+                    b->type = kinematic ? BodyType::Kinematic : BodyType::Dynamic;
+                    engine->GetPhysics().WakeBody(ResolveBody(id));
+                }
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "phys_set_damping", false,
+        std::function<void(fakelua::State *, std::int64_t, double, double)>(
+            [engine](fakelua::State *, std::int64_t id, double linear,
+                     double angular) {
+                if (BodyConfig *b = engine->GetPhysics().Get(ResolveBody(id))) {
+                    b->linear_damping = static_cast<float>(linear);
+                    b->angular_damping = static_cast<float>(angular);
+                }
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "phys_set_fixed_rot", false,
+        std::function<void(fakelua::State *, std::int64_t, bool)>(
+            [engine](fakelua::State *, std::int64_t id, bool fixed) {
+                if (BodyConfig *b = engine->GetPhysics().Get(ResolveBody(id))) {
+                    b->fixed_rotation = fixed;
+                    engine->GetPhysics().WakeBody(ResolveBody(id));
+                }
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "phys_wake", false,
+        std::function<void(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id) {
+                engine->GetPhysics().WakeBody(ResolveBody(id));
+            }));
+    fakelua::RegisterNativeFunction(state, "phys_sleeping", false,
+        std::function<bool(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id) -> bool {
+                return engine->GetPhysics().IsSleeping(ResolveBody(id));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "phys_set_sleep", false,
+        std::function<void(fakelua::State *, bool)>(
+            [engine](fakelua::State *, bool enabled) {
+                engine->GetPhysics().SetSleepEnabled(enabled);
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "phys_set_max_substeps", false,
+        std::function<void(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t substeps) {
+                engine->GetPhysics().SetMaxSubsteps(static_cast<int>(substeps));
+            }));
+    fakelua::RegisterNativeFunction(state, "phys_substeps", false,
+        std::function<std::int64_t(fakelua::State *)>(
+            [engine](fakelua::State *) -> std::int64_t {
+                return engine->GetPhysics().SubstepsLastStep();
+            }));
+
+    // ---- Joints -------------------------------------------------------------
+    // World-space anchors are converted to each body's local space here, so
+    // scripts can name the attachment points directly in world coordinates.
+    const auto make_joint = [engine](JointType type, std::int64_t id_a,
+                                     std::int64_t id_b, double ax, double ay,
+                                     double bx, double by,
+                                     double length) -> std::int64_t {
+        PhysicsWorld &world = engine->GetPhysics();
+        const BodyConfig *a = world.Get(ResolveBody(id_a));
+        const BodyConfig *b = world.Get(ResolveBody(id_b));
+        if (a == nullptr || b == nullptr) {
+            return 0;
+        }
+        JointConfig cfg;
+        cfg.type = type;
+        cfg.local_anchor_a = WorldToLocalPoint(
+            *a, {static_cast<float>(ax), static_cast<float>(ay)});
+        cfg.local_anchor_b = WorldToLocalPoint(
+            *b, {static_cast<float>(bx), static_cast<float>(by)});
+        cfg.length = static_cast<float>(length);
+        const JointId joint =
+            world.CreateJoint(cfg, ResolveBody(id_a), ResolveBody(id_b));
+        return static_cast<std::int64_t>(static_cast<std::uint64_t>(joint));
+    };
+
+    fakelua::RegisterNativeFunction(
+        state, "phys_joint_distance", false,
+        std::function<std::int64_t(fakelua::State *, std::int64_t, std::int64_t,
+                                   double, double, double, double)>(
+            [make_joint](fakelua::State *, std::int64_t id_a, std::int64_t id_b,
+                         double ax, double ay, double bx, double by) {
+                return make_joint(JointType::Distance, id_a, id_b, ax, ay, bx,
+                                  by, 0.0);
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "phys_joint_rope", false,
+        std::function<std::int64_t(fakelua::State *, std::int64_t, std::int64_t,
+                                   double, double, double, double, double)>(
+            [make_joint](fakelua::State *, std::int64_t id_a, std::int64_t id_b,
+                         double ax, double ay, double bx, double by,
+                         double max_length) {
+                return make_joint(JointType::Rope, id_a, id_b, ax, ay, bx, by,
+                                  max_length);
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "phys_joint_revolute", false,
+        std::function<std::int64_t(fakelua::State *, std::int64_t, std::int64_t,
+                                   double, double, double, double)>(
+            [make_joint](fakelua::State *, std::int64_t id_a, std::int64_t id_b,
+                         double ax, double ay, double bx, double by) {
+                return make_joint(JointType::Revolute, id_a, id_b, ax, ay, bx,
+                                  by, 0.0);
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "phys_joint_weld", false,
+        std::function<std::int64_t(fakelua::State *, std::int64_t, std::int64_t,
+                                   double, double, double, double)>(
+            [make_joint](fakelua::State *, std::int64_t id_a, std::int64_t id_b,
+                         double ax, double ay, double bx, double by) {
+                return make_joint(JointType::Weld, id_a, id_b, ax, ay, bx, by,
+                                  0.0);
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "phys_joint_destroy", false,
+        std::function<void(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id) {
+                engine->GetPhysics().DestroyJoint(ResolveJoint(id));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "phys_joint_motor", false,
+        std::function<void(fakelua::State *, std::int64_t, double, double)>(
+            [engine](fakelua::State *, std::int64_t id, double speed,
+                     double max_torque) {
+                if (JointConfig *cfg =
+                        engine->GetPhysics().GetJoint(ResolveJoint(id))) {
+                    cfg->motor_speed = static_cast<float>(speed);
+                    cfg->max_motor_torque = static_cast<float>(max_torque);
+                    cfg->enable_motor = max_torque > 0.0;
+                }
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "phys_joint_limit", false,
+        std::function<void(fakelua::State *, std::int64_t, double, double)>(
+            [engine](fakelua::State *, std::int64_t id, double lower,
+                     double upper) {
+                if (JointConfig *cfg =
+                        engine->GetPhysics().GetJoint(ResolveJoint(id))) {
+                    cfg->lower_angle = static_cast<float>(lower);
+                    cfg->upper_angle = static_cast<float>(upper);
+                    cfg->enable_limit = true;
+                }
+            }));
+    fakelua::RegisterNativeFunction(state, "phys_joint_length", false,
+        std::function<double(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id) -> double {
+                return static_cast<double>(
+                    engine->GetPhysics().JointDistance(ResolveJoint(id)));
+            }));
+    fakelua::RegisterNativeFunction(state, "phys_joint_count", false,
+        std::function<std::int64_t(fakelua::State *)>(
+            [engine](fakelua::State *) -> std::int64_t {
+                return static_cast<std::int64_t>(
+                    engine->GetPhysics().JointCount());
             }));
 
     // ---- Collision filtering (category / mask bitmasks) ---------------------
@@ -259,6 +581,21 @@ void RegisterPhysicsApi(fakelua::State *state, Engine *engine) {
     fakelua::RegisterNativeFunction(state, "phys_contact_user_b", false,
         std::function<std::int64_t(fakelua::State *, std::int64_t)>(
             [contact_user](fakelua::State *, std::int64_t i) { return contact_user(i, true); }));
+
+    const auto contact_point = [engine](std::int64_t index, bool x_axis) -> double {
+        const auto &contacts = engine->GetPhysics().Contacts();
+        if (index < 0 || static_cast<std::size_t>(index) >= contacts.size()) {
+            return 0.0;
+        }
+        const Vec2 &p = contacts[static_cast<std::size_t>(index)].point;
+        return static_cast<double>(x_axis ? p.x : p.y);
+    };
+    fakelua::RegisterNativeFunction(state, "phys_contact_px", false,
+        std::function<double(fakelua::State *, std::int64_t)>(
+            [contact_point](fakelua::State *, std::int64_t i) { return contact_point(i, true); }));
+    fakelua::RegisterNativeFunction(state, "phys_contact_py", false,
+        std::function<double(fakelua::State *, std::int64_t)>(
+            [contact_point](fakelua::State *, std::int64_t i) { return contact_point(i, false); }));
 
     // ---- Queries: ray casts -------------------------------------------------
     fakelua::RegisterNativeFunction(
@@ -2220,6 +2557,30 @@ void RegisterSpriteApi(fakelua::State *state, Engine *engine) {
             }));
 
     fakelua::RegisterNativeFunction(
+        state, "sprite_draw_rotated_tinted", false,
+        std::function<void(fakelua::State *, std::int64_t, double, double, double, double,
+                           double, double, double, double, double, double, double,
+                           double, double, double, double)>(
+            [resources, renderer](fakelua::State *, std::int64_t handle,
+                                  double sx, double sy, double sw, double sh,
+                                  double dx, double dy, double dw, double dh,
+                                  double angle_rad, double ox, double oy,
+                                  double r, double g, double b, double a) {
+                const Texture2D *texture = resources->GetTexture(ResolveTexture(handle));
+                if (texture) {
+                    renderer->DrawSpriteRotated(*texture,
+                                                {static_cast<float>(sx), static_cast<float>(sy),
+                                                 static_cast<float>(sw), static_cast<float>(sh)},
+                                                {static_cast<float>(dx), static_cast<float>(dy),
+                                                 static_cast<float>(dw), static_cast<float>(dh)},
+                                                static_cast<float>(angle_rad),
+                                                {static_cast<float>(ox), static_cast<float>(oy)},
+                                                Color{static_cast<float>(r), static_cast<float>(g),
+                                                      static_cast<float>(b), static_cast<float>(a)});
+                }
+            }));
+
+    fakelua::RegisterNativeFunction(
         state, "sprite_draw_flip", false,
         std::function<void(fakelua::State *, std::int64_t, double, double, double, double,
                            double, double, double, double, double, double)>(
@@ -2665,6 +3026,17 @@ void RegisterDebugApi(fakelua::State *state) {
         state, "log_number", false,
         std::function<void(fakelua::State *, double)>(
             [](fakelua::State *, double value) { std::fprintf(stderr, "[script] %g\n", value); }));
+
+    // Numeric slot readers (ent_num, math.floor results) hand back a float;
+    // handle-based APIs such as phys_destroy / phys_joint_destroy need an
+    // integer type, so scripts convert explicitly instead of failing on a
+    // type mismatch deep inside a native call.
+    fakelua::RegisterNativeFunction(
+        state, "to_int", false,
+        std::function<std::int64_t(fakelua::State *, double)>(
+            [](fakelua::State *, double value) -> std::int64_t {
+                return static_cast<std::int64_t>(std::llround(value));
+            }));
 }
 
 } // namespace

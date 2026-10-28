@@ -119,6 +119,7 @@ function says otherwise.
 | `sprite_draw_tinted(handle, x, y, w, h, r, g, b, a)` | Sprite multiplied by a tint color (white texture + color = tinted shapes). |
 | `sprite_draw_region(handle, sx, sy, sw, sh, dx, dy, dw, dh)` | Sub-rectangle of the texture. |
 | `sprite_draw_rotated(handle, sx, sy, sw, sh, dx, dy, dw, dh, angle_rad, ox, oy)` | Region drawn rotated; `(ox, oy)` is the rotation origin inside the destination quad. |
+| `sprite_draw_rotated_tinted(handle, sx, sy, sw, sh, dx, dy, dw, dh, angle_rad, ox, oy, r, g, b, a)` | Rotated region with a tint — the combination a tumbling wooden block or a tinted debris sprite needs. |
 | `sprite_draw_flip(handle, sx, sy, sw, sh, dx, dy, dw, dh, flip_x, flip_y)` | Region mirrored horizontally/vertically (pass `1`/`0`). Mirroring only swaps UVs — one right-facing asset covers both walk directions without breaking the batch. |
 
 Draw calls are batched into one vertex stream; texture switches flush the
@@ -551,28 +552,53 @@ All four are safe no-ops in headless/CI runs (no window surface exists).
 
 ### Physics
 
-A tiny built-in arcade physics world, auto-stepped before `update` with a
+A small built-in **rigid-body** world, auto-stepped before `update` with a
 **fixed timestep** (accumulator + spiral-of-death guard, 4 substeps per step,
 semi-implicit Euler): the simulation advances in whole 1/60 s increments no
 matter the frame rate, so results never depend on how fast frames render.
 Frames that do not reach a whole step still refresh the contact buffers with
-a zero-dt pass. Bodies are circles or AABBs, static or dynamic, with gravity
-scale and restitution. This is not Box2D:
-there are no joints or continuous collision, but zero external dependencies
-and zero per-frame allocations.
+a zero-dt pass.
+
+Bodies are circles, oriented boxes or convex polygons (up to 8 vertices) and
+are static, dynamic or kinematic. Mass and rotational inertia derive from
+`density` and shape, so an off-centre hit spins the body. Collision uses SAT
+plus face clipping (two contact points for face contacts); a sequential-impulse
+solver resolves normal and Coulomb friction impulses with warm starting, and a
+split-impulse position pass fixes overlap without adding energy.
+
+Dynamic bodies can damp their velocity, lock rotation, or fall asleep once they
+stay quiet (and wake automatically when something hits them). Joints connect
+two bodies: a fixed distance, a rope (max distance only), a revolute hinge
+(optional motor and angular limits) or a rigid weld. Fast bodies get extra
+physics substeps and a swept broadphase so they do not tunnel through thin
+colliders — this is substepped anti-tunneling, not exact time-of-impact.
+Everything remains dependency-free and allocation-light.
 
 | Function | Description |
 |---|---|
 | `phys_create_box(x, y, hw, hh) -> id` / `phys_create_circle(x, y, r) -> id` | Dynamic body; ids are integers, 0 invalid. |
 | `phys_set_static(id, bool)` | Static bodies have infinite mass and don't move (set before play). |
 | `phys_set_sensor(id, bool)` | Sensors report contacts but never collide/respond. |
+| `phys_create_poly(x, y, x1, y1, x2, y2, ...) -> id` | Convex polygon (3–8 vertices, local space). Vertices are recentered on their centroid, so `position` is the centre of mass. Boxes/circles are convenience shapes; a polygon wins over `radius`/`half_extents`. |
 | `phys_set_restitution(id, e)` | Bounciness 0–1 (the pair uses the smaller value). |
+| `phys_set_friction(id, c)` / `phys_friction(id) -> n` | Coulomb friction coefficient (pair value is `sqrt(a*b)`; 0 = frictionless, default 0.4). |
+| `phys_set_density(id, d)` / `phys_mass(id) -> n` | Density (mass = density × area) and the derived mass; static bodies report 0. Inertia follows the shape automatically. |
 | `phys_set_gravity_scale(id, s)` | 0 = weightless. |
 | `phys_set_pos / phys_set_vel(id, x, y)` | Teleport / set velocity. |
+| `phys_set_rot(id, rad)` / `phys_set_ang_vel(id, rad_per_s)` | Orientation and angular velocity. Positive angles turn clockwise on screen (+y points down). |
 | `phys_set_user(id, n)` | Game tag (e.g. a brick index) surfaced on contacts. |
 | `phys_x / phys_y / phys_vx / phys_vy(id) -> n` | Current state, read after the engine stepped. |
-| `phys_smooth_x / phys_smooth_y(id) -> n` | Render-interpolated position between the last two fixed steps (`time_alpha()`); equals `phys_x`/`phys_y` when no step was skipped. Draw sprites with these to remove fixed-step judder. |
-| `phys_destroy(id)` | Remove a body. |
+| `phys_rot / phys_ang_vel(id) -> n` | Orientation (radians) and angular velocity. |
+| `phys_vertex_count(id) -> n` / `phys_vertex_x / phys_vertex_y(id, i) -> n` | World-space polygon vertices (rotated + translated) for debug draw; circles report 0, boxes 4. |
+| `phys_apply_impulse(id, ix, iy, px, py)` | Momentum impulse at a world point: off-centre hits add spin. |
+| `phys_apply_force(id, fx, fy, px, py)` / `phys_apply_torque(id, t)` | Force/torque accumulated until the next step. |
+| `phys_set_kinematic(id, bool)` | Infinite mass like a static body, but its velocity is integrated — a script-driven moving platform that carries riders through friction and is never pushed back. |
+| `phys_set_damping(id, linear, angular)` | Per-second damping: `v /= 1 + d*dt` (0 = none). |
+| `phys_set_fixed_rot(id, bool)` | Ignore torque and angular velocity (upright characters, sliding blocks). |
+| `phys_wake(id)` / `phys_sleeping(id) -> bool` / `phys_set_sleep(bool)` | Sleeping: quiet dynamic bodies stop simulating until touched, hit, or woken. `phys_set_sleep` toggles it globally (off wakes everything). `phys_set_pos` / `phys_set_vel` / impulses wake automatically; direct C++ config edits should call `WakeBody`. |
+| `phys_set_max_substeps(n)` / `phys_substeps() -> n` | Cap for the anti-tunneling substep budget (default 16) and the count the last advancing step used. |
+| `phys_smooth_x / phys_smooth_y / phys_smooth_rot(id) -> n` | Render-interpolated transform between the last two fixed steps (`time_alpha()`); equals the raw value when no step was skipped. Draw with these to remove fixed-step judder. |
+| `phys_destroy(id)` | Remove a body (attached joints go with it). |
 | `phys_gravity(gx, gy)` | World gravity (default `0, 900`). |
 | `phys_contact_count() -> n` | Pairs that **began** touching this step. |
 | `phys_contact_user_a / phys_contact_user_b(i) -> n` | User tags of began pair `i`. |
@@ -580,6 +606,38 @@ and zero per-frame allocations.
 | `phys_stay_user_a / phys_stay_user_b(i) -> n` | User tags of stayed pair `i`. |
 | `phys_end_count() -> n` | Pairs that **stopped** touching this step (including a destroyed body's last contacts). |
 | `phys_end_user_a / phys_end_user_b(i) -> n` | User tags of ended pair `i`. |
+| `phys_contact_px / phys_contact_py(i) -> n` | World-space contact point of began pair `i` (already-scaled values of the first manifold point). |
+
+#### Joints
+
+Joint anchors are world coordinates at creation time; the engine stores them
+in each body's local space, so they keep following the bodies afterwards.
+
+| Function | Description |
+|---|---|
+| `phys_joint_distance(a, b, ax, ay, bx, by) -> jid` | Rigid rod between the two world anchors (length taken from the initial pose). |
+| `phys_joint_rope(a, b, ax, ay, bx, by, max_len) -> jid` | Rope: pulls when longer than `max_len`, ignores slack. `max_len <= 0` uses the initial distance. |
+| `phys_joint_revolute(a, b, ax, ay, bx, by) -> jid` | Hinge: both anchors coincide, relative rotation is free. |
+| `phys_joint_weld(a, b, ax, ay, bx, by) -> jid` | Rigid: anchors coincide and relative rotation is locked. |
+| `phys_joint_motor(jid, speed, max_torque)` | Revolute/weld motor: target relative angular speed, `max_torque <= 0` disables it. |
+| `phys_joint_limit(jid, lower, upper)` | Revolute angular limits relative to the creation pose (radians). |
+| `phys_joint_length(jid) -> n` / `phys_joint_count() -> n` | Current anchor distance and the number of live joints. |
+| `phys_joint_destroy(jid)` | Remove a joint. |
+
+Connected bodies do not collide with each other by default (`collide_connected`
+in `JointConfig` re-enables it from C++).
+
+```lua
+local anchor = phys_create_circle(320, 120, 6)
+phys_set_static(anchor, true)
+
+local arm = phys_create_box(420, 120, 40, 6)   -- horizontal arm
+local hinge = phys_joint_revolute(anchor, arm, 380, 120, 380, 120)
+phys_joint_limit(hinge, -1.2, 0.4)             -- stops the swing
+
+local chandelier = phys_create_circle(600, 120, 10)
+local rope = phys_joint_rope(anchor, chandelier, 320, 120, 600, 120, 180)
+```
 
 Contact buffers cover **the whole frame** (physics runs before your `update`):
 began pairs transitioned free→touching, stayed pairs were already touching and
@@ -995,7 +1053,8 @@ invalid, and destroyed generations report inactive.
 | `ent_destroy(id)`, `ent_clear()` | Free one / all (generation bumped). |
 | `ent_active(id) -> bool` | False for stale/destroyed handles. |
 | `ent_tag(id) -> t`, `ent_set_tag(id, t)` | Integer group label. |
-| `ent_num(id, slot) -> n`, `ent_set_num(id, slot, v)` | 8 double fields (0..7); out of range reads 0. |
+| `ent_num(id, slot) -> n`, `ent_set_num(id, slot, v)` | 8 double fields (0..7); out of range reads 0. Values come back as floats — wrap a stored body/joint handle in `to_int(...)` before handing it to `phys_destroy` / `phys_joint_destroy`, which need an integer type. |
+| `to_int(v) -> n` | Round a float to an integer type (the cast entity readers and `math.floor` results need for handle APIs). |
 | `ent_str(id, slot) -> s`, `ent_set_str(id, slot, s)` | 4 string fields (0..3); out of range reads `""`. |
 | `ent_count([tag]) -> n` | Active entities, optionally filtered by tag; pass -1 for all. |
 | `ent_at(index[, tag]) -> id` | Stable slot-order enumeration (0-based); pass tag -1 for all. |
