@@ -34,6 +34,11 @@ public:
                       TextureFilter filter = TextureFilter::Linear,
                       TextureWrap wrap = TextureWrap::Clamp);
 
+    /// Upload a sub-rectangle in place (dynamic glyph atlases, streaming
+    /// canvas tiles). Bounds are validated; `channels` is 1, 3 or 4.
+    bool UpdateRegion(int x, int y, int width, int height,
+                      const std::uint8_t *data, int channels = 4);
+
     void Destroy();
 
     void Bind(std::uint32_t slot = 0) const;

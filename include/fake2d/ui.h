@@ -42,6 +42,20 @@ public:
     void Label(UIAnchor anchor, float offset_x, float offset_y,
                std::string_view text, float scale, const Color &tint);
 
+    /// Label that shrinks to fit `max_width` (down to `min_scale`). Returns
+    /// the drawn width; long CJK/Latin strings stay inside their box.
+    float LabelFit(UIAnchor anchor, float offset_x, float offset_y,
+                   float max_width, std::string_view text, float scale,
+                   float min_scale, const Color &tint);
+
+    /// Record a tooltip while the mouse is over the given rect; the last
+    /// record wins. Call DrawTooltip() after all widgets to render it.
+    void Tip(UIAnchor anchor, float offset_x, float offset_y, float w, float h,
+             std::string_view text);
+    /// Draw the tooltip recorded by this frame's Tip() near the mouse,
+    /// clamped to the viewport.
+    void DrawTooltip();
+
     /// Draw a button and return true exactly on the frame it is clicked.
     /// The label is centered on the button.
     bool Button(std::string_view key, UIAnchor anchor,
@@ -186,6 +200,8 @@ private:
     Vec2 world_origin_{0.0f, 0.0f};
     std::unordered_map<std::string, WidgetState> widgets_;
     std::string focused_;
+    std::string tooltip_;
+    Vec2 tooltip_mouse_{0.0f, 0.0f};
 };
 
 } // namespace fake2d

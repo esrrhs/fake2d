@@ -42,6 +42,25 @@ GLenum ToGLWrap(TextureWrap w) {
 
 } // namespace
 
+bool Texture2D::UpdateRegion(int x, int y, int width, int height,
+                             const std::uint8_t *data, int channels) {
+    if (!IsValid() || data == nullptr || x < 0 || y < 0 || width <= 0 ||
+        height <= 0 || x + width > width_ || y + height > height_) {
+        return false;
+    }
+    GLenum format = GL_RGBA;
+    if (channels == 1) {
+        format = glcaps::legacy_mode ? kLegacyLuminance : GL_RED;
+    } else if (channels == 3) {
+        format = GL_RGB;
+    }
+    glBindTexture(GL_TEXTURE_2D, id_);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, width, height, format,
+                    GL_UNSIGNED_BYTE, data);
+    return true;
+}
+
 Texture2D::Texture2D() = default;
 
 Texture2D::~Texture2D() {

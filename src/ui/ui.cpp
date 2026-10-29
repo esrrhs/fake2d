@@ -77,8 +77,8 @@ void UISystem::Bind(const Input *input, const Camera2D *camera, Renderer *render
 }
 
 void UISystem::NewFrame() {
-    // State itself persists (hover/pressed); this hook exists so future
-    // per-frame scratch data has a place. Kept intentionally minimal.
+    // Widget state persists (hover/pressed); tooltip records are per frame.
+    tooltip_.clear();
 }
 
 UISystem::WidgetState *UISystem::Find(std::string_view key) {
@@ -135,6 +135,64 @@ void UISystem::Label(UIAnchor anchor, float offset_x, float offset_y,
     const Vec2 p = Resolve(anchor, offset_x, offset_y, text_w, text_h,
                            camera_->ViewportWidth(), camera_->ViewportHeight());
     renderer_->DrawText(text, p.x, p.y, scale, tint);
+}
+
+float UISystem::LabelFit(UIAnchor anchor, float offset_x, float offset_y,
+                         float max_width, std::string_view text, float scale,
+                         float min_scale, const Color &tint) {
+    if (camera_ == nullptr || renderer_ == nullptr) {
+        return 0.0f;
+    }
+    float used_scale = scale;
+    const float natural = renderer_->MeasureText(text, scale);
+    if (max_width > 0.0f && natural > max_width) {
+        used_scale = std::max(min_scale, scale * (max_width / natural));
+    }
+    const float text_w = renderer_->MeasureText(text, used_scale);
+    const float text_h = renderer_->GetFont().LineHeight() * used_scale;
+    const Vec2 p = Resolve(anchor, offset_x, offset_y, text_w, text_h,
+                           camera_->ViewportWidth(), camera_->ViewportHeight());
+    renderer_->DrawText(text, p.x, p.y, used_scale, tint);
+    return text_w;
+}
+
+void UISystem::Tip(UIAnchor anchor, float offset_x, float offset_y, float w,
+                   float h, std::string_view text) {
+    if (camera_ == nullptr || input_ == nullptr || text.empty()) {
+        return;
+    }
+    const Vec2 p = Resolve(anchor, offset_x, offset_y, w, h,
+                           camera_->ViewportWidth(), camera_->ViewportHeight());
+    const Vec2 mouse = Mouse();
+    if (mouse.x >= p.x && mouse.x <= p.x + w && mouse.y >= p.y &&
+        mouse.y <= p.y + h) {
+        tooltip_.assign(text.data(), text.size());
+        tooltip_mouse_ = mouse;
+    }
+}
+
+void UISystem::DrawTooltip() {
+    if (tooltip_.empty() || camera_ == nullptr || renderer_ == nullptr) {
+        return;
+    }
+    constexpr float scale = 0.55f;
+    const float tw = renderer_->MeasureText(tooltip_, scale);
+    const float th = renderer_->GetFont().LineHeight() * scale;
+    const float vw = camera_->ViewportWidth();
+    const float vh = camera_->ViewportHeight();
+    float x = tooltip_mouse_.x + 14.0f;
+    float y = tooltip_mouse_.y + 18.0f;
+    if (x + tw + 14.0f > vw) {
+        x = std::max(6.0f, vw - tw - 14.0f);
+    }
+    if (y + th + 12.0f > vh) {
+        y = std::max(6.0f, tooltip_mouse_.y - th - 18.0f);
+    }
+    renderer_->DrawQuad({x - 7.0f, y - 5.0f, tw + 14.0f, th + 10.0f},
+                        Color{0.55f, 0.46f, 0.28f, 0.95f});
+    renderer_->DrawQuad({x - 5.0f, y - 3.0f, tw + 10.0f, th + 6.0f},
+                        Color{0.07f, 0.08f, 0.11f, 0.97f});
+    renderer_->DrawText(tooltip_, x, y, scale, Color{0.93f, 0.90f, 0.82f, 1.0f});
 }
 
 bool UISystem::Button(std::string_view key, UIAnchor anchor,
