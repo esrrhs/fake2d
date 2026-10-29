@@ -7,7 +7,7 @@
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-brightgreen.svg)](https://en.cppreference.com/w/cpp/23)
 [![OpenGL](https://img.shields.io/badge/OpenGL-3.3%20Core%20%7C%202.1-orange.svg)](https://www.opengl.org/)
 [![FakeLua](https://img.shields.io/badge/Script-FakeLua-red.svg)](https://github.com/esrrhs/fakelua)
-[![Version](https://img.shields.io/badge/version-1.29.0-informational.svg)](include/fake2d/version.h)
+[![Version](https://img.shields.io/badge/version-1.30.0-informational.svg)](include/fake2d/version.h)
 
 **Fake2D** is a modern, lightweight, high-performance 2D game engine powered by [FakeLua](https://github.com/esrrhs/fakelua):
 - **C++23 Host Engine**: Controls window management, GPU rendering pipelines, 2D physics, multi-bus audio mixing, and native resource lifecycles;
@@ -44,11 +44,12 @@ Fake2D is a fully battery-included engine, not just a bare graphics library:
 - **Immediate-Mode UI (UISystem)**: Ready-to-use widgets including Panels, Buttons, Labels, Sliders, Checkboxes, UTF-8 TextInputs, ScrollAreas, ProgressBars, RadioButtons, Combos, draggable Windows (with mouse deltas), Tab bars, disclosure Trees, and Tooltips.
 - **Text & Platform Layer**: UTF-8 text with an on-demand glyph atlas (CJK/Japanese/Korean included, `font_load` for any TTF/TTC/OTF, fallback faces for missing glyphs), CJK per-character vs Latin word wrapping with 禁则 rules and kerning, rotated, shadowed, outlined and shrink-to-fit text, TSV localization packs switched at runtime (BOM-safe, missing-key reports), cross-platform resource/user directories, CRC-checked v2 save containers with automatic `.bak` rollback, entity snapshots through the same container, file logging with crash reports, an offline achievement mirror, a `mod.json` mod manager, and an optional Steamworks adapter (achievements / Rich Presence / language / cloud flag) that stubs out when the SDK is absent.
 - **Gameplay Utilities**: deterministic splitmix64 RNG, named easing curves and frame-rate-independent `Approach`, input action maps with rebinding, window size/resizable/min-size/cursor controls, audio pitch/looping/stop, and runtime FPS / frame-ms / draw-call stats.
+- **2.5D Brawler Toolkit**: a global gameplay time scale plus a hit-stop primitive (`time_set_scale` / `time_hitstop`) that freezes scripts, physics, animations and particles together; 16 numeric + 4 string slots per entity and 512 entities for full actor rosters; a 128-clip animation pool; y-sorted draw layers (`draw_set_z` over `batch_set_sorted`) for depth-correct side-scrollers.
 
 ### 5. Developer Experience & Automated Testing
 - **JIT Script Hot-Reload**: GCC JIT backend with automatic interpreter fallback; edit Lua scripts live and see changes reflected instantly without restarting;
 - **Headless & CI-Ready**: First-class `--headless`, `--frames N`, and `--screenshot` CLI flags allow visual regression tests and automated smoke validation in headless Linux/macOS/Windows environments;
-- **17 Built-in Self-Test Suites**: Over 780 assertions covering rigid-body dynamics, joints, sleeping, anti-tunneling, physics queries, filters, timesteps, tilemap objects, A\* pathfinding, render targets, UI widgets, post-FX, fog of war, audio mixing, animated tiles, UTF-8/CJK text with fallback faces, the platform layer, deterministic RNG, easing, entity snapshots, input actions and window controls (all mutation-tested);
+- **18 Built-in Self-Test Suites**: Over 800 assertions covering rigid-body dynamics, joints, sleeping, anti-tunneling, physics queries, filters, timesteps, tilemap objects, A\* pathfinding, render targets, UI widgets, post-FX, fog of war, audio mixing, animated tiles, UTF-8/CJK text with fallback faces, the platform layer, deterministic RNG, easing, entity snapshots, input actions, window controls, gameplay time scale / hit-stop, 16-slot entity actors and the 128-clip animation pool (all mutation-tested);
 - **Standalone Packaging**: Bundling scripts under `tools/` generate self-contained archives on Linux, macOS, and Windows with all dependencies, shaders, and assets included.
 
 ---
@@ -86,7 +87,7 @@ Fake2D is a fully battery-included engine, not just a bare graphics library:
 
 ## 🎮 Runnable Demos Matrix
 
-Fake2D comes with 16 rich, self-contained demos demonstrating platformer mechanics, retro gameplay, spatial audio, immediate UI, and graphical post-processing:
+Fake2D comes with 17 rich, self-contained demos demonstrating platformer mechanics, retro and brawler gameplay, spatial audio, immediate UI, and graphical post-processing:
 
 | Demo Flag | Topic | Key Highlighted Features |
 |---|---|---|
@@ -95,6 +96,7 @@ Fake2D comes with 16 rich, self-contained demos demonstrating platformer mechani
 | `--angry-birds-demo` | **Angry Birds Sandbox** | Slingshot impulse launch, stacked towers that sleep and wake, contact-driven pig pops, camera follow, synthesized SFX |
 | `--limbo-demo` | **LIMBO Jointed Sandbox** | 6-part revolute ragdoll, 9-node rope chain and revolute bridge, buoyancy water, and sever-on-death pieces that stay tethered |
 | `--platformer-demo` | **Platformer Controller** | Kinematic tile platforming; coyote time, jump buffering, one-way ledges, coin pickups, smooth follow camera |
+| `--beat-em-up-demo` | **2.5D Brawler (Dino Brawl)** | Ground-plane x/depth/height movement with y-sorted actors; 3-hit combos, kicks, spins, hit-stop, i-frames, knockdown/getup, wave spawning with a locked camera, enemy AI and a boss — all from primitives, with an attract AI for headless runs |
 | `--slope-demo` | **Slopes & Terrain** | Tiled slope calculation (`map_slope_dir` / `map_ground_y`), smooth angle traversal and live ground overlays |
 | `--path-demo` | **Maze Chase & A\* Pathfinding** | Generated maze, staggered AI tracking, player autopilot mode, and live polyline path drawing |
 | `--tile-demo` | **Animated Tiles** | Tiled tileset animations driven by a single engine clock; rippling pond water and torch flames |
@@ -179,6 +181,9 @@ cmake --build build --parallel
 
 # UTF-8/CJK text & platform layer (L switches language, SAVE writes a v2 slot)
 ./build/bin/fake2d_hello --text-demo
+
+# 2.5D brawler (WASD move, SPACE/J punch, K kick, L spin)
+./build/bin/fake2d_hello --beat-em-up-demo
 ```
 
 ### Development & Benchmarking Options
@@ -215,7 +220,7 @@ xvfb-run ./build/bin/fake2d_hello --headless --mario-demo --shot-frame 60 --scre
 # Reject screenshots that saved but drew nothing (exit 2): colour floor probe
 xvfb-run ./build/bin/fake2d_hello --headless --text-demo --screenshot text.png --shot-min-colors 12
 
-# Run the 17 built-in engine self-test suites (verified via exit codes)
+# Run the 18 built-in engine self-test suites (verified via exit codes)
 xvfb-run ./build/bin/fake2d_hello --phys-query-test    # Ray casts, overlaps, contact lifecycle
 xvfb-run ./build/bin/fake2d_hello --phys-filter-test   # 16-bit category/mask collision filtering
 xvfb-run ./build/bin/fake2d_hello --phys-rigid-test    # Rotational inertia, friction, resting stacks
@@ -233,6 +238,7 @@ xvfb-run ./build/bin/fake2d_hello --audio-test         # Mixer buses, envelopes,
 xvfb-run ./build/bin/fake2d_hello --font-test          # UTF-8/CJK glyph atlas, wrapping, rotation, shrink
 xvfb-run ./build/bin/fake2d_hello --platform-test      # i18n packs, user paths, save v2, Steam stub, UI text
 xvfb-run ./build/bin/fake2d_hello --gameplay-test      # RNG, easing, entity snapshots, actions, window
+xvfb-run ./build/bin/fake2d_hello --combat-test        # Time scale, hit-stop, 16-slot actors, clip pool
 ```
 
 ---

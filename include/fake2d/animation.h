@@ -21,7 +21,9 @@ struct AnimFrame {
 /// supports looping and one-shot completion polling.
 class AnimationSystem {
 public:
-    static constexpr std::size_t kMaxAnimations = 32;
+    /// Clip pool size. A brawler with several character types needs a clip per
+    /// pose per action; 128 leaves room for a full roster without recycling ids.
+    static constexpr std::size_t kMaxAnimations = 128;
     static constexpr std::size_t kMaxFrames = 64;
 
     /// Allocate an animation slot; returns 1-based id or 0 when exhausted.

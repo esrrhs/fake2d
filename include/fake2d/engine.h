@@ -106,10 +106,26 @@ public:
     void SetCursorShape(int shape);
 
     [[nodiscard]] bool IsRunning() const;
+    /// Gameplay delta after time scale / hitstop. This is the `dt` scripts
+    /// receive; a hitstop freezes it to 0 without stalling the frame loop.
     [[nodiscard]] double DeltaTime() const;
-    /// Seconds since Init (sum of frame deltas).
+    /// Seconds since Init (sum of scaled frame deltas, so it pauses with
+    /// hitstop).
     [[nodiscard]] double TimeElapsed() const;
     [[nodiscard]] std::uint64_t FrameIndex() const;
+
+    // --- gameplay time control ---
+    /// Global gameplay time multiplier (0 = frozen, 1 = real time, 2 = double).
+    /// Applies to script `dt`, physics stepping, animations, particles, tiles
+    /// and camera effects; rendering and input keep running. Clamped to
+    /// [0, 100].
+    void SetTimeScale(float scale);
+    [[nodiscard]] float TimeScale() const;
+    /// Freeze gameplay for `seconds` of real time, then resume at the current
+    /// time scale. Overlapping calls extend the freeze. This is the hit-stop
+    /// primitive: set it for 2-6 frames on every impact and the world stops
+    /// while the impact spark still draws.
+    void Hitstop(float seconds);
 
     /// Physics timestep actually used: the configured fixed step, or the
     /// frame delta when fixed stepping is disabled.
