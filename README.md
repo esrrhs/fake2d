@@ -7,7 +7,7 @@
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-brightgreen.svg)](https://en.cppreference.com/w/cpp/23)
 [![OpenGL](https://img.shields.io/badge/OpenGL-3.3%20Core%20%7C%202.1-orange.svg)](https://www.opengl.org/)
 [![FakeLua](https://img.shields.io/badge/Script-FakeLua-red.svg)](https://github.com/esrrhs/fakelua)
-[![Version](https://img.shields.io/badge/version-1.28.0-informational.svg)](include/fake2d/version.h)
+[![Version](https://img.shields.io/badge/version-1.29.0-informational.svg)](include/fake2d/version.h)
 
 **Fake2D** is a modern, lightweight, high-performance 2D game engine powered by [FakeLua](https://github.com/esrrhs/fakelua):
 - **C++23 Host Engine**: Controls window management, GPU rendering pipelines, 2D physics, multi-bus audio mixing, and native resource lifecycles;
@@ -42,12 +42,13 @@ Fake2D is a fully battery-included engine, not just a bare graphics library:
 - **Studio-Grade Audio Engine**: Device-decoupled software mixer, 3-bus hierarchy (Master / SFX / Music), linear gain envelopes and music cross-fades, 3D positional audio (distance rolloff and stereo pan), low-memory streamed playback (8192-frame streaming windows for WAV / MP3 / OGG / FLAC), and real-time stereo VU peak metering;
 - **Multi-Pass Post-Processing & FBO**: Offscreen `RenderTarget` pool, ping-pong blur passes, bloom thresholding (`fx_bright`), animated wave shimmer (`fx_wave` with auto `u_time`/`u_resolution`), fog of war with multiply blending & `rt_sample` exploration probes, and baked minimaps;
 - **Immediate-Mode UI (UISystem)**: Ready-to-use widgets including Panels, Buttons, Labels, Sliders, Checkboxes, UTF-8 TextInputs, ScrollAreas, ProgressBars, RadioButtons, Combos, draggable Windows (with mouse deltas), Tab bars, disclosure Trees, and Tooltips.
-- **Text & Platform Layer**: UTF-8 text with an on-demand glyph atlas (CJK/Japanese/Korean included, `font_load` for any TTF/TTC/OTF, fallback faces for missing glyphs), CJK per-character vs Latin word wrapping with 禁则 rules and kerning, rotated and shrink-to-fit text, TSV localization packs switched at runtime (BOM-safe, missing-key reports), cross-platform resource/user directories, CRC-checked v2 save containers with automatic `.bak` rollback, file logging with crash reports, an offline achievement mirror, a `mod.json` mod manager, and an optional Steamworks adapter (achievements / Rich Presence / language / cloud flag) that stubs out when the SDK is absent.
+- **Text & Platform Layer**: UTF-8 text with an on-demand glyph atlas (CJK/Japanese/Korean included, `font_load` for any TTF/TTC/OTF, fallback faces for missing glyphs), CJK per-character vs Latin word wrapping with 禁则 rules and kerning, rotated, shadowed, outlined and shrink-to-fit text, TSV localization packs switched at runtime (BOM-safe, missing-key reports), cross-platform resource/user directories, CRC-checked v2 save containers with automatic `.bak` rollback, entity snapshots through the same container, file logging with crash reports, an offline achievement mirror, a `mod.json` mod manager, and an optional Steamworks adapter (achievements / Rich Presence / language / cloud flag) that stubs out when the SDK is absent.
+- **Gameplay Utilities**: deterministic splitmix64 RNG, named easing curves and frame-rate-independent `Approach`, input action maps with rebinding, window size/resizable/min-size/cursor controls, audio pitch/looping/stop, and runtime FPS / frame-ms / draw-call stats.
 
 ### 5. Developer Experience & Automated Testing
 - **JIT Script Hot-Reload**: GCC JIT backend with automatic interpreter fallback; edit Lua scripts live and see changes reflected instantly without restarting;
 - **Headless & CI-Ready**: First-class `--headless`, `--frames N`, and `--screenshot` CLI flags allow visual regression tests and automated smoke validation in headless Linux/macOS/Windows environments;
-- **16 Built-in Self-Test Suites**: Over 740 assertions covering rigid-body dynamics, joints, sleeping, anti-tunneling, physics queries, filters, timesteps, tilemap objects, A\* pathfinding, render targets, UI widgets, post-FX, fog of war, audio mixing, animated tiles, UTF-8/CJK text with fallback faces, and the platform layer (all mutation-tested);
+- **17 Built-in Self-Test Suites**: Over 780 assertions covering rigid-body dynamics, joints, sleeping, anti-tunneling, physics queries, filters, timesteps, tilemap objects, A\* pathfinding, render targets, UI widgets, post-FX, fog of war, audio mixing, animated tiles, UTF-8/CJK text with fallback faces, the platform layer, deterministic RNG, easing, entity snapshots, input actions and window controls (all mutation-tested);
 - **Standalone Packaging**: Bundling scripts under `tools/` generate self-contained archives on Linux, macOS, and Windows with all dependencies, shaders, and assets included.
 
 ---
@@ -214,7 +215,7 @@ xvfb-run ./build/bin/fake2d_hello --headless --mario-demo --shot-frame 60 --scre
 # Reject screenshots that saved but drew nothing (exit 2): colour floor probe
 xvfb-run ./build/bin/fake2d_hello --headless --text-demo --screenshot text.png --shot-min-colors 12
 
-# Run the 16 built-in engine self-test suites (verified via exit codes)
+# Run the 17 built-in engine self-test suites (verified via exit codes)
 xvfb-run ./build/bin/fake2d_hello --phys-query-test    # Ray casts, overlaps, contact lifecycle
 xvfb-run ./build/bin/fake2d_hello --phys-filter-test   # 16-bit category/mask collision filtering
 xvfb-run ./build/bin/fake2d_hello --phys-rigid-test    # Rotational inertia, friction, resting stacks
@@ -231,6 +232,7 @@ xvfb-run ./build/bin/fake2d_hello --fog-test           # Fog of war multiply ble
 xvfb-run ./build/bin/fake2d_hello --audio-test         # Mixer buses, envelopes, streamed music
 xvfb-run ./build/bin/fake2d_hello --font-test          # UTF-8/CJK glyph atlas, wrapping, rotation, shrink
 xvfb-run ./build/bin/fake2d_hello --platform-test      # i18n packs, user paths, save v2, Steam stub, UI text
+xvfb-run ./build/bin/fake2d_hello --gameplay-test      # RNG, easing, entity snapshots, actions, window
 ```
 
 ---

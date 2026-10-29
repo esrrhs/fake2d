@@ -3,6 +3,7 @@
 #include <array>
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 namespace fake2d {
 
@@ -44,6 +45,14 @@ public:
     /// tag), ordered by slot; kInvalid when out of range.
     [[nodiscard]] Id At(std::size_t index) const;
     [[nodiscard]] Id AtWithTag(std::size_t index, std::int64_t tag) const;
+
+    /// Snapshot every active entity (slot index, tag, numbers, strings) as a
+    /// compact tab-separated text blob. Doubles round-trip exactly (17 digits)
+    /// and strings escape tabs/newlines/backslashes.
+    [[nodiscard]] std::string Serialize() const;
+    /// Replace the whole store with a snapshot. Malformed data returns false
+    /// and leaves the store empty.
+    bool Deserialize(std::string_view data);
 
 private:
     struct Entity {

@@ -3,6 +3,7 @@
 #include "fake2d/animation.h"
 #include "fake2d/app_paths.h"
 #include "fake2d/audio.h"
+#include "fake2d/ease.h"
 #include "fake2d/engine.h"
 #include "fake2d/i18n.h"
 #include "fake2d/log.h"
@@ -1864,6 +1865,43 @@ void RegisterTextApi(fakelua::State *state, Engine *engine) {
 
     // Shrink-to-fit single line: scale drops until the text fits max_w.
     fakelua::RegisterNativeFunction(
+        state, "draw_text_shadow", false,
+        std::function<double(fakelua::State *, std::string_view, double, double,
+                             double, double, double, double, double, double,
+                             double, double, double, double, double)>(
+            [engine](fakelua::State *, std::string_view text, double x, double y,
+                     double scale, double dx, double dy, double sr, double sg,
+                     double sb, double sa, double r, double g, double b,
+                     double a) -> double {
+                return static_cast<double>(engine->GetRenderer().DrawTextShadow(
+                    text, static_cast<float>(x), static_cast<float>(y),
+                    static_cast<float>(scale), static_cast<float>(dx),
+                    static_cast<float>(dy),
+                    Color{static_cast<float>(sr), static_cast<float>(sg),
+                          static_cast<float>(sb), static_cast<float>(sa)},
+                    Color{static_cast<float>(r), static_cast<float>(g),
+                          static_cast<float>(b), static_cast<float>(a)}));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "draw_text_outline", false,
+        std::function<double(fakelua::State *, std::string_view, double, double,
+                             double, double, double, double, double, double,
+                             double, double, double, double)>(
+            [engine](fakelua::State *, std::string_view text, double x, double y,
+                     double scale, double thickness, double or_, double og,
+                     double ob, double oa, double r, double g, double b,
+                     double a) -> double {
+                return static_cast<double>(engine->GetRenderer().DrawTextOutline(
+                    text, static_cast<float>(x), static_cast<float>(y),
+                    static_cast<float>(scale), static_cast<float>(thickness),
+                    Color{static_cast<float>(or_), static_cast<float>(og),
+                          static_cast<float>(ob), static_cast<float>(oa)},
+                    Color{static_cast<float>(r), static_cast<float>(g),
+                          static_cast<float>(b), static_cast<float>(a)}));
+            }));
+
+    // Shrink-to-fit single line: scale drops until the text fits max_w.
+    fakelua::RegisterNativeFunction(
         state, "draw_text_fit", false,
         std::function<double(fakelua::State *, std::string_view, double, double,
                              double, double, double, double, double, double,
@@ -2128,6 +2166,29 @@ void RegisterAudioApi(fakelua::State *state, Engine *engine) {
         std::function<void(fakelua::State *, std::string_view, double)>(
             [engine](fakelua::State *, std::string_view name, double volume) {
                 engine->GetAudio().Play(name, static_cast<float>(volume));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "audio_play_pitched", false,
+        std::function<void(fakelua::State *, std::string_view, double, double)>(
+            [engine](fakelua::State *, std::string_view name, double volume,
+                     double pitch) {
+                engine->GetAudio().PlayPitched(name, static_cast<float>(volume),
+                                               static_cast<float>(pitch));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "audio_loop", false,
+        std::function<void(fakelua::State *, std::string_view, double, double)>(
+            [engine](fakelua::State *, std::string_view name, double volume,
+                     double pitch) {
+                engine->GetAudio().PlayLoop(name, static_cast<float>(volume),
+                                            static_cast<float>(pitch));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "audio_stop", false,
+        std::function<void(fakelua::State *, std::string_view)>(
+            [engine](fakelua::State *, std::string_view name) {
+                engine->GetAudio().StopClip(name);
             }));
 
     fakelua::RegisterNativeFunction(
@@ -2782,6 +2843,40 @@ void RegisterInputApi(fakelua::State *state, Engine *engine) {
         std::function<bool(fakelua::State *, std::string_view)>(
             [input](fakelua::State *, std::string_view key) { return input->KeyReleased(key); }));
 
+    // Action mapping: bind keys to names once, then query the action. Rebinding
+    // is input_actions_clear() + input_bind() from a settings screen.
+    fakelua::RegisterNativeFunction(
+        state, "input_bind", false,
+        std::function<void(fakelua::State *, std::string_view, std::string_view)>(
+            [engine](fakelua::State *, std::string_view action,
+                     std::string_view key) {
+                engine->GetInput().BindAction(action, key);
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "input_actions_clear", false,
+        std::function<void(fakelua::State *, std::string_view)>(
+            [engine](fakelua::State *, std::string_view action) {
+                engine->GetInput().ClearActions(action);
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "input_action_down", false,
+        std::function<bool(fakelua::State *, std::string_view)>(
+            [input](fakelua::State *, std::string_view action) {
+                return input->ActionDown(action);
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "input_action_pressed", false,
+        std::function<bool(fakelua::State *, std::string_view)>(
+            [input](fakelua::State *, std::string_view action) {
+                return input->ActionPressed(action);
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "input_action_released", false,
+        std::function<bool(fakelua::State *, std::string_view)>(
+            [input](fakelua::State *, std::string_view action) {
+                return input->ActionReleased(action);
+            }));
+
     fakelua::RegisterNativeFunction(
         state, "input_mouse_x", false,
         std::function<double(fakelua::State *)>(
@@ -3424,6 +3519,107 @@ void RegisterModApi(fakelua::State *state, Engine *engine) {
             [engine](fakelua::State *) { return engine->GetMods().Report(); }));
 }
 
+void RegisterUtilityApi(fakelua::State *state, Engine *engine) {
+    // ---- deterministic random ----
+    fakelua::RegisterNativeFunction(
+        state, "rng_seed", false,
+        std::function<void(fakelua::State *, double)>(
+            [engine](fakelua::State *, double seed) {
+                engine->GetRandom().Seed(static_cast<std::uint64_t>(seed));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "rng_state", false,
+        std::function<double(fakelua::State *)>(
+            [engine](fakelua::State *) -> double {
+                return static_cast<double>(engine->GetRandom().State());
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "rng_float", false,
+        std::function<double(fakelua::State *)>(
+            [engine](fakelua::State *) -> double {
+                return static_cast<double>(engine->GetRandom().Float01());
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "rng_range", false,
+        std::function<double(fakelua::State *, double, double)>(
+            [engine](fakelua::State *, double lo, double hi) -> double {
+                return static_cast<double>(engine->GetRandom().Range(
+                    static_cast<float>(lo), static_cast<float>(hi)));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "rng_int", false,
+        std::function<std::int64_t(fakelua::State *, double, double)>(
+            [engine](fakelua::State *, double lo, double hi) -> std::int64_t {
+                return engine->GetRandom().Int(
+                    static_cast<std::int64_t>(std::llround(lo)),
+                    static_cast<std::int64_t>(std::llround(hi)));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "rng_chance", false,
+        std::function<bool(fakelua::State *, double)>(
+            [engine](fakelua::State *, double p) -> bool {
+                return engine->GetRandom().Chance(static_cast<float>(p));
+            }));
+
+    // ---- easing / interpolation ----
+    fakelua::RegisterNativeFunction(
+        state, "ease", false,
+        std::function<double(fakelua::State *, std::string_view, double)>(
+            [](fakelua::State *, std::string_view name, double t) -> double {
+                return static_cast<double>(
+                    fake2d::ease::ByName(name, static_cast<float>(t)));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "lerp", false,
+        std::function<double(fakelua::State *, double, double, double)>(
+            [](fakelua::State *, double from, double to, double t) -> double {
+                return static_cast<double>(fake2d::ease::Lerp(
+                    static_cast<float>(from), static_cast<float>(to),
+                    static_cast<float>(t)));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "clamp01", false,
+        std::function<double(fakelua::State *, double)>(
+            [](fakelua::State *, double t) -> double {
+                return static_cast<double>(
+                    fake2d::ease::Clamp01(static_cast<float>(t)));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "smoothstep", false,
+        std::function<double(fakelua::State *, double, double, double)>(
+            [](fakelua::State *, double from, double to, double t) -> double {
+                return static_cast<double>(fake2d::ease::SmoothStep(
+                    static_cast<float>(from), static_cast<float>(to),
+                    static_cast<float>(t)));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "approach", false,
+        std::function<double(fakelua::State *, double, double, double, double)>(
+            [](fakelua::State *, double current, double target, double rate,
+               double dt) -> double {
+                return static_cast<double>(fake2d::ease::Approach(
+                    static_cast<float>(current), static_cast<float>(target),
+                    static_cast<float>(rate), static_cast<float>(dt)));
+            }));
+
+    // ---- runtime stats ----
+    fakelua::RegisterNativeFunction(
+        state, "stats_fps", false,
+        std::function<double(fakelua::State *)>(
+            [engine](fakelua::State *) -> double { return engine->Fps(); }));
+    fakelua::RegisterNativeFunction(
+        state, "stats_frame_ms", false,
+        std::function<double(fakelua::State *)>(
+            [engine](fakelua::State *) -> double { return engine->FrameMs(); }));
+    fakelua::RegisterNativeFunction(
+        state, "stats_draw_calls", false,
+        std::function<std::int64_t(fakelua::State *)>(
+            [engine](fakelua::State *) -> std::int64_t {
+                return static_cast<std::int64_t>(
+                    engine->GetRenderer().DrawCallCount());
+            }));
+}
+
 void RegisterLogApi(fakelua::State *state) {
     fakelua::RegisterNativeFunction(
         state, "log_info", false,
@@ -3558,6 +3754,41 @@ void RegisterEntityApi(fakelua::State *state, Engine *engine) {
                                     : store.AtWithTag(idx, static_cast<std::int64_t>(tag));
                 return static_cast<std::int64_t>(id);
             }));
+
+    // Snapshot / restore: the entity database as one text blob, either handed
+    // back to the script or stored through the v2 save container.
+    fakelua::RegisterNativeFunction(
+        state, "ent_snapshot", false,
+        std::function<std::string(fakelua::State *)>(
+            [engine](fakelua::State *) {
+                return engine->GetEntities().Serialize();
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "ent_restore", false,
+        std::function<bool(fakelua::State *, std::string_view)>(
+            [engine](fakelua::State *, std::string_view data) {
+                return engine->GetEntities().Deserialize(data);
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "ent_save", false,
+        std::function<bool(fakelua::State *, std::string_view, std::string_view)>(
+            [engine](fakelua::State *, std::string_view slot,
+                     std::string_view dir) {
+                return engine->GetSaves().SaveBlob(
+                    slot, dir, engine->GetEntities().Serialize(), "entities", 1);
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "ent_load", false,
+        std::function<bool(fakelua::State *, std::string_view, std::string_view)>(
+            [engine](fakelua::State *, std::string_view slot,
+                     std::string_view dir) {
+                std::string payload;
+                SaveStore::BlobInfo info;
+                if (!engine->GetSaves().LoadBlob(slot, dir, payload, info)) {
+                    return false;
+                }
+                return engine->GetEntities().Deserialize(payload);
+            }));
 }
 
 void RegisterShaderApi(fakelua::State *state, Engine *engine) {
@@ -3667,6 +3898,49 @@ void RegisterWindowApi(fakelua::State *state, Engine *engine) {
         state, "window_fullscreen", false,
         std::function<bool(fakelua::State *)>(
             [engine](fakelua::State *) { return engine->IsFullscreen(); }));
+
+    fakelua::RegisterNativeFunction(
+        state, "window_width", false,
+        std::function<std::int64_t(fakelua::State *)>(
+            [engine](fakelua::State *) -> std::int64_t {
+                return engine->WindowWidth();
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "window_height", false,
+        std::function<std::int64_t(fakelua::State *)>(
+            [engine](fakelua::State *) -> std::int64_t {
+                return engine->WindowHeight();
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "window_set_size", false,
+        std::function<void(fakelua::State *, double, double)>(
+            [engine](fakelua::State *, double width, double height) {
+                engine->SetWindowSize(static_cast<int>(std::llround(width)),
+                                      static_cast<int>(std::llround(height)));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "window_resizable", false,
+        std::function<bool(fakelua::State *)>(
+            [engine](fakelua::State *) { return engine->WindowResizable(); }));
+    fakelua::RegisterNativeFunction(
+        state, "window_set_resizable", false,
+        std::function<void(fakelua::State *, bool)>(
+            [engine](fakelua::State *, bool resizable) {
+                engine->SetWindowResizable(resizable);
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "window_set_min_size", false,
+        std::function<void(fakelua::State *, double, double)>(
+            [engine](fakelua::State *, double width, double height) {
+                engine->SetMinWindowSize(static_cast<int>(std::llround(width)),
+                                         static_cast<int>(std::llround(height)));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "window_cursor", false,
+        std::function<void(fakelua::State *, double)>(
+            [engine](fakelua::State *, double shape) {
+                engine->SetCursorShape(static_cast<int>(std::llround(shape)));
+            }));
 }
 
 void RegisterDebugApi(fakelua::State *state) {
@@ -3712,6 +3986,7 @@ void RegisterScriptApi(fakelua::State *state, Engine *engine) {
     RegisterPlatformApi(state, engine);
     RegisterModApi(state, engine);
     RegisterLogApi(state);
+    RegisterUtilityApi(state, engine);
     RegisterEntityApi(state, engine);
     RegisterShaderApi(state, engine);
     RegisterWindowApi(state, engine);

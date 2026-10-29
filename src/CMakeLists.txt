@@ -10,6 +10,7 @@ set(FAKE2D_SOURCES
     core/log.cpp
     core/achievements.cpp
     core/mod.cpp
+    core/rng.cpp
     render/renderer.cpp
     render/shader.cpp
     render/texture.cpp

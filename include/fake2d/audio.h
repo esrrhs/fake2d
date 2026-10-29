@@ -81,6 +81,13 @@ public:
 
     /// Fire-and-forget one-shot playback (voice pool capped, drops overflow).
     void Play(std::string_view name, float volume = 1.0f);
+    /// One-shot with a playback-rate multiplier (1 = normal, 2 = octave up).
+    /// Pitches outside [0.25, 4] are clamped.
+    void PlayPitched(std::string_view name, float volume, float pitch);
+    /// Looping non-music voice (ambience, machinery). Stop it with StopClip.
+    void PlayLoop(std::string_view name, float volume = 1.0f, float pitch = 1.0f);
+    /// Stop every live voice using `name` (music included).
+    void StopClip(std::string_view name);
 
     /// One-shot playback **at a world position**. The voice is panned left or
     /// right and attenuated by its distance to the listener, and re-evaluated
@@ -187,7 +194,7 @@ private:
     };
 
     Voice *StartClip(std::string_view name, float volume, bool loop, bool music,
-                     float fade_seconds);
+                     float fade_seconds, float pitch = 1.0f);
     /// Wipe a slot back to a clean one-shot state before handing it out.
     void ResetVoice(Voice &voice, Clip *clip, float volume) const;
     /// Decode `[start, start + kStreamWindowFrames)` of a streamed clip into

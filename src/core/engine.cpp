@@ -30,9 +30,12 @@ struct Engine::Impl {
     I18n i18n;
     Achievements achievements;
     ModManager mods;
+    Random random;
     bool running = false;
     double delta_time = 0.0;
     double elapsed = 0.0;
+    double fps_smoothed = 0.0;
+    double frame_ms = 0.0;
     std::uint64_t frame_index = 0;
     // Fixed-step accumulator: physics advances in whole `fixed_dt` steps so
     // simulation results never depend on the frame rate. `step_accumulator`
@@ -61,9 +64,14 @@ bool Engine::Init(const EngineConfig &config) {
     desc.height = impl_->config.height;
     desc.vsync = impl_->config.vsync;
     desc.headless = impl_->config.headless;
+    desc.resizable = impl_->config.resizable;
 
     if (!impl_->window.Create(desc)) {
         return false;
+    }
+    if (impl_->config.min_width > 0 || impl_->config.min_height > 0) {
+        impl_->window.SetMinSize(impl_->config.min_width,
+                                 impl_->config.min_height);
     }
     if (!impl_->renderer.Init(impl_->window.Width(), impl_->window.Height())) {
         return false;
@@ -131,6 +139,15 @@ int Engine::Run(int max_frames) {
         const auto now = clock::now();
         impl_->delta_time = std::chrono::duration<double>(now - prev).count();
         prev = now;
+        impl_->frame_ms = impl_->delta_time * 1000.0;
+        if (impl_->delta_time > 0.0) {
+            const double fps = 1.0 / impl_->delta_time;
+            // ~10-frame smoothing so a single hitch does not make the read-out
+            // jump around; the first frame seeds the average.
+            impl_->fps_smoothed = impl_->fps_smoothed <= 0.0
+                                      ? fps
+                                      : impl_->fps_smoothed * 0.9 + fps * 0.1;
+        }
 
         impl_->window.PollEvents();
         if (impl_->window.RefreshSize()) {
@@ -269,6 +286,42 @@ bool Engine::IsFullscreen() const {
     return impl_ && impl_->window.IsFullscreen();
 }
 
+int Engine::WindowWidth() const {
+    return impl_ ? impl_->window.Width() : 0;
+}
+
+int Engine::WindowHeight() const {
+    return impl_ ? impl_->window.Height() : 0;
+}
+
+void Engine::SetWindowSize(int width, int height) {
+    if (impl_) {
+        impl_->window.SetSize(width, height);
+    }
+}
+
+void Engine::SetWindowResizable(bool resizable) {
+    if (impl_) {
+        impl_->window.SetResizable(resizable);
+    }
+}
+
+bool Engine::WindowResizable() const {
+    return impl_ && impl_->window.Resizable();
+}
+
+void Engine::SetMinWindowSize(int width, int height) {
+    if (impl_) {
+        impl_->window.SetMinSize(width, height);
+    }
+}
+
+void Engine::SetCursorShape(int shape) {
+    if (impl_) {
+        impl_->window.SetCursorShape(shape);
+    }
+}
+
 bool Engine::IsRunning() const {
     return impl_ && impl_->running;
 }
@@ -383,6 +436,22 @@ ModManager &Engine::GetMods() {
 
 const ModManager &Engine::GetMods() const {
     return impl_->mods;
+}
+
+Random &Engine::GetRandom() {
+    return impl_->random;
+}
+
+const Random &Engine::GetRandom() const {
+    return impl_->random;
+}
+
+double Engine::Fps() const {
+    return impl_->fps_smoothed;
+}
+
+double Engine::FrameMs() const {
+    return impl_->frame_ms;
 }
 
 const SaveStore &Engine::GetSaves() const {

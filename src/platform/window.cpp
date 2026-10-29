@@ -29,6 +29,7 @@ bool Window::CreateGLFW(const WindowDesc &desc, int major, int minor, bool core_
     if (desc.headless) {
         glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
     }
+    glfwWindowHint(GLFW_RESIZABLE, desc.resizable ? GLFW_TRUE : GLFW_FALSE);
 
     handle_ = glfwCreateWindow(desc.width, desc.height, desc.title, nullptr, nullptr);
     if (!handle_) {
@@ -39,6 +40,7 @@ bool Window::CreateGLFW(const WindowDesc &desc, int major, int minor, bool core_
     glfwSwapInterval(desc.vsync ? 1 : 0);
     width_ = desc.width;
     height_ = desc.height;
+    resizable_ = desc.resizable;
     RefreshSize();
     render_mode_ = RenderMode::GLFW;
     return true;
@@ -184,6 +186,12 @@ bool Window::RefreshSize() {
 }
 
 void Window::Destroy() {
+    for (GLFWcursor *&cursor : cursors_) {
+        if (cursor != nullptr) {
+            glfwDestroyCursor(cursor);
+            cursor = nullptr;
+        }
+    }
     if (render_mode_ == RenderMode::CGLHeadlessFBO) {
 #if defined(__APPLE__)
         if (cgl_context_) {
@@ -224,6 +232,56 @@ void Window::SwapBuffers() {
     }
     // CGLHeadlessFBO: no drawable to swap with; the FBO contents are read
     // via SaveScreenshot.
+}
+
+void Window::SetSize(int width, int height) {
+    if (width <= 0 || height <= 0) {
+        return;
+    }
+    width_ = width;
+    height_ = height;
+    if (handle_) {
+        glfwSetWindowSize(handle_, width, height);
+        RefreshSize();
+    }
+}
+
+void Window::SetResizable(bool resizable) {
+    resizable_ = resizable;
+    if (handle_) {
+        glfwSetWindowAttrib(handle_, GLFW_RESIZABLE,
+                            resizable ? GLFW_TRUE : GLFW_FALSE);
+    }
+}
+
+void Window::SetMinSize(int width, int height) {
+    min_width_ = width > 0 ? width : 0;
+    min_height_ = height > 0 ? height : 0;
+    if (handle_) {
+        glfwSetWindowSizeLimits(handle_,
+                                min_width_ > 0 ? min_width_ : GLFW_DONT_CARE,
+                                min_height_ > 0 ? min_height_ : GLFW_DONT_CARE,
+                                GLFW_DONT_CARE, GLFW_DONT_CARE);
+    }
+}
+
+void Window::SetCursorShape(int shape) {
+    if (handle_ == nullptr || shape < 0 || shape >= 6) {
+        return;
+    }
+    if (cursors_[shape] == nullptr) {
+        int glfw_shape = GLFW_ARROW_CURSOR;
+        switch (shape) {
+            case 1: glfw_shape = GLFW_IBEAM_CURSOR; break;
+            case 2: glfw_shape = GLFW_CROSSHAIR_CURSOR; break;
+            case 3: glfw_shape = GLFW_HAND_CURSOR; break;
+            case 4: glfw_shape = GLFW_HRESIZE_CURSOR; break;
+            case 5: glfw_shape = GLFW_VRESIZE_CURSOR; break;
+            default: break;
+        }
+        cursors_[shape] = glfwCreateStandardCursor(glfw_shape);
+    }
+    glfwSetCursor(handle_, cursors_[shape]);
 }
 
 bool Window::ShouldClose() const {

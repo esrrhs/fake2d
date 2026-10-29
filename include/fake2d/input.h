@@ -4,7 +4,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace fake2d {
@@ -79,6 +81,17 @@ public:
     /// GLFW-reported gamepad GUID/name, or "" when disconnected.
     [[nodiscard]] std::string_view GamepadName(int pad) const;
 
+    // --- action mapping ------------------------------------------------------
+    /// Bind one key to a named action (multiple keys per action). Games keep
+    /// the bindings in their settings and rebuild them on startup, so
+    /// rebinding is just ClearActions() + BindAction().
+    void BindAction(std::string_view action, std::string_view key);
+    /// Remove all bindings for one action (or every action when empty).
+    void ClearActions(std::string_view action = {});
+    [[nodiscard]] bool ActionDown(std::string_view action) const;
+    [[nodiscard]] bool ActionPressed(std::string_view action) const;
+    [[nodiscard]] bool ActionReleased(std::string_view action) const;
+
 private:
     static constexpr std::size_t kKeyCount = 349;   // GLFW_KEY_LAST + 1
     static constexpr std::size_t kButtonCount = 8;  // GLFW_MOUSE_BUTTON_LAST + 1
@@ -107,6 +120,7 @@ private:
     /// buffer, which NewFrame swaps in (see TextCodepoints).
     std::vector<unsigned int> text_input_;
     std::vector<unsigned int> text_pending_;
+    std::unordered_map<std::string, std::vector<std::string>> actions_;
 };
 
 } // namespace fake2d

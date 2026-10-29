@@ -189,6 +189,8 @@ sheets. The embedded bitmap fallback stays ASCII-only.
 | `draw_text_ex(text, x, y, scale, r, g, b, a, align, wrap_w) -> end_y` | Aligned, word-wrapped text. `align`: 0 left / 1 center / 2 right; (x, y) is the top-left of the layout box and `wrap_w` its width (0 = a single line aligned around x). **CJK breaks between characters; Latin text breaks at spaces** (overlong words break hard). Leading spaces on a wrapped line are dropped. Returns the y just below the last line — stack blocks by feeding it back as y. |
 | `draw_text_fit(text, x, y, max_w, scale, min_scale, r, g, b, a) -> w` | Single line that shrinks uniformly until it fits `max_w`, never below `min_scale`. Returns the drawn width. |
 | `draw_text_rotated(text, x, y, scale, angle, r, g, b, a) -> w` | Single line rotated `angle` radians around `(x, y)` (clockwise for positive values). |
+| `draw_text_shadow(text, x, y, scale, dx, dy, sr, sg, sb, sa, r, g, b, a) -> w` | Text with an offset drop shadow drawn underneath (shadow colour first, fill colour last). |
+| `draw_text_outline(text, x, y, scale, thickness, or, og, ob, oa, r, g, b, a) -> w` | Text ringed by an 8-direction outline of `thickness` logical pixels (under the fill). |
 | `font_add_fallback(path, pixel_height) -> bool` | Append a fallback face: glyphs missing from the primary font are rasterized from it into the same atlas. Faces are tried in load order (primary first). |
 | `font_clear_fallbacks()` | Drop every fallback face (the primary stays). |
 | `font_face_count() -> n`, `font_face_path(i) -> s` | Loaded faces (0 = primary) for diagnostics. |
@@ -395,6 +397,9 @@ drive `AudioEngine::Mix` itself to assert envelopes offline), but
 | Function | Description |
 |---|---|
 | `audio_play(name, volume)` | Play a registered clip once (`volume` 0–1) on the **sfx bus**. Overflow beyond the 32-voice pool drops the newest request. |
+| `audio_play_pitched(name, volume, pitch)` | One-shot with a playback-rate multiplier (1 = normal, 2 = octave up; clamped to 0.25–4). Randomise pitch slightly for repeated SFX so they do not sound mechanical. |
+| `audio_loop(name, volume, pitch)` | Looping non-music voice (ambience, machinery); stop it with `audio_stop`. |
+| `audio_stop(name)` | Stop every live voice using that clip name (music included). |
 | `audio_play_at(name, volume, x, y)` | Play a one-shot **at a world position**: panned left/right and attenuated by its distance to the listener, and re-evaluated on every `audio_listener` call — so a sound heard while walking past an emitter moves with you. |
 | `audio_listener(x, y)` / `audio_range(d)` | Where the ears are, and the distance at which a placed voice goes silent (`d` ≤ 0 is ignored). Full stereo separation is reached at **half** of `d`, so a hard-panned voice still has half its level. Default range: 1000 world units. |
 | `audio_enabled() -> bool` | Whether a playback device was opened (mixing still runs without one). |
@@ -521,6 +526,9 @@ camera_snap(0.0, 0.0)   -- on every level reset
 | `input_mouse_dx() / input_mouse_dy()` | Per-frame cursor movement — what a drag needs: a window, a scrollbar or a node editor moves by the delta, not to the position. |
 | `input_mouse_down(button) -> bool` / `input_mouse_pressed(button) -> bool` | Button: `0` left, `1` right, `2` middle. |
 | `input_mouse_wheel()` | Wheel delta accumulated this frame. |
+| `input_bind(action, key)` | Bind one key to a named action (call again to add a second key). |
+| `input_actions_clear([action])` | Remove one action's bindings, or every binding when empty. |
+| `input_action_down/pressed/released(action) -> bool` | Same semantics as the key readers, over every bound key. |
 
 Key names: `"a"`–`"z"`, `"0"`–`"9"`, `"f1"`–`"f12"`, `"space"`, `"enter"`,
 `"escape"`, `"tab"`, `"backspace"`, `"insert"`, `"delete"`, `"up"`, `"down"`,
@@ -557,8 +565,24 @@ neutral; pressed/released edges are produced against the previous snapshot.
 | `window_set_title(text)` | Update the OS title bar text. |
 | `window_set_fullscreen(flag)` | Enter/leave borderless fullscreen on the primary monitor; the windowed geometry is saved and restored on exit. |
 | `window_fullscreen() -> bool` | Current fullscreen state. |
+| `window_width() / window_height() -> n` | Logical window size in points. |
+| `window_set_size(w, h)` | Resize the OS window; the renderer follows on the next frame. |
+| `window_resizable() -> bool`, `window_set_resizable(flag)` | Toggle user resizing (and query it). |
+| `window_set_min_size(w, h)` | Minimum user-resizable size (0 = no constraint on that axis). |
+| `window_cursor(shape)` | Cursor shape: 0 arrow, 1 ibeam, 2 crosshair, 3 hand, 4 hresize, 5 vresize. |
 
-All four are safe no-ops in headless/CI runs (no window surface exists).
+These are safe no-ops in headless/CI runs (no window surface exists).
+
+### Random, easing & stats
+
+| Function | Description |
+|---|---|
+| `rng_seed(n)`, `rng_state() -> n` | Seed / read the engine's deterministic stream (splitmix64: same seed → same sequence on every platform). |
+| `rng_float() -> [0,1)`, `rng_range(lo, hi) -> [lo,hi)`, `rng_int(lo, hi) -> n` | Uniform draws; `rng_int` is inclusive. |
+| `rng_chance(p) -> bool` | True with probability `p` (0 = never, ≥1 = always). |
+| `ease(name, t) -> n` | Easing curve at `t` in [0,1]: `linear`, `in_quad`, `out_quad`, `inout_quad`, `in_cubic`, `out_cubic`, `inout_cubic`, `out_back`, `out_elastic`. |
+| `lerp(a, b, t)`, `clamp01(t)`, `smoothstep(a, b, t)`, `approach(current, target, rate, dt)` | Interpolation helpers; `approach` closes `1 - exp(-rate·dt)` of the gap without overshooting. |
+| `stats_fps()`, `stats_frame_ms()`, `stats_draw_calls()` | Smoothed FPS, last frame duration in ms, and the renderer's draw calls — for a debug overlay. |
 
 ### Time
 
@@ -1233,6 +1257,9 @@ invalid, and destroyed generations report inactive.
 | `ent_str(id, slot) -> s`, `ent_set_str(id, slot, s)` | 4 string fields (0..3); out of range reads `""`. |
 | `ent_count([tag]) -> n` | Active entities, optionally filtered by tag; pass -1 for all. |
 | `ent_at(index[, tag]) -> id` | Stable slot-order enumeration (0-based); pass tag -1 for all. |
+| `ent_snapshot() -> s` | Serialise every active entity (slot, tag, 8 numbers, 4 strings) as one text blob; doubles round-trip exactly and strings escape tabs/newlines. |
+| `ent_restore(data) -> bool` | Replace the store from a snapshot; malformed data returns false and leaves it empty. Handles from before the restore go stale. |
+| `ent_save(slot, dir) -> bool`, `ent_load(slot, dir) -> bool` | Same snapshot through the v2 save container (`F2SV`, CRC-checked). |
 
 Pattern: on the first frame `ent_create` your level population once; every
 frame enumerate with `ent_count`/`ent_at` (allocation-free), run AI/phys on

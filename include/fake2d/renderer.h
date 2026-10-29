@@ -211,6 +211,14 @@ public:
     float DrawTextFit(std::string_view text, float x, float y, float max_width,
                       float scale, float min_scale,
                       const Color &tint = Color::White());
+    /// Text with an offset drop shadow (shadow first, then the fill).
+    float DrawTextShadow(std::string_view text, float x, float y, float scale,
+                         float offset_x, float offset_y,
+                         const Color &shadow, const Color &tint = Color::White());
+    /// Text with a solid outline ring of `thickness` (8 copies under the fill).
+    float DrawTextOutline(std::string_view text, float x, float y, float scale,
+                          float thickness, const Color &outline,
+                          const Color &tint = Color::White());
     /// Draw text with its top-left at (x, y); scale multiplies the rasterized
     /// pixel height. Returns the pen x after the last glyph.
     float DrawText(std::string_view text, float x, float y, float scale = 1.0f,

@@ -222,6 +222,10 @@ jobs:
           # (exit code gate; the summary line pins the assertion count).
           run_xvfb ./build/bin/fake2d_hello --platform-test > platform.log 2>&1
           rc_platform=$?
+          # RNG, easing, entity snapshots, input actions, window/text helpers
+          # (exit code gate; the summary line pins the assertion count).
+          run_xvfb ./build/bin/fake2d_hello --gameplay-test > gameplay.log 2>&1
+          rc_gameplay=$?
           # Same surface through the Lua bindings; PASS is the [script] 0 line.
           # Capture BOTH streams: under xvfb-run the child's stderr is not
           # reliably caught by a bare `2>` redirection.
@@ -229,7 +233,7 @@ jobs:
             --entry scripts/phys_test.lua > phys_test.log 2>&1
           rc_lua=$?
           set -e
-          echo "exit codes: query=$rc_query filter=$rc_filter rigid=$rc_rigid extended=$rc_extended birds=$rc_birds limbo=$rc_limbo timestep=$rc_timestep path=$rc_path rt=$rc_rt ui=$rc_ui post=$rc_post fx=$rc_fx fog=$rc_fog audio=$rc_audio mapobj=$rc_mapobj tile=$rc_tile font=$rc_font platform=$rc_platform lua=$rc_lua"
+          echo "exit codes: query=$rc_query filter=$rc_filter rigid=$rc_rigid extended=$rc_extended birds=$rc_birds limbo=$rc_limbo timestep=$rc_timestep path=$rc_path rt=$rc_rt ui=$rc_ui post=$rc_post fx=$rc_fx fog=$rc_fog audio=$rc_audio mapobj=$rc_mapobj tile=$rc_tile font=$rc_font platform=$rc_platform gameplay=$rc_gameplay lua=$rc_lua"
           [ "$rc_query" -eq 0 ]
           [ "$rc_filter" -eq 0 ]
           [ "$rc_rigid" -eq 0 ]
@@ -248,6 +252,7 @@ jobs:
           [ "$rc_tile" -eq 0 ]
           [ "$rc_font" -eq 0 ]
           [ "$rc_platform" -eq 0 ]
+          [ "$rc_gameplay" -eq 0 ]
           [ "$rc_lua" -eq 0 ]
           grep -F "[phys-filter] PASS" phys_filter.log
           grep -F "[phys-rigid] PASS" phys_rigid.log
@@ -264,6 +269,7 @@ jobs:
           grep -F "[audio] PASS" audio.log
           grep -F "[font] PASS" font.log
           grep -F "[platform] PASS" platform.log
+          grep -F "[gameplay] PASS" gameplay.log
           grep -F "[script] 0" phys_test.log
           ! grep -E "\[script] (10[0-9][0-9]|200[0-9])" phys_test.log
 
@@ -497,6 +503,7 @@ jobs:
           ./build/bin/fake2d_hello --map-object-test
           ./build/bin/fake2d_hello --font-test
           ./build/bin/fake2d_hello --platform-test
+          ./build/bin/fake2d_hello --gameplay-test
           ./build/bin/fake2d_hello --headless --phys-bench
           ./build/bin/fake2d_hello --headless --frames 200 \
             --entry scripts/phys_test.lua > phys_test.log 2>&1
@@ -583,6 +590,7 @@ jobs:
           ./build/bin/fake2d_hello.exe --map-object-test
           ./build/bin/fake2d_hello.exe --font-test
           ./build/bin/fake2d_hello.exe --platform-test
+          ./build/bin/fake2d_hello.exe --gameplay-test
           ./build/bin/fake2d_hello.exe --headless --frames 200 \
             --entry scripts/phys_test.lua > phys_test.log 2>&1
           grep -F "[script] 0" phys_test.log
