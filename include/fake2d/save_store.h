@@ -46,6 +46,7 @@ public:
         std::uint32_t payload_bytes = 0;
         std::uint32_t payload_crc = 0;
         std::string header;               // optional UTF-8 key=value lines
+        bool restored_from_backup = false; // load fell back to `<slot>.sav.bak`
     };
 
     /// Write an opaque payload as `F2SV | container version | game version |
@@ -56,9 +57,11 @@ public:
                                 std::string_view header = {},
                                 std::uint32_t game_version = 0) const;
 
-    /// Read a blob, verifying the container magic and CRC. A plain legacy
-    /// file (no F2SV magic) is returned as version 0 with a computed CRC, so
-    /// older saves keep loading.
+    /// Read a blob, verifying the container magic and CRC. A corrupt or
+    /// missing primary file falls back to `<slot>.sav.bak` (the previous
+    /// version kept by SaveBlob) and sets `restored_from_backup`. A plain
+    /// legacy file (no F2SV magic) is returned as version 0 with a computed
+    /// CRC, so older saves keep loading.
     bool LoadBlob(std::string_view slot, std::string_view dir,
                   std::string &payload, BlobInfo &info) const;
 

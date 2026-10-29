@@ -5,6 +5,8 @@
 #include "fake2d/audio.h"
 #include "fake2d/engine.h"
 #include "fake2d/i18n.h"
+#include "fake2d/log.h"
+#include "fake2d/mod.h"
 #include "fake2d/particle.h"
 #include "fake2d/physics.h"
 #include "fake2d/renderer.h"
@@ -31,6 +33,42 @@ BodyId ResolveBody(std::int64_t handle) {
 
 JointId ResolveJoint(std::int64_t handle) {
     return static_cast<JointId>(static_cast<std::uint64_t>(handle));
+}
+
+/// First UTF-8 codepoint of `text` (0 for an empty/invalid sequence).
+char32_t FirstCodepoint(std::string_view text) {
+    if (text.empty()) {
+        return 0;
+    }
+    const auto first = static_cast<unsigned char>(text[0]);
+    if (first < 0x80) {
+        return first;
+    }
+    int extra = 0;
+    char32_t cp = 0;
+    if ((first & 0xE0) == 0xC0) {
+        extra = 1;
+        cp = first & 0x1F;
+    } else if ((first & 0xF0) == 0xE0) {
+        extra = 2;
+        cp = first & 0x0F;
+    } else if ((first & 0xF8) == 0xF0) {
+        extra = 3;
+        cp = first & 0x07;
+    } else {
+        return 0xFFFD;
+    }
+    if (text.size() <= static_cast<std::size_t>(extra)) {
+        return 0xFFFD;
+    }
+    for (int k = 1; k <= extra; ++k) {
+        const auto next = static_cast<unsigned char>(text[static_cast<std::size_t>(k)]);
+        if ((next & 0xC0) != 0x80) {
+            return 0xFFFD;
+        }
+        cp = (cp << 6) | (next & 0x3F);
+    }
+    return cp;
 }
 
 /// World point -> body-local point (inverse of the body transform).
@@ -1471,6 +1509,12 @@ void RegisterUiApi(fakelua::State *state, Engine *engine) {
         state, "ui_tip_draw", false,
         std::function<void(fakelua::State *)>(
             [engine](fakelua::State *) { engine->GetUI().DrawTooltip(); }));
+    fakelua::RegisterNativeFunction(
+        state, "ui_set_tip_delay", false,
+        std::function<void(fakelua::State *, double)>(
+            [engine](fakelua::State *, double seconds) {
+                engine->GetUI().SetTipDelay(static_cast<float>(seconds));
+            }));
 
     fakelua::RegisterNativeFunction(
         state, "ui_button", false,
@@ -1767,6 +1811,41 @@ void RegisterTextApi(fakelua::State *state, Engine *engine) {
         std::function<double(fakelua::State *)>(
             [engine](fakelua::State *) -> double {
                 return static_cast<double>(engine->GetRenderer().TextLineHeight());
+            }));
+
+    // Fallback faces: glyphs missing from the primary font are found here.
+    fakelua::RegisterNativeFunction(
+        state, "font_add_fallback", false,
+        std::function<bool(fakelua::State *, std::string_view, double)>(
+            [engine](fakelua::State *, std::string_view path, double pixel_height) {
+                return engine->GetRenderer().AddFallbackFont(
+                    std::string(path), static_cast<float>(pixel_height));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "font_clear_fallbacks", false,
+        std::function<void(fakelua::State *)>(
+            [engine](fakelua::State *) {
+                engine->GetRenderer().ClearFallbackFonts();
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "font_face_count", false,
+        std::function<std::int64_t(fakelua::State *)>(
+            [engine](fakelua::State *) -> std::int64_t {
+                return static_cast<std::int64_t>(
+                    engine->GetRenderer().FontFaceCount());
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "font_face_path", false,
+        std::function<std::string(fakelua::State *, double)>(
+            [engine](fakelua::State *, double index) -> std::string {
+                return engine->GetRenderer().FontFacePath(
+                    static_cast<std::size_t>(index));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "font_has_glyph", false,
+        std::function<bool(fakelua::State *, std::string_view)>(
+            [engine](fakelua::State *, std::string_view text) -> bool {
+                return engine->GetRenderer().HasGlyph(FirstCodepoint(text));
             }));
 
     fakelua::RegisterNativeFunction(
@@ -2936,6 +3015,19 @@ void RegisterStorageApi(fakelua::State *state, Engine *engine) {
                            : 0.0;
             }));
     fakelua::RegisterNativeFunction(
+        state, "storage_blob_backup_used", false,
+        std::function<bool(fakelua::State *, std::string_view, std::string_view)>(
+            [engine](fakelua::State *, std::string_view slot,
+                     std::string_view dir) -> bool {
+                SaveStore::BlobInfo info;
+                return engine->GetSaves().ReadBlobInfo(slot, dir, info) &&
+                       info.restored_from_backup;
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "storage_dir", false,
+        std::function<std::string(fakelua::State *)>(
+            [engine](fakelua::State *) { return engine->SaveDir(); }));
+    fakelua::RegisterNativeFunction(
         state, "storage_slot_count", false,
         std::function<std::int64_t(fakelua::State *, std::string_view)>(
             [](fakelua::State *, std::string_view dir) -> std::int64_t {
@@ -3038,6 +3130,30 @@ void RegisterI18nApi(fakelua::State *state, Engine *engine) {
             [engine](fakelua::State *, std::string_view code) -> std::int64_t {
                 return static_cast<std::int64_t>(engine->GetI18n().EntryCount(code));
             }));
+    // Missing-key diagnostics: report untranslated source strings.
+    fakelua::RegisterNativeFunction(
+        state, "i18n_missing_count", false,
+        std::function<std::int64_t(fakelua::State *)>(
+            [engine](fakelua::State *) -> std::int64_t {
+                return static_cast<std::int64_t>(engine->GetI18n().MissingCount());
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "i18n_missing_key", false,
+        std::function<std::string(fakelua::State *, double)>(
+            [engine](fakelua::State *, double index) -> std::string {
+                return std::string(engine->GetI18n().MissingKey(
+                    static_cast<std::size_t>(index)));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "i18n_clear_missing", false,
+        std::function<void(fakelua::State *)>(
+            [engine](fakelua::State *) { engine->GetI18n().ClearMissing(); }));
+    fakelua::RegisterNativeFunction(
+        state, "i18n_set_track_missing", false,
+        std::function<void(fakelua::State *, bool)>(
+            [engine](fakelua::State *, bool track) {
+                engine->GetI18n().SetTrackMissing(track);
+            }));
 }
 
 void RegisterPlatformApi(fakelua::State *state, Engine *engine) {
@@ -3134,6 +3250,201 @@ void RegisterPlatformApi(fakelua::State *state, Engine *engine) {
         state, "steam_set_cloud", false,
         std::function<void(fakelua::State *, bool)>(
             [](fakelua::State *, bool enabled) { steam::SetCloudEnabled(enabled); }));
+    fakelua::RegisterNativeFunction(
+        state, "steam_backend", false,
+        std::function<std::string(fakelua::State *)>(
+            [](fakelua::State *) { return std::string(steam::BackendName()); }));
+    fakelua::RegisterNativeFunction(
+        state, "steam_restart_if_necessary", false,
+        std::function<bool(fakelua::State *, double)>(
+            [](fakelua::State *, double app_id) {
+                return steam::RestartAppIfNecessary(
+                    static_cast<std::uint32_t>(app_id));
+            }));
+
+    // ---- achievements: local mirror + Steam sync --------------------------
+    fakelua::RegisterNativeFunction(
+        state, "ach_unlock", false,
+        std::function<bool(fakelua::State *, std::string_view)>(
+            [engine](fakelua::State *, std::string_view id) {
+                return engine->GetAchievements().Unlock(id);
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "ach_unlocked", false,
+        std::function<bool(fakelua::State *, std::string_view)>(
+            [engine](fakelua::State *, std::string_view id) {
+                return engine->GetAchievements().IsUnlocked(id);
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "ach_count", false,
+        std::function<std::int64_t(fakelua::State *)>(
+            [engine](fakelua::State *) -> std::int64_t {
+                return static_cast<std::int64_t>(
+                    engine->GetAchievements().Count());
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "ach_id", false,
+        std::function<std::string(fakelua::State *, double)>(
+            [engine](fakelua::State *, double index) -> std::string {
+                return engine->GetAchievements().IdAt(
+                    static_cast<std::size_t>(index));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "ach_sync", false,
+        std::function<void(fakelua::State *)>(
+            [engine](fakelua::State *) { engine->GetAchievements().SyncToSteam(); }));
+    fakelua::RegisterNativeFunction(
+        state, "ach_clear", false,
+        std::function<void(fakelua::State *)>(
+            [engine](fakelua::State *) { engine->GetAchievements().Clear(); }));
+    fakelua::RegisterNativeFunction(
+        state, "ach_path", false,
+        std::function<std::string(fakelua::State *)>(
+            [engine](fakelua::State *) {
+                return engine->GetAchievements().Path();
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "ach_set_path", false,
+        std::function<void(fakelua::State *, std::string_view)>(
+            [engine](fakelua::State *, std::string_view path) {
+                engine->GetAchievements().SetPath(std::string(path));
+            }));
+}
+
+void RegisterModApi(fakelua::State *state, Engine *engine) {
+    fakelua::RegisterNativeFunction(
+        state, "mods_scan", false,
+        std::function<std::int64_t(fakelua::State *, std::string_view)>(
+            [engine](fakelua::State *, std::string_view dir) -> std::int64_t {
+                engine->GetMods().Scan({std::string(dir)});
+                return static_cast<std::int64_t>(engine->GetMods().Count());
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "mods_scan_more", false,
+        std::function<std::int64_t(fakelua::State *, std::string_view)>(
+            [engine](fakelua::State *, std::string_view dir) -> std::int64_t {
+                engine->GetMods().ScanMore({std::string(dir)});
+                return static_cast<std::int64_t>(engine->GetMods().Count());
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "mods_clear", false,
+        std::function<void(fakelua::State *)>(
+            [engine](fakelua::State *) { engine->GetMods().Clear(); }));
+    fakelua::RegisterNativeFunction(
+        state, "mods_count", false,
+        std::function<std::int64_t(fakelua::State *)>(
+            [engine](fakelua::State *) -> std::int64_t {
+                return static_cast<std::int64_t>(engine->GetMods().Count());
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "mods_active_count", false,
+        std::function<std::int64_t(fakelua::State *)>(
+            [engine](fakelua::State *) -> std::int64_t {
+                return static_cast<std::int64_t>(engine->GetMods().ActiveCount());
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "mods_active_name", false,
+        std::function<std::string(fakelua::State *, double)>(
+            [engine](fakelua::State *, double index) -> std::string {
+                return engine->GetMods().ActiveName(static_cast<std::size_t>(index));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "mods_name", false,
+        std::function<std::string(fakelua::State *, double)>(
+            [engine](fakelua::State *, double index) -> std::string {
+                const auto &mods = engine->GetMods().Mods();
+                return index >= 0 && static_cast<std::size_t>(index) < mods.size()
+                           ? mods[static_cast<std::size_t>(index)].name
+                           : std::string{};
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "mods_version", false,
+        std::function<std::string(fakelua::State *, double)>(
+            [engine](fakelua::State *, double index) -> std::string {
+                const auto &mods = engine->GetMods().Mods();
+                return index >= 0 && static_cast<std::size_t>(index) < mods.size()
+                           ? mods[static_cast<std::size_t>(index)].version
+                           : std::string{};
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "mods_path", false,
+        std::function<std::string(fakelua::State *, double)>(
+            [engine](fakelua::State *, double index) -> std::string {
+                const auto &mods = engine->GetMods().Mods();
+                return index >= 0 && static_cast<std::size_t>(index) < mods.size()
+                           ? mods[static_cast<std::size_t>(index)].path
+                           : std::string{};
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "mods_order", false,
+        std::function<double(fakelua::State *, double)>(
+            [engine](fakelua::State *, double index) -> double {
+                const auto &mods = engine->GetMods().Mods();
+                return index >= 0 && static_cast<std::size_t>(index) < mods.size()
+                           ? static_cast<double>(
+                                 mods[static_cast<std::size_t>(index)].load_order)
+                           : 0.0;
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "mods_enabled", false,
+        std::function<bool(fakelua::State *, double)>(
+            [engine](fakelua::State *, double index) -> bool {
+                const auto &mods = engine->GetMods().Mods();
+                return index >= 0 && static_cast<std::size_t>(index) < mods.size() &&
+                       mods[static_cast<std::size_t>(index)].enabled;
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "mods_set_enabled", false,
+        std::function<bool(fakelua::State *, std::string_view, bool)>(
+            [engine](fakelua::State *, std::string_view name, bool enabled) {
+                return engine->GetMods().SetEnabled(name, enabled);
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "mods_base_dir", false,
+        std::function<void(fakelua::State *, std::string_view)>(
+            [engine](fakelua::State *, std::string_view dir) {
+                engine->GetMods().SetBaseDir(std::string(dir));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "mods_resolve", false,
+        std::function<std::string(fakelua::State *, std::string_view)>(
+            [engine](fakelua::State *, std::string_view relative) {
+                return engine->GetMods().Resolve(relative);
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "mods_load_lang", false,
+        std::function<std::int64_t(fakelua::State *)>(
+            [engine](fakelua::State *) -> std::int64_t {
+                return static_cast<std::int64_t>(
+                    engine->GetMods().LoadLanguages(engine->GetI18n()));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "mods_report", false,
+        std::function<std::string(fakelua::State *)>(
+            [engine](fakelua::State *) { return engine->GetMods().Report(); }));
+}
+
+void RegisterLogApi(fakelua::State *state) {
+    fakelua::RegisterNativeFunction(
+        state, "log_info", false,
+        std::function<void(fakelua::State *, std::string_view)>(
+            [](fakelua::State *, std::string_view text) { log::Info(text); }));
+    fakelua::RegisterNativeFunction(
+        state, "log_warn", false,
+        std::function<void(fakelua::State *, std::string_view)>(
+            [](fakelua::State *, std::string_view text) { log::Warn(text); }));
+    fakelua::RegisterNativeFunction(
+        state, "log_error", false,
+        std::function<void(fakelua::State *, std::string_view)>(
+            [](fakelua::State *, std::string_view text) { log::Error(text); }));
+    fakelua::RegisterNativeFunction(
+        state, "log_active", false,
+        std::function<bool(fakelua::State *)>(
+            [](fakelua::State *) { return log::Active(); }));
+    fakelua::RegisterNativeFunction(
+        state, "log_path", false,
+        std::function<std::string(fakelua::State *)>(
+            [](fakelua::State *) { return log::Path(); }));
 }
 
 void RegisterEntityApi(fakelua::State *state, Engine *engine) {
@@ -3399,6 +3710,8 @@ void RegisterScriptApi(fakelua::State *state, Engine *engine) {
     RegisterStorageApi(state, engine);
     RegisterI18nApi(state, engine);
     RegisterPlatformApi(state, engine);
+    RegisterModApi(state, engine);
+    RegisterLogApi(state);
     RegisterEntityApi(state, engine);
     RegisterShaderApi(state, engine);
     RegisterWindowApi(state, engine);

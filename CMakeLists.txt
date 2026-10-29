@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16 FATAL_ERROR)
 
-project(fake2d VERSION 1.27.0 LANGUAGES CXX)
+project(fake2d VERSION 1.28.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -19,6 +19,9 @@ option(FAKE2D_WITH_FAKELUA "Build with FakeLua scripting" ON)
 # Optional Steamworks backend. The proprietary SDK is never bundled; when OFF
 # the adapter compiles to a no-op stub with the same API.
 option(FAKE2D_WITH_STEAM "Build the Steamworks adapter (needs the Steam SDK)" OFF)
+# CI-only: compile src/platform/steam.cpp against tests/fake_steam, proving the
+# SDK branch stays buildable without the proprietary SDK.
+option(FAKE2D_TEST_STEAM_HEADERS "Compile-check the Steam backend with stub headers" OFF)
 
 if (FAKE2D_WITH_FAKELUA)
     find_package(fakelua REQUIRED)

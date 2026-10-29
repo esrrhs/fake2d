@@ -82,6 +82,17 @@ jobs:
       - name: Binary smoke
         run: test -x build/bin/fake2d_hello
 
+      # Compile the Steamworks branch against tests/fake_steam: the SDK code
+      # path must stay buildable even though CI has no proprietary SDK.
+      - name: Steamworks adapter header check
+        run: |
+          cmake -S . -B "$RUNNER_TEMP/steam-check" -G Ninja \
+            -DFAKE2D_WITH_FAKELUA=OFF \
+            -DFAKE2D_BUILD_EXAMPLES=OFF \
+            -DFAKE2D_TEST_STEAM_HEADERS=ON
+          cmake --build "$RUNNER_TEMP/steam-check" \
+            --target fake2d_steam_compile_check
+
       - name: Generate demo assets
         run: |
           export LD_LIBRARY_PATH="$FLINSTALL/lib:${LD_LIBRARY_PATH:-}"
@@ -117,7 +128,7 @@ jobs:
             --screenshot scene.png
           test -s scene.png
           run_xvfb ./build/bin/fake2d_hello --headless --frames 60 --text-demo \
-            --screenshot text.png
+            --screenshot text.png --shot-min-colors 12
           test -s text.png
           run_xvfb ./build/bin/fake2d_hello --headless --bench
           run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --tile-demo
@@ -521,7 +532,7 @@ jobs:
           ./build/bin/fake2d_hello --headless --frames 120 --audio-demo
           ./build/bin/fake2d_hello --headless --frames 120 --spatial-demo
           ./build/bin/fake2d_hello --headless --frames 60 --text-demo \
-            --screenshot text-mac.png
+            --screenshot text-mac.png --shot-min-colors 12
           test -s text-mac.png
 
       - name: (windows) headless Lua fixtures
@@ -596,7 +607,7 @@ jobs:
           ./build/bin/fake2d_hello.exe --headless --frames 120 --audio-demo
           ./build/bin/fake2d_hello.exe --headless --frames 120 --spatial-demo
           ./build/bin/fake2d_hello.exe --headless --frames 60 --text-demo \
-            --screenshot text-win.png
+            --screenshot text-win.png --shot-min-colors 12
           test -s text-win.png
           ./build/bin/fake2d_hello.exe --headless --bench
           ./build/bin/fake2d_hello.exe --headless --phys-bench

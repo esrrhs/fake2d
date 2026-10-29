@@ -7,6 +7,9 @@ set(FAKE2D_SOURCES
     core/entity_store.cpp
     core/i18n.cpp
     core/app_paths.cpp
+    core/log.cpp
+    core/achievements.cpp
+    core/mod.cpp
     render/renderer.cpp
     render/shader.cpp
     render/texture.cpp
@@ -91,6 +94,17 @@ if (FAKE2D_WITH_STEAM)
         message(FATAL_ERROR "Steamworks library not found: ${FAKE2D_STEAM_LIB}")
     endif ()
     target_link_libraries(fake2d PUBLIC "${FAKE2D_STEAM_LIB}")
+endif ()
+
+# CI-only compile check: the SDK branch of the adapter must build against the
+# stub headers in tests/fake_steam (no proprietary SDK, no link).
+if (FAKE2D_TEST_STEAM_HEADERS)
+    add_library(fake2d_steam_compile_check OBJECT platform/steam.cpp)
+    target_include_directories(fake2d_steam_compile_check PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../include
+        ${CMAKE_CURRENT_SOURCE_DIR}/../tests/fake_steam)
+    target_compile_definitions(fake2d_steam_compile_check PRIVATE
+        FAKE2D_WITH_STEAM_SDK=1)
 endif ()
 
 # JSON parsing for TexturePacker atlases (header-only, kept out of the public API).

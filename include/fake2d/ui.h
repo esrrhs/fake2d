@@ -4,6 +4,7 @@
 #include "fake2d/math.h"
 #include "fake2d/renderer.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -52,6 +53,9 @@ public:
     /// record wins. Call DrawTooltip() after all widgets to render it.
     void Tip(UIAnchor anchor, float offset_x, float offset_y, float w, float h,
              std::string_view text);
+    /// Hover time before a tooltip appears (0 = immediately, default 0.3 s).
+    void SetTipDelay(float seconds) { tip_delay_ = std::max(0.0f, seconds); }
+    [[nodiscard]] float TipDelay() const { return tip_delay_; }
     /// Draw the tooltip recorded by this frame's Tip() near the mouse,
     /// clamped to the viewport.
     void DrawTooltip();
@@ -202,6 +206,9 @@ private:
     std::string focused_;
     std::string tooltip_;
     Vec2 tooltip_mouse_{0.0f, 0.0f};
+    float tip_delay_ = 0.3f;
+    double tip_hover_since_ = 0.0;
+    std::string tip_hover_key_;
 };
 
 } // namespace fake2d

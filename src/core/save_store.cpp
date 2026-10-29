@@ -71,6 +71,39 @@ bool ReadWholeFile(const std::string &path, std::string &out) {
     return true;
 }
 
+/// Decode one blob file (modern F2SV container or a legacy bare payload).
+bool ParseBlob(std::string raw, std::string &payload, SaveStore::BlobInfo &info) {
+    info = SaveStore::BlobInfo{};
+    if (raw.size() >= 16 && std::memcmp(raw.data(), kBlobMagic, 4) == 0) {
+        if (ReadU32(raw, 4) != kBlobContainerVersion) {
+            return false;
+        }
+        const std::uint32_t version = ReadU32(raw, 8);
+        const std::uint32_t header_len = ReadU32(raw, 12);
+        const std::size_t payload_offset = 16 + static_cast<std::size_t>(header_len) + 4;
+        if (header_len > 1024 * 1024 || payload_offset > raw.size()) {
+            return false;
+        }
+        const std::uint32_t crc = ReadU32(raw, 16 + header_len);
+        const std::string body = raw.substr(payload_offset);
+        if (Crc32(body) != crc) {
+            return false;
+        }
+        payload = body;
+        info.game_version = version;
+        info.header = raw.substr(16, header_len);
+        info.payload_bytes = static_cast<std::uint32_t>(body.size());
+        info.payload_crc = crc;
+        return true;
+    }
+    // Legacy: the file itself is the payload.
+    payload = std::move(raw);
+    info.game_version = 0;
+    info.payload_bytes = static_cast<std::uint32_t>(payload.size());
+    info.payload_crc = Crc32(payload);
+    return true;
+}
+
 } // namespace
 
 bool SaveStore::ValidSlotName(std::string_view slot) {
@@ -249,6 +282,20 @@ bool SaveStore::SaveBlob(std::string_view slot, std::string_view dir,
         return false;
     }
     out.close();
+    // Keep the previous save as `.bak`: a torn write or a later corrupt file
+    // still leaves the player with the state before this save.
+    std::error_code ec_backup;
+    if (std::filesystem::exists(path, ec_backup)) {
+        const std::string backup = path + ".bak";
+        std::filesystem::remove(backup, ec_backup);
+        std::filesystem::rename(path, backup, ec_backup);
+        if (ec_backup) {
+            // No backup could be kept (locked file, cross-device, ...); drop
+            // the primary so the new save can still replace it.
+            std::error_code ec_remove;
+            std::filesystem::remove(path, ec_remove);
+        }
+    }
     std::filesystem::rename(tmp, path, ec);
     if (ec) {
         std::filesystem::remove(tmp, ec);
@@ -263,38 +310,16 @@ bool SaveStore::LoadBlob(std::string_view slot, std::string_view dir,
         return false;
     }
     std::string raw;
-    if (!ReadWholeFile(SlotFile(dir, slot, kBlobExt), raw)) {
-        return false;
-    }
-    info = BlobInfo{};
-    if (raw.size() >= 16 && std::memcmp(raw.data(), kBlobMagic, 4) == 0) {
-        if (ReadU32(raw, 4) != kBlobContainerVersion) {
-            return false;
-        }
-        const std::uint32_t version = ReadU32(raw, 8);
-        const std::uint32_t header_len = ReadU32(raw, 12);
-        const std::size_t payload_offset = 16 + static_cast<std::size_t>(header_len) + 4;
-        if (header_len > 1024 * 1024 || payload_offset > raw.size()) {
-            return false;
-        }
-        const std::uint32_t crc = ReadU32(raw, 16 + header_len);
-        const std::string body = raw.substr(payload_offset);
-        if (Crc32(body) != crc) {
-            return false;
-        }
-        payload = body;
-        info.game_version = version;
-        info.header = raw.substr(16, header_len);
-        info.payload_bytes = static_cast<std::uint32_t>(body.size());
-        info.payload_crc = crc;
+    const std::string path = SlotFile(dir, slot, kBlobExt);
+    if (ReadWholeFile(path, raw) && ParseBlob(std::move(raw), payload, info)) {
         return true;
     }
-    // Legacy: the file itself is the payload.
-    payload = std::move(raw);
-    info.game_version = 0;
-    info.payload_bytes = static_cast<std::uint32_t>(payload.size());
-    info.payload_crc = Crc32(payload);
-    return true;
+    if (ReadWholeFile(path + ".bak", raw) &&
+        ParseBlob(std::move(raw), payload, info)) {
+        info.restored_from_backup = true;
+        return true;
+    }
+    return false;
 }
 
 bool SaveStore::ReadBlobInfo(std::string_view slot, std::string_view dir,
@@ -335,6 +360,8 @@ bool SaveStore::DeleteSlot(std::string_view slot, std::string_view dir) {
     std::filesystem::remove(SlotFile(dir, slot, kSlotExt), ec);
     ec.clear();
     std::filesystem::remove(SlotFile(dir, slot, kBlobExt), ec);
+    ec.clear();
+    std::filesystem::remove(SlotFile(dir, slot, ".sav.bak"), ec);
     return !std::filesystem::exists(SlotFile(dir, slot, kSlotExt)) &&
            !std::filesystem::exists(SlotFile(dir, slot, kBlobExt));
 }
@@ -344,7 +371,7 @@ bool SaveStore::RenameSlot(std::string_view from, std::string_view to,
     if (!ValidSlotName(from) || !ValidSlotName(to) || from == to) {
         return false;
     }
-    for (const char *ext : {kSlotExt, kBlobExt}) {
+    for (const char *ext : {kSlotExt, kBlobExt, ".sav.bak"}) {
         const std::string src = SlotFile(dir, from, ext);
         const std::string dst = SlotFile(dir, to, ext);
         std::error_code ec;

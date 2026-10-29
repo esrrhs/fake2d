@@ -75,6 +75,7 @@ const I18n::LanguagePack *I18n::Find(std::string_view code) const {
 bool I18n::LoadDirectory(const std::string &dir, std::string_view default_code) {
     languages_.clear();
     current_.clear();
+    ClearMissing();
 
     std::error_code ec;
     std::vector<std::string> files;
@@ -117,9 +118,20 @@ int I18n::LoadFile(const std::string &path, std::string_view code) {
 
     int parsed = 0;
     std::string line;
+    bool first_line = true;
     while (std::getline(in, line)) {
         if (!line.empty() && line.back() == '\r') {
             line.pop_back();
+        }
+        if (first_line) {
+            first_line = false;
+            // Editors on Windows often save TSV with a UTF-8 BOM; left in
+            // place it would turn the first key/comment into garbage.
+            if (line.size() >= 3 && static_cast<unsigned char>(line[0]) == 0xEF &&
+                static_cast<unsigned char>(line[1]) == 0xBB &&
+                static_cast<unsigned char>(line[2]) == 0xBF) {
+                line.erase(0, 3);
+            }
         }
         if (line.empty()) {
             continue;
@@ -154,6 +166,11 @@ bool I18n::SetLanguage(std::string_view code) {
     if (Find(code) == nullptr) {
         return false;
     }
+    if (current_ != code) {
+        // A key missing in one pack may exist in another; the report is
+        // per-language, so switching starts a fresh list.
+        ClearMissing();
+    }
     current_ = std::string(code);
     return true;
 }
@@ -171,9 +188,25 @@ std::string_view I18n::Translate(std::string_view key) const {
     }
     const auto it = language->entries.find(std::string(key));
     if (it == language->entries.end()) {
+        if (track_missing_) {
+            if (missing_.size() < 512 &&
+                missing_.insert(std::string(key)).second) {
+                missing_order_.emplace_back(key);
+            }
+        }
         return key;
     }
     return it->second;
+}
+
+std::string_view I18n::MissingKey(std::size_t index) const {
+    return index < missing_order_.size() ? std::string_view(missing_order_[index])
+                                         : std::string_view{};
+}
+
+void I18n::ClearMissing() {
+    missing_.clear();
+    missing_order_.clear();
 }
 
 bool I18n::Has(std::string_view key) const {
@@ -194,6 +227,7 @@ std::size_t I18n::EntryCount(std::string_view code) const {
 void I18n::Clear() {
     languages_.clear();
     current_.clear();
+    ClearMissing();
 }
 
 } // namespace fake2d

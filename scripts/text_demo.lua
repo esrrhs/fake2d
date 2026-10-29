@@ -116,7 +116,8 @@ local function draw_text_page()
     else
         steam_line = steam_line .. "  (cloud off)"
     end
-    draw_text(steam_line, tx, y, 0.56, 0.20, 0.22, 0.26, 1.0)
+    draw_text(steam_line .. "  [" .. steam_backend() .. "]  ACH " .. ach_count(),
+              tx, y, 0.56, 0.20, 0.22, 0.26, 1.0)
     y = y + step
     draw_text(i18n_t("Save slot") .. ": " .. string.format("%d", save_bytes)
                   .. " " .. i18n_t("Saved bytes") .. "  "
@@ -165,8 +166,8 @@ end
 local function draw_footer()
     draw_text_rotated(i18n_t("Rotated text"), 742.0, 462.0, 0.9, -0.28,
                       0.16, 0.17, 0.20, 1.0)
-    draw_text(i18n_t("Press L or the button to switch"), 24.0, 500.0, 0.56,
-              0.28, 0.29, 0.32, 1.0)
+    draw_text(i18n_t("Press L or the button to switch") .. " / U 成就",
+              24.0, 500.0, 0.56, 0.28, 0.29, 0.32, 1.0)
 end
 
 function update(dt)
@@ -193,6 +194,7 @@ function update(dt)
             tmp = "/tmp/"
         end
         paths_set_user_dir(tmp .. "fake2d_text_demo")
+        ui_set_tip_delay(0.25)
         save_demo_slot()
         cloud = 0
         if steam_cloud_enabled() then
@@ -202,6 +204,9 @@ function update(dt)
 
     if input_key_pressed("l") then
         switch_language()
+    end
+    if input_key_pressed("u") then
+        ach_unlock("ACH_TEXT_DEMO")
     end
     if input_key_pressed("r") then
         storage_slot_delete("text_demo", paths_saves_dir())

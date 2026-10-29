@@ -41,6 +41,24 @@ bool Available() {
     return g_available;
 }
 
+std::string_view BackendName() {
+#if defined(FAKE2D_WITH_STEAM_SDK)
+    return "steamworks";
+#else
+    return "stub";
+#endif
+}
+
+bool RestartAppIfNecessary(std::uint32_t app_id) {
+#if defined(FAKE2D_WITH_STEAM_SDK)
+    // true = Steam relaunched us; the caller must exit.
+    return SteamAPI_RestartAppIfNecessary(app_id);
+#else
+    (void)app_id;
+    return false;
+#endif
+}
+
 void Shutdown() {
 #if defined(FAKE2D_WITH_STEAM_SDK)
     if (g_available) {

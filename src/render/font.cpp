@@ -49,8 +49,10 @@ namespace {
 
 constexpr int kFirstChar = 32;  // printable ASCII starts at space
 constexpr int kCharCount = 95;  // space .. tilde
-constexpr int kAtlasWidth = 1024;
-constexpr int kAtlasHeight = 1024;
+// 2048² holds ~3k CJK glyphs at 32px (a 1024² atlas fills after ~800), and
+// costs only one zero-filled texture at font load.
+constexpr int kAtlasWidth = 2048;
+constexpr int kAtlasHeight = 2048;
 constexpr int kPackPad = 1;
 
 std::vector<unsigned char> ReadFileOrEmpty(const std::string &path) {
@@ -117,20 +119,88 @@ bool IsSpace(char32_t cp) {
     return cp == ' ' || cp == '\t' || cp == '\r';
 }
 
+/// Punctuation that must not start a wrapped line (CJK 禁则处理).
+bool NoLineStart(char32_t cp) {
+    switch (cp) {
+        case U',': case U'.': case U'!': case U'?': case U':': case U';':
+        case U')': case U']': case U'}':
+        case 0x3001: case 0x3002: case 0xFF0C: case 0xFF0E: case 0xFF01:
+        case 0xFF1F: case 0xFF1A: case 0xFF1B: case 0xFF09: case 0x3011:
+        case 0xFF3D: case 0xFF5D: case 0x3009: case 0x300B: case 0x300D:
+        case 0x300F: case 0x3015: case 0x3017: case 0x2019: case 0x201D:
+        case 0x2026: case 0x2025: case 0x00B7: case 0x30FB: case 0xFF0F:
+        case 0xFE50: case 0xFE52:
+            return true;
+        default:
+            return false;
+    }
+}
+
+/// Punctuation that must not end a wrapped line (an opening bracket/text).
+bool NoLineEnd(char32_t cp) {
+    switch (cp) {
+        case U'(': case U'[': case U'{':
+        case 0x3008: case 0x300A: case 0x300C: case 0x300E: case 0x3010:
+        case 0x3014: case 0x3016: case 0xFF08: case 0xFF3B: case 0xFF5B:
+        case 0x2018: case 0x201C: case 0xFE51: case 0xFE53:
+            return true;
+        default:
+            return false;
+    }
+}
+
+/// One parsed font face (primary or fallback) sharing the glyph atlas.
+struct FaceData {
+    std::vector<unsigned char> data;
+    stbtt_fontinfo info{};
+    float scale = 0.0f;
+    float ascent_px = 0.0f;
+    float line_height = 0.0f;
+    std::string path;
+};
+
+bool LoadFaceFile(const std::string &path, float pixel_height, FaceData &face) {
+    face.data = ReadFileOrEmpty(path);
+    if (face.data.empty()) {
+        return false;
+    }
+    int font_offset = 0;
+    if (face.data.size() >= 4 && std::memcmp(face.data.data(), "ttcf", 4) == 0) {
+        // TrueType Collection: take the first face (PingFang.ttc, NotoSansCJK).
+        font_offset = stbtt_GetFontOffsetForIndex(face.data.data(), 0);
+        if (font_offset < 0) {
+            face.data.clear();
+            return false;
+        }
+    }
+    if (stbtt_InitFont(&face.info, face.data.data(), font_offset) == 0) {
+        face.data.clear();
+        return false;
+    }
+    face.scale = stbtt_ScaleForPixelHeight(&face.info, pixel_height);
+    int ascent = 0;
+    int descent = 0;
+    int line_gap = 0;
+    stbtt_GetFontVMetrics(&face.info, &ascent, &descent, &line_gap);
+    face.ascent_px = static_cast<float>(ascent) * face.scale;
+    // descent is negative in the font metrics, so this is ascent + |descent|.
+    face.line_height = face.ascent_px - static_cast<float>(descent) * face.scale;
+    face.path = path;
+    return true;
+}
+
 } // namespace
 
 struct Font::Impl {
-    std::vector<unsigned char> ttf;
-    stbtt_fontinfo info{};
+    std::vector<FaceData> faces;
     bool has_font = false;
-    float scale = 0.0f;
-    float ascent_px = 0.0f;
     std::unordered_map<char32_t, Glyph> glyphs;
     int atlas_w = 0;
     int atlas_h = 0;
     int next_x = kPackPad;
     int next_y = kPackPad;
     int shelf_h = 0;
+    float line_height = 0.0f;
 };
 
 Font::Font() : impl_(std::make_unique<Impl>()) {}
@@ -150,92 +220,97 @@ const Font::Glyph *Font::GetGlyph(char32_t codepoint) const {
     if (cached != impl_->glyphs.end()) {
         return &cached->second;
     }
-    if (!impl_->has_font) {
+    if (!impl_->has_font || impl_->faces.empty()) {
         return nullptr; // the 8x8 fallback is ASCII-only
     }
 
-    int advance = 0;
-    int bearing = 0;
-    stbtt_GetCodepointHMetrics(&impl_->info, static_cast<int>(codepoint), &advance,
-                               &bearing);
-
     Glyph glyph;
-    glyph.advance = static_cast<float>(advance) * impl_->scale;
-
-    int x0 = 0;
-    int y0 = 0;
-    int x1 = 0;
-    int y1 = 0;
-    stbtt_GetCodepointBitmapBox(&impl_->info, static_cast<int>(codepoint),
-                                impl_->scale, impl_->scale, &x0, &y0, &x1, &y1);
-    const int w = x1 - x0;
-    const int h = y1 - y0;
-    if (w > 0 && h > 0 && impl_->atlas_w > 0) {
-        // Shelf packer: left-to-right rows, then a new row. A full atlas keeps
-        // the advance but drops the bitmap, so layout never shifts.
-        if (impl_->next_x + w + kPackPad > impl_->atlas_w) {
-            impl_->next_x = kPackPad;
-            impl_->next_y += impl_->shelf_h + kPackPad;
-            impl_->shelf_h = 0;
+    glyph.face = -1; // stays negative when no face has the codepoint
+    for (std::size_t fi = 0; fi < impl_->faces.size(); ++fi) {
+        const FaceData &face = impl_->faces[fi];
+        int advance = 0;
+        int bearing = 0;
+        stbtt_GetCodepointHMetrics(&face.info, static_cast<int>(codepoint), &advance,
+                                   &bearing);
+        int glyph_index = stbtt_FindGlyphIndex(&face.info, static_cast<int>(codepoint));
+        if (glyph_index == 0 && !(codepoint == U' ' && advance > 0)) {
+            continue; // this face has no glyph for the codepoint
         }
-        if (impl_->next_y + h + kPackPad <= impl_->atlas_h) {
-            const int px = impl_->next_x;
-            const int py = impl_->next_y;
-            impl_->next_x += w + kPackPad;
-            if (h > impl_->shelf_h) {
-                impl_->shelf_h = h;
-            }
+        glyph.face = static_cast<int>(fi);
+        glyph.index = glyph_index;
+        glyph.advance = static_cast<float>(advance) * face.scale;
 
-            std::vector<unsigned char> region(static_cast<std::size_t>(w) *
-                                              static_cast<std::size_t>(h) * 4, 255);
-            std::vector<unsigned char> bitmap(static_cast<std::size_t>(w) *
-                                              static_cast<std::size_t>(h), 0);
-            stbtt_MakeCodepointBitmap(&impl_->info, bitmap.data(), w, h, w,
-                                      impl_->scale, impl_->scale,
-                                      static_cast<int>(codepoint));
-            for (std::size_t p = 0; p < bitmap.size(); ++p) {
-                region[p * 4 + 3] = bitmap[p];
+        int x0 = 0;
+        int y0 = 0;
+        int x1 = 0;
+        int y1 = 0;
+        stbtt_GetCodepointBitmapBox(&face.info, static_cast<int>(codepoint),
+                                    face.scale, face.scale, &x0, &y0, &x1, &y1);
+        const int w = x1 - x0;
+        const int h = y1 - y0;
+        if (w > 0 && h > 0 && impl_->atlas_w > 0) {
+            // Shelf packer: left-to-right rows, then a new row. A full atlas
+            // keeps the advance but drops the bitmap, so layout never shifts.
+            if (impl_->next_x + w + kPackPad > impl_->atlas_w) {
+                impl_->next_x = kPackPad;
+                impl_->next_y += impl_->shelf_h + kPackPad;
+                impl_->shelf_h = 0;
             }
-            if (texture_.UpdateRegion(px, py, w, h, region.data(), 4)) {
-                glyph.atlas = {static_cast<float>(px), static_cast<float>(py),
-                               static_cast<float>(w), static_cast<float>(h)};
-                glyph.offset = {static_cast<float>(x0) + 0.0f,
-                                impl_->ascent_px + static_cast<float>(y0)};
-                glyph.size = {static_cast<float>(w), static_cast<float>(h)};
+            if (impl_->next_y + h + kPackPad <= impl_->atlas_h) {
+                const int px = impl_->next_x;
+                const int py = impl_->next_y;
+                impl_->next_x += w + kPackPad;
+                if (h > impl_->shelf_h) {
+                    impl_->shelf_h = h;
+                }
+
+                std::vector<unsigned char> region(static_cast<std::size_t>(w) *
+                                                  static_cast<std::size_t>(h) * 4, 255);
+                std::vector<unsigned char> bitmap(static_cast<std::size_t>(w) *
+                                                  static_cast<std::size_t>(h), 0);
+                stbtt_MakeCodepointBitmap(&face.info, bitmap.data(), w, h, w,
+                                          face.scale, face.scale,
+                                          static_cast<int>(codepoint));
+                for (std::size_t p = 0; p < bitmap.size(); ++p) {
+                    region[p * 4 + 3] = bitmap[p];
+                }
+                if (texture_.UpdateRegion(px, py, w, h, region.data(), 4)) {
+                    glyph.atlas = {static_cast<float>(px), static_cast<float>(py),
+                                   static_cast<float>(w), static_cast<float>(h)};
+                    glyph.offset = {static_cast<float>(x0),
+                                    face.ascent_px + static_cast<float>(y0)};
+                    glyph.size = {static_cast<float>(w), static_cast<float>(h)};
+                }
             }
         }
+        break; // first face that has the glyph wins
     }
 
     auto inserted = impl_->glyphs.emplace(codepoint, glyph);
     return &inserted.first->second;
 }
 
+float Font::KernAdvance(const Glyph *previous, const Glyph *next) const {
+    if (previous == nullptr || next == nullptr || previous->face < 0 ||
+        next->face < 0 || previous->face != next->face) {
+        return 0.0f;
+    }
+    if (static_cast<std::size_t>(previous->face) >= impl_->faces.size()) {
+        return 0.0f;
+    }
+    const FaceData &face = impl_->faces[static_cast<std::size_t>(previous->face)];
+    return static_cast<float>(
+               stbtt_GetGlyphKernAdvance(&face.info, previous->index, next->index)) *
+           face.scale;
+}
+
 bool Font::LoadFromTTF(const std::string &path, float pixel_height) {
     // Parse into locals first: a failed load must leave the current font (and
-    // its atlas, which already points into impl_->info) untouched.
-    std::vector<unsigned char> ttf = ReadFileOrEmpty(path);
-    if (ttf.empty()) {
+    // its atlas) untouched.
+    FaceData primary;
+    if (!LoadFaceFile(path, pixel_height, primary)) {
         return false;
     }
-    int font_offset = 0;
-    if (ttf.size() >= 4 && std::memcmp(ttf.data(), "ttcf", 4) == 0) {
-        // TrueType Collection: take the first face (PingFang.ttc, NotoSansCJK).
-        font_offset = stbtt_GetFontOffsetForIndex(ttf.data(), 0);
-        if (font_offset < 0) {
-            return false;
-        }
-    }
-    stbtt_fontinfo info{};
-    if (stbtt_InitFont(&info, ttf.data(), font_offset) == 0) {
-        return false;
-    }
-
-    const float scale = stbtt_ScaleForPixelHeight(&info, pixel_height);
-    int ascent = 0;
-    int descent = 0;
-    int line_gap = 0;
-    stbtt_GetFontVMetrics(&info, &ascent, &descent, &line_gap);
-    const float ascent_px = static_cast<float>(ascent) * scale;
 
     // Assemble the atlas before committing, so a GL failure keeps the old
     // font fully usable. Zero-filled, not undefined: bilinear sampling at a
@@ -246,12 +321,10 @@ bool Font::LoadFromTTF(const std::string &path, float pixel_height) {
         return false;
     }
 
-    // Commit. stbtt_fontinfo points into ttf's buffer; moving the vector keeps
-    // that buffer alive at the same address.
-    impl_->ttf = std::move(ttf);
-    impl_->info = info;
-    impl_->scale = scale;
-    impl_->ascent_px = ascent_px;
+    // Commit. stbtt_fontinfo points into the face's buffer; moving the vector
+    // keeps that buffer alive at the same address.
+    impl_->faces.clear();
+    impl_->faces.push_back(std::move(primary));
     impl_->has_font = true;
     impl_->glyphs.clear();
     impl_->glyphs.reserve(512);
@@ -262,8 +335,67 @@ bool Font::LoadFromTTF(const std::string &path, float pixel_height) {
     impl_->shelf_h = 0;
 
     pixel_height_ = pixel_height;
-    line_height_ = ascent_px - static_cast<float>(descent) * scale;
+    line_height_ = impl_->faces.front().line_height;
     return true;
+}
+
+bool Font::AddFallback(const std::string &path, float pixel_height) {
+    if (!impl_ || !impl_->has_font || impl_->faces.empty()) {
+        return false;
+    }
+    for (const FaceData &face : impl_->faces) {
+        if (face.path == path) {
+            return true; // already loaded
+        }
+    }
+    FaceData fallback;
+    if (!LoadFaceFile(path, pixel_height, fallback)) {
+        return false;
+    }
+    impl_->faces.push_back(std::move(fallback));
+    // Codepoints that were missing may now be renderable: drop their cached
+    // "no glyph" entries and let the next lookup walk the expanded stack.
+    for (auto it = impl_->glyphs.begin(); it != impl_->glyphs.end();) {
+        if (it->second.face < 0) {
+            it = impl_->glyphs.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    return true;
+}
+
+void Font::ClearFallbacks() {
+    if (!impl_ || impl_->faces.size() <= 1) {
+        return;
+    }
+    // Glyphs rasterized from fallback faces reference vanished face indices;
+    // primary glyphs (face 0) stay valid in the atlas.
+    for (auto it = impl_->glyphs.begin(); it != impl_->glyphs.end();) {
+        if (it->second.face > 0) {
+            it = impl_->glyphs.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    impl_->faces.resize(1);
+}
+
+std::size_t Font::FaceCount() const {
+    return impl_ ? impl_->faces.size() : 0;
+}
+
+std::string Font::FacePath(std::size_t index) const {
+    return impl_ && index < impl_->faces.size() ? impl_->faces[index].path
+                                               : std::string{};
+}
+
+bool Font::HasGlyph(char32_t codepoint) const {
+    if (!impl_ || !impl_->has_font) {
+        return codepoint < 128; // the embedded bitmap font is ASCII-only
+    }
+    const Glyph *glyph = GetGlyph(codepoint);
+    return glyph != nullptr && glyph->face >= 0;
 }
 
 bool Font::LoadFallback() {
@@ -275,8 +407,7 @@ bool Font::LoadFallback() {
     std::vector<std::uint8_t> atlas(static_cast<std::size_t>(w) * h * 4, 0);
 
     impl_->has_font = false;
-    impl_->scale = 0.0f;
-    impl_->ascent_px = 0.0f;
+    impl_->faces.clear();
     impl_->atlas_w = w;
     impl_->atlas_h = h;
     impl_->glyphs.clear();
@@ -309,6 +440,7 @@ bool Font::LoadFallback() {
         glyph.offset = {0.0f, 0.0f};
         glyph.size = {static_cast<float>(kGlyph), static_cast<float>(kGlyph)};
         glyph.advance = static_cast<float>(kGlyph);
+        glyph.face = -1;
         impl_->glyphs[static_cast<char32_t>(c)] = glyph;
     }
 
@@ -348,10 +480,8 @@ void Font::Reset() {
     texture_.Destroy();
     if (impl_) {
         impl_->glyphs.clear();
-        impl_->ttf.clear();
+        impl_->faces.clear();
         impl_->has_font = false;
-        impl_->scale = 0.0f;
-        impl_->ascent_px = 0.0f;
         impl_->atlas_w = 0;
         impl_->atlas_h = 0;
         impl_->next_x = kPackPad;
@@ -369,13 +499,16 @@ bool Font::HasVectorFont() const {
 float Font::MeasureText(std::string_view text) const {
     float width = 0.0f;
     std::size_t i = 0;
+    const Glyph *previous = nullptr;
     while (i < text.size()) {
         const char32_t cp = DecodeUtf8(text, i);
         if (cp == '\n') {
             continue;
         }
         if (const Glyph *glyph = GetGlyph(cp)) {
+            width += KernAdvance(previous, glyph);
             width += glyph->advance;
+            previous = glyph;
         }
     }
     return width;
@@ -391,6 +524,7 @@ float Font::DrawText(SpriteBatch &batch, std::string_view text,
     const float atlas_h = static_cast<float>(texture_.Height());
     float pen_x = x;
     std::size_t i = 0;
+    const Glyph *previous = nullptr;
 
     while (i < text.size()) {
         const char32_t cp = DecodeUtf8(text, i);
@@ -401,6 +535,7 @@ float Font::DrawText(SpriteBatch &batch, std::string_view text,
         if (!glyph) {
             continue;
         }
+        pen_x += KernAdvance(previous, glyph);
         if (glyph->atlas.width > 0.0f && glyph->atlas.height > 0.0f) {
             const Vec2 corners[4] = {
                 {pen_x + glyph->offset.x * scale, y + glyph->offset.y * scale},
@@ -421,6 +556,7 @@ float Font::DrawText(SpriteBatch &batch, std::string_view text,
             batch.DrawVertices(texture_, corners, uvs, tint);
         }
         pen_x += glyph->advance * scale;
+        previous = glyph;
     }
     return pen_x;
 }
@@ -443,6 +579,7 @@ float Font::DrawTextRotated(SpriteBatch &batch, std::string_view text,
 
     float pen_x = x;
     std::size_t i = 0;
+    const Glyph *previous = nullptr;
     while (i < text.size()) {
         const char32_t cp = DecodeUtf8(text, i);
         if (cp == '\n') {
@@ -452,6 +589,7 @@ float Font::DrawTextRotated(SpriteBatch &batch, std::string_view text,
         if (!glyph) {
             continue;
         }
+        pen_x += KernAdvance(previous, glyph);
         if (glyph->atlas.width > 0.0f && glyph->atlas.height > 0.0f) {
             const float gx0 = pen_x + glyph->offset.x * scale;
             const float gy0 = y + glyph->offset.y * scale;
@@ -469,6 +607,7 @@ float Font::DrawTextRotated(SpriteBatch &batch, std::string_view text,
             batch.DrawVertices(texture_, corners, uvs, tint);
         }
         pen_x += glyph->advance * scale;
+        previous = glyph;
     }
     return pen_x;
 }
@@ -510,6 +649,7 @@ float Font::DrawTextEx(SpriteBatch &batch, std::string_view text,
         float line_w = 0.0f;
         bool has_content = false;
         bool hit_newline = false;
+        char32_t previous_content = 0;
 
         while (scan < n) {
             std::size_t cursor = scan;
@@ -536,7 +676,13 @@ float Font::DrawTextEx(SpriteBatch &batch, std::string_view text,
             const float cluster_w =
                 MeasureText(text.substr(scan, cluster_end - scan)) * scale;
 
-            if (has_content && !space && line_w + cluster_w > wrap_width) {
+            // CJK 禁则处理: a closing mark never starts a line and an opening
+            // bracket never ends one, so those clusters overflow instead of
+            // wrapping at an ugly place.
+            const bool can_break =
+                !NoLineStart(cp) && !NoLineEnd(previous_content);
+            if (has_content && !space && can_break &&
+                line_w + cluster_w > wrap_width) {
                 line_end = scan; // wrap before this cluster
                 break;
             }
@@ -550,6 +696,9 @@ float Font::DrawTextEx(SpriteBatch &batch, std::string_view text,
             line_w += cluster_w;
             line_end = cluster_end;
             has_content = true;
+            if (!space) {
+                previous_content = cp;
+            }
             scan = cluster_end;
         }
 

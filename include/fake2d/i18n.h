@@ -4,6 +4,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace fake2d {
@@ -52,6 +53,17 @@ public:
     [[nodiscard]] const LanguagePack *GetLanguage(std::size_t index) const;
     [[nodiscard]] std::size_t EntryCount(std::string_view code) const;
 
+    // --- missing-key diagnostics (development aid) -----------------------
+    /// Record keys that the active pack does not define (capped at 512) so a
+    /// release build can report untranslated strings instead of silently
+    /// falling back. Enabled by default; lookups of known keys cost nothing.
+    void SetTrackMissing(bool track) { track_missing_ = track; }
+    [[nodiscard]] bool TrackingMissing() const { return track_missing_; }
+    [[nodiscard]] std::size_t MissingCount() const { return missing_.size(); }
+    /// Key at a stable index ("" when out of range).
+    [[nodiscard]] std::string_view MissingKey(std::size_t index) const;
+    void ClearMissing();
+
     void Clear();
 
 private:
@@ -60,6 +72,10 @@ private:
 
     std::vector<LanguagePack> languages_;
     std::string current_;
+    bool track_missing_ = true;
+    // Filled from const Translate() calls (diagnostics, not game state).
+    mutable std::unordered_set<std::string> missing_;
+    mutable std::vector<std::string> missing_order_;
 };
 
 } // namespace fake2d
