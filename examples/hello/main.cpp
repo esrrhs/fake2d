@@ -1707,8 +1707,12 @@ int RunPlatformTest(fake2d::Engine &engine) {
           "EnsureDir creates a directory");
     check(std::filesystem::is_directory(root / "created"), "directory exists");
     fake2d::AppPaths::SetResourceRoot((root / "res").string());
-    check(fake2d::AppPaths::Resolve("assets/a.png") ==
-              (root / "res" / "assets" / "a.png").string(),
+    // lexically_normal makes the comparison separator-agnostic: on Windows the
+    // joined path may keep the relative part's '/' while the expected path
+    // uses '\\'.
+    check(std::filesystem::path(fake2d::AppPaths::Resolve("assets/a.png"))
+                  .lexically_normal() ==
+              (root / "res" / "assets" / "a.png").lexically_normal(),
           "Resolve joins the resource root");
 
     // ---- save containers (v2) ---------------------------------------------
