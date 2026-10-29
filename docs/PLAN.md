@@ -437,6 +437,22 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 
 ---
 
+## Phase 35 — Gameplay essentials: RNG, easing, snapshots, window & input (1.29.x)
+
+- [x] **Deterministic RNG**: splitmix64 `Random` (seed/state/Uint64/Float01/Range/Int/Chance) owned by the engine (`Engine::GetRandom`), Lua `rng_seed/state/float/range/int/chance`. Demos no longer hand-roll LCGs
+- [x] **Easing utilities**: header-only `fake2d::ease` (Lerp, Clamp01, SmoothStep, frame-rate-independent Approach, quad/cubic/back/elastic curves, named lookup), Lua `ease/lerp/clamp01/smoothstep/approach`
+- [x] **Entity snapshots**: `EntityStore::Serialize/Deserialize` (tab-separated `F2ES1`, exact 17-digit doubles, escaped strings, stale handles stay stale after restore), Lua `ent_snapshot/ent_restore` plus `ent_save/ent_load` through the CRC-checked v2 container
+- [x] **Input action mapping**: `Input::BindAction/ClearActions/ActionDown/Pressed/Released` over every bound key; Lua `input_bind/input_actions_clear/input_action_down/pressed/released` (rebinding = clear + bind)
+- [x] **Window controls**: `EngineConfig.resizable/min_width/min_height`; window size query + resize, runtime resizable toggle, minimum size, six standard cursor shapes (GLFW cursors cached and destroyed); Lua `window_width/height/set_size/resizable/set_resizable/set_min_size/cursor`
+- [x] **Audio control**: playback-rate pitch (clamped 0.25–4), looping non-music voices and `StopClip`; Lua `audio_play_pitched/audio_loop/audio_stop`
+- [x] **Runtime stats**: smoothed FPS and last-frame ms on the engine, draw calls from the renderer; Lua `stats_fps/stats_frame_ms/stats_draw_calls`
+- [x] **Text polish**: `draw_text_shadow` (offset drop shadow) and `draw_text_outline` (8-direction ring) through the same glyph batch
+- [x] **`--gameplay-test` (40 assertions)**: seed reproducibility/divergence, uniform bounds and inclusive ints, chance edges; easing endpoints/clamp/smoothstep/approach; entity snapshot round-trip (exact doubles, escaped strings, stale handles, malformed rejection, blob save/load); action down/pressed/released with multiple bindings; window resize/resizable; shadow/outline pen advance; pitch/loop/stop and stats reads
+- [x] Wired into CI on Linux, macOS and Windows as an exit-code + `[gameplay] PASS` gate
+- [x] Verification: `--gameplay-test` 40/40, the other 16 self-tests (787 assertions total), all demo smokes and the text-demo colour probe
+
+---
+
 ## Non-goals (for now)
 
 - Full 3D / PBR (Fake2D is strictly focused on high-performance 2D)

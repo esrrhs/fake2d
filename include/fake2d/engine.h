@@ -11,6 +11,7 @@
 #include "fake2d/physics.h"
 #include "fake2d/renderer.h"
 #include "fake2d/resource_manager.h"
+#include "fake2d/rng.h"
 #include "fake2d/save_store.h"
 #include "fake2d/tilemap.h"
 #include "fake2d/ui.h"
@@ -32,6 +33,11 @@ struct EngineConfig {
     int height = 720;
     bool vsync = true;
     bool headless = false;
+    /// Start resizable; games can toggle it later with SetWindowResizable().
+    bool resizable = true;
+    /// Minimum user-resizable size (0 = no constraint).
+    int min_width = 0;
+    int min_height = 0;
     /// Relative path to the FakeLua entry script (e.g. scripts/game.lua).
     std::string script_entry = "scripts/game.lua";
     /// Watch the entry script's mtime and hot-reload it on change.
@@ -87,6 +93,17 @@ public:
     /// Enter/leave borderless fullscreen on the primary monitor.
     void SetFullscreen(bool fullscreen);
     [[nodiscard]] bool IsFullscreen() const;
+    [[nodiscard]] int WindowWidth() const;
+    [[nodiscard]] int WindowHeight() const;
+    /// Resize the OS window (logical points); the renderer follows on the
+    /// next frame through the normal resize path.
+    void SetWindowSize(int width, int height);
+    void SetWindowResizable(bool resizable);
+    [[nodiscard]] bool WindowResizable() const;
+    void SetMinWindowSize(int width, int height);
+    /// Cursor shape: 0 arrow, 1 ibeam, 2 crosshair, 3 hand, 4 hresize,
+    /// 5 vresize.
+    void SetCursorShape(int shape);
 
     [[nodiscard]] bool IsRunning() const;
     [[nodiscard]] double DeltaTime() const;
@@ -156,6 +173,14 @@ public:
     /// Data-pack mod discovery/ordering (see mod.h).
     ModManager &GetMods();
     [[nodiscard]] const ModManager &GetMods() const;
+
+    /// Deterministic random stream (seed it from a save for reproducible runs).
+    Random &GetRandom();
+    [[nodiscard]] const Random &GetRandom() const;
+
+    /// Smoothed frames per second and the last frame's duration in ms.
+    [[nodiscard]] double Fps() const;
+    [[nodiscard]] double FrameMs() const;
 
     /// C++-owned fixed-slot entity database for scripts.
     EntityStore &GetEntities();

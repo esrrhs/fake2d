@@ -277,7 +277,8 @@ std::size_t AudioEngine::ResidentFrames(std::string_view name) const {
 }
 
 AudioEngine::Voice *AudioEngine::StartClip(std::string_view name, float volume, bool loop,
-                                           bool music, float fade_seconds) {
+                                           bool music, float fade_seconds, float pitch) {
+    const float rate = std::clamp(pitch > 0.0f ? pitch : 1.0f, 0.25f, 4.0f);
     if (voices_.empty()) {
         return nullptr;
     }
@@ -303,6 +304,7 @@ AudioEngine::Voice *AudioEngine::StartClip(std::string_view name, float volume, 
                 voice.active = true;
                 voice.loop = true;
                 voice.music = true;
+                voice.step = rate;
                 return &voice;
             }
         }
@@ -319,6 +321,7 @@ AudioEngine::Voice *AudioEngine::StartClip(std::string_view name, float volume, 
             ResetVoice(voice, &*clip_it, volume);
             voice.loop = loop;
             voice.music = music;
+            voice.step = rate;
             if (fade_seconds > 0.0f) {
                 // Fade in from silence; a fade out of 0 would end the voice.
                 voice.gain_from = 0.0f;
@@ -336,6 +339,25 @@ AudioEngine::Voice *AudioEngine::StartClip(std::string_view name, float volume, 
 
 void AudioEngine::Play(std::string_view name, float volume) {
     StartClip(name, volume, false, false, 0.0f);
+}
+
+void AudioEngine::PlayPitched(std::string_view name, float volume, float pitch) {
+    StartClip(name, volume, false, false, 0.0f, pitch);
+}
+
+void AudioEngine::PlayLoop(std::string_view name, float volume, float pitch) {
+    StartClip(name, volume, true, false, 0.0f, pitch);
+}
+
+void AudioEngine::StopClip(std::string_view name) {
+    const std::string key(name);
+    std::lock_guard<std::mutex> lock(MixerMutex(mutex_));
+    for (Voice &voice : voices_) {
+        if (voice.active && voice.clip != nullptr && voice.clip->name == key) {
+            voice.active = false;
+            voice.music = false;
+        }
+    }
 }
 
 void AudioEngine::PlayAt(std::string_view name, float volume, float x, float y) {

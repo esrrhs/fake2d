@@ -3,6 +3,7 @@
 // (PNG/Tiled JSON/WAV, since scripts cannot encode binary files), and the
 // micro-benchmarks that measure engine internals.
 #include "fake2d/app_paths.h"
+#include "fake2d/ease.h"
 #include "fake2d/engine.h"
 #include "fake2d/i18n.h"
 #include "fake2d/log.h"
@@ -1982,6 +1983,199 @@ int RunPlatformTest(fake2d::Engine &engine) {
 
     std::filesystem::remove_all(root, ec);
     std::printf("[platform] %s: %d checks, %d failures\n",
+                failures == 0 ? "PASS" : "FAILED", checks, failures);
+    return failures == 0 ? 0 : 1;
+}
+
+// Gameplay self-test (Phase 35): deterministic RNG, easing, entity snapshot,
+// input actions, window controls and the text shadow/outline helpers.
+int RunGameplayTest(fake2d::Engine &engine) {
+    int failures = 0;
+    int checks = 0;
+    auto check = [&](bool ok, const char *what) {
+        ++checks;
+        if (!ok) {
+            ++failures;
+            std::printf("[gameplay] FAIL %s\n", what);
+        }
+    };
+
+    // ---- deterministic RNG -------------------------------------------------
+    {
+        fake2d::Random a(12345);
+        fake2d::Random b(12345);
+        bool same = true;
+        for (int i = 0; i < 64; ++i) {
+            if (a.Uint64() != b.Uint64()) {
+                same = false;
+                break;
+            }
+        }
+        check(same, "same seed reproduces the same sequence");
+        fake2d::Random c(12346);
+        check(c.Uint64() != fake2d::Random(12345).Uint64(),
+              "different seeds diverge");
+
+        fake2d::Random r(7);
+        bool in_range = true;
+        bool all_fractions = true;
+        for (int i = 0; i < 2000; ++i) {
+            const float v = r.Range(5.0f, 9.0f);
+            in_range = in_range && v >= 5.0f && v < 9.0f;
+            const float f = r.Float01();
+            all_fractions = all_fractions && f >= 0.0f && f < 1.0f;
+        }
+        check(in_range, "range stays inside [lo, hi)");
+        check(all_fractions, "float01 stays inside [0, 1)");
+        bool int_bounds = true;
+        bool seen[4] = {false, false, false, false};
+        for (int i = 0; i < 2000; ++i) {
+            const std::int64_t v = r.Int(1, 3);
+            int_bounds = int_bounds && v >= 1 && v <= 3;
+            seen[v] = true;
+        }
+        check(int_bounds && seen[1] && seen[2] && seen[3],
+              "int covers the inclusive range");
+        check(!r.Chance(0.0f) && r.Chance(1.0f),
+              "chance honours the 0/1 edge cases");
+    }
+
+    // ---- easing ------------------------------------------------------------
+    {
+        check(std::fabs(fake2d::ease::ByName("out_cubic", 0.0f)) < 1e-6f &&
+                  std::fabs(fake2d::ease::ByName("out_cubic", 1.0f) - 1.0f) < 1e-6f,
+              "easing hits both endpoints");
+        check(fake2d::ease::Clamp01(-2.0f) == 0.0f &&
+                  fake2d::ease::Clamp01(2.0f) == 1.0f,
+              "clamp01 bounds input");
+        check(std::fabs(fake2d::ease::SmoothStep(2.0f, 4.0f, 0.5f) - 3.0f) < 1e-5f,
+              "smoothstep interpolates midpoint");
+        const float approached = fake2d::ease::Approach(0.0f, 10.0f, 5.0f, 1.0f);
+        check(approached > 0.0f && approached < 10.0f,
+              "approach closes part of the gap");
+        check(std::fabs(fake2d::ease::ByName("unknown", 0.3f) - 0.3f) < 1e-6f,
+              "unknown easing falls back to linear");
+    }
+
+    // ---- entity snapshot ---------------------------------------------------
+    const auto root = std::filesystem::temp_directory_path() / "fake2d_gameplay";
+    std::error_code ec;
+    std::filesystem::remove_all(root, ec);
+    std::filesystem::create_directories(root, ec);
+    {
+        fake2d::EntityStore &store = engine.GetEntities();
+        store.Clear();
+        const auto first = store.Create(7);
+        store.SetNumber(first, 0, 3.25);
+        store.SetNumber(first, 7, -9007199254740992.0);
+        store.SetString(first, 0, "a\tb\nc\\");
+        const auto second = store.Create(9);
+        store.SetNumber(second, 5, -1.5);
+        store.SetString(second, 3, "plain");
+        check(store.Count() == 2, "entities created");
+
+        const std::string snapshot = store.Serialize();
+        check(snapshot.rfind("F2ES1", 0) == 0, "snapshot has a header");
+        store.Clear();
+        check(store.Count() == 0, "entities cleared");
+        check(store.Deserialize(snapshot), "snapshot restores");
+        check(store.Count() == 2, "entity count restored");
+        check(store.CountWithTag(7) == 1, "tag restored");
+        const auto restored = store.At(0);
+        check(store.Tag(restored) == 7, "tag value restored");
+        check(std::fabs(store.GetNumber(restored, 0) - 3.25) < 1e-12 &&
+                  store.GetNumber(restored, 7) == -9007199254740992.0,
+              "numbers round-trip exactly");
+        check(store.GetString(restored, 0) == "a\tb\nc\\",
+              "strings escape tabs/newlines/backslashes");
+        check(!store.Active(first), "handles from before the restore are stale");
+
+        check(!store.Deserialize("not a snapshot"), "malformed snapshot rejected");
+        check(store.Count() == 0, "rejected snapshot leaves the store empty");
+
+        const auto saves = root / "saves";
+        check(store.Deserialize(snapshot), "snapshot restored for save test");
+        check(engine.GetSaves().SaveBlob("entities", saves.string(),
+                                         store.Serialize(), "entities", 1),
+              "entity slot saved");
+        store.Clear();
+        std::string payload;
+        fake2d::SaveStore::BlobInfo info;
+        check(engine.GetSaves().LoadBlob("entities", saves.string(), payload, info) &&
+                  store.Deserialize(payload) && store.Count() == 2,
+              "entity slot loaded");
+        store.Clear();
+    }
+
+    // ---- input actions -----------------------------------------------------
+    {
+        fake2d::Input &input = engine.GetInput();
+        input.ClearActions();
+        input.BindAction("jump", "space");
+        input.BindAction("jump", "up");
+        input.InjectFrame({0.0f, 0.0f}, {"space"}, {});
+        check(input.ActionDown("jump") && input.ActionPressed("jump"),
+              "action down/pressed follow the binding");
+        input.InjectFrame({0.0f, 0.0f}, {"space"}, {});
+        check(input.ActionDown("jump") && !input.ActionPressed("jump"),
+              "held action is not pressed again");
+        input.InjectFrame({0.0f, 0.0f}, {}, {});
+        check(!input.ActionDown("jump") && input.ActionReleased("jump"),
+              "releasing the key releases the action");
+        input.ClearActions();
+        check(!input.ActionDown("jump"), "cleared actions stop responding");
+        input.BindAction("jump", "space");
+        input.BindAction("jump", "up");
+        input.InjectFrame({0.0f, 0.0f}, {"up"}, {});
+        check(input.ActionDown("jump"), "second binding also triggers");
+        input.ClearActions();
+    }
+
+    // ---- window controls ---------------------------------------------------
+    {
+        check(engine.WindowWidth() > 0 && engine.WindowHeight() > 0,
+              "window size is queryable");
+        engine.SetWindowSize(800, 450);
+        check(engine.WindowWidth() == 800 && engine.WindowHeight() == 450,
+              "window resizes");
+        engine.SetWindowResizable(false);
+        check(!engine.WindowResizable(), "resizable can be turned off");
+        engine.SetWindowResizable(true);
+        check(engine.WindowResizable(), "resizable can be restored");
+        engine.SetMinWindowSize(320, 200);
+        engine.SetCursorShape(3);
+        check(true, "min size and cursor calls are safe");
+    }
+
+    // ---- text shadow / outline --------------------------------------------
+    {
+        fake2d::Renderer &r = engine.GetRenderer();
+        r.BeginFrame(0.0f, 0.0f, 0.0f, 1.0f);
+        const float shadow_end = r.DrawTextShadow(
+            "shadow", 20.0f, 20.0f, 1.0f, 2.0f, 2.0f,
+            fake2d::Color{0.0f, 0.0f, 0.0f, 1.0f},
+            fake2d::Color{1.0f, 1.0f, 1.0f, 1.0f});
+        const float outline_end = r.DrawTextOutline(
+            "outline", 20.0f, 60.0f, 1.0f, 1.5f,
+            fake2d::Color{0.0f, 0.0f, 0.0f, 1.0f},
+            fake2d::Color{1.0f, 1.0f, 1.0f, 1.0f});
+        r.EndFrame();
+        check(shadow_end > 20.0f, "shadow text advances the pen");
+        check(outline_end > 20.0f, "outline text advances the pen");
+    }
+
+    // ---- audio pitch / loop / stop ----------------------------------------
+    {
+        engine.GetAudio().PlayPitched("coin", 0.4f, 1.5f);
+        engine.GetAudio().PlayLoop("coin", 0.2f, 0.8f);
+        engine.GetAudio().StopClip("coin");
+        check(true, "pitch/loop/stop calls are safe");
+        check(engine.Fps() >= 0.0 && engine.FrameMs() >= 0.0,
+              "frame stats are readable");
+    }
+
+    std::filesystem::remove_all(root, ec);
+    std::printf("[gameplay] %s: %d checks, %d failures\n",
                 failures == 0 ? "PASS" : "FAILED", checks, failures);
     return failures == 0 ? 0 : 1;
 }
@@ -6553,6 +6747,7 @@ int main(int argc, char **argv) {
     bool phys_extended = false;
     bool font_test = false;
     bool platform_test = false;
+    bool gameplay_test = false;
     bool angry_demo = false;
     bool text_demo = false;
     bool map_object = false;
@@ -6706,6 +6901,13 @@ int main(int argc, char **argv) {
             cfg.headless = true;
             cfg.script_entry.clear();
             cfg.vsync = false;
+        } else if (arg == "--gameplay-test") {
+            // Deterministic RNG, easing, entity snapshots, input actions,
+            // window controls and the text shadow/outline helpers.
+            gameplay_test = true;
+            cfg.headless = true;
+            cfg.script_entry.clear();
+            cfg.vsync = false;
         } else if (arg == "--map-object-test") {
             // Headless self-test of Tiled objectgroup parsing/queries.
             map_object = true;
@@ -6822,6 +7024,9 @@ int main(int argc, char **argv) {
     }
     if (platform_test) {
         return RunPlatformTest(engine);
+    }
+    if (gameplay_test) {
+        return RunGameplayTest(engine);
     }
     if (map_object) {
         return RunMapObjectTest(engine);

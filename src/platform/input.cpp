@@ -297,6 +297,66 @@ bool Input::KeyReleased(std::string_view key) const {
     return glfw_key >= 0 && keys_[glfw_key] == 0 && prev_keys_[glfw_key] != 0;
 }
 
+void Input::BindAction(std::string_view action, std::string_view key) {
+    if (action.empty() || key.empty()) {
+        return;
+    }
+    auto &keys = actions_[std::string(action)];
+    for (const std::string &bound : keys) {
+        if (bound == key) {
+            return; // already bound
+        }
+    }
+    keys.emplace_back(key);
+}
+
+void Input::ClearActions(std::string_view action) {
+    if (action.empty()) {
+        actions_.clear();
+    } else {
+        actions_.erase(std::string(action));
+    }
+}
+
+bool Input::ActionDown(std::string_view action) const {
+    const auto it = actions_.find(std::string(action));
+    if (it == actions_.end()) {
+        return false;
+    }
+    for (const std::string &key : it->second) {
+        if (KeyDown(key)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool Input::ActionPressed(std::string_view action) const {
+    const auto it = actions_.find(std::string(action));
+    if (it == actions_.end()) {
+        return false;
+    }
+    for (const std::string &key : it->second) {
+        if (KeyPressed(key)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool Input::ActionReleased(std::string_view action) const {
+    const auto it = actions_.find(std::string(action));
+    if (it == actions_.end()) {
+        return false;
+    }
+    for (const std::string &key : it->second) {
+        if (KeyReleased(key)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool Input::MouseDown(std::int64_t button) const {
     return button >= 0 && button < static_cast<std::int64_t>(kButtonCount) && buttons_[button] != 0;
 }

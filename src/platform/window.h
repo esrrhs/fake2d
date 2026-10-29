@@ -1,6 +1,7 @@
 #pragma once
 
 struct GLFWwindow;
+struct GLFWcursor;
 
 namespace fake2d::platform {
 
@@ -10,6 +11,7 @@ struct WindowDesc {
     int height = 720;
     bool vsync = true;
     bool headless = false;
+    bool resizable = true;
 };
 
 /// How the GL context was created.
@@ -46,6 +48,15 @@ public:
     void SetFullscreen(bool fullscreen);
     [[nodiscard]] bool IsFullscreen() const { return fullscreen_; }
     [[nodiscard]] GLFWwindow *Handle() const { return handle_; }
+    /// Resize the OS window (logical points); ignored for headless contexts.
+    void SetSize(int width, int height);
+    void SetResizable(bool resizable);
+    [[nodiscard]] bool Resizable() const { return resizable_; }
+    /// Minimum user-resizable size (0 = no constraint on that axis).
+    void SetMinSize(int width, int height);
+    /// Cursor shape: 0 arrow, 1 ibeam, 2 crosshair, 3 hand, 4 hresize,
+    /// 5 vresize (ignored for headless contexts).
+    void SetCursorShape(int shape);
     /// Logical window size in points.
     [[nodiscard]] int Width() const { return width_; }
     [[nodiscard]] int Height() const { return height_; }
@@ -75,6 +86,10 @@ private:
     int fb_height_ = 0;
     float content_scale_ = 1.0f;
     bool fullscreen_ = false;
+    bool resizable_ = true;
+    int min_width_ = 0;
+    int min_height_ = 0;
+    GLFWcursor *cursors_[6] = {}; // lazily created standard cursors
     // Windowed geometry saved when entering fullscreen for a clean restore.
     int windowed_x_ = 0;
     int windowed_y_ = 0;

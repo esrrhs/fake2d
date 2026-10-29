@@ -195,6 +195,15 @@ function update(dt)
         end
         paths_set_user_dir(tmp .. "fake2d_text_demo")
         ui_set_tip_delay(0.25)
+        -- Exercise the Phase 35 bindings once so their Lua conversions are
+        -- covered by the demo smoke (values are unused on purpose).
+        rng_seed(2026)
+        rng_int(1, 6)
+        ease("out_cubic", 0.5)
+        stats_fps()
+        window_set_min_size(640, 360)
+        window_set_resizable(true)
+        input_bind("jump", "space")
         save_demo_slot()
         cloud = 0
         if steam_cloud_enabled() then

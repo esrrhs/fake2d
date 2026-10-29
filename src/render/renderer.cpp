@@ -478,6 +478,29 @@ float Renderer::DrawTextFit(std::string_view text, float x, float y,
     return font_.DrawText(batch_, text, x, y, fitted, tint);
 }
 
+float Renderer::DrawTextOutline(std::string_view text, float x, float y,
+                                float scale, float thickness,
+                                const Color &outline, const Color &tint) {
+    const float t = thickness > 0.0f ? thickness : 0.0f;
+    if (t > 0.0f) {
+        for (const float dx : {-t, 0.0f, t}) {
+            for (const float dy : {-t, 0.0f, t}) {
+                if (dx != 0.0f || dy != 0.0f) {
+                    font_.DrawText(batch_, text, x + dx, y + dy, scale, outline);
+                }
+            }
+        }
+    }
+    return font_.DrawText(batch_, text, x, y, scale, tint);
+}
+
+float Renderer::DrawTextShadow(std::string_view text, float x, float y,
+                               float scale, float offset_x, float offset_y,
+                               const Color &shadow, const Color &tint) {
+    font_.DrawText(batch_, text, x + offset_x, y + offset_y, scale, shadow);
+    return font_.DrawText(batch_, text, x, y, scale, tint);
+}
+
 float Renderer::DrawText(std::string_view text, float x, float y, float scale, const Color &tint) {
     return font_.DrawText(batch_, text, x, y, scale, tint);
 }
