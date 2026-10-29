@@ -7,7 +7,7 @@
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-brightgreen.svg)](https://en.cppreference.com/w/cpp/23)
 [![OpenGL](https://img.shields.io/badge/OpenGL-3.3%20Core%20%7C%202.1-orange.svg)](https://www.opengl.org/)
 [![FakeLua](https://img.shields.io/badge/Script-FakeLua-red.svg)](https://github.com/esrrhs/fakelua)
-[![Version](https://img.shields.io/badge/version-1.30.0-informational.svg)](include/fake2d/version.h)
+[![Version](https://img.shields.io/badge/version-1.30.1-informational.svg)](include/fake2d/version.h)
 
 **Fake2D** 是基于 [FakeLua](https://github.com/esrrhs/fakelua) 驱动的现代化、轻量级、高性能 2D 游戏引擎：
 - **C++23 宿主引擎**：掌管窗口管理、GPU 渲染管线、空间物理、音频混音与底层资源生命周期；
@@ -96,7 +96,7 @@ Fake2D 仓库自带 17 个可直接运行的高质量 Demo，涵盖平台跳跃�
 | `--angry-birds-demo` | **愤怒的小鸟沙盒** | 弹弓冲量发射、休眠塔堆、接触事件爆猪与计分、相机跟随与合成音效 |
 | `--limbo-demo` | **LIMBO 多关节沙盒** | 6 段铰链布娃娃、9 节绳索与铰链吊桥、浮力水体、死亡断肢后仍互相牵引 |
 | `--platformer-demo` | **平台跳跃与手柄控制器** | 瓦片跳跃控制：土狼时间（Coyote Time）、跳跃预输入缓冲、单向板平台穿越、金币收集、平滑跟随相机 |
-| `--beat-em-up-demo` | **2.5D 清版动作（Dino Brawl）** | 地面平面 x/纵深/高度移动与 y 排序角色；三段连击、踢击、旋转、命中停顿、无敌帧、击倒/起身、锁镜头刷怪波次、敌人 AI 与 Boss——全部由图元绘制，无头模式自带吸引式 AI |
+| `--beat-em-up-demo` | **2.5D 清版动作（Dino Brawl）** | CC0 像素角色（Chasersgaming 的 Renegade/Soldier）与 CC0 夜景城市视差背景（FisherG），最近邻采样与调色板换色；地面平面 x/纵深/高度移动与 y 排序角色；三段连击、踢击、旋转、命中停顿、无敌帧、击倒/起身、锁镜头刷怪波次、敌人 AI 与 Boss，无头模式自带吸引式 AI |
 | `--slope-demo` | **斜坡地形控制器** | Tiled 斜坡解析（`map_slope_dir`/`map_ground_y`），角色沿倾斜地面平滑贴合走动与实时地表高度计算 |
 | `--path-demo` | **迷宫追逐与 A\* 寻路** | 迷宫地图，错峰重寻路的追踪 AI，玩家自动航路演示模式，实时 A\* 路径折线显示（防切角与视线拉直） |
 | `--tile-demo` | **Tiled 动画瓦片** | 引擎统一时钟推进 tileset 动画；池塘水面波光涟漪与跳动火把循环播放，碰撞网格与显示画面解耦 |

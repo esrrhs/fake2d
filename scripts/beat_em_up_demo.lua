@@ -46,6 +46,30 @@ local D_EPS = 0.00002
 -- Persistent scalars (FakeLua file-level locals are the only cross-frame state).
 local inited = false
 local white = 0 + 0
+-- CC0 sprite art (assets/brawler, Chasersgaming): one texture per pose/strip.
+local tex_hero_idle = 0 + 0
+local tex_hero_walk = 0 + 0
+local tex_hero_punch1 = 0 + 0
+local tex_hero_punch2 = 0 + 0
+local tex_hero_kick1 = 0 + 0
+local tex_hero_kick2 = 0 + 0
+local tex_hero_hurt = 0 + 0
+local tex_hero_down = 0 + 0
+local tex_hero_getup = 0 + 0
+local tex_hero_butt = 0 + 0
+local tex_foe_idle = 0 + 0
+local tex_foe_walk = 0 + 0
+local tex_foe_punch = 0 + 0
+local tex_foe_kick = 0 + 0
+local tex_foe_hurt = 0 + 0
+local tex_foe_down = 0 + 0
+-- CC0 night-city parallax layers (FisherG, see assets/brawler/LICENSE.txt).
+local tex_bg_sky = 0 + 0
+local tex_bg_far = 0 + 0
+local tex_bg_mid = 0 + 0
+local tex_bg_close = 0 + 0
+local tex_ground = 0 + 0
+local sprites_ready = false
 local hero_id = 0 + 0
 local vw = 960.0 + 0.0
 local vh = 540.0 + 0.0
@@ -108,7 +132,9 @@ local function limb(cx, cy, len, thick, ang, r, g, b, a)
     cap(cx + ux * len * 0.5, cy + uy * len * 0.5, len, thick, ang, r, g, b, a)
 end
 
-local function draw_actor(id)
+-- Fallback character painter: layered quads, used only when the sprite files
+-- are missing (e.g. a stripped build). The normal path is draw_actor_sprite.
+local function draw_actor_primitives(id)
     local ty = ent_num(id, TYPE)
     local st = ent_num(id, ST)
     local stt = ent_num(id, STT)
@@ -245,55 +271,191 @@ local function draw_actor(id)
     end
 end
 
--- Two parallax silhouette layers plus the ground plane, all from quads.
+-- Sprite selection: returns (texture, frame index, frame width). The strips
+-- are 16x32; extended punch/kick/knockdown poses are 24x32.
+local function actor_sprite(ty, st, stt)
+    if ty == T_HERO then
+        if st == IDLE then return tex_hero_idle, math.floor(stt * 6.0) % 4, 16.0 end
+        if st == WALK then return tex_hero_walk, math.floor(stt * 10.0) % 4, 16.0 end
+        if st == PUNCH then
+            if stt < PUNCH_TIME * 0.45 then return tex_hero_punch1, 0, 24.0 end
+            return tex_hero_punch2, 0, 24.0
+        end
+        if st == KICK then
+            if stt < KICK_TIME * 0.45 then return tex_hero_kick1, 0, 24.0 end
+            return tex_hero_kick2, 0, 24.0
+        end
+        if st == SPIN then return tex_hero_butt, math.floor(stt * 12.0) % 2, 24.0 end
+        if st == HURT then return tex_hero_hurt, 0, 16.0 end
+        if st == GETUP then return tex_hero_getup, 0, 16.0 end
+        return tex_hero_down, 0, 24.0
+    end
+    if st == IDLE then return tex_foe_idle, math.floor(stt * 6.0) % 4, 16.0 end
+    if st == WALK then return tex_foe_walk, math.floor(stt * 10.0) % 4, 16.0 end
+    if st == PUNCH then return tex_foe_punch, 0, 24.0 end
+    if st == KICK then return tex_foe_kick, 0, 24.0 end
+    if st == HURT or st == GETUP then return tex_foe_hurt, 0, 16.0 end
+    return tex_foe_down, 0, 24.0
+end
+
+-- CC0 pixel-art character: one texture per pose, nearest-filtered and scaled
+-- 3x on the ground plane. The sprite's body centre is 8 px from its leading
+-- edge, so flipping keeps the feet on the same world x.
+local function draw_actor_sprite(id)
+    local ty = ent_num(id, TYPE)
+    local st = ent_num(id, ST)
+    local stt = ent_num(id, STT)
+    local x = ent_num(id, X)
+    local d = ent_num(id, DP)
+    local z = ent_num(id, Z)
+    local face = ent_num(id, FACE)
+    local flash = ent_num(id, FLAGS) > 0.0
+    local tex, frame, fw = actor_sprite(ty, st, stt)
+    if tex == 0 then return false end
+
+    local ss = pscale(d)
+    local bulk = 1.0
+    -- Palette swaps distinguish enemy classes on the shared soldier art.
+    local tr, tg, tb = 1.0, 1.0, 1.0
+    if ty == T_BRUTE then
+        bulk = 1.15
+        tr, tg, tb = 0.86, 0.64, 1.0
+    elseif ty == T_BOSS then
+        bulk = 1.5
+        tr, tg, tb = 1.0, 0.66, 0.34
+    end
+    if flash then
+        tr, tg, tb = 1.0, 1.0, 1.0
+    end
+
+    local spr = ss * 3.0 * bulk
+    local base = py(d, z)
+    local dh = 32.0 * spr
+    local dw = fw * spr
+    local flip = face < 0.0
+    local dx = x - 8.0 * spr
+    if flip then dx = x - (fw - 8.0) * spr end
+    local dy = base - dh
+    if st == DOWN then dy = dy + 3.5 * spr end
+
+    draw_set_z(d + x * D_EPS)
+    draw_quad(x - 24.0 * ss * bulk, base - 4.0 * ss,
+              48.0 * ss * bulk, 9.0 * ss, 0.0, 0.0, 0.0, 0.24)
+
+    if flash then
+        draw_set_blend(1)
+        draw_quad(x - 16.0 * ss, base - 52.0 * ss * bulk,
+                  32.0 * ss, 6.0 * ss, 1.0, 0.95, 0.55, 0.9)
+        draw_quad(x - 3.0 * ss, base - 72.0 * ss * bulk,
+                  6.0 * ss, 40.0 * ss, 1.0, 0.95, 0.55, 0.9)
+        draw_set_blend(0)
+    end
+
+    sprite_draw_flip_tinted(tex, frame * fw, 0.0, fw, 32.0, dx, dy, dw, dh,
+                            (flip and 1.0 or 0.0), 0.0, tr, tg, tb, 1.0)
+
+    if ty ~= T_HERO then
+        local mh = max_hp(ty)
+        local hp = ent_num(id, HP)
+        if hp > 0.0 and hp < mh then
+            local bw = 40.0 * ss * bulk
+            local by = base - 104.0 * ss * bulk
+            draw_quad(x - bw * 0.5, by, bw, 4.0, 0.05, 0.05, 0.05, 0.9)
+            draw_quad(x - bw * 0.5, by, bw * (hp / mh), 4.0, 0.95, 0.30, 0.22, 1.0)
+        end
+    end
+    return true
+end
+
+local function draw_actor(id)
+    if sprites_ready and draw_actor_sprite(id) then return end
+    draw_actor_primitives(id)
+end
+
+-- Horizontally tiled parallax strip anchored to the ground line. The texture
+-- is loaded nearest, so 2x upscaling keeps the 4-colour pixel art crisp.
+local function draw_tiled_bg(tex, parallax, scale, cam_x)
+    if tex == 0 then return false end
+    local tw = sprite_width(tex) * scale
+    local th = sprite_height(tex) * scale
+    local shift = cam_x * parallax
+    local k0 = math.floor(shift / tw) - 1
+    local count = math.ceil(vw / tw) + 2
+    for k = k0, k0 + count do
+        sprite_draw(tex, cam_x + k * tw - shift, GROUND_Y - th, tw, th)
+    end
+    return true
+end
+
 local function draw_background(cam_x, cam_y)
     draw_set_layer(0)
-    draw_set_z(-2400.0)
-    local bands = 6
-    for i = 0, bands - 1 do
-        local t = i / bands
-        draw_quad(cam_x, cam_y + vh * t, vw, vh / bands + 1.0,
-                  0.06 + t * 0.30, 0.08 + t * 0.16, 0.16 + t * 0.10, 1.0)
+    if tex_bg_sky ~= 0 then
+        -- CC0 night-city parallax (FisherG): sky, far, mid, close.
+        draw_set_z(-2400.0)
+        draw_tiled_bg(tex_bg_sky, 0.05, 2.0, cam_x)
+        draw_set_z(-2300.0)
+        draw_tiled_bg(tex_bg_far, 0.18, 2.0, cam_x)
+        draw_set_z(-2200.0)
+        draw_tiled_bg(tex_bg_mid, 0.38, 2.0, cam_x)
+        draw_set_z(-2100.0)
+        draw_tiled_bg(tex_bg_close, 0.62, 2.0, cam_x)
+    else
+        -- Fallback: gradient sky plus procedural silhouettes.
+        draw_set_z(-2400.0)
+        local bands = 6
+        for i = 0, bands - 1 do
+            local t = i / bands
+            draw_quad(cam_x, cam_y + vh * t, vw, vh / bands + 1.0,
+                      0.06 + t * 0.30, 0.08 + t * 0.16, 0.16 + t * 0.10, 1.0)
+        end
+        draw_set_z(-2150.0)
+        local p1 = 0.25
+        local period1 = 240.0
+        local k1 = math.floor(cam_x * p1 / period1) - 1
+        for k = k1, k1 + 6 do
+            local wx = cam_x * (1.0 - p1) + k * period1
+            local h = 70.0 + (math.sin(k * 3.7) * 0.5 + 0.5) * 110.0
+            draw_quad(wx, cam_y + GROUND_Y - h, period1 - 26.0, h,
+                      0.10, 0.13, 0.20, 1.0)
+        end
+        draw_set_z(-1950.0)
+        local p2 = 0.55
+        local period2 = 150.0
+        local k2 = math.floor(cam_x * p2 / period2) - 1
+        for k = k2, k2 + 8 do
+            local wx = cam_x * (1.0 - p2) + k * period2
+            local h = 54.0 + (math.sin(k * 5.1) * 0.5 + 0.5) * 56.0
+            draw_quad(wx + 38.0, cam_y + GROUND_Y - h, 20.0, h,
+                      0.06, 0.10, 0.11, 1.0)
+            draw_quad(wx + 18.0, cam_y + GROUND_Y - h - 18.0, 60.0, 20.0,
+                      0.05, 0.12, 0.10, 1.0)
+        end
     end
 
-    -- far skyline (parallax 0.25)
-    draw_set_z(-2150.0)
-    local p1 = 0.25
-    local period1 = 240.0
-    local k1 = math.floor(cam_x * p1 / period1) - 1
-    for k = k1, k1 + 6 do
-        local wx = cam_x * (1.0 - p1) + k * period1
-        local h = 70.0 + (math.sin(k * 3.7) * 0.5 + 0.5) * 110.0
-        draw_quad(wx, cam_y + GROUND_Y - h, period1 - 26.0, h,
-                  0.10, 0.13, 0.20, 1.0)
-        draw_quad(wx + 30.0, cam_y + GROUND_Y - h - 14.0, 40.0, 16.0,
-                  0.10, 0.13, 0.20, 1.0)
-    end
-
-    -- jungle trees (parallax 0.55)
-    draw_set_z(-1950.0)
-    local p2 = 0.55
-    local period2 = 150.0
-    local k2 = math.floor(cam_x * p2 / period2) - 1
-    for k = k2, k2 + 8 do
-        local wx = cam_x * (1.0 - p2) + k * period2
-        local h = 54.0 + (math.sin(k * 5.1) * 0.5 + 0.5) * 56.0
-        draw_quad(wx + 38.0, cam_y + GROUND_Y - h, 20.0, h,
-                  0.06, 0.10, 0.11, 1.0)
-        draw_quad(wx + 18.0, cam_y + GROUND_Y - h - 18.0, 60.0, 20.0,
-                  0.05, 0.12, 0.10, 1.0)
-    end
-
-    -- ground plane and depth guides
+    -- Street: a tiled 64x64 asphalt texture (nearest, 3x).
     draw_set_z(-1200.0)
-    draw_quad(cam_x, cam_y + GROUND_Y, vw, vh - GROUND_Y + 4.0,
-              0.16, 0.14, 0.12, 1.0)
-    draw_quad(cam_x, cam_y + GROUND_Y, vw, 6.0, 0.30, 0.26, 0.20, 1.0)
+    if tex_ground ~= 0 then
+        local gw = 64.0 * 3.0
+        local gh = 64.0 * 3.0
+        local k0 = math.floor(cam_x / gw) - 1
+        local count = math.ceil(vw / gw) + 2
+        local rows = math.ceil((vh - GROUND_Y) / gh) + 1
+        for k = k0, k0 + count do
+            for row = 0, rows - 1 do
+                sprite_draw(tex_ground, k * gw, GROUND_Y + row * gh, gw, gh)
+            end
+        end
+    else
+        draw_quad(cam_x, cam_y + GROUND_Y, vw, vh - GROUND_Y + 4.0,
+                  0.16, 0.14, 0.12, 1.0)
+    end
+    draw_set_z(-1180.0)
+    draw_quad(cam_x, cam_y + GROUND_Y, vw, 5.0, 0.30, 0.22, 0.36, 1.0)
     draw_set_z(-1190.0)
     for i = 0, DEPTH_STEPS do
         local d = i * (DEPTH_MAX / DEPTH_STEPS)
         draw_line(cam_x, py(d, 0.0), cam_x + vw, py(d, 0.0),
-                  0.55, 0.48, 0.36, 0.10)
+                  0.72, 0.60, 0.82, 0.10)
     end
     -- arena boundary marker
     draw_line(arena_x, cam_y + 150.0, arena_x,
@@ -861,6 +1023,8 @@ local function draw_hud(cam_x, cam_y)
 
     local hx = cam_x + 18.0
     local hy = cam_y + 14.0
+    -- Dark plates keep the HUD readable over the bright skyline.
+    draw_quad(cam_x + 10.0, cam_y + 8.0, 330.0, 64.0, 0.02, 0.02, 0.05, 0.58)
     draw_quad(hx, hy, 240.0, 20.0, 0.04, 0.05, 0.08, 0.9)
     local hp = 0.0
     if hero_id ~= 0 and ent_active(hero_id) then hp = ent_num(hero_id, HP) end
@@ -873,9 +1037,13 @@ local function draw_hud(cam_x, cam_y)
              "MESS  LIVES " .. string.format("%d", math.floor(lives))
              .. "   SCORE " .. string.format("%d", math.floor(score)),
              0.42, 0.95, 0.92, 0.72, 1.0)
+    draw_quad(cam_x + vw - 168.0, cam_y + 8.0, 158.0, 32.0,
+              0.02, 0.02, 0.05, 0.58)
     ui_label(0, cam_x + vw - 160.0, cam_y + 16.0,
              "WAVE " .. string.format("%d", wave + 1) .. " / " .. string.format("%d", MAX_WAVE + 1),
              0.45, 0.95, 0.90, 0.55, 1.0)
+    draw_quad(hx - 6.0, cam_y + vh - 38.0, 372.0, 28.0,
+              0.02, 0.02, 0.05, 0.52)
     ui_label(0, hx, cam_y + vh - 30.0,
              "WASD MOVE   SPACE/J PUNCH   K KICK   L SPIN",
              0.36, 0.75, 0.80, 0.88, 1.0)
@@ -911,6 +1079,35 @@ end
 
 local function init()
     white = sprite_load("assets/white.png")
+    -- CC0 sprite art (see assets/brawler/LICENSE.txt). Nearest filtering keeps
+    -- the 16x32 pixels crisp at the 3x brawler scale.
+    tex_hero_idle = sprite_load_nearest("assets/brawler/Renegade_Idle_1_strip4.png")
+    tex_hero_walk = sprite_load_nearest("assets/brawler/Renegade_Walk_1_strip4.png")
+    tex_hero_punch1 = sprite_load_nearest("assets/brawler/Renegade_Punch_1.png")
+    tex_hero_punch2 = sprite_load_nearest("assets/brawler/Renegade_Punch_2.png")
+    tex_hero_kick1 = sprite_load_nearest("assets/brawler/Renegade_Kick_1.png")
+    tex_hero_kick2 = sprite_load_nearest("assets/brawler/Renegade_Kick_2.png")
+    tex_hero_hurt = sprite_load_nearest("assets/brawler/Renegade_Hurt.png")
+    tex_hero_down = sprite_load_nearest("assets/brawler/Renegade_Knock_Out.png")
+    tex_hero_getup = sprite_load_nearest("assets/brawler/Renegade_Get_up.png")
+    tex_hero_butt = sprite_load_nearest("assets/brawler/Renegade_Head_Butt_strip2.png")
+    tex_foe_idle = sprite_load_nearest("assets/brawler/NES_Soldier_Idle_1_strip4.png")
+    tex_foe_walk = sprite_load_nearest("assets/brawler/NES_Soldier_Walk_1_strip4.png")
+    tex_foe_punch = sprite_load_nearest("assets/brawler/NES_Soldier_Punch_1.png")
+    tex_foe_kick = sprite_load_nearest("assets/brawler/NES_Soldier_Kick_1.png")
+    tex_foe_hurt = sprite_load_nearest("assets/brawler/NES_Soldier_Hurt.png")
+    tex_foe_down = sprite_load_nearest("assets/brawler/NES_Soldier_Knock_Down.png")
+    tex_bg_sky = sprite_load_nearest("assets/brawler/bg/city_scitysky.png")
+    tex_bg_far = sprite_load_nearest("assets/brawler/bg/city_scityfar.png")
+    tex_bg_mid = sprite_load_nearest("assets/brawler/bg/city_scitymid.png")
+    tex_bg_close = sprite_load_nearest("assets/brawler/bg/city_scityclose.png")
+    tex_ground = sprite_load_nearest("assets/brawler/asphalt.png")
+    sprites_ready = tex_hero_idle ~= 0 and tex_foe_idle ~= 0
+    if sprites_ready then
+        log_info("beat-em-up: CC0 sprite art loaded")
+    else
+        log_warn("beat-em-up: sprite art missing, falling back to primitives")
+    end
     rng_seed(20261029)
     vw = camera_viewport_w()
     vh = camera_viewport_h()

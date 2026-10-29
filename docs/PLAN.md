@@ -465,7 +465,8 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
   - AABB hit-vs-hurt boxes, per-attack serial (multi-hit prevention), 0.25 s invulnerability, heavy knockdowns, hit-stop + camera shake + additive impact sparks
   - wave spawning (3 grunts → 4 grunts + brute → boss + 2 grunts) with a camera locked to each arena, a short heal between waves, lives/score/continue flow
   - enemy AI (approach, depth alignment, staggered global attack token), boss with horns and extra bulk, attract AI that finishes the stage headlessly
-  - HUD health bar, wave banner, stage-clear / game-over flow; procedural parallax skyline and jungle, no binary art beyond a 1×1 white texel
+  - HUD health bar, wave banner, stage-clear / game-over flow
+- [x] **CC0 art pass**: pixel-art fighters from Chasersgaming (Renegade / Soldier, 16×32 frames with punch/kick/knockout/getup strips) and FisherG's 4-colour night-city parallax layers, plus a generated seamless asphalt tile; committed under `assets/brawler/` with `LICENSE.txt`. New Lua bindings `sprite_load_nearest` (pixel-art filtering) and `sprite_draw_flip_tinted` (mirrored palette swaps / hit flashes); the primitive painter stays as a fallback when the art is absent
 - [x] Wired into CI on Linux, macOS and Windows (`--combat-test` exit gate + `--beat-em-up-demo` headless run and screenshot colour probe)
 - [x] Verification: `--combat-test` 18/18; all 18 self-tests at 805 assertions; every demo smoke; text-demo colour probe
 

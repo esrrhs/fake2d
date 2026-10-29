@@ -7,7 +7,7 @@
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-brightgreen.svg)](https://en.cppreference.com/w/cpp/23)
 [![OpenGL](https://img.shields.io/badge/OpenGL-3.3%20Core%20%7C%202.1-orange.svg)](https://www.opengl.org/)
 [![FakeLua](https://img.shields.io/badge/Script-FakeLua-red.svg)](https://github.com/esrrhs/fakelua)
-[![Version](https://img.shields.io/badge/version-1.30.0-informational.svg)](include/fake2d/version.h)
+[![Version](https://img.shields.io/badge/version-1.30.1-informational.svg)](include/fake2d/version.h)
 
 **Fake2D** is a modern, lightweight, high-performance 2D game engine powered by [FakeLua](https://github.com/esrrhs/fakelua):
 - **C++23 Host Engine**: Controls window management, GPU rendering pipelines, 2D physics, multi-bus audio mixing, and native resource lifecycles;
@@ -96,7 +96,7 @@ Fake2D comes with 17 rich, self-contained demos demonstrating platformer mechani
 | `--angry-birds-demo` | **Angry Birds Sandbox** | Slingshot impulse launch, stacked towers that sleep and wake, contact-driven pig pops, camera follow, synthesized SFX |
 | `--limbo-demo` | **LIMBO Jointed Sandbox** | 6-part revolute ragdoll, 9-node rope chain and revolute bridge, buoyancy water, and sever-on-death pieces that stay tethered |
 | `--platformer-demo` | **Platformer Controller** | Kinematic tile platforming; coyote time, jump buffering, one-way ledges, coin pickups, smooth follow camera |
-| `--beat-em-up-demo` | **2.5D Brawler (Dino Brawl)** | Ground-plane x/depth/height movement with y-sorted actors; 3-hit combos, kicks, spins, hit-stop, i-frames, knockdown/getup, wave spawning with a locked camera, enemy AI and a boss — all from primitives, with an attract AI for headless runs |
+| `--beat-em-up-demo` | **2.5D Brawler (Dino Brawl)** | CC0 pixel-art fighters (Chasersgaming Renegade/Soldier) and a CC0 night-city parallax backdrop (FisherG), nearest-filtered and palette-swapped; ground-plane x/depth/height movement with y-sorted actors; 3-hit combos, kicks, spins, hit-stop, i-frames, knockdown/getup, wave spawning with a locked camera, enemy AI and a boss, plus an attract AI for headless runs |
 | `--slope-demo` | **Slopes & Terrain** | Tiled slope calculation (`map_slope_dir` / `map_ground_y`), smooth angle traversal and live ground overlays |
 | `--path-demo` | **Maze Chase & A\* Pathfinding** | Generated maze, staggered AI tracking, player autopilot mode, and live polyline path drawing |
 | `--tile-demo` | **Animated Tiles** | Tiled tileset animations driven by a single engine clock; rippling pond water and torch flames |
