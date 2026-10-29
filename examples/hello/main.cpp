@@ -135,6 +135,20 @@ void EnsureGameAssets() {
     }
 }
 
+/// The brawler demo paints its fighters from rotated quads, so all it needs is
+/// one fully white texel to tint. Written next to the other sample assets.
+void EnsureBeatEmUpAssets() {
+    const std::filesystem::path dir = "assets";
+    std::error_code ec;
+    std::filesystem::create_directory(dir, ec);
+    const std::filesystem::path path = dir / "white.png";
+    if (std::filesystem::exists(path)) {
+        return;
+    }
+    const std::uint8_t white[4] = {255, 255, 255, 255};
+    stbi_write_png(path.string().c_str(), 1, 1, 4, white, 4);
+}
+
 // ---------------------------------------------------------------------------
 // Procedural one-shot sound effects: mono float PCM at 44.1 kHz, synthesized
 // from sine/square/saw chirps so the sample ships without binary assets.
@@ -261,6 +275,15 @@ void EnsureGameAudio(fake2d::AudioEngine &audio) {
     audio.AddClip("win", MakeArpeggio({523.25f, 659.25f, 783.99f, 1046.5f}, 0.09f, 0.35f));
     audio.AddClip("coin", MakeArpeggio({880.0f, 1174.7f}, 0.06f, 0.3f));
     audio.AddClip("jump", MakeTone(280.0f, 620.0f, 0.09f, 0, 0.28f, 10.0f));
+}
+
+/// Looping theme for the brawler demo (a short arpeggio, restarted by the
+/// script with `audio_loop`).
+void EnsureBeatEmUpAudio(fake2d::AudioEngine &audio) {
+    audio.AddClip("brawler_theme",
+                  MakeArpeggio({196.0f, 246.94f, 293.66f, 392.0f,
+                                329.63f, 293.66f, 246.94f, 329.63f},
+                               0.20f, 0.18f));
 }
 
 /// Two looping themes for --audio-demo, so the cross-fade has something to
@@ -2176,6 +2199,96 @@ int RunGameplayTest(fake2d::Engine &engine) {
 
     std::filesystem::remove_all(root, ec);
     std::printf("[gameplay] %s: %d checks, %d failures\n",
+                failures == 0 ? "PASS" : "FAILED", checks, failures);
+    return failures == 0 ? 0 : 1;
+}
+
+// Combat / 2.5D self-test (Phase 36): the global time scale + hit-stop
+// plumbing, the widened entity slots and the larger animation clip pool that
+// a brawler needs.
+int RunCombatTest(fake2d::Engine &engine) {
+    int failures = 0;
+    int checks = 0;
+    auto check = [&](bool ok, const char *what) {
+        ++checks;
+        if (!ok) {
+            ++failures;
+            std::printf("[combat] FAIL %s\n", what);
+        }
+    };
+
+    // ---- gameplay time scale ----------------------------------------------
+    {
+        check(engine.TimeScale() == 1.0f, "time scale defaults to real time");
+        engine.SetTimeScale(0.25f);
+        check(engine.TimeScale() == 0.25f, "time scale is settable");
+        engine.SetTimeScale(-3.0f);
+        check(engine.TimeScale() == 0.0f, "negative time scale clamps to 0");
+        engine.SetTimeScale(1.0e6f);
+        check(engine.TimeScale() == 100.0f, "time scale clamps at 100");
+        engine.SetTimeScale(1.0f);
+        engine.Hitstop(0.1f);
+        check(engine.TimeScale() == 1.0f,
+              "hitstop does not change the configured time scale");
+        engine.Hitstop(0.0f);   // no-op
+        engine.Hitstop(-1.0f);  // no-op
+        check(true, "non-positive hitstop is a safe no-op");
+    }
+
+    // ---- entity store: 16 numeric slots + snapshots ------------------------
+    {
+        auto &store = engine.GetEntities();
+        using ES = fake2d::EntityStore;
+        store.Clear();
+        check(ES::kNumSlots == 16, "entity store exposes 16 numeric slots");
+        check(ES::kMaxEntities >= 512, "entity store holds a full brawl roster");
+        const ES::Id id = store.Create(7);
+        check(store.Active(id), "entity create returns a live handle");
+        for (std::size_t s = 0; s < ES::kNumSlots; ++s) {
+            store.SetNumber(id, s, static_cast<double>(s) * 3.0 + 1.0);
+        }
+        bool all = true;
+        for (std::size_t s = 0; s < ES::kNumSlots; ++s) {
+            all = all && store.GetNumber(id, s) == static_cast<double>(s) * 3.0 + 1.0;
+        }
+        check(all, "all 16 number slots round-trip");
+        check(store.GetNumber(id, 99) == 0.0, "out-of-range slot reads 0");
+        store.SetNumber(id, 99, 5.0);  // ignored
+        check(store.GetNumber(id, 99) == 0.0, "out-of-range slot write is ignored");
+
+        const std::string blob = store.Serialize();
+        store.Clear();
+        check(store.Count() == 0 && !store.Active(id), "clear drops handles");
+        check(store.Deserialize(blob), "snapshot deserializes");
+        const auto restored = store.At(0);
+        bool restored_ok = restored != ES::kInvalid && store.Tag(restored) == 7;
+        for (std::size_t s = 0; s < ES::kNumSlots; ++s) {
+            restored_ok = restored_ok &&
+                          store.GetNumber(restored, s) == static_cast<double>(s) * 3.0 + 1.0;
+        }
+        check(restored_ok, "snapshot restores every slot and the tag");
+        store.Clear();
+    }
+
+    // ---- animation clip pool ----------------------------------------------
+    {
+        auto &anims = engine.GetAnimations();
+        using AS = fake2d::AnimationSystem;
+        anims.Clear();
+        check(AS::kMaxAnimations >= 128,
+              "clip pool covers a full character roster");
+        std::size_t made = 0;
+        for (std::size_t i = 0; i < AS::kMaxAnimations; ++i) {
+            if (anims.Create() != 0) {
+                ++made;
+            }
+        }
+        check(made == AS::kMaxAnimations, "every clip slot can be allocated");
+        check(anims.Create() == 0, "the pool reports exhaustion");
+        anims.Clear();
+    }
+
+    std::printf("[combat] %s: %d checks, %d failures\n",
                 failures == 0 ? "PASS" : "FAILED", checks, failures);
     return failures == 0 ? 0 : 1;
 }
@@ -6760,6 +6873,8 @@ int main(int argc, char **argv) {
     bool fx_test = false;
     bool fog_test = false;
     bool audio_test = false;
+    bool combat_test = false;
+    bool beat_demo = false;
     int max_frames = 0;
     int shot_frame = 30;
     int shot_min_colors = 0;
@@ -6842,6 +6957,11 @@ int main(int argc, char **argv) {
             // listener through them with WASD / the mouse.
             audio_clips = true;
             cfg.script_entry = "scripts/spatial_demo.lua";
+        } else if (arg == "--beat-em-up-demo") {
+            // 2.5D brawler: ground-plane movement, y-sorted fighters, combo
+            // attacks with hit-stop, wave waves and a boss.
+            beat_demo = true;
+            cfg.script_entry = "scripts/beat_em_up_demo.lua";
         } else if (arg == "--screenshot" && i + 1 < argc) {
             screenshot = argv[++i];
         } else if (arg == "--shot-frame" && i + 1 < argc) {
@@ -6975,6 +7095,13 @@ int main(int argc, char **argv) {
             cfg.headless = true;
             cfg.script_entry.clear();
             cfg.vsync = false;
+        } else if (arg == "--combat-test") {
+            // Self-test of the brawler plumbing: time scale + hit-stop,
+            // 16-slot entity actors and the enlarged animation clip pool.
+            combat_test = true;
+            cfg.headless = true;
+            cfg.script_entry.clear();
+            cfg.vsync = false;
         } else if (arg == "--fixed-hz" && i + 1 < argc) {
             // Physics rate; 0 (or --variable-step) restores variable stepping.
             const int hz = std::atoi(argv[++i]);
@@ -7058,6 +7185,9 @@ int main(int argc, char **argv) {
     if (audio_test) {
         return RunAudioTest(engine);
     }
+    if (combat_test) {
+        return RunCombatTest(engine);
+    }
 
     // All gameplay is pure Lua below; C++ only guarantees the binary asset
     // scaffolding exists before the script's first frame.
@@ -7081,6 +7211,10 @@ int main(int argc, char **argv) {
     if (platformer_demo) {
         EnsurePlatformerAssets();
         engine.GetAudio().AddClipWav("music", "assets/music.wav");
+    }
+    if (beat_demo) {
+        EnsureBeatEmUpAssets();
+        EnsureBeatEmUpAudio(engine.GetAudio());
     }
     if (angry_demo) {
         // Launch / impact / pop / win / lose clips come from the same

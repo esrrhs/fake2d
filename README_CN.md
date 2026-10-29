@@ -7,7 +7,7 @@
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-brightgreen.svg)](https://en.cppreference.com/w/cpp/23)
 [![OpenGL](https://img.shields.io/badge/OpenGL-3.3%20Core%20%7C%202.1-orange.svg)](https://www.opengl.org/)
 [![FakeLua](https://img.shields.io/badge/Script-FakeLua-red.svg)](https://github.com/esrrhs/fakelua)
-[![Version](https://img.shields.io/badge/version-1.29.0-informational.svg)](include/fake2d/version.h)
+[![Version](https://img.shields.io/badge/version-1.30.0-informational.svg)](include/fake2d/version.h)
 
 **Fake2D** 是基于 [FakeLua](https://github.com/esrrhs/fakelua) 驱动的现代化、轻量级、高性能 2D 游戏引擎：
 - **C++23 宿主引擎**：掌管窗口管理、GPU 渲染管线、空间物理、音频混音与底层资源生命周期；
@@ -44,11 +44,12 @@ Fake2D 不仅是渲染器，更是一套自洽完备的 2D 游戏开发平台：
 - **即时模式 UI（Immediate-Mode UI）**：开箱即用的 UI 控件库（Panel、Button、Label、Slider、Checkbox、TextInput、ScrollArea、ProgressBar、RadioButton、Combo、可拖拽 Window、Tab 标签页、Tree 折叠树、Tooltip）。
 - **文本与平台能力层**：UTF-8 按需字形图集（原生支持 CJK/日文/韩文，`font_load` 可载入任意 TTF/TTC/OTF，缺字自动回退字体）、中文逐字换行与英文按词换行（含禁则与 kerning）、旋转/阴影/描边/自动缩字、运行时切换的 TSV 语言包（BOM 兼容、缺 key 报告）、跨平台资源/用户目录、带 CRC 与 `.bak` 回滚的 v2 存档容器、实体快照存读、文件日志与崩溃报告、离线成就镜像、`mod.json` 模组管理器，以及可选 Steamworks 适配层（成就 / Rich Presence / 语言 / 云存档开关，未链接 SDK 时自动降级为零依赖 stub）。
 - **玩法基础工具**：确定性 splitmix64 随机数、命名缓动曲线与帧率无关的 `Approach`、可重绑的输入动作映射、窗口尺寸/resizable/最小尺寸/光标控制、音频 pitch/循环/停止，以及运行时 FPS / 帧耗时 / draw call 统计。
+- **2.5D 清版动作套件**：全局游戏时间缩放 + 命中停顿 `time_set_scale`/`time_hitstop`（脚本、物理、动画、粒子一起定格）；每个实体 16 个数值 + 4 个字符串槽、最多 512 个实体，足以承载完整角色阵容；动画剪辑池扩至 128；配合 `draw_set_z` + `batch_set_sorted` 实现深度正确的横版 y 排序。
 
 ### 5. 现代化工程化与极佳开发者体验
 - **JIT 脚本热重载**：支持 GCC JIT 与解释器双模式，在运行中修改 Lua 脚本保存即刻生效，无需重启进程；
 - **无头测试与 CI/CD**：内置原生 `--headless`、`--frames N` 与 `--screenshot` 参数，可在无物理显示器的虚拟机、Docker 容器中运行自动化回归验证与帧缓冲像素级比对；
-- **17 项内置自测试套件**：780+ 断言，涵盖刚体动力学、关节、休眠、防穿透、物理查询、碰撞过滤、时间步长、地图对象、A\* 寻路、离屏 FBO、即时 UI、后处理链、战争迷雾、音频混音、动画瓦片、UTF-8/CJK 文本与字体回退、平台能力层、确定性随机、缓动、实体快照、输入动作与窗口控制等，所有测试用例均经过变异测试（Mutation-tested）验证；
+- **18 项内置自测试套件**：800+ 断言，涵盖刚体动力学、关节、休眠、防穿透、物理查询、碰撞过滤、时间步长、地图对象、A\* 寻路、离屏 FBO、即时 UI、后处理链、战争迷雾、音频混音、动画瓦片、UTF-8/CJK 文本与字体回退、平台能力层、确定性随机、缓动、实体快照、输入动作、窗口控制、游戏时间缩放/命中停顿、16 槽实体角色与 128 剪辑动画池等，所有测试用例均经过变异测试（Mutation-tested）验证；
 - **开箱即用独立打包**：提供自动化打包脚本，一键生成包含依赖库的独立二进制压缩包，分发给玩家免安装环境。
 
 ---
@@ -86,7 +87,7 @@ Fake2D 不仅是渲染器，更是一套自洽完备的 2D 游戏开发平台：
 
 ## 🎮 精彩内置 Demo 矩阵
 
-Fake2D 仓库自带 16 个可直接运行的高质量 Demo，涵盖平台跳跃、经典街机、迷宫寻路、即时 UI、战争迷雾、多趟后处理与空间音频等各个维度：
+Fake2D 仓库自带 17 个可直接运行的高质量 Demo，涵盖平台跳跃、经典街机、清版动作、迷宫寻路、即时 UI、战争迷雾、多趟后处理与空间音频等各个维度：
 
 | Demo 启动参数 | 演示主题 | 核心特性亮点 |
 |---|---|---|
@@ -95,6 +96,7 @@ Fake2D 仓库自带 16 个可直接运行的高质量 Demo，涵盖平台跳跃�
 | `--angry-birds-demo` | **愤怒的小鸟沙盒** | 弹弓冲量发射、休眠塔堆、接触事件爆猪与计分、相机跟随与合成音效 |
 | `--limbo-demo` | **LIMBO 多关节沙盒** | 6 段铰链布娃娃、9 节绳索与铰链吊桥、浮力水体、死亡断肢后仍互相牵引 |
 | `--platformer-demo` | **平台跳跃与手柄控制器** | 瓦片跳跃控制：土狼时间（Coyote Time）、跳跃预输入缓冲、单向板平台穿越、金币收集、平滑跟随相机 |
+| `--beat-em-up-demo` | **2.5D 清版动作（Dino Brawl）** | 地面平面 x/纵深/高度移动与 y 排序角色；三段连击、踢击、旋转、命中停顿、无敌帧、击倒/起身、锁镜头刷怪波次、敌人 AI 与 Boss——全部由图元绘制，无头模式自带吸引式 AI |
 | `--slope-demo` | **斜坡地形控制器** | Tiled 斜坡解析（`map_slope_dir`/`map_ground_y`），角色沿倾斜地面平滑贴合走动与实时地表高度计算 |
 | `--path-demo` | **迷宫追逐与 A\* 寻路** | 迷宫地图，错峰重寻路的追踪 AI，玩家自动航路演示模式，实时 A\* 路径折线显示（防切角与视线拉直） |
 | `--tile-demo` | **Tiled 动画瓦片** | 引擎统一时钟推进 tileset 动画；池塘水面波光涟漪与跳动火把循环播放，碰撞网格与显示画面解耦 |
@@ -179,6 +181,9 @@ cmake --build build --parallel
 
 # UTF-8/CJK 文本与平台能力层（L 切换语言，SAVE 写入 v2 存档）
 ./build/bin/fake2d_hello --text-demo
+
+# 2.5D 清版动作（WASD 移动，SPACE/J 出拳，K 踢击，L 旋转）
+./build/bin/fake2d_hello --beat-em-up-demo
 ```
 
 ### 生产力与调试选项
@@ -215,7 +220,7 @@ xvfb-run ./build/bin/fake2d_hello --headless --mario-demo --shot-frame 60 --scre
 # 拒绝“保存成功但画面空白”的截图（退出码 2）：颜色数量下限探测
 xvfb-run ./build/bin/fake2d_hello --headless --text-demo --screenshot text.png --shot-min-colors 12
 
-# 运行 17 组内置无头自测试套件（通过退出码断言执行结果）
+# 运行 18 组内置无头自测试套件（通过退出码断言执行结果）
 xvfb-run ./build/bin/fake2d_hello --phys-query-test    # 射线检测、形状重叠、接触生命周期
 xvfb-run ./build/bin/fake2d_hello --phys-filter-test   # 16位 Category/Mask 碰撞过滤
 xvfb-run ./build/bin/fake2d_hello --phys-rigid-test    # 转动惯量、摩擦与堆叠稳定性
@@ -233,6 +238,7 @@ xvfb-run ./build/bin/fake2d_hello --audio-test         # 纯软件混音核心�
 xvfb-run ./build/bin/fake2d_hello --font-test          # UTF-8/CJK 字形图集、换行、旋转与自动缩字
 xvfb-run ./build/bin/fake2d_hello --platform-test      # 语言包、用户目录、存档 v2、Steam stub、UI 文本
 xvfb-run ./build/bin/fake2d_hello --gameplay-test      # 随机数、缓动、实体快照、输入动作、窗口
+xvfb-run ./build/bin/fake2d_hello --combat-test        # 时间缩放、命中停顿、16 槽角色、动画池
 ```
 
 ---

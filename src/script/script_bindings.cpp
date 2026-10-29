@@ -2991,6 +2991,30 @@ void RegisterTimeApi(fakelua::State *state, Engine *engine) {
         state, "time_alpha", false,
         std::function<double(fakelua::State *)>(
             [engine](fakelua::State *) { return engine->InterpAlpha(); }));
+
+    // Gameplay time control: a global speed multiplier plus a freezeframe
+    // primitive. Both feed the `dt` scripts already receive, so no game needs
+    // to scale its own clocks.
+    fakelua::RegisterNativeFunction(
+        state, "time_set_scale", false,
+        std::function<void(fakelua::State *, double)>(
+            [engine](fakelua::State *, double scale) {
+                engine->SetTimeScale(static_cast<float>(scale));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "time_get_scale", false,
+        std::function<double(fakelua::State *)>(
+            [engine](fakelua::State *) {
+                return static_cast<double>(engine->TimeScale());
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "time_hitstop", false,
+        std::function<void(fakelua::State *, double)>(
+            [engine](fakelua::State *, double seconds) {
+                engine->Hitstop(static_cast<float>(seconds));
+            }));
 }
 
 void RegisterStorageApi(fakelua::State *state, Engine *engine) {

@@ -152,6 +152,15 @@ Layer, z and blend reset at the start of each frame. The C++ scene graph
 already sorts itself automatically; these functions are for script-driven
 immediate drawing.
 
+**2.5D brawler pattern**: keep gameplay coordinates as `(x, depth, height)`,
+draw at `screen_y = ground_y + depth * slope - height` and size every
+character by `1 + depth * gain`, then set `draw_set_z(depth + x * 1e-5)`
+before drawing that character. Enable `batch_set_sorted(true)` at the start
+of the world pass and turn it off before the HUD: same-texture parts of one
+actor keep submission order, while actors at different depths sort correctly.
+See `scripts/beat_em_up_demo.lua` for a full implementation (state machine,
+attack windows, hit/hurt boxes, hit-stop, waves and a boss).
+
 ### Debug lines
 
 Thin 1px outlines, accumulated in a separate line stream and drawn after
@@ -594,6 +603,9 @@ These are safe no-ops in headless/CI runs (no window surface exists).
 | `time_sim_dt()` | The physics step actually simulated: the fixed step (default 1/60), or the frame delta when fixed stepping is off (`--variable-step`). |
 | `time_steps()` | How many physics steps ran this frame (0 when the accumulator had not reached a whole step yet). |
 | `time_alpha()` | Render interpolation factor [0,1] between the last two physics steps (1 = no interpolation). |
+| `time_set_scale(s)` | Global gameplay speed multiplier. `0` freezes the world, `1` is real time, `2` doubles it (clamped to 0..100). The scaled delta drives `dt`, physics, animations, particles, tiles and camera effects; input and rendering keep running. |
+| `time_get_scale() -> s` | Current multiplier (hit-stop does not change it — check the returned `dt` instead). |
+| `time_hitstop(seconds)` | Freeze gameplay for that many **real** seconds, then resume at the current scale. Overlapping calls extend the freeze. Use 0.04–0.10 s on every impact for arcade hit-stop; the spark still draws while the world is frozen. |
 
 ### Physics
 
@@ -784,7 +796,7 @@ for i = 0, phys_contact_count() - 1 do ... end
 
 | Function | Description |
 |---|---|
-| `anim_create() -> id` / `anim_destroy(id)` | Allocate/free a clip (pool of 32, 64 frames each). |
+| `anim_create() -> id` / `anim_destroy(id)` | Allocate/free a clip (pool of 128, 64 frames each). |
 | `anim_frame(id, tex, sx, sy, sw, sh)` | Append a texture sub-rectangle frame. |
 | `anim_fps(id, fps)` | Playback rate. |
 | `anim_loop(id, bool)` | Loop, or freeze on the last frame. |
@@ -1242,7 +1254,7 @@ exceptions then write `crash-<timestamp>.txt` with a native backtrace.
 
 A C++-owned fixed-slot database that survives FakeLua's per-frame arena
 reset: it is the recommended storage for dynamic game objects (enemies,
-pickups, moving platforms) — 256 slots, each with an integer tag, 8 number
+pickups, moving platforms) — 512 slots, each with an integer tag, 16 number
 slots and 4 string slots. Ids are 64-bit packed (slot + generation); 0 is
 invalid, and destroyed generations report inactive.
 
@@ -1252,12 +1264,12 @@ invalid, and destroyed generations report inactive.
 | `ent_destroy(id)`, `ent_clear()` | Free one / all (generation bumped). |
 | `ent_active(id) -> bool` | False for stale/destroyed handles. |
 | `ent_tag(id) -> t`, `ent_set_tag(id, t)` | Integer group label. |
-| `ent_num(id, slot) -> n`, `ent_set_num(id, slot, v)` | 8 double fields (0..7); out of range reads 0. Values come back as floats — wrap a stored body/joint handle in `to_int(...)` before handing it to `phys_destroy` / `phys_joint_destroy`, which need an integer type. |
+| `ent_num(id, slot) -> n`, `ent_set_num(id, slot, v)` | 16 double fields (0..15); out of range reads 0. Values come back as floats — wrap a stored body/joint handle in `to_int(...)` before handing it to `phys_destroy` / `phys_joint_destroy`, which need an integer type. |
 | `to_int(v) -> n` | Round a float to an integer type (the cast entity readers and `math.floor` results need for handle APIs). |
 | `ent_str(id, slot) -> s`, `ent_set_str(id, slot, s)` | 4 string fields (0..3); out of range reads `""`. |
 | `ent_count([tag]) -> n` | Active entities, optionally filtered by tag; pass -1 for all. |
 | `ent_at(index[, tag]) -> id` | Stable slot-order enumeration (0-based); pass tag -1 for all. |
-| `ent_snapshot() -> s` | Serialise every active entity (slot, tag, 8 numbers, 4 strings) as one text blob; doubles round-trip exactly and strings escape tabs/newlines. |
+| `ent_snapshot() -> s` | Serialise every active entity (slot, tag, 16 numbers, 4 strings) as one text blob; doubles round-trip exactly and strings escape tabs/newlines. |
 | `ent_restore(data) -> bool` | Replace the store from a snapshot; malformed data returns false and leaves it empty. Handles from before the restore go stale. |
 | `ent_save(slot, dir) -> bool`, `ent_load(slot, dir) -> bool` | Same snapshot through the v2 save container (`F2SV`, CRC-checked). |
 

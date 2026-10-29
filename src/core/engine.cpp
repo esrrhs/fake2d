@@ -5,6 +5,7 @@
 
 #include "platform/window.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <chrono>
 #include <cstdio>
@@ -32,8 +33,13 @@ struct Engine::Impl {
     ModManager mods;
     Random random;
     bool running = false;
+    /// Gameplay delta handed to scripts/systems (after time scale + hitstop).
     double delta_time = 0.0;
     double elapsed = 0.0;
+    /// Global gameplay speed multiplier; hitstop temporarily forces it to 0.
+    float time_scale = 1.0f;
+    /// Remaining hit-stop time in real seconds.
+    double hitstop_remaining = 0.0;
     double fps_smoothed = 0.0;
     double frame_ms = 0.0;
     std::uint64_t frame_index = 0;
@@ -137,17 +143,30 @@ int Engine::Run(int max_frames) {
             break;
         }
         const auto now = clock::now();
-        impl_->delta_time = std::chrono::duration<double>(now - prev).count();
+        const double real_dt = std::chrono::duration<double>(now - prev).count();
         prev = now;
-        impl_->frame_ms = impl_->delta_time * 1000.0;
-        if (impl_->delta_time > 0.0) {
-            const double fps = 1.0 / impl_->delta_time;
+        impl_->frame_ms = real_dt * 1000.0;
+        if (real_dt > 0.0) {
+            const double fps = 1.0 / real_dt;
             // ~10-frame smoothing so a single hitch does not make the read-out
             // jump around; the first frame seeds the average.
             impl_->fps_smoothed = impl_->fps_smoothed <= 0.0
                                       ? fps
                                       : impl_->fps_smoothed * 0.9 + fps * 0.1;
         }
+        // Gameplay time: a hitstop burns real time while forcing dt to 0; otherwise
+        // the configured time scale multiplies the frame delta. Everything that
+        // auto-advances (physics, animations, particles, tiles, camera effects,
+        // scripts) reads this value, so the whole world freezes together.
+        double scaled_dt = real_dt * static_cast<double>(impl_->time_scale);
+        if (impl_->hitstop_remaining > 0.0) {
+            impl_->hitstop_remaining -= real_dt;
+            if (impl_->hitstop_remaining < 0.0) {
+                impl_->hitstop_remaining = 0.0;
+            }
+            scaled_dt = 0.0;
+        }
+        impl_->delta_time = scaled_dt;
 
         impl_->window.PollEvents();
         if (impl_->window.RefreshSize()) {
@@ -332,6 +351,26 @@ double Engine::DeltaTime() const {
 
 double Engine::TimeElapsed() const {
     return impl_ ? impl_->elapsed : 0.0;
+}
+
+void Engine::SetTimeScale(float scale) {
+    if (!impl_) {
+        return;
+    }
+    impl_->time_scale = std::clamp(scale, 0.0f, 100.0f);
+}
+
+float Engine::TimeScale() const {
+    return impl_ ? impl_->time_scale : 1.0f;
+}
+
+void Engine::Hitstop(float seconds) {
+    if (!impl_ || seconds <= 0.0f) {
+        return;
+    }
+    // Overlapping impacts extend the freeze instead of shortening it.
+    impl_->hitstop_remaining =
+        std::max(impl_->hitstop_remaining, static_cast<double>(seconds));
 }
 
 const Input &Engine::GetInput() const {

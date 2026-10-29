@@ -12,13 +12,13 @@ namespace fake2d {
 /// FakeLua scripts cannot keep tables across frames (the JIT arena resets at
 /// the frame boundary) and file-level locals are scalars only. EntityStore
 /// gives scripts persistent, dynamic game objects addressed by a scalar id:
-/// each entity carries an integer tag, 8 number slots and 4 string slots.
+/// each entity carries an integer tag, 16 number slots and 4 string slots.
 /// Handles pack (generation, slot) like the physics body ids; destroyed
 /// generations are stale and report inactive.
 class EntityStore {
 public:
-    static constexpr std::size_t kMaxEntities = 256;
-    static constexpr std::size_t kNumSlots = 8;
+    static constexpr std::size_t kMaxEntities = 512;
+    static constexpr std::size_t kNumSlots = 16;
     static constexpr std::size_t kNumStrings = 4;
 
     using Id = std::uint64_t;

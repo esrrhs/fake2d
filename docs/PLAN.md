@@ -453,6 +453,24 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 
 ---
 
+## Phase 36 — 2.5D brawler toolkit & Dino Brawl demo (1.30.x)
+
+- [x] **Gameplay time scale + hit-stop**: `Engine::SetTimeScale/TimeScale/Hitstop`; the scaled delta drives scripts, physics, animations, particles, tiles and camera effects together, while rendering and input keep running. `Hitstop(seconds)` freezes for real time and overlapping impacts extend it. Lua `time_set_scale/time_get_scale/time_hitstop`
+- [x] **Actor capacity**: `EntityStore` grows to 16 numeric slots / 4 string slots and 512 entities, enough for a brawler roster (x, depth, height, velocities, facing, hp, state, state time, clip, i-frames, attack serial, hit-by serial, AI timer, type, flags)
+- [x] **Clip capacity**: `AnimationSystem::kMaxAnimations` 32 → 128 so every pose of every character type fits without id recycling
+- [x] **`--combat-test` (18 assertions)**: time scale defaults/clamps, hit-stop does not change the scale, 16-slot entity round-trip and snapshot restore, out-of-range slots, 512-entity roster, 128-clip pool exhaustion
+- [x] **`--beat-em-up-demo` (Dino Brawl)**: a complete Cadillacs-and-Dinosaurs-style stage built purely in `scripts/beat_em_up_demo.lua`:
+  - ground-plane projection (x / depth / height) with per-depth scale and `draw_set_z` y-sorting over a sorted batch
+  - per-actor state machine: idle / walk / 3-hit punch combo / kick / spin / hurt / knockdown / getup / dead, with attack active windows
+  - AABB hit-vs-hurt boxes, per-attack serial (multi-hit prevention), 0.25 s invulnerability, heavy knockdowns, hit-stop + camera shake + additive impact sparks
+  - wave spawning (3 grunts → 4 grunts + brute → boss + 2 grunts) with a camera locked to each arena, a short heal between waves, lives/score/continue flow
+  - enemy AI (approach, depth alignment, staggered global attack token), boss with horns and extra bulk, attract AI that finishes the stage headlessly
+  - HUD health bar, wave banner, stage-clear / game-over flow; procedural parallax skyline and jungle, no binary art beyond a 1×1 white texel
+- [x] Wired into CI on Linux, macOS and Windows (`--combat-test` exit gate + `--beat-em-up-demo` headless run and screenshot colour probe)
+- [x] Verification: `--combat-test` 18/18; all 18 self-tests at 805 assertions; every demo smoke; text-demo colour probe
+
+---
+
 ## Non-goals (for now)
 
 - Full 3D / PBR (Fake2D is strictly focused on high-performance 2D)
