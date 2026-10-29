@@ -2,7 +2,11 @@
 // This binary only provides: engine bootstrap, procedural asset generation
 // (PNG/Tiled JSON/WAV, since scripts cannot encode binary files), and the
 // micro-benchmarks that measure engine internals.
+#include "fake2d/app_paths.h"
 #include "fake2d/engine.h"
+#include "fake2d/i18n.h"
+#include "fake2d/save_store.h"
+#include "fake2d/steam.h"
 
 #include <algorithm>
 #include <chrono>
@@ -172,6 +176,71 @@ std::vector<float> MakeArpeggio(const std::vector<float> &freqs, float note_seco
         out.insert(out.end(), tone.begin(), tone.end());
     }
     return out;
+}
+
+/// UTF-8 language packs for the text/platform demo (generated once).
+void EnsureI18nAssets() {
+    const std::filesystem::path dir = "assets/lang";
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    const auto write = [&dir](const char *name, const char *text) {
+        const std::filesystem::path path = dir / name;
+        if (std::filesystem::exists(path)) {
+            return;
+        }
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        out << text;
+    };
+    write("zh.tsv", R"(# name: 中文
+FAKE2D TEXT & PLATFORM	FAKE2D 文本与平台
+Text	文本
+Language	语言
+Switch language	切换语言
+Font	字体
+CJK font loaded	已加载中文字体
+Fallback ASCII only	仅 ASCII 回退字体
+User data	用户目录
+Saves	存档目录
+Config path	配置文件
+Save slot	存档槽
+Save	保存
+Saved bytes	已保存字节
+Version	版本
+Steam	Steam
+Steam unavailable	Steam 不可用
+Tooltip	提示
+Hover this panel for a tooltip	悬停此面板查看提示
+CJK wraps per character; Latin words wrap at spaces.	中文按字换行，Latin words 按空格换行。
+Rotated text	旋转文字
+Shrink to fit	自动缩字
+Press L or the button to switch	按 L 或点击按钮切换
+Slot list	槽位列表
+)");
+    write("en.tsv", R"(# name: English
+FAKE2D TEXT & PLATFORM	FAKE2D TEXT & PLATFORM
+Text	Text
+Language	Language
+Switch language	Switch language
+Font	Font
+CJK font loaded	CJK font loaded
+Fallback ASCII only	Fallback ASCII only
+User data	User data
+Saves	Saves
+Config path	Config path
+Save slot	Save slot
+Save	Save
+Saved bytes	Saved bytes
+Version	Version
+Steam	Steam
+Steam unavailable	Steam unavailable
+Tooltip	Tooltip
+Hover this panel for a tooltip	Hover this panel for a tooltip
+CJK wraps per character; Latin words wrap at spaces.	CJK wraps per character; Latin words wrap at spaces.
+Rotated text	Rotated text
+Shrink to fit	Shrink to fit
+Press L or the button to switch	Press L or the button to switch
+Slot list	Slot list
+)");
 }
 
 /// Register the samples' named clips (no-ops when audio is disabled).
@@ -1469,6 +1538,282 @@ int RunPhysicsExtendedTest(fake2d::Engine &engine) {
     }
 
     std::printf("[phys-extended] %s: %d checks, %d failures\n",
+                failures == 0 ? "PASS" : "FAILED", checks, failures);
+    return failures == 0 ? 0 : 1;
+}
+
+// UTF-8 / CJK text self-test (Phase 33): dynamic glyph rasterization, CJK
+// advances, per-character wrapping and rotated text. A CJK font is optional:
+// when none exists on the host the CJK checks are skipped (CI containers).
+int RunFontTest(fake2d::Engine &engine) {
+    int failures = 0;
+    int checks = 0;
+    auto check = [&](bool ok, const char *what) {
+        ++checks;
+        if (!ok) {
+            ++failures;
+            std::printf("[font] FAIL %s\n", what);
+        }
+    };
+
+    fake2d::Renderer &r = engine.GetRenderer();
+    const float wa = r.MeasureText("A");
+    const float wb = r.MeasureText("B");
+    const float wab = r.MeasureText("AB");
+    check(wa > 0.0f && wb > 0.0f, "ASCII glyphs are measured");
+    check(std::fabs(wab - (wa + wb)) < 0.6f,
+          "advances add up across a string");
+    const float lh = r.TextLineHeight();
+    check(lh >= 4.0f, "line height is positive");
+
+    // Malformed UTF-8 must not crash and must produce a finite width.
+    const float bad = r.MeasureText("\xE4\xB8");
+    check(std::isfinite(bad), "truncated UTF-8 is handled");
+
+    r.BeginFrame(0.0f, 0.0f, 0.0f, 1.0f);
+    const float wrapped = r.DrawTextEx(
+        "wrap this sentence into several short lines", 20.0f, 40.0f, 1.0f, 0, 120.0f,
+        fake2d::Color{1.0f, 1.0f, 1.0f, 1.0f});
+    r.EndFrame();
+    check(wrapped >= 40.0f + lh * 1.5f, "ASCII text wraps over multiple lines");
+
+    check(!r.LoadFont("/nonexistent/fake2d-font.ttf", 24.0f),
+          "a missing font is rejected");
+    // A rejected load must not disturb the live font (its stbtt state points
+    // into the buffer that a naive implementation would have replaced).
+    check(r.MeasureText("Zebra") > 0.0f,
+          "the live font survives a failed load");
+
+    static const char *kCjkCandidates[] = {
+        "/System/Library/Fonts/Hiragino Sans GB.ttc",
+        "/System/Library/Fonts/PingFang.ttc",
+        "/System/Library/Fonts/Supplemental/Songti.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+        "C:\\Windows\\Fonts\\msyh.ttc",
+        "C:\\Windows\\Fonts\\simhei.ttf",
+    };
+    bool cjk = false;
+    const char *cjk_path = nullptr;
+    for (const char *path : kCjkCandidates) {
+        if (std::filesystem::exists(path) && r.LoadFont(path, 32.0f)) {
+            cjk = true;
+            cjk_path = path;
+            break;
+        }
+    }
+    if (cjk) {
+        std::printf("[font] CJK font: %s\n", cjk_path);
+        const float one = r.MeasureText("明");
+        const float two = r.MeasureText("明朝");
+        check(one > 8.0f, "CJK glyph has a real advance");
+        check(two > one * 1.5f, "two CJK glyphs advance twice");
+        check(r.MeasureText("明朝 1627") > two, "mixed CJK/Latin measures");
+        r.BeginFrame(0.0f, 0.0f, 0.0f, 1.0f);
+        const float y = r.DrawTextEx(
+            "天下大势，分久必合，合久必分。这是一段用于验证中文逐字换行的文本。",
+            20.0f, 40.0f, 1.0f, 0, 200.0f,
+            fake2d::Color{1.0f, 1.0f, 1.0f, 1.0f});
+        r.EndFrame();
+        check(y >= 40.0f + lh * 1.5f, "CJK wraps between characters");
+
+        r.BeginFrame(0.0f, 0.0f, 0.0f, 1.0f);
+        const float rot_end = r.DrawTextRotated("旋转文字", 300.0f, 300.0f, 1.0f,
+                                                -0.35f,
+                                                fake2d::Color{1.0f, 1.0f, 1.0f, 1.0f});
+        r.EndFrame();
+        check(rot_end > 300.0f, "rotated text advances the pen");
+    } else {
+        std::printf("[font] SKIP CJK checks (no CJK font on this host)\n");
+    }
+
+    std::printf("[font] %s: %d checks, %d failures\n",
+                failures == 0 ? "PASS" : "FAILED", checks, failures);
+    return failures == 0 ? 0 : 1;
+}
+
+// Platform self-test (Phase 33): i18n packs, app paths, binary save
+// containers, the Steam stub and the shrink-to-fit UI text helpers. Uses a
+// throwaway directory under the system temp dir and cleans it up.
+int RunPlatformTest(fake2d::Engine &engine) {
+    int failures = 0;
+    int checks = 0;
+    auto check = [&](bool ok, const char *what) {
+        ++checks;
+        if (!ok) {
+            ++failures;
+            std::printf("[platform] FAIL %s\n", what);
+        }
+    };
+
+    std::error_code ec;
+    const auto root = std::filesystem::temp_directory_path(ec) /
+                      "fake2d_platform_test";
+    std::filesystem::remove_all(root, ec);
+    std::filesystem::create_directories(root, ec);
+
+    // ---- i18n --------------------------------------------------------------
+    const auto lang_dir = root / "lang";
+    std::filesystem::create_directories(lang_dir, ec);
+    {
+        std::ofstream zh(lang_dir / "zh.tsv", std::ios::binary);
+        zh << "# name: 中文\n"
+              "Hello\t你好\n"
+              "Save\t存档\n"
+              "Line\tA\\nB\n";
+        std::ofstream en(lang_dir / "en.tsv", std::ios::binary);
+        en << "# name: English\n"
+              "Hello\tHi\n"
+              "Broken line without a tab\n";
+    }
+
+    fake2d::I18n &i18n = engine.GetI18n();
+    check(i18n.LoadDirectory(lang_dir.string(), "zh"), "language pack loads");
+    check(i18n.LanguageCount() == 2, "two languages discovered");
+    check(i18n.Language() == "zh", "default language selected");
+    check(i18n.Translate("Hello") == "你好", "translation lookup");
+    check(i18n.Translate("missing.key") == "missing.key",
+          "unknown key passes through");
+    check(i18n.EntryCount("zh") == 3, "entry count ignores comments");
+    check(i18n.IsCjk(), "zh is detected as CJK");
+    check(i18n.SetLanguage("en") && i18n.Translate("Hello") == "Hi",
+          "language switch is immediate");
+    check(!i18n.IsCjk(), "en is not CJK");
+    check(!i18n.SetLanguage("xx"), "unknown language rejected");
+    check(i18n.GetLanguage(0) != nullptr && i18n.GetLanguage(0)->name == "English",
+          "language display name parsed");
+
+    {
+        // Mod translations live outside the base language directory.
+        std::ofstream mod(root / "en_mod.tsv", std::ios::binary);
+        mod << "Hello\tHey\n";
+    }
+    check(i18n.LoadFile((root / "en_mod.tsv").string(), "en") == 1,
+          "mod file appends entries");
+    check(i18n.Translate("Hello") == "Hey", "later files override");
+
+    // ---- app paths ---------------------------------------------------------
+    const auto user = root / "user";
+    fake2d::AppPaths::SetUserDir(user.string());
+    check(fake2d::AppPaths::UserDir() == user.string(), "user dir override");
+    check(std::filesystem::is_directory(user), "user dir created");
+    check(fake2d::AppPaths::SavesDir().find("saves") != std::string::npos,
+          "saves dir derived from user dir");
+    check(fake2d::AppPaths::ConfigPath().find("settings.json") !=
+              std::string::npos,
+          "config path derived from user dir");
+    check(fake2d::AppPaths::EnsureDir((root / "created").string()),
+          "EnsureDir creates a directory");
+    check(std::filesystem::is_directory(root / "created"), "directory exists");
+    fake2d::AppPaths::SetResourceRoot((root / "res").string());
+    check(fake2d::AppPaths::Resolve("assets/a.png") ==
+              (root / "res" / "assets" / "a.png").string(),
+          "Resolve joins the resource root");
+
+    // ---- save containers (v2) ---------------------------------------------
+    const auto saves = root / "saves";
+    fake2d::SaveStore store;
+    fake2d::SaveStore::BlobInfo info;
+    std::string payload;
+    check(store.SaveBlob("slot", saves.string(), "hello-world",
+                         "name=demo\nmap=ming", 7),
+          "blob saved");
+    check(store.LoadBlob("slot", saves.string(), payload, info),
+          "blob loaded");
+    check(payload == "hello-world", "payload round-trips");
+    check(info.game_version == 7, "game version round-trips");
+    check(info.header.find("name=demo") != std::string::npos,
+          "header round-trips");
+    check(info.payload_bytes == 11, "payload size reported");
+    check(info.payload_crc != 0, "payload CRC reported");
+    check(store.ReadBlobInfo("slot", saves.string(), info) &&
+              info.game_version == 7,
+          "metadata-only read");
+    check(!store.SaveBlob("bad/name", saves.string(), "x"),
+          "invalid slot name rejected");
+    check(!store.LoadBlob("missing", saves.string(), payload, info),
+          "missing blob rejected");
+
+    // CRC corruption must be detected.
+    {
+        const auto path = saves / "slot.sav";
+        std::ifstream in(path, std::ios::binary);
+        std::string raw{std::istreambuf_iterator<char>(in),
+                        std::istreambuf_iterator<char>()};
+        in.close();
+        const std::size_t payload_offset = 16 + info.header.size() + 4;
+        if (raw.size() > payload_offset) {
+            raw[raw.size() - 1] ^= 0x5A;
+        }
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        out.write(raw.data(), static_cast<std::streamsize>(raw.size()));
+    }
+    check(!store.LoadBlob("slot", saves.string(), payload, info),
+          "CRC mismatch rejected");
+
+    // Legacy raw payload (no container magic) still loads.
+    {
+        std::ofstream legacy(saves / "legacy.sav", std::ios::binary);
+        legacy << "rawdata";
+    }
+    check(store.LoadBlob("legacy", saves.string(), payload, info),
+          "legacy payload loads");
+    check(payload == "rawdata" && info.game_version == 0,
+          "legacy payload is version 0");
+
+    // Key/value JSON slots and blob slots coexist in the slot list.
+    store.SetNumber("score", 42.0);
+    store.SetString("name", "ming");
+    check(store.SaveSlot("kv", saves.string()), "JSON slot saved");
+    const auto slots = fake2d::SaveStore::ListSlots(saves.string());
+    check(std::find(slots.begin(), slots.end(), "kv") != slots.end(),
+          "slot list includes JSON slots");
+    check(std::find(slots.begin(), slots.end(), "legacy") != slots.end(),
+          "slot list includes blob slots");
+    check(fake2d::SaveStore::RenameSlot("legacy", "legacy2", saves.string()),
+          "slot rename");
+    check(!std::filesystem::exists(saves / "legacy.sav"),
+          "rename removes the old file");
+    check(fake2d::SaveStore::DeleteSlot("legacy2", saves.string()),
+          "slot delete");
+    check(!std::filesystem::exists(saves / "legacy2.sav"),
+          "delete removes the file");
+
+    // ---- Steam stub --------------------------------------------------------
+    check(!fake2d::steam::Available(), "Steam stub reports unavailable");
+    if (!fake2d::steam::Available()) {
+        check(!fake2d::steam::Init(0), "Steam stub init returns false");
+        check(fake2d::steam::Language() == "english",
+              "Steam stub language fallback");
+    }
+    fake2d::steam::SetCloudEnabled(true);
+    check(fake2d::steam::CloudEnabled(), "cloud flag retained");
+    fake2d::steam::UnlockAchievement("TEST");
+    fake2d::steam::SetRichPresence("state", "testing");
+    fake2d::steam::Tick();
+    fake2d::steam::Shutdown();
+    check(true, "Steam no-ops do not crash");
+
+    // ---- UI text helpers ---------------------------------------------------
+    fake2d::Renderer &r = engine.GetRenderer();
+    r.BeginFrame(0.0f, 0.0f, 0.0f, 1.0f);
+    const float fitted = engine.GetUI().LabelFit(
+        fake2d::UIAnchor::TopLeft, 20.0f, 20.0f, 80.0f,
+        "shrink this label to fit", 1.0f, 0.3f,
+        fake2d::Color{1.0f, 1.0f, 1.0f, 1.0f});
+    const float fit_end = r.DrawTextFit(
+        "shrink this label to fit", 20.0f, 60.0f, 120.0f, 1.0f, 0.3f,
+        fake2d::Color{1.0f, 1.0f, 1.0f, 1.0f});
+    engine.GetUI().Tip(fake2d::UIAnchor::TopLeft, 0.0f, 0.0f, 100.0f, 40.0f,
+                       "tooltip text");
+    engine.GetUI().DrawTooltip();
+    r.EndFrame();
+    check(fitted <= 80.5f, "LabelFit stays inside max_width");
+    check(fit_end <= 140.5f, "DrawTextFit stays inside max_width");
+
+    std::filesystem::remove_all(root, ec);
+    std::printf("[platform] %s: %d checks, %d failures\n",
                 failures == 0 ? "PASS" : "FAILED", checks, failures);
     return failures == 0 ? 0 : 1;
 }
@@ -6038,7 +6383,10 @@ int main(int argc, char **argv) {
     bool phys_filter = false;
     bool phys_rigid = false;
     bool phys_extended = false;
+    bool font_test = false;
+    bool platform_test = false;
     bool angry_demo = false;
+    bool text_demo = false;
     bool map_object = false;
     bool tile_test = false;
     bool timestep_test = false;
@@ -6073,6 +6421,11 @@ int main(int argc, char **argv) {
             // and death severing (dynamic joint creation at runtime).
             angry_demo = true; // shares the synthesized SFX set
             cfg.script_entry = "scripts/limbo_demo.lua";
+        } else if (arg == "--text-demo") {
+            // UTF-8/CJK text, runtime language switching, app paths, save
+            // containers v2 and the Steam adapter state.
+            text_demo = true;
+            cfg.script_entry = "scripts/text_demo.lua";
         } else if (arg == "--map-demo") {
             map_demo = true;
             cfg.script_entry = "scripts/map_demo.lua";
@@ -6165,6 +6518,18 @@ int main(int argc, char **argv) {
             // Headless CPU-only self-test of kinematic bodies, damping,
             // sleeping, joints, contact points and anti-tunneling.
             phys_extended = true;
+            cfg.headless = true;
+            cfg.script_entry.clear();
+            cfg.vsync = false;
+        } else if (arg == "--font-test") {
+            // UTF-8 / CJK text: dynamic glyph atlas, wrapping, rotated text.
+            font_test = true;
+            cfg.headless = true;
+            cfg.script_entry.clear();
+            cfg.vsync = false;
+        } else if (arg == "--platform-test") {
+            // i18n packs, app paths, save containers v2, Steam stub, UI text.
+            platform_test = true;
             cfg.headless = true;
             cfg.script_entry.clear();
             cfg.vsync = false;
@@ -6273,6 +6638,12 @@ int main(int argc, char **argv) {
     if (phys_extended) {
         return RunPhysicsExtendedTest(engine);
     }
+    if (font_test) {
+        return RunFontTest(engine);
+    }
+    if (platform_test) {
+        return RunPlatformTest(engine);
+    }
     if (map_object) {
         return RunMapObjectTest(engine);
     }
@@ -6307,6 +6678,9 @@ int main(int argc, char **argv) {
     // All gameplay is pure Lua below; C++ only guarantees the binary asset
     // scaffolding exists before the script's first frame.
     EnsureGameAssets();
+    if (text_demo) {
+        EnsureI18nAssets();
+    }
     if (mario_demo) {
         EnsureMarioAssets(regen_assets);
     }

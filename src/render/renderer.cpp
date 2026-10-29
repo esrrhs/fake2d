@@ -442,6 +442,32 @@ bool Renderer::LoadDefaultFont(float pixel_height) {
     return font_.LoadDefault(pixel_height);
 }
 
+bool Renderer::LoadFont(const std::string &path, float pixel_height) {
+    if (!ready_) {
+        return false;
+    }
+    // Text already queued in the batch references the old atlas; flush it
+    // before the font destroys that texture.
+    batch_.Flush();
+    return font_.LoadFromTTF(path, pixel_height);
+}
+
+float Renderer::DrawTextRotated(std::string_view text, float x, float y,
+                                float scale, float angle_rad, const Color &tint) {
+    return font_.DrawTextRotated(batch_, text, x, y, scale, angle_rad, tint);
+}
+
+float Renderer::DrawTextFit(std::string_view text, float x, float y,
+                            float max_width, float scale, float min_scale,
+                            const Color &tint) {
+    float fitted = scale;
+    const float width = font_.MeasureText(text) * scale;
+    if (max_width > 0.0f && width > max_width) {
+        fitted = std::max(min_scale, scale * (max_width / width));
+    }
+    return font_.DrawText(batch_, text, x, y, fitted, tint);
+}
+
 float Renderer::DrawText(std::string_view text, float x, float y, float scale, const Color &tint) {
     return font_.DrawText(batch_, text, x, y, scale, tint);
 }

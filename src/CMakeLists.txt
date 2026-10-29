@@ -5,6 +5,8 @@ set(FAKE2D_SOURCES
     core/resource_manager.cpp
     core/save_store.cpp
     core/entity_store.cpp
+    core/i18n.cpp
+    core/app_paths.cpp
     render/renderer.cpp
     render/shader.cpp
     render/texture.cpp
@@ -22,6 +24,7 @@ set(FAKE2D_SOURCES
     scene/scene.cpp
     platform/window.cpp
     platform/input.cpp
+    platform/steam.cpp
     audio/audio.cpp
     physics/physics_world.cpp
     gameplay/character.cpp
@@ -65,6 +68,29 @@ target_compile_definitions(fake2d
 if (FAKE2D_WITH_FAKELUA)
     target_link_libraries(fake2d PUBLIC fakelua::fakelua)
     target_compile_definitions(fake2d PUBLIC FAKE2D_WITH_FAKELUA=1)
+endif ()
+
+# Optional Steamworks backend (proprietary SDK; never bundled). The default
+# build links the no-op stub in platform/steam.cpp.
+if (FAKE2D_WITH_STEAM)
+    set(FAKE2D_STEAM_SDK "" CACHE PATH "Steamworks SDK root")
+    if (NOT FAKE2D_STEAM_SDK)
+        message(FATAL_ERROR
+            "FAKE2D_WITH_STEAM=ON needs -DFAKE2D_STEAM_SDK=/path/to/steamworks/sdk")
+    endif ()
+    target_include_directories(fake2d PRIVATE "${FAKE2D_STEAM_SDK}/public")
+    target_compile_definitions(fake2d PUBLIC FAKE2D_WITH_STEAM_SDK=1)
+    if (APPLE)
+        set(FAKE2D_STEAM_LIB "${FAKE2D_STEAM_SDK}/redistributable_bin/osx/libsteam_api.dylib")
+    elseif (WIN32)
+        set(FAKE2D_STEAM_LIB "${FAKE2D_STEAM_SDK}/redistributable_bin/win64/steam_api64.lib")
+    else ()
+        set(FAKE2D_STEAM_LIB "${FAKE2D_STEAM_SDK}/redistributable_bin/linux64/libsteam_api.so")
+    endif ()
+    if (NOT EXISTS "${FAKE2D_STEAM_LIB}")
+        message(FATAL_ERROR "Steamworks library not found: ${FAKE2D_STEAM_LIB}")
+    endif ()
+    target_link_libraries(fake2d PUBLIC "${FAKE2D_STEAM_LIB}")
 endif ()
 
 # JSON parsing for TexturePacker atlases (header-only, kept out of the public API).

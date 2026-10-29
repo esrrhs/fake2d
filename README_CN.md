@@ -7,13 +7,13 @@
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-brightgreen.svg)](https://en.cppreference.com/w/cpp/23)
 [![OpenGL](https://img.shields.io/badge/OpenGL-3.3%20Core%20%7C%202.1-orange.svg)](https://www.opengl.org/)
 [![FakeLua](https://img.shields.io/badge/Script-FakeLua-red.svg)](https://github.com/esrrhs/fakelua)
-[![Version](https://img.shields.io/badge/version-1.26.0-informational.svg)](include/fake2d/version.h)
+[![Version](https://img.shields.io/badge/version-1.27.0-informational.svg)](include/fake2d/version.h)
 
 **Fake2D** 是基于 [FakeLua](https://github.com/esrrhs/fakelua) 驱动的现代化、轻量级、高性能 2D 游戏引擎：
 - **C++23 宿主引擎**：掌管窗口管理、GPU 渲染管线、空间物理、音频混音与底层资源生命周期；
 - **FakeLua 脚本层**：高效编排游戏玩法、UI 与实体交互，并在每帧边界执行 Arena 线性重置，实现**彻底的零垃圾回收停顿（Zero-GC Pauses）**。
 
-Fake2D 采用现代工业级 2D 引擎架构（对齐 Raylib、MonoGame、Defold 设计哲学），拥有完备的**渲染批处理、Tiled 瓦片地图、空间物理与碰撞、多总线/空间音频、后处理特效链、即时模式 UI 与跨平台自动化测试系统**，现已具备成熟的商业级 2D 游戏开发与交付能力。
+Fake2D 采用现代工业级 2D 引擎架构（对齐 Raylib、MonoGame、Defold 设计哲学），拥有完备的**渲染批处理、Tiled 瓦片地图、空间物理与碰撞、多总线/空间音频、后处理特效链、即时模式 UI、UTF-8/CJK 文本与本地化，以及跨平台自动化测试系统**，现已具备成熟的商业级 2D 游戏开发与交付能力。
 
 ---
 
@@ -22,7 +22,7 @@ Fake2D 采用现代工业级 2D 引擎架构（对齐 Raylib、MonoGame、Defold
 ### 1. 彻底消除 GC 停顿的每帧运行模型（Zero-GC Per-Frame Architecture）
 - **无卡顿稳定高帧率**：传统脚本引擎（如 Love2D、Cocos-Lua、Unity C#）在高频运行实体分配与临时计算时，极易因垃圾回收器回收引发卡顿掉帧（GC Spikes）；
 - **线性 Arena 帧回收**：Fake2D 脚本在每帧逻辑中可自由创建临时 table、向量与闭包运算数据。帧末引擎统一执行 `fakelua::inter::Reset(state)`，数微秒内瞬时复位整个内存区域，保证丝滑稳定的 60 / 120+ FPS 运行体验；
-- **跨帧持久存储体系**：提供 C++ 接管的 `EntityStore`（256 个持久原生实体槽位）与 `SaveStore`（JSON 键值存档），持久状态与帧内瞬态数据边界清晰。
+- **跨帧持久存储体系**：提供 C++ 接管的 `EntityStore`（256 个持久原生实体槽位）与 `SaveStore`（JSON 键值存档 + 带 CRC 校验与元数据头的二进制 v2 存档容器），持久状态与帧内瞬态数据边界清晰。
 
 ### 2. 数据驱动的动态流式合批（Data-Oriented SpriteBatching）
 - **动态 VBO 流式写入**：搭配静态预分配共享索引缓冲区（`0-1-2-2-3-0` 规则每 Quad 6 个索引）；
@@ -42,11 +42,12 @@ Fake2D 不仅是渲染器，更是一套自洽完备的 2D 游戏开发平台：
 - **专业级音频系统**：设备解耦的纯软件混音核心、三总线路由（Master / SFX / Music）、平滑交叉淡入淡出（Cross-fade Envelopes）、3D 空间位置音频（距离线性衰减与立体声声相 Pan）、大曲目 8192 帧按需流式回填（支持 WAV/MP3/OGG/FLAC）；
 - **多趟后处理与 FBO**：离屏渲染目标（RenderTarget）、Ping-Pong 缓冲交换、Bloom 辉光、可分离 9 抽头高斯模糊、波浪扭曲特效、战争迷雾（Fog of War）以及全景小地图烘焙；
 - **即时模式 UI（Immediate-Mode UI）**：开箱即用的 UI 控件库（Panel、Button、Label、Slider、Checkbox、TextInput、ScrollArea、ProgressBar、RadioButton、Combo、可拖拽 Window、Tab 标签页、Tree 折叠树、Tooltip）。
+- **文本与平台能力层**：UTF-8 按需字形图集（原生支持 CJK/日文/韩文，`font_load` 可载入任意 TTF/TTC/OTF）、中文逐字换行与英文按词换行、旋转文字与自动缩字、运行时切换的 TSV 语言包、跨平台资源/用户目录、带 CRC 的 v2 存档容器，以及可选 Steamworks 适配层（成就 / Rich Presence / 语言 / 云存档开关，未链接 SDK 时自动降级为零依赖 stub）。
 
 ### 5. 现代化工程化与极佳开发者体验
 - **JIT 脚本热重载**：支持 GCC JIT 与解释器双模式，在运行中修改 Lua 脚本保存即刻生效，无需重启进程；
 - **无头测试与 CI/CD**：内置原生 `--headless`、`--frames N` 与 `--screenshot` 参数，可在无物理显示器的虚拟机、Docker 容器中运行自动化回归验证与帧缓冲像素级比对；
-- **14 项内置自测试套件**：620+ 断言，涵盖刚体动力学、关节、休眠、防穿透、物理查询、碰撞过滤、时间步长、地图对象、A\* 寻路、离屏 FBO、即时 UI、后处理链、战争迷雾、音频混音、动画瓦片等，所有测试用例均经过变异测试（Mutation-tested）验证；
+- **16 项内置自测试套件**：680+ 断言，涵盖刚体动力学、关节、休眠、防穿透、物理查询、碰撞过滤、时间步长、地图对象、A\* 寻路、离屏 FBO、即时 UI、后处理链、战争迷雾、音频混音、动画瓦片、UTF-8/CJK 文本与平台能力层等，所有测试用例均经过变异测试（Mutation-tested）验证；
 - **开箱即用独立打包**：提供自动化打包脚本，一键生成包含依赖库的独立二进制压缩包，分发给玩家免安装环境。
 
 ---
@@ -61,20 +62,21 @@ Fake2D 不仅是渲染器，更是一套自洽完备的 2D 游戏开发平台：
                                        │ Native 绑定 (draw_*, phys_*, audio_*, map_*, ...)
 ┌──────────────────────────────────────▼──────────────────────────────────────┐
 │                                Fake2D Engine                                │
-│    ScriptHost (JIT/热重载) · 资源管理器 · 实体槽位 (EntityStore) · 存档 (SaveStore)   │
+│    ScriptHost (JIT/热重载) · 资源管理器 · 实体槽位 · 存档 (SaveStore v2)   │
 ├───────────────────────┬──────────────────────────────┬──────────────────────┤
 │      渲染管线         │          物理与世界          │       音频引擎       │
 │  · SpriteBatch (合批) │  · PhysicsWorld (AABB/圆/宽相)│  · AudioEngine (混音) │
 │  · Camera2D (视口变换)│  · 空间哈希网格 (SpatialHash)│  · 3 总线 (Master/SFX)│
 │  · RenderTarget (FBO) │  · 固定步长累加器 (Fixed-dt) │  · 3D 空间位置声像   │
 │  · PostFX (多趟后处理)│  · 碰撞过滤 (Category/Mask)  │  · 8K 帧流式播放     │
-│  · 字体 (TTF/8x8位图) │  · Tiled 地图 (解析/渲染/对象)│  · VU 峰值电平监控   │
+│  · UTF-8/CJK 字体图集 │  · Tiled 地图 (解析/渲染/对象)│  · VU 峰值电平监控   │
 │  · CPU 粒子池 (8192)  │  · A* 寻路网格 (防切角/拉直) │                      │
 ├───────────────────────┴──────────────────────────────┴──────────────────────┤
 │                           即时模式 UI 控件库 (UISystem)                      │
 │     窗口 · 面板 · 按钮 · 滑条 · 输入框 · 复选框 · 单选 · 下拉 · 滚动 · 标签 · 树     │
+│     自动缩字 (LabelFit) · 悬浮提示队列 (Tooltip)                             │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│                          底层平台抽象与硬件接口                              │
+│                     平台抽象 · 本地化 (I18n) · 用户目录 · Steam              │
 │         OpenGL 3.3 Core (向下兼容 GL 2.1) · GLFW 3.4 (窗口/手柄/输入快照)   │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -83,7 +85,7 @@ Fake2D 不仅是渲染器，更是一套自洽完备的 2D 游戏开发平台：
 
 ## 🎮 精彩内置 Demo 矩阵
 
-Fake2D 仓库自带 15 个可直接运行的高质量 Demo，涵盖平台跳跃、经典街机、迷宫寻路、即时 UI、战争迷雾、多趟后处理与空间音频等各个维度：
+Fake2D 仓库自带 16 个可直接运行的高质量 Demo，涵盖平台跳跃、经典街机、迷宫寻路、即时 UI、战争迷雾、多趟后处理与空间音频等各个维度：
 
 | Demo 启动参数 | 演示主题 | 核心特性亮点 |
 |---|---|---|
@@ -102,6 +104,7 @@ Fake2D 仓库自带 15 个可直接运行的高质量 Demo，涵盖平台跳跃�
 | `--spatial-demo` | **3D 空间位置音频** | 4 个世界音源循环发声，WASD 移动侦听者；动态距离线性衰减、立体声声相 Pan、衰减范围圈与 L/R 双通道 VU 电平表 |
 | `--audio-demo` | **专业音频调音台** | 三总线增益滑块、交叉淡入淡出（Cross-fade）、混音冻结暂停、24 段实时 VU 电平表、解码与 8K 帧流式播放内存对比 |
 | `--ui-demo` / `--ui2-demo` / `--ui3-demo` | **即时模式 UI 全家桶** | 滑块、复选框、UTF-8 文本输入、滚动列表、进度条、单选组、下拉菜单、拖拽窗口（带 mouse delta 拖拽）、标签页与折叠树 |
+| `--text-demo` | **文本与平台能力层** | UTF-8/CJK 渲染与运行时语言切换、中文逐字换行、旋转文字与自动缩字、用户存档/配置路径、带 CRC 的 v2 存档容器与 Steam 适配状态 |
 
 ---
 
@@ -172,6 +175,9 @@ cmake --build build --parallel
 
 # 即时模式 UI 展示（窗口拖拽、选项卡、下拉菜单）
 ./build/bin/fake2d_hello --ui3-demo
+
+# UTF-8/CJK 文本与平台能力层（L 切换语言，SAVE 写入 v2 存档）
+./build/bin/fake2d_hello --text-demo
 ```
 
 ### 生产力与调试选项
@@ -205,7 +211,7 @@ xvfb-run ./build/bin/fake2d_hello --headless --frames 60
 # 无头截取指定帧缓冲导出为 PNG（用于视觉回归像素比对）
 xvfb-run ./build/bin/fake2d_hello --headless --mario-demo --shot-frame 60 --screenshot mario_snap.png
 
-# 运行 14 组内置无头自测试套件（通过退出码断言执行结果）
+# 运行 16 组内置无头自测试套件（通过退出码断言执行结果）
 xvfb-run ./build/bin/fake2d_hello --phys-query-test    # 射线检测、形状重叠、接触生命周期
 xvfb-run ./build/bin/fake2d_hello --phys-filter-test   # 16位 Category/Mask 碰撞过滤
 xvfb-run ./build/bin/fake2d_hello --phys-rigid-test    # 转动惯量、摩擦与堆叠稳定性
@@ -220,6 +226,8 @@ xvfb-run ./build/bin/fake2d_hello --post-test          # 全屏后处理与小�
 xvfb-run ./build/bin/fake2d_hello --fx-test            # 多趟 Ping-Pong 后处理链与高斯模糊
 xvfb-run ./build/bin/fake2d_hello --fog-test           # 战争迷雾 Multiply 混合与像素采样
 xvfb-run ./build/bin/fake2d_hello --audio-test         # 纯软件混音核心、包络、流式播放
+xvfb-run ./build/bin/fake2d_hello --font-test          # UTF-8/CJK 字形图集、换行、旋转与自动缩字
+xvfb-run ./build/bin/fake2d_hello --platform-test      # 语言包、用户目录、存档 v2、Steam stub、UI 文本
 ```
 
 ---
@@ -332,6 +340,7 @@ fake2d/
 │   ├── rt_demo.lua          # 离屏渲染与运动拖尾
 │   ├── audio_demo.lua       # 混音器调音台
 │   ├── spatial_demo.lua     # 3D 空间音频
+│   ├── text_demo.lua        # UTF-8/CJK、本地化、路径、存档 v2 与 Steam
 │   └── ui_demo*.lua         # 即时模式 UI 集合
 ├── tools/                   # Linux / macOS / Windows 自包含打包脚本
 ├── docs/                    # 详尽文档手册

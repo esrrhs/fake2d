@@ -7,13 +7,13 @@
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-brightgreen.svg)](https://en.cppreference.com/w/cpp/23)
 [![OpenGL](https://img.shields.io/badge/OpenGL-3.3%20Core%20%7C%202.1-orange.svg)](https://www.opengl.org/)
 [![FakeLua](https://img.shields.io/badge/Script-FakeLua-red.svg)](https://github.com/esrrhs/fakelua)
-[![Version](https://img.shields.io/badge/version-1.26.0-informational.svg)](include/fake2d/version.h)
+[![Version](https://img.shields.io/badge/version-1.27.0-informational.svg)](include/fake2d/version.h)
 
 **Fake2D** is a modern, lightweight, high-performance 2D game engine powered by [FakeLua](https://github.com/esrrhs/fakelua):
 - **C++23 Host Engine**: Controls window management, GPU rendering pipelines, 2D physics, multi-bus audio mixing, and native resource lifecycles;
 - **FakeLua Scripting Layer**: Orchestrates gameplay systems, UI, and entity behaviors, executing per-frame linear arena resets for **guaranteed Zero Garbage Collection pauses (Zero-GC Pauses)**.
 
-Engineered around modern industry standards (aligned with Raylib, MonoGame, and Defold philosophies), Fake2D delivers a complete, cohesive 2D suite: **dynamic streaming batching, Tiled orthogonal maps, 2D physics & collision filtering, spatial/multi-bus audio, multi-pass post-processing chains, immediate-mode UI, and cross-platform automated testability**. It is production-ready for commercial and indie 2D game development.
+Engineered around modern industry standards (aligned with Raylib, MonoGame, and Defold philosophies), Fake2D delivers a complete, cohesive 2D suite: **dynamic streaming batching, Tiled orthogonal maps, 2D physics & collision filtering, spatial/multi-bus audio, multi-pass post-processing chains, immediate-mode UI, UTF-8/CJK text with localization, and cross-platform automated testability**. It is production-ready for commercial and indie 2D game development.
 
 ---
 
@@ -22,7 +22,7 @@ Engineered around modern industry standards (aligned with Raylib, MonoGame, and 
 ### 1. Deterministic Zero-GC Per-Frame Architecture
 - **Eliminates GC Stutter**: Traditional game engines running Lua, JavaScript, or C# suffer from frame drops and unpredictable GC spikes when creating high-frequency temporary objects;
 - **Linear Arena Reset**: Fake2D scripts can freely allocate frame-local tables, vectors, and closures. At the end of each frame, the engine resets the linear memory arena via `fakelua::inter::Reset(state)` in microseconds—delivering rock-solid 60 / 120+ FPS with zero GC stalls;
-- **Native Cross-Frame Storage**: Persistent data is strictly managed through the C++ `EntityStore` (256 native handle-based entity slots) and `SaveStore` (JSON key-value persistence), maintaining a clear separation between transient frame calculations and long-lived game state.
+- **Native Cross-Frame Storage**: Persistent data is strictly managed through the C++ `EntityStore` (256 native handle-based entity slots) and `SaveStore` (JSON key-value persistence plus CRC-checked binary save containers with metadata headers), maintaining a clear separation between transient frame calculations and long-lived game state.
 
 ### 2. Data-Oriented Streaming SpriteBatch
 - **Dynamic Streaming VBO**: Backed by a pre-allocated static index buffer (standard `0-1-2-2-3-0` quad pattern);
@@ -42,11 +42,12 @@ Fake2D is a fully battery-included engine, not just a bare graphics library:
 - **Studio-Grade Audio Engine**: Device-decoupled software mixer, 3-bus hierarchy (Master / SFX / Music), linear gain envelopes and music cross-fades, 3D positional audio (distance rolloff and stereo pan), low-memory streamed playback (8192-frame streaming windows for WAV / MP3 / OGG / FLAC), and real-time stereo VU peak metering;
 - **Multi-Pass Post-Processing & FBO**: Offscreen `RenderTarget` pool, ping-pong blur passes, bloom thresholding (`fx_bright`), animated wave shimmer (`fx_wave` with auto `u_time`/`u_resolution`), fog of war with multiply blending & `rt_sample` exploration probes, and baked minimaps;
 - **Immediate-Mode UI (UISystem)**: Ready-to-use widgets including Panels, Buttons, Labels, Sliders, Checkboxes, UTF-8 TextInputs, ScrollAreas, ProgressBars, RadioButtons, Combos, draggable Windows (with mouse deltas), Tab bars, disclosure Trees, and Tooltips.
+- **Text & Platform Layer**: UTF-8 text with an on-demand glyph atlas (CJK/Japanese/Korean included, `font_load` for any TTF/TTC/OTF), CJK per-character vs Latin word wrapping, rotated and shrink-to-fit text, TSV localization packs switched at runtime, cross-platform resource/user directories, v2 save containers with CRC, and an optional Steamworks adapter (achievements / Rich Presence / language / cloud flag) that stubs out when the SDK is absent.
 
 ### 5. Developer Experience & Automated Testing
 - **JIT Script Hot-Reload**: GCC JIT backend with automatic interpreter fallback; edit Lua scripts live and see changes reflected instantly without restarting;
 - **Headless & CI-Ready**: First-class `--headless`, `--frames N`, and `--screenshot` CLI flags allow visual regression tests and automated smoke validation in headless Linux/macOS/Windows environments;
-- **14 Built-in Self-Test Suites**: Over 620 assertions covering rigid-body dynamics, joints, sleeping, anti-tunneling, physics queries, filters, timesteps, tilemap objects, A\* pathfinding, render targets, UI widgets, post-FX, fog of war, audio mixing, and animated tiles (all mutation-tested);
+- **16 Built-in Self-Test Suites**: Over 680 assertions covering rigid-body dynamics, joints, sleeping, anti-tunneling, physics queries, filters, timesteps, tilemap objects, A\* pathfinding, render targets, UI widgets, post-FX, fog of war, audio mixing, animated tiles, UTF-8/CJK text, and the platform layer (all mutation-tested);
 - **Standalone Packaging**: Bundling scripts under `tools/` generate self-contained archives on Linux, macOS, and Windows with all dependencies, shaders, and assets included.
 
 ---
@@ -61,20 +62,21 @@ Fake2D is a fully battery-included engine, not just a bare graphics library:
                                        │ Native Bindings (draw_*, phys_*, audio_*, map_*, ...)
 ┌──────────────────────────────────────▼──────────────────────────────────────┐
 │                                Fake2D Engine                                │
-│   ScriptHost (JIT / Hot-Reload) · Resources · EntityStore · SaveStore (JSON)│
+│   ScriptHost (JIT / Hot-Reload) · Resources · EntityStore · SaveStore (v2)  │
 ├───────────────────────┬──────────────────────────────┬──────────────────────┤
 │   Rendering Pipeline  │       Physics & World        │     Audio Engine     │
 │  · SpriteBatch (Sort) │  · PhysicsWorld (AABB/Circle)│  · Software Mixer    │
 │  · Camera2D (VP/Shake)│  · Spatial Hash Broadphase   │  · 3 Buses (Master)  │
 │  · RenderTarget (FBO) │  · Fixed-Step Accumulator    │  · 3D Positional Pan │
 │  · PostFX & Shaders   │  · Collision Filters (Mask)  │  · 8K-Frame Streams  │
-│  · Bitmap Font (TTF)  │  · Tiled Map & Tile Anim     │  · VU Peak Meters    │
+│  · UTF-8/CJK Atlas    │  · Tiled Map & Tile Anim     │  · VU Peak Meters    │
 │  · CPU Particles (8K) │  · A* Grid Pathfinding       │                      │
 ├───────────────────────┴──────────────────────────────┴──────────────────────┤
 │                       Immediate-Mode UI (UISystem)                          │
 │     Window · Panel · Button · Slider · Input · Radio · Combo · Tab · Tree   │
+│     LabelFit (shrink-to-fit) · Tooltip queue                                │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│                          Platform & Hardware Backend                        │
+│                    Platform Layer · I18n · AppPaths · Steam                 │
 │          OpenGL 3.3 Core (GL 2.1 Fallback) · GLFW 3.4 (Input/Gamepad)       │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -83,7 +85,7 @@ Fake2D is a fully battery-included engine, not just a bare graphics library:
 
 ## 🎮 Runnable Demos Matrix
 
-Fake2D comes with 15 rich, self-contained demos demonstrating platformer mechanics, retro gameplay, spatial audio, immediate UI, and graphical post-processing:
+Fake2D comes with 16 rich, self-contained demos demonstrating platformer mechanics, retro gameplay, spatial audio, immediate UI, and graphical post-processing:
 
 | Demo Flag | Topic | Key Highlighted Features |
 |---|---|---|
@@ -102,6 +104,7 @@ Fake2D comes with 15 rich, self-contained demos demonstrating platformer mechani
 | `--spatial-demo` | **3D Positional Audio** | 4 world audio emitters with WASD listener navigation; linear distance rolloff, stereo pan, range rings, and L/R VU meters |
 | `--audio-demo` | **Audio Console & Mixer** | 3-bus gain sliders, cross-fades, mix freezing pause, 24-segment VU meter, and decoded vs streamed memory comparison |
 | `--ui-demo` / `--ui2-demo` / `--ui3-demo` | **Immediate-Mode UI Showcases** | Sliders, checkboxes, UTF-8 text fields, scroll areas, progress bars, radio groups, combo popups, draggable windows, tab bars, and trees |
+| `--text-demo` | **Text & Platform Layer** | UTF-8/CJK rendering with live language switching, CJK per-character wrapping, rotated and shrink-to-fit text, user save/config paths, a v2 save container with CRC, and Steam adapter state |
 
 ---
 
@@ -172,6 +175,9 @@ cmake --build build --parallel
 
 # Full Immediate-Mode UI Suite (Draggable windows, tabs, combos)
 ./build/bin/fake2d_hello --ui3-demo
+
+# UTF-8/CJK text & platform layer (L switches language, SAVE writes a v2 slot)
+./build/bin/fake2d_hello --text-demo
 ```
 
 ### Development & Benchmarking Options
@@ -205,7 +211,7 @@ xvfb-run ./build/bin/fake2d_hello --headless --frames 60
 # Capture framebuffer screenshot for visual regression testing
 xvfb-run ./build/bin/fake2d_hello --headless --mario-demo --shot-frame 60 --screenshot mario.png
 
-# Run the 14 built-in engine self-test suites (verified via exit codes)
+# Run the 16 built-in engine self-test suites (verified via exit codes)
 xvfb-run ./build/bin/fake2d_hello --phys-query-test    # Ray casts, overlaps, contact lifecycle
 xvfb-run ./build/bin/fake2d_hello --phys-filter-test   # 16-bit category/mask collision filtering
 xvfb-run ./build/bin/fake2d_hello --phys-rigid-test    # Rotational inertia, friction, resting stacks
@@ -220,6 +226,8 @@ xvfb-run ./build/bin/fake2d_hello --post-test          # Post-processing grade &
 xvfb-run ./build/bin/fake2d_hello --fx-test            # Multi-pass ping-pong blur & uniforms
 xvfb-run ./build/bin/fake2d_hello --fog-test           # Fog of war multiply blending & rt_sample
 xvfb-run ./build/bin/fake2d_hello --audio-test         # Mixer buses, envelopes, streamed music
+xvfb-run ./build/bin/fake2d_hello --font-test          # UTF-8/CJK glyph atlas, wrapping, rotation, shrink
+xvfb-run ./build/bin/fake2d_hello --platform-test      # i18n packs, user paths, save v2, Steam stub, UI text
 ```
 
 ---
@@ -332,6 +340,7 @@ fake2d/
 │   ├── rt_demo.lua          # Offscreen FBO trails
 │   ├── audio_demo.lua       # Mixing console & streaming benchmark
 │   ├── spatial_demo.lua     # 3D positional audio
+│   ├── text_demo.lua        # UTF-8/CJK, i18n, paths, save v2 & Steam
 │   └── ui_demo*.lua         # Immediate-mode UI demonstrations
 ├── tools/                   # Standalone packaging scripts (Linux/macOS/Windows)
 ├── docs/                    # Extensive documentation

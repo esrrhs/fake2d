@@ -174,11 +174,21 @@ Arial / Helvetica / Menlo candidates) at 28px, falling back to the embedded
 public-domain 8x8 bitmap font on fontless hosts (e.g. minimal CI containers).
 Glyph quads go through the same `SpriteBatch` as everything else.
 
+Text is **UTF-8**: every draw call decodes codepoints, invalid byte sequences
+render as U+FFFD instead of corrupting the line, and vector fonts grow their
+glyph atlas on demand (1024×1024 RGBA, shelf-packed, one `glTexSubImage2D`
+per new glyph), so CJK/Japanese/Korean text needs no pre-baked ASCII-only
+sheets. The embedded bitmap fallback stays ASCII-only.
+
 | Function | Description |
 |---|---|
 | `draw_text(text, x, y, scale, r, g, b, a)` | Draw `text` with top-left at `(x, y)`; `scale` multiplies the 28px raster size (`1.0` ≈ 28px tall). Returns the pen x after the last glyph. Channels 0–1. |
-| `text_width(text, scale) -> w` | Measured string width, for centering/right-align. |
-| `draw_text_ex(text, x, y, scale, r, g, b, a, align, wrap_w) -> end_y` | Aligned, word-wrapped text. `align`: 0 left / 1 center / 2 right; (x, y) is the top-left of the layout box and `wrap_w` its width (0 = a single line aligned around x). Returns the y just below the last line — stack blocks by feeding it back as y. |
+| `text_width(text, scale) -> w` | Measured string width (UTF-8 aware), for centering/right-align. |
+| `text_line_height() -> h` | Font line height; use it for manual row stepping. |
+| `font_load(path, pixel_height) -> bool` | Replace the UI font with a TTF/OTF/TTC (the first face of a collection). Returns false when the file is not a usable font; the previous font stays. |
+| `draw_text_ex(text, x, y, scale, r, g, b, a, align, wrap_w) -> end_y` | Aligned, word-wrapped text. `align`: 0 left / 1 center / 2 right; (x, y) is the top-left of the layout box and `wrap_w` its width (0 = a single line aligned around x). **CJK breaks between characters; Latin text breaks at spaces** (overlong words break hard). Leading spaces on a wrapped line are dropped. Returns the y just below the last line — stack blocks by feeding it back as y. |
+| `draw_text_fit(text, x, y, max_w, scale, min_scale, r, g, b, a) -> w` | Single line that shrinks uniformly until it fits `max_w`, never below `min_scale`. Returns the drawn width. |
+| `draw_text_rotated(text, x, y, scale, angle, r, g, b, a) -> w` | Single line rotated `angle` radians around `(x, y)` (clockwise for positive values). |
 
 ```lua
 local w = text_width("YOU WIN!", 1.6)
@@ -187,10 +197,13 @@ draw_text("YOU WIN!", W * 0.5 - w * 0.5, H * 0.5 - 30, 1.6, 1, 0.85, 0.35, 1)
 -- centered help block, 400px wide; the returned y stacks the next block:
 local y = draw_text_ex(help_text, 40.0, 60.0, 0.6, 1, 1, 1, 1, 1, 400.0)
 draw_text_ex("press ESC", 40.0, y + 8.0, 0.6, 1, 1, 1, 1, 1, 400.0)
+
+-- CJK + Latin in one box; the mixed paragraph wraps per character / per word.
+font_load("/System/Library/Fonts/Hiragino Sans GB.ttc", 30.0)
+draw_text_ex(i18n_t("Help"), 40.0, 120.0, 0.7, 1, 1, 1, 1, 0, 420.0)
 ```
 
-Only printable ASCII (space..tilde) is covered; unsupported glyphs are
-skipped. Number concatenation works directly: `"SCORE " .. score`.
+Number concatenation works directly: `"SCORE " .. score`.
 
 ### Clipping & nine-slice panels
 
@@ -1039,6 +1052,95 @@ save directory, and illegal names return false.
 Typical use: call `storage_load("slot1")` once at first frame, read settings
 throughout play, and `storage_save("slot1")` on level/score changes.
 
+#### Binary save containers (v2)
+
+Key/value JSON slots are great for settings; full game saves usually want an
+opaque payload plus metadata. Blob slots write
+`F2SV | container version | game version | header length | header | CRC32 | payload`
+to `<dir>/<slot>.sav` (tmp file + rename) and verify the magic and CRC on
+load. A legacy file without the `F2SV` magic still loads, as game version 0.
+
+| Function | Description |
+|---|---|
+| `storage_blob_write(slot, dir, payload, header, game_version) -> bool` | Write a container. `header` is free-form UTF-8 (conventionally `key=value;...`: slot name, timestamp, map id); `game_version` is your save-schema number. |
+| `storage_blob_read(slot, dir) -> payload` | Verified payload; "" when the file is missing or corrupted. |
+| `storage_blob_version(slot, dir) -> n` | Game version recorded in the container (0 for legacy). |
+| `storage_blob_header(slot, dir) -> s` | Header text ("" when missing). |
+| `storage_blob_size(slot, dir) -> n` | Payload byte count. |
+| `storage_slot_count(dir) -> n` | Number of slots (both `.json` and `.sav`), sorted and de-duplicated. |
+| `storage_slot_name(dir, index) -> s` | Slot name at a sorted index ("" when out of range). |
+| `storage_slot_delete(slot, dir) -> bool` | Delete both container files of a slot; true when nothing remains. |
+| `storage_slot_rename(from, to, dir) -> bool` | Rename both files; false when `to` already exists or a rename fails. |
+
+```lua
+local dir = paths_saves_dir()
+storage_blob_write("slot1", dir, payload, "map=forest;turn=42", 7)
+local data = storage_blob_read("slot1", dir)          -- CRC-checked
+local ver  = storage_blob_version("slot1", dir)        -- 7
+```
+
+### Localization (i18n)
+
+Language packs are TSV files with the **source English text as the key**, one
+file per language, named `<code>.tsv` (`zh.tsv`, `en.tsv`, `ja.tsv`, ...). A
+`# name: 中文` first line sets the display name. Keys are looked up verbatim,
+so code stays readable: `i18n_t("Save")`. Unknown keys return the key itself,
+which makes partial packs safe. `zh`/`ja`/`ko` codes are reported as CJK by
+`i18n_is_cjk()`, so a UI can pick a CJK font and per-character wrapping.
+
+| Function | Description |
+|---|---|
+| `i18n_load(dir, default_code) -> bool` | Load every `*.tsv` in `dir`; `default_code` becomes active (falls back to the first pack). |
+| `i18n_add_file(path, code) -> n` | Merge/adjust one pack (mods, DLC, hot-reload); returns its entry count. |
+| `i18n_set_language(code) -> bool` | Switch at runtime; the next frame draws the new language. |
+| `i18n_language() -> code` | Active language code. |
+| `i18n_t(text) -> s` | Translate `text` through the active pack. |
+| `i18n_has(text) -> bool` | Whether the active pack defines `text`. |
+| `i18n_is_cjk([code]) -> bool` | Whether the given (or active) language is CJK. |
+| `i18n_language_count() -> n`, `i18n_language_code(i) -> s`, `i18n_language_name(i) -> s` | Enumerate packs (sorted by code) for a language picker. |
+| `i18n_entry_count() -> n` | Entries in the active pack. |
+
+TSV values support `\n`, `\t` and `\\` escapes. `i18n_load` replaces the
+current pack set (an empty/missing directory returns false and falls back to
+the keys themselves); use `i18n_add_file` to merge extra packs afterwards.
+
+### App paths & user data
+
+All paths are UTF-8 strings and work on macOS, Windows and Linux. The
+resource root is auto-detected: `FAKE2D_ROOT` env override → current directory
+when it contains `assets/` → the executable's directory (a packaged macOS
+`.app` looks in `Contents/Resources`). The user directory defaults to
+`%APPDATA%/Fake2D` (Windows), `~/Library/Application Support/Fake2D` (macOS)
+or `$XDG_DATA_HOME/fake2d` (Linux), with `FAKE2D_USER_DIR` as an override;
+files are created on demand.
+
+| Function | Description |
+|---|---|
+| `paths_resource_root() -> dir` | Detected (or overridden) asset root. |
+| `paths_resolve(relative) -> path` | Join a relative asset path onto the resource root. |
+| `paths_user_dir() -> dir` | Per-user data directory. |
+| `paths_saves_dir()`, `paths_logs_dir()`, `paths_config_path()`, `paths_mods_dir()` | Conventional sub-paths under the user directory (`saves/`, `logs/`, `settings.json`, `mods/`). |
+| `paths_set_resource_root(dir)`, `paths_set_user_dir(dir)` | Override detection (portable installs, tests, mods); the user dir is created. |
+| `paths_ensure_dir(dir) -> bool` | Create a directory tree. |
+
+### Steamworks adapter
+
+The engine ships a stub backend that compiles with zero dependencies:
+`steam_available()` returns false, `steam_init()` returns false and
+`steam_language()` returns `"english"`, so game code can call these
+unconditionally. Configure with `-DFAKE2D_WITH_STEAM=ON
+-DFAKE2D_STEAM_SDK=<path-to-sdk>` to link the real SDK; then achievements,
+Rich Presence and the Steam language come from Steam.
+
+| Function | Description |
+|---|---|
+| `steam_init(app_id) -> bool` | Start Steam (restart required by the SDK when not running is reported as false). |
+| `steam_available() -> bool` | True when the SDK backend initialized. |
+| `steam_shutdown()`, `steam_tick()` | Shut down / pump callbacks once per frame. |
+| `steam_unlock(id)`, `steam_rich(key, value)` | Achievement / Rich Presence; no-ops in the stub. |
+| `steam_language() -> code` | Steam UI language (e.g. `schinese`); map it onto an i18n pack. |
+| `steam_cloud_enabled()`, `steam_set_cloud(on)` | Cloud-save flag owned by game settings. |
+
 ### Entity store
 
 A C++-owned fixed-slot database that survives FakeLua's per-frame arena
@@ -1116,6 +1218,9 @@ from the anchored corner.
 |---|---|
 | `ui_panel(anchor, ox, oy, w, h, r, g, b, a)` | Solid panel quad. |
 | `ui_label(anchor, ox, oy, text, scale, r, g, b, a)` | Auto-measured text. |
+| `ui_label_fit(anchor, ox, oy, max_w, text, scale, min_scale, r, g, b, a) -> w` | Label that shrinks down to `min_scale` until it fits `max_w` — translated text never overflows its box. Returns the drawn width. |
+| `ui_tip(anchor, ox, oy, w, h, text)` | Record a tooltip while the mouse is inside the rect (the last record wins; cleared each frame). |
+| `ui_tip_draw()` | Draw this frame's tooltip next to the mouse, clamped to the viewport. Call it after every widget so it renders on top. |
 | `ui_button(key, anchor, ox, oy, w, h, text, scale) -> bool` | Returns true exactly on the click-release frame; `key` keeps hover/press state. |
 | `ui_slider(key, anchor, ox, oy, w, h, value, min, max) -> number` | Horizontal slider. Drag the thumb (it keeps its grab offset, so it never jumps) or click the track to jump there. Returns the value clamped to `[min, max]` — the caller owns the returned value. |
 | `ui_checkbox(key, anchor, ox, oy, size, checked, label, text_scale) -> bool` | Square box with a tick and an optional right-side label. Returns true exactly on the frame it was clicked; flip your own `checked` then (same contract as `ui_button`). |
@@ -1168,6 +1273,9 @@ looping progress bar, a slider-driven bar that clamps past 100%, a radio
 group and a combo box with an openable list, and `scripts/ui3_demo.lua`
 (`--ui3-demo`) for the round-3 set: a draggable SETTINGS window with a
 three-tab bar, collapsible tree groups and `ui_hovered`-driven tooltips.
+`scripts/text_demo.lua` (`--text-demo`) puts the text/platform layer on one
+screen: CJK + Latin wrapping, rotated and shrink-to-fit text, live language
+switching, user paths, a v2 save container and the Steam stub state.
 
 ### Debugging
 

@@ -185,8 +185,21 @@ public:
     /// Rasterize the default font (system TTF, embedded 8x8 as fallback) at
     /// pixel_height. Called automatically at Init; safe to call again later.
     bool LoadDefaultFont(float pixel_height = 28.0f);
+    /// Replace the font with any TTF/TTC/OTF at pixel_height. Glyphs (CJK
+    /// included) are rasterized on demand into the atlas.
+    bool LoadFont(const std::string &path, float pixel_height = 28.0f);
     Font &GetFont() { return font_; }
     [[nodiscard]] const Font &GetFont() const { return font_; }
+    [[nodiscard]] bool HasVectorFont() const { return font_.HasVectorFont(); }
+    [[nodiscard]] float TextLineHeight() const { return font_.LineHeight(); }
+    /// Rotated text (angle in radians around (x, y)); returns the end pen x.
+    float DrawTextRotated(std::string_view text, float x, float y, float scale,
+                          float angle_rad, const Color &tint = Color::White());
+    /// Draw text shrunk to fit `max_width` (never below `min_scale`).
+    /// Returns the end pen x; useful for labels with fixed buttons.
+    float DrawTextFit(std::string_view text, float x, float y, float max_width,
+                      float scale, float min_scale,
+                      const Color &tint = Color::White());
     /// Draw text with its top-left at (x, y); scale multiplies the rasterized
     /// pixel height. Returns the pen x after the last glyph.
     float DrawText(std::string_view text, float x, float y, float scale = 1.0f,

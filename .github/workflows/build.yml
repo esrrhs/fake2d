@@ -116,6 +116,9 @@ jobs:
           run_xvfb ./build/bin/fake2d_hello --headless --frames 40 --scene-demo \
             --screenshot scene.png
           test -s scene.png
+          run_xvfb ./build/bin/fake2d_hello --headless --frames 60 --text-demo \
+            --screenshot text.png
+          test -s text.png
           run_xvfb ./build/bin/fake2d_hello --headless --bench
           run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --tile-demo
           run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --map-demo
@@ -200,6 +203,14 @@ jobs:
           # the assertion count).
           run_xvfb ./build/bin/fake2d_hello --tile-test > tile.log 2>&1
           rc_tile=$?
+          # UTF-8/CJK glyph atlas, wrapping, rotation and shrink-to-fit (exit
+          # code gate; SKIPs CJK cases on runners without a CJK font).
+          run_xvfb ./build/bin/fake2d_hello --font-test > font.log 2>&1
+          rc_font=$?
+          # i18n, app paths, save containers v2, Steam stub, UI text tools
+          # (exit code gate; the summary line pins the assertion count).
+          run_xvfb ./build/bin/fake2d_hello --platform-test > platform.log 2>&1
+          rc_platform=$?
           # Same surface through the Lua bindings; PASS is the [script] 0 line.
           # Capture BOTH streams: under xvfb-run the child's stderr is not
           # reliably caught by a bare `2>` redirection.
@@ -207,7 +218,7 @@ jobs:
             --entry scripts/phys_test.lua > phys_test.log 2>&1
           rc_lua=$?
           set -e
-          echo "exit codes: query=$rc_query filter=$rc_filter rigid=$rc_rigid extended=$rc_extended birds=$rc_birds limbo=$rc_limbo timestep=$rc_timestep path=$rc_path rt=$rc_rt ui=$rc_ui post=$rc_post fx=$rc_fx fog=$rc_fog audio=$rc_audio mapobj=$rc_mapobj tile=$rc_tile lua=$rc_lua"
+          echo "exit codes: query=$rc_query filter=$rc_filter rigid=$rc_rigid extended=$rc_extended birds=$rc_birds limbo=$rc_limbo timestep=$rc_timestep path=$rc_path rt=$rc_rt ui=$rc_ui post=$rc_post fx=$rc_fx fog=$rc_fog audio=$rc_audio mapobj=$rc_mapobj tile=$rc_tile font=$rc_font platform=$rc_platform lua=$rc_lua"
           [ "$rc_query" -eq 0 ]
           [ "$rc_filter" -eq 0 ]
           [ "$rc_rigid" -eq 0 ]
@@ -224,6 +235,8 @@ jobs:
           [ "$rc_audio" -eq 0 ]
           [ "$rc_mapobj" -eq 0 ]
           [ "$rc_tile" -eq 0 ]
+          [ "$rc_font" -eq 0 ]
+          [ "$rc_platform" -eq 0 ]
           [ "$rc_lua" -eq 0 ]
           grep -F "[phys-filter] PASS" phys_filter.log
           grep -F "[phys-rigid] PASS" phys_rigid.log
@@ -238,6 +251,8 @@ jobs:
           grep -F "[fx] PASS" fx.log
           grep -F "[fog] PASS" fog.log
           grep -F "[audio] PASS" audio.log
+          grep -F "[font] PASS" font.log
+          grep -F "[platform] PASS" platform.log
           grep -F "[script] 0" phys_test.log
           ! grep -E "\[script] (10[0-9][0-9]|200[0-9])" phys_test.log
 
@@ -469,6 +484,8 @@ jobs:
           ./build/bin/fake2d_hello --fog-test
           ./build/bin/fake2d_hello --audio-test
           ./build/bin/fake2d_hello --map-object-test
+          ./build/bin/fake2d_hello --font-test
+          ./build/bin/fake2d_hello --platform-test
           ./build/bin/fake2d_hello --headless --phys-bench
           ./build/bin/fake2d_hello --headless --frames 200 \
             --entry scripts/phys_test.lua > phys_test.log 2>&1
@@ -503,6 +520,9 @@ jobs:
           ./build/bin/fake2d_hello --headless --frames 120 --fog-demo
           ./build/bin/fake2d_hello --headless --frames 120 --audio-demo
           ./build/bin/fake2d_hello --headless --frames 120 --spatial-demo
+          ./build/bin/fake2d_hello --headless --frames 60 --text-demo \
+            --screenshot text-mac.png
+          test -s text-mac.png
 
       - name: (windows) headless Lua fixtures
         if: runner.os == 'Windows'
@@ -550,6 +570,8 @@ jobs:
           ./build/bin/fake2d_hello.exe --fog-test
           ./build/bin/fake2d_hello.exe --audio-test
           ./build/bin/fake2d_hello.exe --map-object-test
+          ./build/bin/fake2d_hello.exe --font-test
+          ./build/bin/fake2d_hello.exe --platform-test
           ./build/bin/fake2d_hello.exe --headless --frames 200 \
             --entry scripts/phys_test.lua > phys_test.log 2>&1
           grep -F "[script] 0" phys_test.log
@@ -573,5 +595,8 @@ jobs:
           ./build/bin/fake2d_hello.exe --headless --frames 120 --fog-demo
           ./build/bin/fake2d_hello.exe --headless --frames 120 --audio-demo
           ./build/bin/fake2d_hello.exe --headless --frames 120 --spatial-demo
+          ./build/bin/fake2d_hello.exe --headless --frames 60 --text-demo \
+            --screenshot text-win.png
+          test -s text-win.png
           ./build/bin/fake2d_hello.exe --headless --bench
           ./build/bin/fake2d_hello.exe --headless --phys-bench

@@ -402,6 +402,25 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 
 ---
 
+## Phase 33 — Text & platform layer: CJK, i18n, user paths, save v2, Steam (1.27.x)
+
+- [x] **UTF-8 everywhere**: `Font` decodes codepoints (invalid sequences become U+FFFD instead of breaking the line), `MeasureText` / `DrawText` / `DrawTextEx` walk codepoints, and `DrawTextEx` wraps **per character for CJK** (`zh`/`ja`/`ko` ranges) while Latin still wraps at spaces. Leading spaces produced by a wrap are dropped
+- [x] **On-demand glyph atlas**: vector fonts start with **zero** pre-rasterized glyphs; `GetGlyph(char32_t)` looks a codepoint up with `stbtt_FindGlyphIndex` → `stbtt_GetCodepointHMetrics` / `BitmapBox` / `MakeCodepointBitmap`, shelf-packs it into a 1024×1024 RGBA atlas and uploads just that rect with the new `Texture2D::UpdateRegion` (`glTexSubImage2D`), so a 10 000-glyph CJK session grows the atlas instead of pre-baking it. The embedded 8×8 bitmap fallback stays ASCII-only
+- [x] **TTC aware**: `font_load` detects a `ttcf` collection and opens face 0 via `stbtt_GetFontOffsetForIndex`, so `Hiragino Sans GB.ttc` / `PingFang.ttc` / `msyh.ttc` work as-is
+- [x] **New text calls**: `Font::DrawTextRotated` (rotated single line around its origin), `Renderer::DrawTextFit` (uniform shrink to a width floor), `TextLineHeight`, `LoadFont`, `HasVectorFont`; Lua `font_load`, `text_line_height`, `draw_text_rotated`, `draw_text_fit`
+- [x] **i18n** (`I18n`, engine-owned): TSV packs keyed by the **source English text** (`# name: 中文` names the language), `LoadDirectory(dir, default_code)`, `LoadFile` for mods/DLC, runtime `SetLanguage`, unknown keys falling back to the key itself, CJK detection by language code, and per-pack entry counts. Lua `i18n_load/add_file/set_language/language/t/has/is_cjk/language_count/language_code/language_name/entry_count`
+- [x] **`AppPaths`**: resource root auto-detection (`FAKE2D_ROOT` → cwd containing `assets/` → executable dir, with a macOS `.app` looking in `Contents/Resources`; Windows uses `GetModuleFileNameW`, Linux `/proc/self/exe`), per-user directory (`%APPDATA%/Fake2D`, `~/Library/Application Support/Fake2D`, `$XDG_DATA_HOME/fake2d`, `FAKE2D_USER_DIR` override), and `saves/` / `logs/` / `settings.json` / `mods/` conventions; all UTF-8 paths. Lua `paths_resource_root/user_dir/saves_dir/logs_dir/config_path/mods_dir/resolve/set_resource_root/set_user_dir/ensure_dir`
+- [x] **Save containers v2**: `SaveStore::SaveBlob` writes `F2SV | container version | game version | header length | header | CRC32 | payload` atomically (tmp + rename) and `LoadBlob` verifies magic, header length and CRC; a legacy bare payload still loads as version 0. `ReadBlobInfo`, `ListSlots` (`.json` + `.sav`, sorted/de-duplicated), `DeleteSlot`, `RenameSlot`. Lua `storage_blob_write/read/version/header/size`, `storage_slot_count/name/delete/rename`
+- [x] **UI text tools**: `UI::LabelFit` (shrink to `max_width` down to `min_scale`), `UI::Tip` (per-frame hover rect record) + `DrawTooltip` (gold border, dark fill, clamped to the viewport), bound as `ui_label_fit`, `ui_tip`, `ui_tip_draw`
+- [x] **Steamworks adapter**: optional SDK backend behind `-DFAKE2D_WITH_STEAM=ON -DFAKE2D_STEAM_SDK=<sdk>` (CMake locates `libsteam_api.dylib` / `steam_api64.lib` / `libsteam_api.so`), default **dependency-free stub** so game code calls it unconditionally: `steam_init/available/shutdown/tick/unlock/rich/language/cloud_enabled/set_cloud`
+- [x] **`--font-test` (12 assertions)**: ASCII measurement/advance sums, line height, truncated UTF-8 safety, ASCII word wrapping, a failed load leaving the live font intact, missing-file rejection, CJK font candidates (skipped with `[font] SKIP` on fontless hosts), CJK advance, mixed CJK+Latin measurement, per-character wrapping, rotated draw
+- [x] **`--platform-test` (47 assertions)**: two packs + switch + mod override + entry counts + CJK detection + display names; user dir/saves/config/ensure/resolve; blob round-trip, version/header/size, bad-CRC and legacy loads, `.json` + `.sav` coexistence, rename/delete and illegal slot names; Steam stub state (unavailable, init false, `english`, cloud flag); `ui_label_fit` and `draw_text_fit` width constraints
+- [x] **`--text-demo`**: one screen combining CJK/Latin wrapping, rotated text, shrink-to-fit, live language switching (L / button), the resolved user/saves/config paths, a v2 save container's bytes/version/header/slot count (written under `$TMPDIR/fake2d_text_demo` so real profiles stay clean), a UI panel with hover tooltip, and the Steam stub state
+- [x] Wired into CI on Linux (xvfb), macOS and Windows: both self-tests as exit-code gates plus `--text-demo --screenshot` smokes
+- [x] Verification: `--font-test` 12/12, `--platform-test` 47/47, `--text-demo` headless screenshot (CJK title/paragraph/rotated text/panel all render), the twelve preceding engine self-tests, headless Lua fixtures, and the demo smokes re-run green
+
+---
+
 ## Non-goals (for now)
 
 - Full 3D / PBR (Fake2D is strictly focused on high-performance 2D)

@@ -3,6 +3,7 @@
 #include "fake2d/animation.h"
 #include "fake2d/audio.h"
 #include "fake2d/entity_store.h"
+#include "fake2d/i18n.h"
 #include "fake2d/input.h"
 #include "fake2d/particle.h"
 #include "fake2d/physics.h"
@@ -134,6 +135,10 @@ public:
     /// Persistent save-slot key/value store (see save_dir).
     SaveStore &GetSaves();
     [[nodiscard]] const SaveStore &GetSaves() const;
+
+    /// Runtime localization table (language packs + instant switching).
+    I18n &GetI18n();
+    [[nodiscard]] const I18n &GetI18n() const;
 
     /// C++-owned fixed-slot entity database for scripts.
     EntityStore &GetEntities();

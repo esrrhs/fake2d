@@ -25,6 +25,7 @@ struct Engine::Impl {
     UISystem ui;
     SaveStore saves;
     EntityStore entities;
+    I18n i18n;
     bool running = false;
     double delta_time = 0.0;
     double elapsed = 0.0;
@@ -336,6 +337,14 @@ const UISystem &Engine::GetUI() const {
 
 SaveStore &Engine::GetSaves() {
     return impl_->saves;
+}
+
+I18n &Engine::GetI18n() {
+    return impl_->i18n;
+}
+
+const I18n &Engine::GetI18n() const {
+    return impl_->i18n;
 }
 
 const SaveStore &Engine::GetSaves() const {
