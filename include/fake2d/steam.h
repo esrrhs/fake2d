@@ -16,6 +16,12 @@ namespace steam {
 /// `app_id` 0 means "use steam_appid.txt / the shipped app id".
 bool Init(std::uint32_t app_id = 0);
 [[nodiscard]] bool Available();
+/// "steamworks" when the SDK backend is compiled in, "stub" otherwise.
+[[nodiscard]] std::string_view BackendName();
+/// Ask Steam to relaunch the process through the client. Returns true when
+/// Steam already restarted this process and the caller must quit immediately
+/// (standard Steamworks startup guard).
+bool RestartAppIfNecessary(std::uint32_t app_id);
 void Shutdown();
 void Tick();
 

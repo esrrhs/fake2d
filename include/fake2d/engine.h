@@ -1,10 +1,12 @@
 #pragma once
 
 #include "fake2d/animation.h"
+#include "fake2d/achievements.h"
 #include "fake2d/audio.h"
 #include "fake2d/entity_store.h"
 #include "fake2d/i18n.h"
 #include "fake2d/input.h"
+#include "fake2d/mod.h"
 #include "fake2d/particle.h"
 #include "fake2d/physics.h"
 #include "fake2d/renderer.h"
@@ -34,8 +36,15 @@ struct EngineConfig {
     std::string script_entry = "scripts/game.lua";
     /// Watch the entry script's mtime and hot-reload it on change.
     bool hot_reload = false;
-    /// Directory (relative to the working directory) holding save slot JSONs.
-    std::string save_dir = "saves";
+    /// Directory holding save slots. Empty (the default) resolves to
+    /// `AppPaths::SavesDir()` — the per-user save directory — so games write
+    /// where the platform expects. Set an explicit path for portable builds.
+    std::string save_dir;
+    /// Directory with `<code>.tsv` language packs. Empty (the default) tries
+    /// `<resource root>/assets/lang` when that directory exists.
+    std::string localization_dir;
+    /// Language activated after the packs load (empty = the first pack).
+    std::string language = "en";
     /// Fixed physics timestep in seconds. Physics advances in whole steps of
     /// this size (accumulator + max_physics_steps guard), so simulation
     /// results never depend on the frame rate. `<= 0` restores the legacy
@@ -139,6 +148,14 @@ public:
     /// Runtime localization table (language packs + instant switching).
     I18n &GetI18n();
     [[nodiscard]] const I18n &GetI18n() const;
+
+    /// Local achievement mirror with Steam sync (see achievements.h).
+    Achievements &GetAchievements();
+    [[nodiscard]] const Achievements &GetAchievements() const;
+
+    /// Data-pack mod discovery/ordering (see mod.h).
+    ModManager &GetMods();
+    [[nodiscard]] const ModManager &GetMods() const;
 
     /// C++-owned fixed-slot entity database for scripts.
     EntityStore &GetEntities();

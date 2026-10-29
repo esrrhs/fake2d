@@ -1,4 +1,5 @@
 #include "fake2d/engine.h"
+#include "fake2d/app_paths.h"
 #include "fake2d/renderer.h"
 #include "fake2d/script_host.h"
 
@@ -7,6 +8,7 @@
 #include <cstdint>
 #include <chrono>
 #include <cstdio>
+#include <filesystem>
 
 namespace fake2d {
 
@@ -26,6 +28,8 @@ struct Engine::Impl {
     SaveStore saves;
     EntityStore entities;
     I18n i18n;
+    Achievements achievements;
+    ModManager mods;
     bool running = false;
     double delta_time = 0.0;
     double elapsed = 0.0;
@@ -46,6 +50,10 @@ Engine::~Engine() {
 
 bool Engine::Init(const EngineConfig &config) {
     impl_->config = config;
+    if (impl_->config.save_dir.empty()) {
+        // Platform-correct default instead of a CWD-relative "saves" folder.
+        impl_->config.save_dir = AppPaths::SavesDir();
+    }
 
     platform::WindowDesc desc;
     desc.title = impl_->config.title.c_str();
@@ -81,6 +89,20 @@ bool Engine::Init(const EngineConfig &config) {
     // step the world several times in a frame: accumulate so no event is
     // dropped between reads (cleared at the top of each frame).
     impl_->physics.SetEventAccumulation(true);
+
+    // Optional localization: an explicit directory wins, otherwise a packaged
+    // <resource root>/assets/lang is picked up automatically.
+    std::string language_dir = impl_->config.localization_dir;
+    if (language_dir.empty()) {
+        std::error_code ec;
+        const std::string candidate = AppPaths::Resolve("assets/lang");
+        if (std::filesystem::is_directory(candidate, ec)) {
+            language_dir = candidate;
+        }
+    }
+    if (!language_dir.empty()) {
+        impl_->i18n.LoadDirectory(language_dir, impl_->config.language);
+    }
 
 #if defined(FAKE2D_WITH_FAKELUA) && FAKE2D_WITH_FAKELUA
     if (!impl_->config.script_entry.empty()) {
@@ -345,6 +367,22 @@ I18n &Engine::GetI18n() {
 
 const I18n &Engine::GetI18n() const {
     return impl_->i18n;
+}
+
+Achievements &Engine::GetAchievements() {
+    return impl_->achievements;
+}
+
+const Achievements &Engine::GetAchievements() const {
+    return impl_->achievements;
+}
+
+ModManager &Engine::GetMods() {
+    return impl_->mods;
+}
+
+const ModManager &Engine::GetMods() const {
+    return impl_->mods;
 }
 
 const SaveStore &Engine::GetSaves() const {

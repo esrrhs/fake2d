@@ -5,6 +5,7 @@
 #include "fake2d/app_paths.h"
 #include "fake2d/engine.h"
 #include "fake2d/i18n.h"
+#include "fake2d/log.h"
 #include "fake2d/save_store.h"
 #include "fake2d/steam.h"
 
@@ -1597,14 +1598,19 @@ int RunFontTest(fake2d::Engine &engine) {
     bool cjk = false;
     const char *cjk_path = nullptr;
     for (const char *path : kCjkCandidates) {
-        if (std::filesystem::exists(path) && r.LoadFont(path, 32.0f)) {
+        // Add as a fallback (not a replacement): the primary font keeps
+        // ASCII metrics while missing CJK codepoints come from this face.
+        if (std::filesystem::exists(path) && r.AddFallbackFont(path, 32.0f)) {
             cjk = true;
             cjk_path = path;
             break;
         }
     }
     if (cjk) {
-        std::printf("[font] CJK font: %s\n", cjk_path);
+        std::printf("[font] CJK fallback: %s\n", cjk_path);
+        check(r.FontFaceCount() >= 2, "fallback face is registered");
+        check(r.FontFacePath(1) == cjk_path, "fallback face keeps its path");
+        check(r.HasGlyph(0x660E), "fallback supplies a missing glyph");
         const float one = r.MeasureText("明");
         const float two = r.MeasureText("明朝");
         check(one > 8.0f, "CJK glyph has a real advance");
@@ -1693,6 +1699,34 @@ int RunPlatformTest(fake2d::Engine &engine) {
           "mod file appends entries");
     check(i18n.Translate("Hello") == "Hey", "later files override");
 
+    // UTF-8 BOM: editors on Windows write one; it must not corrupt the first
+    // comment/key.
+    {
+        std::ofstream bom(root / "bom.tsv", std::ios::binary);
+        bom << "\xEF\xBB\xBF# name: Bonjour\nHello\tBonjour\n";
+    }
+    fake2d::I18n bom_i18n;
+    check(bom_i18n.LoadFile((root / "bom.tsv").string(), "fr") == 1 &&
+              bom_i18n.SetLanguage("fr") &&
+              bom_i18n.GetLanguage(0)->name == "Bonjour" &&
+              bom_i18n.Translate("Hello") == "Bonjour",
+          "UTF-8 BOM is stripped");
+
+    // Missing-key diagnostics (per-language, capped, cleared on switch).
+    i18n.SetLanguage("zh");
+    i18n.ClearMissing();
+    (void)i18n.Translate("not.translated");
+    (void)i18n.Translate("not.translated");
+    check(i18n.MissingCount() == 1 && i18n.MissingKey(0) == "not.translated",
+          "unknown keys are recorded once");
+    check(i18n.MissingKey(99).empty(), "missing-key index bounds");
+    i18n.SetLanguage("en");
+    check(i18n.MissingCount() == 0, "switching clears the missing report");
+    i18n.SetTrackMissing(false);
+    (void)i18n.Translate("also.missing");
+    check(i18n.MissingCount() == 0, "missing tracking can be disabled");
+    i18n.SetTrackMissing(true);
+
     // ---- app paths ---------------------------------------------------------
     const auto user = root / "user";
     fake2d::AppPaths::SetUserDir(user.string());
@@ -1756,6 +1790,35 @@ int RunPlatformTest(fake2d::Engine &engine) {
     check(!store.LoadBlob("slot", saves.string(), payload, info),
           "CRC mismatch rejected");
 
+    // Backup rollback: every save keeps the previous file as `<slot>.sav.bak`.
+    const auto corrupt_last_byte = [](const std::filesystem::path &path) {
+        std::ifstream in(path, std::ios::binary);
+        std::string raw{std::istreambuf_iterator<char>(in),
+                        std::istreambuf_iterator<char>()};
+        in.close();
+        if (!raw.empty()) {
+            raw[raw.size() - 1] ^= 0x5A;
+        }
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        out.write(raw.data(), static_cast<std::streamsize>(raw.size()));
+    };
+    check(store.SaveBlob("slot", saves.string(), "hello-world", "name=demo", 7),
+          "primary restored before backup test");
+    check(store.SaveBlob("slot", saves.string(), "version-two", "v=2", 8),
+          "second save keeps a backup");
+    check(std::filesystem::exists(saves / "slot.sav.bak"), "backup file written");
+    check(store.LoadBlob("slot", saves.string(), payload, info) &&
+              payload == "version-two" && !info.restored_from_backup,
+          "newest save is preferred");
+    corrupt_last_byte(saves / "slot.sav");
+    check(store.LoadBlob("slot", saves.string(), payload, info) &&
+              payload == "hello-world" && info.restored_from_backup,
+          "corrupt primary falls back to the backup");
+    check(store.SaveBlob("slot", saves.string(), "fresh", "v=3", 9) &&
+              fake2d::SaveStore::DeleteSlot("slot", saves.string()) &&
+              !std::filesystem::exists(saves / "slot.sav.bak"),
+          "deleting a slot removes its backup");
+
     // Legacy raw payload (no container magic) still loads.
     {
         std::ofstream legacy(saves / "legacy.sav", std::ios::binary);
@@ -1798,6 +1861,105 @@ int RunPlatformTest(fake2d::Engine &engine) {
     fake2d::steam::Tick();
     fake2d::steam::Shutdown();
     check(true, "Steam no-ops do not crash");
+    check(fake2d::steam::BackendName() == "stub", "Steam backend reports stub");
+    check(!fake2d::steam::RestartAppIfNecessary(480),
+          "restart guard is a no-op in the stub");
+
+    // ---- file log + rotation -----------------------------------------------
+    {
+        fake2d::log::Config config;
+        config.dir = (root / "logs").string();
+        config.app_name = "fake2d-test";
+        config.version = "1.27";
+        config.crash_reports = false; // never install signal handlers in tests
+        config.echo_stderr = false;   // keep the test output clean
+        check(fake2d::log::Init(config) && fake2d::log::Active(), "log init");
+        fake2d::log::Info("hello log");
+        check(!fake2d::log::Path().empty() &&
+                  std::filesystem::exists(fake2d::log::Path()),
+              "log file written");
+        {
+            std::ifstream in(fake2d::log::Path());
+            std::string contents{std::istreambuf_iterator<char>(in),
+                                 std::istreambuf_iterator<char>()};
+            check(contents.find("hello log") != std::string::npos,
+                  "log line appended");
+        }
+        check(fake2d::log::Init(config), "log re-init");
+        check(std::filesystem::exists(root / "logs" / "game.prev.log"),
+              "existing log rotated on init");
+        fake2d::log::Shutdown();
+        check(!fake2d::log::Active(), "log shutdown");
+    }
+
+    // ---- achievements: local mirror + Steam sync ---------------------------
+    {
+        fake2d::Achievements &ach = engine.GetAchievements();
+        ach.SetPath((root / "achievements.txt").string());
+        check(ach.Unlock("ACH_ONE"), "achievement unlocks");
+        check(!ach.Unlock("ACH_ONE"), "repeat unlock is not new");
+        check(ach.Count() == 1 && ach.IsUnlocked("ACH_ONE") &&
+                  ach.IdAt(0) == "ACH_ONE",
+              "achievement state mirrors locally");
+        check(std::filesystem::exists(root / "achievements.txt"),
+              "achievement mirror persisted");
+        ach.SyncToSteam(); // stub: no-op, must not crash
+        check(ach.IdAt(99).empty(), "achievement index bounds");
+        ach.Clear();
+        check(ach.Count() == 0, "achievements cleared");
+    }
+
+    // ---- mod manager: discovery, ordering, overrides, languages -------------
+    {
+        const auto write_file = [](const std::filesystem::path &path,
+                                   std::string_view text) {
+            std::filesystem::create_directories(path.parent_path());
+            std::ofstream out(path, std::ios::binary | std::ios::trunc);
+            out << text;
+        };
+        const auto mods_root = root / "mods";
+        const auto alpha = mods_root / "alpha";
+        const auto beta = mods_root / "beta";
+        const auto base = root / "base";
+        write_file(alpha / "mod.json",
+                   R"({"name":"Alpha","version":"1.0","load_order":0})");
+        write_file(beta / "mod.json",
+                   R"({"name":"Beta","version":"2.1","load_order":10})");
+        write_file(alpha / "lang" / "zh.tsv", "Hello\t模组你好\n");
+        write_file(beta / "lang" / "zh.tsv", "Hello\t模组嗨\n");
+        write_file(alpha / "data" / "override.txt", "alpha");
+        write_file(beta / "data" / "override.txt", "beta");
+        write_file(base / "data" / "only_base.txt", "base");
+
+        fake2d::ModManager mods;
+        mods.SetBaseDir(base.string());
+        mods.Scan({mods_root.string()});
+        check(mods.Count() == 2, "mod manifests discovered");
+        check(mods.Mods()[0].name == "Alpha" && mods.Mods()[1].name == "Beta",
+              "load_order sorts mods");
+        check(mods.Mods()[1].version == "2.1", "mod version parsed");
+        check(std::filesystem::path(mods.Resolve("data/override.txt"))
+                      .lexically_normal() ==
+                  (beta / "data" / "override.txt").lexically_normal(),
+              "later mod overrides earlier");
+        check(std::filesystem::path(mods.Resolve("data/only_base.txt"))
+                      .lexically_normal() ==
+                  (base / "data" / "only_base.txt").lexically_normal(),
+              "base directory is the final fallback");
+        check(mods.SetEnabled("Beta", false) && mods.ActiveCount() == 1,
+              "mod can be disabled");
+        check(std::filesystem::path(mods.Resolve("data/override.txt"))
+                      .lexically_normal() ==
+                  (alpha / "data" / "override.txt").lexically_normal(),
+              "disabled mod reveals the earlier one");
+        check(mods.LoadLanguages(i18n) == 1, "active mod language merged");
+        i18n.SetLanguage("zh");
+        check(i18n.Translate("Hello") == "模组你好",
+              "mod translation wins for its language");
+        check(mods.Report().find("Alpha") != std::string::npos &&
+                  mods.Report().find("[off]") != std::string::npos,
+              "mod report lists state");
+    }
 
     // ---- UI text helpers ---------------------------------------------------
     fake2d::Renderer &r = engine.GetRenderer();
@@ -1811,10 +1973,12 @@ int RunPlatformTest(fake2d::Engine &engine) {
         fake2d::Color{1.0f, 1.0f, 1.0f, 1.0f});
     engine.GetUI().Tip(fake2d::UIAnchor::TopLeft, 0.0f, 0.0f, 100.0f, 40.0f,
                        "tooltip text");
+    engine.GetUI().SetTipDelay(0.15f);
     engine.GetUI().DrawTooltip();
     r.EndFrame();
     check(fitted <= 80.5f, "LabelFit stays inside max_width");
     check(fit_end <= 140.5f, "DrawTextFit stays inside max_width");
+    check(engine.GetUI().TipDelay() == 0.15f, "tooltip delay is configurable");
 
     std::filesystem::remove_all(root, ec);
     std::printf("[platform] %s: %d checks, %d failures\n",
@@ -6403,6 +6567,7 @@ int main(int argc, char **argv) {
     bool audio_test = false;
     int max_frames = 0;
     int shot_frame = 30;
+    int shot_min_colors = 0;
     std::string screenshot;
     bool regen_assets = false;
     for (int i = 1; i < argc; ++i) {
@@ -6486,6 +6651,10 @@ int main(int argc, char **argv) {
             screenshot = argv[++i];
         } else if (arg == "--shot-frame" && i + 1 < argc) {
             shot_frame = std::atoi(argv[++i]);
+        } else if (arg == "--shot-min-colors" && i + 1 < argc) {
+            // CI guard: a screenshot with fewer sampled colours than this is
+            // treated as blank (exit 2) — catches "saved but drew nothing".
+            shot_min_colors = std::atoi(argv[++i]);
         } else if (arg == "--regen-assets") {
             // Rewrite the generated sheets/levels even if they exist, so
             // painter or layout edits actually reach the screen.
@@ -6616,6 +6785,12 @@ int main(int argc, char **argv) {
         }
     }
 
+    // The engine auto-loads <resource root>/assets/lang at Init, so the demo
+    // language packs must exist before the engine starts.
+    if (text_demo) {
+        EnsureI18nAssets();
+    }
+
     fake2d::Engine engine;
     if (!engine.Init(cfg)) {
         std::fprintf(stderr, "fake2d_hello: engine init failed\n");
@@ -6682,9 +6857,7 @@ int main(int argc, char **argv) {
     // All gameplay is pure Lua below; C++ only guarantees the binary asset
     // scaffolding exists before the script's first frame.
     EnsureGameAssets();
-    if (text_demo) {
-        EnsureI18nAssets();
-    }
+
     if (mario_demo) {
         EnsureMarioAssets(regen_assets);
     }
@@ -6716,14 +6889,26 @@ int main(int argc, char **argv) {
         EnsureAudioDemoMusic(engine.GetAudio());
     }
     // Generic host-level screenshot hook (visual regression; not game logic).
+    bool shot_blank = false;
     if (!screenshot.empty()) {
         engine.SetFrameCallback([&](fake2d::Engine &e) {
             if (e.FrameIndex() == static_cast<std::uint64_t>(shot_frame)) {
                 e.GetRenderer().GetSpriteBatch().Flush();
-                e.GetRenderer().SaveScreenshot(screenshot);
+                const bool saved = e.GetRenderer().SaveScreenshot(screenshot);
+                if (saved && shot_min_colors > 0) {
+                    const int colors = e.GetRenderer().DistinctFramebufferColors();
+                    if (colors < shot_min_colors) {
+                        std::fprintf(stderr,
+                                     "fake2d_hello: screenshot has %d colours, "
+                                     "expected at least %d\n",
+                                     colors, shot_min_colors);
+                        shot_blank = true;
+                    }
+                }
             }
         });
     }
 
-    return engine.Run(max_frames);
+    const int rc = engine.Run(max_frames);
+    return shot_blank ? 2 : rc;
 }

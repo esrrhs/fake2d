@@ -3,11 +3,13 @@
 
 #include "stb/stb_image_write.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <iterator>
+#include <unordered_set>
 #include <vector>
 
 // GL_FRAMEBUFFER_BINDING is the unsuffixed query; it reads the draw binding
@@ -452,6 +454,14 @@ bool Renderer::LoadFont(const std::string &path, float pixel_height) {
     return font_.LoadFromTTF(path, pixel_height);
 }
 
+bool Renderer::AddFallbackFont(const std::string &path, float pixel_height) {
+    if (!ready_) {
+        return false;
+    }
+    // The atlas is shared and stays current, so queued text needs no flush.
+    return font_.AddFallback(path, pixel_height);
+}
+
 float Renderer::DrawTextRotated(std::string_view text, float x, float y,
                                 float scale, float angle_rad, const Color &tint) {
     return font_.DrawTextRotated(batch_, text, x, y, scale, angle_rad, tint);
@@ -535,6 +545,28 @@ bool Renderer::SaveScreenshot(const std::string &path) const {
         std::fprintf(stderr, "fake2d: failed to write screenshot %s\n", path.c_str());
     }
     return ok != 0;
+}
+
+int Renderer::DistinctFramebufferColors(int max_samples) const {
+    if (!ready_ || width_ <= 0 || height_ <= 0) {
+        return 0;
+    }
+    const size_t row_bytes = static_cast<size_t>(width_) * 3;
+    std::vector<unsigned char> pixels(row_bytes * static_cast<size_t>(height_));
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(0, 0, width_, height_, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
+
+    const size_t total = static_cast<size_t>(width_) * static_cast<size_t>(height_);
+    const int limit = max_samples > 0 ? max_samples : 4096;
+    const size_t step = std::max<size_t>(1, total / static_cast<size_t>(limit));
+    std::unordered_set<std::uint32_t> colors;
+    colors.reserve(static_cast<size_t>(limit));
+    for (size_t i = 0; i < total; i += step) {
+        const unsigned char *px = &pixels[i * 3];
+        colors.insert((static_cast<std::uint32_t>(px[0]) << 16) |
+                      (static_cast<std::uint32_t>(px[1]) << 8) | px[2]);
+    }
+    return static_cast<int>(colors.size());
 }
 
 } // namespace fake2d

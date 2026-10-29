@@ -188,6 +188,17 @@ public:
     /// Replace the font with any TTF/TTC/OTF at pixel_height. Glyphs (CJK
     /// included) are rasterized on demand into the atlas.
     bool LoadFont(const std::string &path, float pixel_height = 28.0f);
+    /// Append a fallback face for codepoints the primary font lacks (same
+    /// atlas; faces are tried in load order).
+    bool AddFallbackFont(const std::string &path, float pixel_height = 28.0f);
+    void ClearFallbackFonts() { font_.ClearFallbacks(); }
+    [[nodiscard]] std::size_t FontFaceCount() const { return font_.FaceCount(); }
+    [[nodiscard]] std::string FontFacePath(std::size_t index) const {
+        return font_.FacePath(index);
+    }
+    [[nodiscard]] bool HasGlyph(char32_t codepoint) const {
+        return font_.HasGlyph(codepoint);
+    }
     Font &GetFont() { return font_; }
     [[nodiscard]] const Font &GetFont() const { return font_; }
     [[nodiscard]] bool HasVectorFont() const { return font_.HasVectorFont(); }
@@ -215,6 +226,10 @@ public:
     /// Call after a batch Flush (e.g. inside a frame callback) and before
     /// SwapBuffers. Intended for headless visual regression tests.
     bool SaveScreenshot(const std::string &path) const;
+    /// Number of distinct RGB colours in the current framebuffer, sampled at
+    /// up to `max_samples` pixels. A blank/black frame returns 1, so CI can
+    /// reject screenshots that "saved fine" but drew nothing.
+    [[nodiscard]] int DistinctFramebufferColors(int max_samples = 4096) const;
 
     // --- custom shaders (per-draw scope) ---
     /// Load a GLSL pair from files (attribute/uniform contract: a_pos,

@@ -421,6 +421,22 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 
 ---
 
+## Phase 34 — Production layer: fonts, i18n, saves, logging, mods (1.28.x)
+
+- [x] **Fallback font faces**: `Font` now holds a stack of parsed faces sharing one atlas. `GetGlyph` walks primary → fallbacks (TTC aware, per-face metrics/ascents), caches misses, and re-tries them when a face is added. `font_add_fallback` / `font_clear_fallbacks` / `font_face_count` / `font_face_path` / `font_has_glyph`, plus `AddFallbackFont` in the renderer
+- [x] **Typography**: Latin kerning from the font's `kern` table (`stbtt_GetGlyphKernAdvance`, same-face only); CJK 禁则处理 (closing marks never start a line, opening brackets never end one); the atlas doubles to 2048² (~3k CJK glyphs at 32px) and is zero-filled so bilinear edges never sample stray alpha
+- [x] **i18n hardening**: UTF-8 BOM skipped on the first TSV line; per-language missing-key report (deduplicated, capped at 512, cleared on switch) exposed as `i18n_missing_count/key/clear_missing/set_track_missing`; `EngineConfig.localization_dir/language` auto-load `<resource root>/assets/lang` at startup
+- [x] **Save engineering**: `EngineConfig.save_dir` defaults to `AppPaths::SavesDir()` (per-user platform directory; explicit paths still win for portable builds); every blob save keeps the previous container as `<slot>.sav.bak`, corrupt/missing primaries load the backup (`restored_from_backup` / `storage_blob_backup_used`), and delete/rename cover the backup; `storage_dir()` exposes the resolved directory
+- [x] **Logging & crash reports**: `log::Init` opens `<dir>/game.log` with rotation to `game.prev.log`, timestamps, stderr mirroring and optional crash handlers writing `crash-<timestamp>.txt` (POSIX `backtrace`, Windows `CaptureStackBackTrace` + unhandled-exception filter). Lua `log_info/warn/error/active/path`
+- [x] **Achievements**: local text mirror (`AppPaths::UserDir()/achievements.txt` by default), idempotent unlocks, Steam forwarding + `SyncToSteam`, `ach_unlock/unlocked/count/id/sync/path/set_path/clear`. Steam adapter gains `BackendName()` ("steamworks"/"stub") and `RestartAppIfNecessary()`
+- [x] **Mod manager**: `mod.json` discovery (`name/version/enabled/load_order`), stable ordering, enable/disable, mod-aware `Resolve` (last load order wins, then base), `lang/*.tsv` merge into I18n, report text. Lua `mods_scan/scan_more/count/name/version/path/order/enabled/active_count/active_name/set_enabled/base_dir/resolve/load_lang/report`
+- [x] **UI & CI hardening**: tooltip hover delay (`SetTipDelay` / `ui_set_tip_delay`, default 0.3 s); `Renderer::DistinctFramebufferColors` + `--shot-min-colors N` rejects screenshots that saved but drew nothing (exit 2); CI runs the text demo with a colour floor on all three OSes and compile-checks the Steam SDK branch against `tests/fake_steam` (`-DFAKE2D_TEST_STEAM_HEADERS=ON`)
+- [x] **`--font-test` 15 assertions**: fallback registration/face path, fallback-supplied CJK glyph, plus the previous measurement/wrap/rotation checks
+- [x] **`--platform-test` 83 assertions**: BOM, missing-key report, save backup/rollback/delete, log + rotation, achievements mirror, mod discovery/ordering/override/languages/report, Steam backend/restart, tooltip delay
+- [x] Verification: `--font-test` 15/15, `--platform-test` 83/83, `--text-demo` screenshot with `--shot-min-colors`, the other 14 self-tests, demo smokes and CI on Linux/macOS/Windows
+
+---
+
 ## Non-goals (for now)
 
 - Full 3D / PBR (Fake2D is strictly focused on high-performance 2D)

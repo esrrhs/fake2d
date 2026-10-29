@@ -189,6 +189,14 @@ sheets. The embedded bitmap fallback stays ASCII-only.
 | `draw_text_ex(text, x, y, scale, r, g, b, a, align, wrap_w) -> end_y` | Aligned, word-wrapped text. `align`: 0 left / 1 center / 2 right; (x, y) is the top-left of the layout box and `wrap_w` its width (0 = a single line aligned around x). **CJK breaks between characters; Latin text breaks at spaces** (overlong words break hard). Leading spaces on a wrapped line are dropped. Returns the y just below the last line — stack blocks by feeding it back as y. |
 | `draw_text_fit(text, x, y, max_w, scale, min_scale, r, g, b, a) -> w` | Single line that shrinks uniformly until it fits `max_w`, never below `min_scale`. Returns the drawn width. |
 | `draw_text_rotated(text, x, y, scale, angle, r, g, b, a) -> w` | Single line rotated `angle` radians around `(x, y)` (clockwise for positive values). |
+| `font_add_fallback(path, pixel_height) -> bool` | Append a fallback face: glyphs missing from the primary font are rasterized from it into the same atlas. Faces are tried in load order (primary first). |
+| `font_clear_fallbacks()` | Drop every fallback face (the primary stays). |
+| `font_face_count() -> n`, `font_face_path(i) -> s` | Loaded faces (0 = primary) for diagnostics. |
+| `font_has_glyph(text) -> bool` | Whether the first codepoint of `text` is renderable by any loaded face. |
+
+Latin text is **kerned** when the font carries a `kern` table; CJK line
+breaking applies 禁则处理 — closing marks (`，。！？、）】`) never start a line and
+opening brackets (`（【「`) never end one.
 
 ```lua
 local w = text_width("YOU WIN!", 1.6)
@@ -1036,9 +1044,10 @@ end
 ### Save storage
 
 Persistent number/string key/value slots, written as JSON under the engine
-save directory (default `saves/`, configurable via `EngineConfig.save_dir`).
-Slot names are restricted to `[A-Za-z0-9_-]{1,32}` — saves cannot escape the
-save directory, and illegal names return false.
+save directory (default `AppPaths::SavesDir()` — the per-user platform
+directory — configurable via `EngineConfig.save_dir`; `storage_dir()` reports
+the resolved value). Slot names are restricted to `[A-Za-z0-9_-]{1,32}` —
+saves cannot escape the save directory, and illegal names return false.
 
 | Function | Description |
 |---|---|
@@ -1067,10 +1076,15 @@ load. A legacy file without the `F2SV` magic still loads, as game version 0.
 | `storage_blob_version(slot, dir) -> n` | Game version recorded in the container (0 for legacy). |
 | `storage_blob_header(slot, dir) -> s` | Header text ("" when missing). |
 | `storage_blob_size(slot, dir) -> n` | Payload byte count. |
+| `storage_blob_backup_used(slot, dir) -> bool` | True when the last load fell back to `<slot>.sav.bak` (corrupt/missing primary). |
 | `storage_slot_count(dir) -> n` | Number of slots (both `.json` and `.sav`), sorted and de-duplicated. |
 | `storage_slot_name(dir, index) -> s` | Slot name at a sorted index ("" when out of range). |
-| `storage_slot_delete(slot, dir) -> bool` | Delete both container files of a slot; true when nothing remains. |
+| `storage_slot_delete(slot, dir) -> bool` | Delete both container files (and the `.bak`) of a slot; true when nothing remains. |
 | `storage_slot_rename(from, to, dir) -> bool` | Rename both files; false when `to` already exists or a rename fails. |
+
+Every save keeps the previous container as `<slot>.sav.bak`; a corrupt or
+missing primary loads the backup and reports `storage_blob_backup_used`.
+`storage_dir()` returns the engine's default save directory (see below).
 
 ```lua
 local dir = paths_saves_dir()
@@ -1099,10 +1113,16 @@ which makes partial packs safe. `zh`/`ja`/`ko` codes are reported as CJK by
 | `i18n_is_cjk([code]) -> bool` | Whether the given (or active) language is CJK. |
 | `i18n_language_count() -> n`, `i18n_language_code(i) -> s`, `i18n_language_name(i) -> s` | Enumerate packs (sorted by code) for a language picker. |
 | `i18n_entry_count() -> n` | Entries in the active pack. |
+| `i18n_missing_count() -> n`, `i18n_missing_key(i) -> s` | Source strings the active pack does not define (deduplicated, capped at 512) — a release-build "untranslated" report. |
+| `i18n_clear_missing()`, `i18n_set_track_missing(on)` | Reset the report / disable recording. |
 
-TSV values support `\n`, `\t` and `\\` escapes. `i18n_load` replaces the
+TSV values support `\n`, `\t` and `\\` escapes, and a UTF-8 BOM on the first
+line is ignored (editors on Windows write one). `i18n_load` replaces the
 current pack set (an empty/missing directory returns false and falls back to
 the keys themselves); use `i18n_add_file` to merge extra packs afterwards.
+The engine loads `<resource root>/assets/lang` automatically at startup when
+that directory exists (or `EngineConfig.localization_dir`, activating
+`EngineConfig.language`), so most games need no explicit `i18n_load`.
 
 ### App paths & user data
 
@@ -1123,6 +1143,11 @@ files are created on demand.
 | `paths_set_resource_root(dir)`, `paths_set_user_dir(dir)` | Override detection (portable installs, tests, mods); the user dir is created. |
 | `paths_ensure_dir(dir) -> bool` | Create a directory tree. |
 
+`EngineConfig.save_dir` defaults to `AppPaths::SavesDir()` — the per-user
+platform directory — so `storage_load/save` (which use the engine's default)
+already write where the platform expects; set an explicit path for portable
+builds. `storage_dir()` exposes the resolved value to scripts.
+
 ### Steamworks adapter
 
 The engine ships a stub backend that compiles with zero dependencies:
@@ -1139,7 +1164,55 @@ Rich Presence and the Steam language come from Steam.
 | `steam_shutdown()`, `steam_tick()` | Shut down / pump callbacks once per frame. |
 | `steam_unlock(id)`, `steam_rich(key, value)` | Achievement / Rich Presence; no-ops in the stub. |
 | `steam_language() -> code` | Steam UI language (e.g. `schinese`); map it onto an i18n pack. |
+| `steam_backend() -> s` | `"steamworks"` when the SDK backend is compiled in, `"stub"` otherwise. |
+| `steam_restart_if_necessary(app_id) -> bool` | Standard startup guard: true means Steam relaunched the process and the game must exit immediately. |
 | `steam_cloud_enabled()`, `steam_set_cloud(on)` | Cloud-save flag owned by game settings. |
+
+### Achievements
+
+`ach_*` keeps a local mirror (`AppPaths::UserDir()/achievements.txt` by
+default) so unlocks work offline and without the SDK; `ach_sync()` pushes the
+whole set to Steam the next time it is available. Unlocks are idempotent and
+forwarded automatically when Steam is present.
+
+| Function | Description |
+|---|---|
+| `ach_unlock(id) -> bool` | Record an unlock; true only the first time. |
+| `ach_unlocked(id) -> bool` | Local state (loads the mirror on first use). |
+| `ach_count() -> n`, `ach_id(i) -> s` | Unlocked ids, sorted. |
+| `ach_sync()` | Push every local unlock to Steam (no-op in the stub). |
+| `ach_path() -> s`, `ach_set_path(path)` | Mirror location. |
+| `ach_clear()` | Forget everything (rewrites the mirror empty). |
+
+### Mods
+
+A mod is a directory with a `mod.json` manifest
+(`{"name": ..., "version": ..., "enabled": true, "load_order": 10}`). The
+manager discovers, orders (stable by `load_order`), enables/disables and
+resolves files (later load order wins, then the base directory), and merges
+each active mod's `lang/*.tsv` into the I18n table. Game-specific data formats
+stay in the game.
+
+| Function | Description |
+|---|---|
+| `mods_scan(dir) -> n`, `mods_scan_more(dir) -> n` | Replace / append the scanned list (one root per call). |
+| `mods_count() -> n`, `mods_name(i)`, `mods_version(i)`, `mods_path(i)`, `mods_order(i)`, `mods_enabled(i)` | Manifest listing in load order. |
+| `mods_active_count() -> n`, `mods_active_name(i)` | Enabled mods only. |
+| `mods_set_enabled(name, on) -> bool` | Toggle one mod. |
+| `mods_base_dir(dir)`, `mods_resolve(relative) -> path` | Final fallback directory and mod-aware file lookup. |
+| `mods_load_lang() -> n` | Merge active mod languages (returns parsed entries). |
+| `mods_report() -> s` | One line per mod for logs / a mod screen. |
+
+### Logging & crash reports
+
+The host opts in (`log::Init` with `AppPaths::LogsDir()`); messages mirror to
+stderr and rotate `game.log` → `game.prev.log`. Fatal signals/unhandled
+exceptions then write `crash-<timestamp>.txt` with a native backtrace.
+
+| Function | Description |
+|---|---|
+| `log_info(text)`, `log_warn(text)`, `log_error(text)` | Append a timestamped line. |
+| `log_active() -> bool`, `log_path() -> s` | Whether a file log is open, and its path. |
 
 ### Entity store
 
@@ -1221,6 +1294,7 @@ from the anchored corner.
 | `ui_label_fit(anchor, ox, oy, max_w, text, scale, min_scale, r, g, b, a) -> w` | Label that shrinks down to `min_scale` until it fits `max_w` — translated text never overflows its box. Returns the drawn width. |
 | `ui_tip(anchor, ox, oy, w, h, text)` | Record a tooltip while the mouse is inside the rect (the last record wins; cleared each frame). |
 | `ui_tip_draw()` | Draw this frame's tooltip next to the mouse, clamped to the viewport. Call it after every widget so it renders on top. |
+| `ui_set_tip_delay(seconds)` | Hover time before tooltips appear (default 0.3 s; 0 = immediately). |
 | `ui_button(key, anchor, ox, oy, w, h, text, scale) -> bool` | Returns true exactly on the click-release frame; `key` keeps hover/press state. |
 | `ui_slider(key, anchor, ox, oy, w, h, value, min, max) -> number` | Horizontal slider. Drag the thumb (it keeps its grab offset, so it never jumps) or click the track to jump there. Returns the value clamped to `[min, max]` — the caller owns the returned value. |
 | `ui_checkbox(key, anchor, ox, oy, size, checked, label, text_scale) -> bool` | Square box with a tick and an optional right-side label. Returns true exactly on the frame it was clicked; flip your own `checked` then (same contract as `ui_button`). |

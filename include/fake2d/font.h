@@ -38,8 +38,23 @@ public:
 
     /// Rasterize a TTF/TTC/OTF (first embedded font of a collection) at
     /// pixel_height. Glyphs are cached on demand, so any codepoint present in
-    /// the font can be drawn later (CJK included).
+    /// the font can be drawn later (CJK included). Replaces all fallbacks.
     bool LoadFromTTF(const std::string &path, float pixel_height);
+
+    /// Append a fallback face: codepoints missing from the primary font are
+    /// rasterized from this one into the same atlas. Faces are tried in load
+    /// order. Returns false when the file is not a usable vector font (the
+    /// primary must be a vector font for fallbacks to make sense).
+    bool AddFallback(const std::string &path, float pixel_height);
+
+    /// Drop every fallback face (cached glyphs stay valid).
+    void ClearFallbacks();
+    [[nodiscard]] std::size_t FaceCount() const;
+    /// Path of the i-th face (0 = primary, "" when out of range).
+    [[nodiscard]] std::string FacePath(std::size_t index) const;
+
+    /// Whether any loaded face can render this codepoint.
+    [[nodiscard]] bool HasGlyph(char32_t codepoint) const;
 
     /// Build the atlas from the embedded 8x8 ASCII font (native 8px size).
     bool LoadFallback();
@@ -90,10 +105,14 @@ private:
         Vec2 offset{};     // draw offset from the line origin (top-left box)
         Vec2 size{};       // drawn size at PixelHeight
         float advance = 0; // pen advance at PixelHeight
+        int face = -1;     // face that owns the glyph (-1 = not rasterized)
+        int index = 0;     // glyph index inside that face (kerning)
     };
 
     /// Cached glyph, rasterizing and uploading it on first use (vector fonts).
     const Glyph *GetGlyph(char32_t codepoint) const;
+    /// Kerning between two glyphs of the same face (0 across faces).
+    float KernAdvance(const Glyph *previous, const Glyph *next) const;
     bool CreateAtlasTexture(int width, int height, const std::uint8_t *rgba);
 
     struct Impl;

@@ -1,6 +1,8 @@
 #include "fake2d/ui.h"
 
 #include <algorithm>
+#include <chrono>
+#include <string>
 #include <utility>
 
 namespace fake2d {
@@ -164,8 +166,25 @@ void UISystem::Tip(UIAnchor anchor, float offset_x, float offset_y, float w,
     const Vec2 p = Resolve(anchor, offset_x, offset_y, w, h,
                            camera_->ViewportWidth(), camera_->ViewportHeight());
     const Vec2 mouse = Mouse();
-    if (mouse.x >= p.x && mouse.x <= p.x + w && mouse.y >= p.y &&
-        mouse.y <= p.y + h) {
+    const bool inside = mouse.x >= p.x && mouse.x <= p.x + w && mouse.y >= p.y &&
+                        mouse.y <= p.y + h;
+    if (!inside) {
+        // Leaving restarts the hover clock (and never keeps a stale tooltip).
+        tip_hover_key_.clear();
+        return;
+    }
+    // Hover key: same rect + text keeps the clock running across frames.
+    const std::string key = std::to_string(static_cast<int>(p.x)) + "," +
+                            std::to_string(static_cast<int>(p.y)) + "," +
+                            std::string(text);
+    const double now = std::chrono::duration<double>(
+                           std::chrono::steady_clock::now().time_since_epoch())
+                           .count();
+    if (key != tip_hover_key_) {
+        tip_hover_key_ = key;
+        tip_hover_since_ = now;
+    }
+    if (tip_delay_ <= 0.0f || now - tip_hover_since_ >= tip_delay_) {
         tooltip_.assign(text.data(), text.size());
         tooltip_mouse_ = mouse;
     }

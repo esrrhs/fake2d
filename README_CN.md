@@ -7,7 +7,7 @@
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-brightgreen.svg)](https://en.cppreference.com/w/cpp/23)
 [![OpenGL](https://img.shields.io/badge/OpenGL-3.3%20Core%20%7C%202.1-orange.svg)](https://www.opengl.org/)
 [![FakeLua](https://img.shields.io/badge/Script-FakeLua-red.svg)](https://github.com/esrrhs/fakelua)
-[![Version](https://img.shields.io/badge/version-1.27.0-informational.svg)](include/fake2d/version.h)
+[![Version](https://img.shields.io/badge/version-1.28.0-informational.svg)](include/fake2d/version.h)
 
 **Fake2D** 是基于 [FakeLua](https://github.com/esrrhs/fakelua) 驱动的现代化、轻量级、高性能 2D 游戏引擎：
 - **C++23 宿主引擎**：掌管窗口管理、GPU 渲染管线、空间物理、音频混音与底层资源生命周期；
@@ -42,12 +42,12 @@ Fake2D 不仅是渲染器，更是一套自洽完备的 2D 游戏开发平台：
 - **专业级音频系统**：设备解耦的纯软件混音核心、三总线路由（Master / SFX / Music）、平滑交叉淡入淡出（Cross-fade Envelopes）、3D 空间位置音频（距离线性衰减与立体声声相 Pan）、大曲目 8192 帧按需流式回填（支持 WAV/MP3/OGG/FLAC）；
 - **多趟后处理与 FBO**：离屏渲染目标（RenderTarget）、Ping-Pong 缓冲交换、Bloom 辉光、可分离 9 抽头高斯模糊、波浪扭曲特效、战争迷雾（Fog of War）以及全景小地图烘焙；
 - **即时模式 UI（Immediate-Mode UI）**：开箱即用的 UI 控件库（Panel、Button、Label、Slider、Checkbox、TextInput、ScrollArea、ProgressBar、RadioButton、Combo、可拖拽 Window、Tab 标签页、Tree 折叠树、Tooltip）。
-- **文本与平台能力层**：UTF-8 按需字形图集（原生支持 CJK/日文/韩文，`font_load` 可载入任意 TTF/TTC/OTF）、中文逐字换行与英文按词换行、旋转文字与自动缩字、运行时切换的 TSV 语言包、跨平台资源/用户目录、带 CRC 的 v2 存档容器，以及可选 Steamworks 适配层（成就 / Rich Presence / 语言 / 云存档开关，未链接 SDK 时自动降级为零依赖 stub）。
+- **文本与平台能力层**：UTF-8 按需字形图集（原生支持 CJK/日文/韩文，`font_load` 可载入任意 TTF/TTC/OTF，缺字自动回退字体）、中文逐字换行与英文按词换行（含禁则与 kerning）、旋转文字与自动缩字、运行时切换的 TSV 语言包（BOM 兼容、缺 key 报告）、跨平台资源/用户目录、带 CRC 与 `.bak` 回滚的 v2 存档容器、文件日志与崩溃报告、离线成就镜像、`mod.json` 模组管理器，以及可选 Steamworks 适配层（成就 / Rich Presence / 语言 / 云存档开关，未链接 SDK 时自动降级为零依赖 stub）。
 
 ### 5. 现代化工程化与极佳开发者体验
 - **JIT 脚本热重载**：支持 GCC JIT 与解释器双模式，在运行中修改 Lua 脚本保存即刻生效，无需重启进程；
 - **无头测试与 CI/CD**：内置原生 `--headless`、`--frames N` 与 `--screenshot` 参数，可在无物理显示器的虚拟机、Docker 容器中运行自动化回归验证与帧缓冲像素级比对；
-- **16 项内置自测试套件**：680+ 断言，涵盖刚体动力学、关节、休眠、防穿透、物理查询、碰撞过滤、时间步长、地图对象、A\* 寻路、离屏 FBO、即时 UI、后处理链、战争迷雾、音频混音、动画瓦片、UTF-8/CJK 文本与平台能力层等，所有测试用例均经过变异测试（Mutation-tested）验证；
+- **16 项内置自测试套件**：740+ 断言，涵盖刚体动力学、关节、休眠、防穿透、物理查询、碰撞过滤、时间步长、地图对象、A\* 寻路、离屏 FBO、即时 UI、后处理链、战争迷雾、音频混音、动画瓦片、UTF-8/CJK 文本与字体回退、平台能力层等，所有测试用例均经过变异测试（Mutation-tested）验证；
 - **开箱即用独立打包**：提供自动化打包脚本，一键生成包含依赖库的独立二进制压缩包，分发给玩家免安装环境。
 
 ---
@@ -76,7 +76,7 @@ Fake2D 不仅是渲染器，更是一套自洽完备的 2D 游戏开发平台：
 │     窗口 · 面板 · 按钮 · 滑条 · 输入框 · 复选框 · 单选 · 下拉 · 滚动 · 标签 · 树     │
 │     自动缩字 (LabelFit) · 悬浮提示队列 (Tooltip)                             │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│                     平台抽象 · 本地化 (I18n) · 用户目录 · Steam              │
+│                     平台抽象 · 本地化 (I18n) · 用户目录 · Steam             │
 │         OpenGL 3.3 Core (向下兼容 GL 2.1) · GLFW 3.4 (窗口/手柄/输入快照)   │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -210,6 +210,9 @@ xvfb-run ./build/bin/fake2d_hello --headless --frames 60
 
 # 无头截取指定帧缓冲导出为 PNG（用于视觉回归像素比对）
 xvfb-run ./build/bin/fake2d_hello --headless --mario-demo --shot-frame 60 --screenshot mario_snap.png
+
+# 拒绝“保存成功但画面空白”的截图（退出码 2）：颜色数量下限探测
+xvfb-run ./build/bin/fake2d_hello --headless --text-demo --screenshot text.png --shot-min-colors 12
 
 # 运行 16 组内置无头自测试套件（通过退出码断言执行结果）
 xvfb-run ./build/bin/fake2d_hello --phys-query-test    # 射线检测、形状重叠、接触生命周期
