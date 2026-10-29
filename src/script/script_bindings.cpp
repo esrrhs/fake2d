@@ -2694,6 +2694,19 @@ void RegisterSpriteApi(fakelua::State *state, Engine *engine) {
                            : static_cast<std::int64_t>(static_cast<std::uint64_t>(handle));
             }));
 
+    // Pixel-art load: nearest filtering keeps 16x32 sprites crisp when scaled
+    // up 3-4x (the default sprite_load is linear, which blurs them).
+    fakelua::RegisterNativeFunction(
+        state, "sprite_load_nearest", false,
+        std::function<std::int64_t(fakelua::State *, std::string_view)>(
+            [resources](fakelua::State *, std::string_view path) -> std::int64_t {
+                const TextureHandle handle = resources->LoadTexture(
+                    std::string(path), TextureFilter::Nearest);
+                return handle == kInvalidTextureHandle
+                           ? 0
+                           : static_cast<std::int64_t>(static_cast<std::uint64_t>(handle));
+            }));
+
     fakelua::RegisterNativeFunction(
         state, "sprite_free", false,
         std::function<void(fakelua::State *, std::int64_t)>(
@@ -2821,6 +2834,33 @@ void RegisterSpriteApi(fakelua::State *state, Engine *engine) {
                         {static_cast<float>(dx), static_cast<float>(dy),
                          static_cast<float>(dw), static_cast<float>(dh)},
                         flip_x != 0.0, flip_y != 0.0);
+                }
+            }));
+
+    // Mirrored + tinted region: palette swaps and hit flashes on pixel sprites.
+    fakelua::RegisterNativeFunction(
+        state, "sprite_draw_flip_tinted", false,
+        std::function<void(fakelua::State *, std::int64_t,
+                           double, double, double, double,
+                           double, double, double, double,
+                           double, double,
+                           double, double, double, double)>(
+            [resources, renderer](fakelua::State *, std::int64_t handle,
+                                  double sx, double sy, double sw, double sh,
+                                  double dx, double dy, double dw, double dh,
+                                  double flip_x, double flip_y,
+                                  double r, double g, double b, double a) {
+                const Texture2D *texture = resources->GetTexture(ResolveTexture(handle));
+                if (texture) {
+                    renderer->DrawSpriteFlipped(
+                        *texture,
+                        {static_cast<float>(sx), static_cast<float>(sy),
+                         static_cast<float>(sw), static_cast<float>(sh)},
+                        {static_cast<float>(dx), static_cast<float>(dy),
+                         static_cast<float>(dw), static_cast<float>(dh)},
+                        flip_x != 0.0, flip_y != 0.0,
+                        Color{static_cast<float>(r), static_cast<float>(g),
+                              static_cast<float>(b), static_cast<float>(a)});
                 }
             }));
 }

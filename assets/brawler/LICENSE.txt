@@ -1,0 +1,27 @@
+Brawler demo sprite art — CC0 1.0 Universal (public domain).
+
+Both packs are by Chasersgaming and were downloaded from OpenGameArt on
+2026-10-30. CC0 needs no attribution; the credits are kept here anyway.
+
+Renegade (Sega Master System style brawler character)
+  Author: Chasersgaming
+  Source: https://opengameart.org/content/brawler-asset-character-renegade-sms
+  License: CC0 (https://creativecommons.org/publicdomain/zero/1.0/)
+
+Soldier (NES style brawler character)
+  Author: Chasersgaming
+  Source: https://opengameart.org/content/brawler-asset-character-soldier-nes
+  License: CC0 (https://creativecommons.org/publicdomain/zero/1.0/)
+
+Night city parallax layers (bg/city_scitysky, city_scityfar, city_scitymid,
+city_scityclose)
+  Author: FisherG
+  Source: https://opengameart.org/content/parallax-city-night-4-colors
+  License: CC0 (https://creativecommons.org/publicdomain/zero/1.0/)
+
+Only the animation strips and background layers the demo uses are included.
+The character frames are 16x32 pixels (24x32 for the extended punch/kick/
+knockdown poses). The 160x144 parallax layers are drawn at 2x.
+
+asphalt.png is a small seamless street tile generated for this demo (same
+CC0 dedication as the rest of the project).

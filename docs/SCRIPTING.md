@@ -113,6 +113,7 @@ function says otherwise.
 | `draw_quad(x, y, w, h, r, g, b, a)` | Solid color quad; channels 0–1. |
 | `draw_quad_rgb(x, y, w, h, r, g, b)` | Same, alpha = 1. |
 | `sprite_load(path) -> handle` | Load (or fetch from cache) a PNG; returns an integer handle, `0` on failure. Cached by path — loading again returns the same texture. |
+| `sprite_load_nearest(path) -> handle` | Same, but sampled with **nearest** filtering. Use it for pixel art scaled 2–4x (`sprite_load` is linear and would blur it). |
 | `sprite_free(handle)` | Drop one reference to the texture. |
 | `sprite_width(handle) -> n` / `sprite_height(handle) -> n` | Texture size in pixels; `0` for a stale handle. |
 | `sprite_draw(handle, x, y, w, h)` | Draw a sprite; `w/h <= 0` uses the texture size. |
@@ -121,6 +122,7 @@ function says otherwise.
 | `sprite_draw_rotated(handle, sx, sy, sw, sh, dx, dy, dw, dh, angle_rad, ox, oy)` | Region drawn rotated; `(ox, oy)` is the rotation origin inside the destination quad. |
 | `sprite_draw_rotated_tinted(handle, sx, sy, sw, sh, dx, dy, dw, dh, angle_rad, ox, oy, r, g, b, a)` | Rotated region with a tint — the combination a tumbling wooden block or a tinted debris sprite needs. |
 | `sprite_draw_flip(handle, sx, sy, sw, sh, dx, dy, dw, dh, flip_x, flip_y)` | Region mirrored horizontally/vertically (pass `1`/`0`). Mirroring only swaps UVs — one right-facing asset covers both walk directions without breaking the batch. |
+| `sprite_draw_flip_tinted(handle, ..., flip_x, flip_y, r, g, b, a)` | Mirrored region plus a tint: palette-swapped enemies and white hit flashes from one sheet. |
 
 Draw calls are batched into one vertex stream; texture switches flush the
 batch, so grouping draws by texture keeps draw calls low.
