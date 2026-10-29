@@ -23,19 +23,10 @@ std::string PathToUtf8(const std::filesystem::path &path) {
 }
 
 std::string GetEnv(const char *name) {
-#if defined(_WIN32)
-    char *buffer = nullptr;
-    std::size_t size = 0;
-    if (_dupenv_s(&buffer, &size, name) == 0 && buffer != nullptr) {
-        std::string value(buffer);
-        std::free(buffer);
-        return value;
-    }
-    return {};
-#else
+    // std::getenv works on every toolchain (including MinGW, which has no
+    // MSVC-only _dupenv_s); these are read once at startup, not concurrently.
     const char *value = std::getenv(name);
     return value != nullptr ? value : std::string();
-#endif
 }
 
 bool HasAssets(const std::filesystem::path &dir) {
