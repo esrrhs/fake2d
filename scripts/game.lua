@@ -22,58 +22,61 @@ local MAX_SPEED = 660
 -- state codes (persistent strings are avoided; numbers survive arena resets)
 local ST_READY, ST_PLAY, ST_OVER, ST_WIN = 1, 2, 3, 4
 
--- Persistent state rules (details in docs/SCRIPTING.md):
---  * File-level locals are the only persistent storage a script has.
---  * Tables created at file level are runtime-const; per-frame tables are
---    the arena's business and reset every frame.
---  * A bare numeric literal initializer makes the variable a compile-time
---    constant in the JIT codegen -- reassigning it from a function then
---    fails to compile. Mutable numbers therefore initialize from an
---    expression (the "+ 0" idiom below); booleans are safe as literals.
-local brick_tex, paddle_tex, ball_tex = 0 + 0, 0 + 0, 0 + 0
-local coin_tex = 0 + 0
-local bg_tex = 0 + 0  -- AI-illustrated arcade-hall backdrop
-local coin_anim = 0 + 0  -- spinning-coin frame animation (C++ owned pool)
-local spark_fx = 0 + 0  -- particle emitter handle (C++ owned)
+-- Persistent state rules (details in docs/SCRIPTING.md): file-level locals are
+-- const bindings, so anything that changes across frames lives in a host-side
+-- NativeObject whose fields read and write like an ordinary table. Per-frame
+-- tables stay the arena's business and are rebuilt every frame.
+local S = new_global_obj("breakout", "state")
 
-local inited = false
-local state = ST_READY + 0
-local score = 0 + 0
-local lives = 3 + 0
-local paddle_x = W * 0.5
-local ball_x = W * 0.5
-local ball_y = PADDLE_Y - BALL_R - 1
-local ball_vx, ball_vy = 0.0 + 0.0, 0.0 + 0.0
-local ball_speed = BASE_SPEED + 0
-local brick_mask = 0 + 0
-local bricks_alive = 0 + 0
-local mouse_x = -1.0
-local wait_frames = 0 + 0  -- attract-mode auto launch / restart (deterministic)
+--- Seed every field the logic tests numerically: an unset NativeObject field
+--- reads back nil, and `tex == 0` is how the asset loader detects "not yet".
+local function reset_state()
+    S.brick_tex = 0
+    S.paddle_tex = 0
+    S.ball_tex = 0
+    S.coin_tex = 0
+    S.bg_tex = 0
+    S.coin_anim = 0
+    S.spark_fx = 0
+    S.state = ST_READY
+    S.score = 0
+    S.lives = 3
+    S.paddle_x = W * 0.5
+    S.ball_x = W * 0.5
+    S.ball_y = PADDLE_Y - BALL_R - 1
+    S.ball_vx = 0.0
+    S.ball_vy = 0.0
+    S.ball_speed = BASE_SPEED
+    S.brick_mask = 0
+    S.bricks_alive = 0
+    S.mouse_x = -1.0
+    S.wait_frames = 0
+end
 
 local function reset_bricks()
-    brick_mask = 0
+    S.brick_mask = 0
     local bit = 1
     for _ = 1, COLS * ROWS do
-        brick_mask = brick_mask + bit
+        S.brick_mask = S.brick_mask + bit
         bit = bit * 2
     end
-    bricks_alive = COLS * ROWS
+    S.bricks_alive = COLS * ROWS
 end
 
 local function stick_ball()
-    ball_x = paddle_x
-    ball_y = PADDLE_Y - BALL_R - 1
-    ball_vx = 0.0
-    ball_vy = 0.0
-    ball_speed = BASE_SPEED
+    S.ball_x = S.paddle_x
+    S.ball_y = PADDLE_Y - BALL_R - 1
+    S.ball_vx = 0.0
+    S.ball_vy = 0.0
+    S.ball_speed = BASE_SPEED
 end
 
 local function start_game()
-    score = 0
-    lives = 3
-    paddle_x = W * 0.5
-    state = ST_READY
-    wait_frames = 0
+    S.score = 0
+    S.lives = 3
+    S.paddle_x = W * 0.5
+    S.state = ST_READY
+    S.wait_frames = 0
     reset_bricks()
     stick_ball()
 end
@@ -97,37 +100,37 @@ local function row_tint(row)
 end
 
 local function ensure_assets()
-    if brick_tex == 0 then
-        brick_tex = load_art("assets/arcade/brick.png", "assets/brick.png")
-        paddle_tex = load_art("assets/arcade/paddle.png", "assets/paddle.png")
-        ball_tex = load_art("assets/arcade/ball.png", "assets/ball.png")
-        coin_tex = load_art("assets/arcade/coin.png", "assets/coin.png")
-        bg_tex = sprite_load("assets/arcade/bg.png")
+    if S.brick_tex == 0 then
+        S.brick_tex = load_art("assets/arcade/brick.png", "assets/brick.png")
+        S.paddle_tex = load_art("assets/arcade/paddle.png", "assets/paddle.png")
+        S.ball_tex = load_art("assets/arcade/ball.png", "assets/ball.png")
+        S.coin_tex = load_art("assets/arcade/coin.png", "assets/coin.png")
+        S.bg_tex = sprite_load("assets/arcade/bg.png")
 
         -- Spinning coin: four equal frames packed side by side in one strip,
         -- which covers both the shipped 128x32 sheet and the 64x16 placeholder.
-        local fw = sprite_width(coin_tex)
+        local fw = sprite_width(S.coin_tex)
         if fw ~= 0 then fw = fw / 4 end
-        coin_anim = anim_create()
+        S.coin_anim = anim_create()
         if fw > 0 then
             for i = 0, 3 do
-                anim_frame(coin_anim, coin_tex, i * fw, 0, fw, fw)
+                anim_frame(S.coin_anim, S.coin_tex, i * fw, 0, fw, fw)
             end
-            anim_fps(coin_anim, 9)
-            anim_loop(coin_anim, true)
-            anim_play(coin_anim)
+            anim_fps(S.coin_anim, 9)
+            anim_loop(S.coin_anim, true)
+            anim_play(S.coin_anim)
         end
 
         -- One shared debris emitter; its color is reconfigured per burst.
-        spark_fx = part_create()
-        part_set_lifetime(spark_fx, 0.25, 0.6)
-        part_set_speed(spark_fx, 80, 260)
-        part_set_direction(spark_fx, -1.57, 3.14)
-        part_set_size(spark_fx, 7, 0)
-        part_set_gravity(spark_fx, 0, 420)
-        part_set_drag(spark_fx, 1.5)
-        part_set_spin(spark_fx, 10)
-        part_set_color(spark_fx, 1, 1, 1, 1, 0)
+        S.spark_fx = part_create()
+        part_set_lifetime(S.spark_fx, 0.25, 0.6)
+        part_set_speed(S.spark_fx, 80, 260)
+        part_set_direction(S.spark_fx, -1.57, 3.14)
+        part_set_size(S.spark_fx, 7, 0)
+        part_set_gravity(S.spark_fx, 0, 420)
+        part_set_drag(S.spark_fx, 1.5)
+        part_set_spin(S.spark_fx, 10)
+        part_set_color(S.spark_fx, 1, 1, 1, 1, 0)
     end
 end
 
@@ -143,65 +146,65 @@ local function build_powers()
 end
 
 local function launch()
-    state = ST_PLAY
-    local angle = ((paddle_x / W) - 0.5) * 0.9
-    ball_vx = ball_speed * math.sin(angle)
-    ball_vy = -math.abs(ball_speed * math.cos(angle))
+    S.state = ST_PLAY
+    local angle = ((S.paddle_x / W) - 0.5) * 0.9
+    S.ball_vx = S.ball_speed * math.sin(angle)
+    S.ball_vy = -math.abs(S.ball_speed * math.cos(angle))
     audio_play("launch", 0.35)
 end
 
 local function step_ball(dt, pow)
-    ball_x = ball_x + ball_vx * dt
-    ball_y = ball_y + ball_vy * dt
+    S.ball_x = S.ball_x + S.ball_vx * dt
+    S.ball_y = S.ball_y + S.ball_vy * dt
 
     -- walls
-    if ball_x < BALL_R then
-        ball_x = BALL_R
-        ball_vx = -ball_vx
+    if S.ball_x < BALL_R then
+        S.ball_x = BALL_R
+        S.ball_vx = -S.ball_vx
         audio_play("wall", 0.08)
     end
-    if ball_x > W - BALL_R then
-        ball_x = W - BALL_R
-        ball_vx = -ball_vx
+    if S.ball_x > W - BALL_R then
+        S.ball_x = W - BALL_R
+        S.ball_vx = -S.ball_vx
         audio_play("wall", 0.08)
     end
-    if ball_y < 40 + BALL_R then
-        ball_y = 40 + BALL_R
-        ball_vy = -ball_vy
+    if S.ball_y < 40 + BALL_R then
+        S.ball_y = 40 + BALL_R
+        S.ball_vy = -S.ball_vy
         audio_play("wall", 0.08)
     end
 
     -- paddle
-    if ball_vy > 0
-        and ball_y + BALL_R >= PADDLE_Y
-        and ball_y + BALL_R <= PADDLE_Y + PADDLE_H + 16
-        and ball_x >= paddle_x - PADDLE_W * 0.5 - BALL_R
-        and ball_x <= paddle_x + PADDLE_W * 0.5 + BALL_R then
-        local rel = (ball_x - paddle_x) / (PADDLE_W * 0.5)
+    if S.ball_vy > 0
+        and S.ball_y + BALL_R >= PADDLE_Y
+        and S.ball_y + BALL_R <= PADDLE_Y + PADDLE_H + 16
+        and S.ball_x >= S.paddle_x - PADDLE_W * 0.5 - BALL_R
+        and S.ball_x <= S.paddle_x + PADDLE_W * 0.5 + BALL_R then
+        local rel = (S.ball_x - S.paddle_x) / (PADDLE_W * 0.5)
         if rel > 1 then rel = 1 end
         if rel < -1 then rel = -1 end
         local angle = rel * 1.05
-        ball_vx = ball_speed * math.sin(angle)
-        ball_vy = -math.abs(ball_speed * math.cos(angle))
-        ball_y = PADDLE_Y - BALL_R
+        S.ball_vx = S.ball_speed * math.sin(angle)
+        S.ball_vy = -math.abs(S.ball_speed * math.cos(angle))
+        S.ball_y = PADDLE_Y - BALL_R
         audio_play("paddle", 0.5)
-        part_set_color(spark_fx, 0.85, 0.92, 1.0, 1.0, 0.0)
-        part_emit(spark_fx, 6, ball_x, PADDLE_Y)
+        part_set_color(S.spark_fx, 0.85, 0.92, 1.0, 1.0, 0.0)
+        part_emit(S.spark_fx, 6, S.ball_x, PADDLE_Y)
     end
 
     -- bricks: first hit wins, bounce axis = smaller penetration
     for i = 0, COLS * ROWS - 1 do
-        if math.floor(brick_mask / pow[i]) % 2 == 1 then
+        if math.floor(S.brick_mask / pow[i]) % 2 == 1 then
             local bx = LEFT + (i % COLS) * (BW + GAP)
             local by = TOP + math.floor(i / COLS) * (BH + GAP)
-            if ball_x + BALL_R >= bx and ball_x - BALL_R <= bx + BW
-                and ball_y + BALL_R >= by and ball_y - BALL_R <= by + BH then
-                brick_mask = brick_mask - pow[i]
-                bricks_alive = bricks_alive - 1
+            if S.ball_x + BALL_R >= bx and S.ball_x - BALL_R <= bx + BW
+                and S.ball_y + BALL_R >= by and S.ball_y - BALL_R <= by + BH then
+                S.brick_mask = S.brick_mask - pow[i]
+                S.bricks_alive = S.bricks_alive - 1
                 local row = math.floor(i / COLS)
-                score = score + (ROWS - row) * 10
-                log_number(score)
-                ball_speed = math.min(ball_speed * 1.02, MAX_SPEED)
+                S.score = S.score + (ROWS - row) * 10
+                log_number(S.score)
+                S.ball_speed = math.min(S.ball_speed * 1.02, MAX_SPEED)
 
                 -- row-colored debris burst (C++ particle pool, batched)
                 local pr, pg, pb = 1.0, 1.0, 1.0
@@ -210,46 +213,46 @@ local function step_ball(dt, pow)
                 if row == 2 then pr, pg, pb = 1.0, 0.9, 0.3 end
                 if row == 3 then pr, pg, pb = 0.4, 0.9, 0.45 end
                 if row == 4 then pr, pg, pb = 0.45, 0.65, 1.0 end
-                part_set_color(spark_fx, pr, pg, pb, 1.0, 0.0)
-                part_emit(spark_fx, 10, bx + BW * 0.5, by + BH * 0.5)
+                part_set_color(S.spark_fx, pr, pg, pb, 1.0, 0.0)
+                part_emit(S.spark_fx, 10, bx + BW * 0.5, by + BH * 0.5)
                 audio_play("brick", 0.4)
 
-                local pen_x = math.min(ball_x + BALL_R - bx, bx + BW - (ball_x - BALL_R))
-                local pen_y = math.min(ball_y + BALL_R - by, by + BH - (ball_y - BALL_R))
+                local pen_x = math.min(S.ball_x + BALL_R - bx, bx + BW - (S.ball_x - BALL_R))
+                local pen_y = math.min(S.ball_y + BALL_R - by, by + BH - (S.ball_y - BALL_R))
                 if pen_x < pen_y then
-                    ball_vx = -ball_vx
+                    S.ball_vx = -S.ball_vx
                 else
-                    ball_vy = -ball_vy
+                    S.ball_vy = -S.ball_vy
                 end
             end
         end
     end
 
     -- ball lost
-    if ball_y - BALL_R > H then
-        lives = lives - 1
-        if lives <= 0 then
-            state = ST_OVER
-            wait_frames = 0
+    if S.ball_y - BALL_R > H then
+        S.lives = S.lives - 1
+        if S.lives <= 0 then
+            S.state = ST_OVER
+            S.wait_frames = 0
             audio_play("lose", 0.5)
         else
-            state = ST_READY
-            wait_frames = 0
+            S.state = ST_READY
+            S.wait_frames = 0
             stick_ball()
             audio_play("wall", 0.25)
         end
     end
 
-    if bricks_alive <= 0 then
-        state = ST_WIN
-        wait_frames = 0
+    if S.bricks_alive <= 0 then
+        S.state = ST_WIN
+        S.wait_frames = 0
         audio_play("win", 0.5)
     end
 end
 
 local function draw(pow)
-    if bg_tex ~= 0 then
-        sprite_draw(bg_tex, 0, 0, W, H)
+    if S.bg_tex ~= 0 then
+        sprite_draw(S.bg_tex, 0, 0, W, H)
         -- Keep the sprites legible over the illustrated hall.
         draw_quad(0, 0, W, H, 0.02, 0.02, 0.07, 0.42)
     else
@@ -257,22 +260,22 @@ local function draw(pow)
     end
 
     -- HUD: score bar + score text + lives
-    local bar = score
+    local bar = S.score
     if bar > 250 then bar = 250 end
-    if brick_tex ~= 0 then
-        sprite_draw_tinted(brick_tex, 32, 22, 254, 14, 0.22, 0.24, 0.34, 0.9)
-        sprite_draw_tinted(brick_tex, 32, 22, 4 + bar, 14, 1.0, 0.86, 0.40, 1.0)
+    if S.brick_tex ~= 0 then
+        sprite_draw_tinted(S.brick_tex, 32, 22, 254, 14, 0.22, 0.24, 0.34, 0.9)
+        sprite_draw_tinted(S.brick_tex, 32, 22, 4 + bar, 14, 1.0, 0.86, 0.40, 1.0)
     else
         draw_quad(32, 24, 204, 12, 0.15, 0.18, 0.25, 1.0)
         draw_quad(32, 24, 4 + bar, 12, 1.0, 0.85, 0.3, 1.0)
     end
-    draw_text("SCORE " .. score, 32, 40, 0.5, 0.95, 0.97, 1.0, 1.0)
-    if coin_anim ~= 0 then anim_draw(coin_anim, 252, 18, 26, 26) end
+    draw_text("SCORE " .. S.score, 32, 40, 0.5, 0.95, 0.97, 1.0, 1.0)
+    if S.coin_anim ~= 0 then anim_draw(S.coin_anim, 252, 18, 26, 26) end
     draw_text("LIVES", W - 118, 16, 0.5, 0.95, 0.97, 1.0, 1.0)
-    for i = 0, lives - 1 do
+    for i = 0, S.lives - 1 do
         local lx = W - 54 - i * 22
-        if ball_tex ~= 0 then
-            sprite_draw(ball_tex, lx, 30, 18, 18)
+        if S.ball_tex ~= 0 then
+            sprite_draw(S.ball_tex, lx, 30, 18, 18)
         else
             draw_quad(lx + 2, 34, 14, 14, 0.9, 0.3, 0.3, 1.0)
         end
@@ -280,23 +283,23 @@ local function draw(pow)
 
     -- bricks, one tint per row
     for i = 0, COLS * ROWS - 1 do
-        if math.floor(brick_mask / pow[i]) % 2 == 1 then
+        if math.floor(S.brick_mask / pow[i]) % 2 == 1 then
             local row = math.floor(i / COLS)
             local col = i % COLS
             local cr, cg, cb = row_tint(row)
-            sprite_draw_tinted(brick_tex, LEFT + col * (BW + GAP), TOP + row * (BH + GAP), BW, BH, cr, cg, cb, 1.0)
+            sprite_draw_tinted(S.brick_tex, LEFT + col * (BW + GAP), TOP + row * (BH + GAP), BW, BH, cr, cg, cb, 1.0)
         end
     end
 
-    if paddle_tex ~= 0 then
-        sprite_draw(paddle_tex, paddle_x - PADDLE_W * 0.5, PADDLE_Y, PADDLE_W, PADDLE_H)
+    if S.paddle_tex ~= 0 then
+        sprite_draw(S.paddle_tex, S.paddle_x - PADDLE_W * 0.5, PADDLE_Y, PADDLE_W, PADDLE_H)
     else
-        draw_quad(paddle_x - PADDLE_W * 0.5, PADDLE_Y, PADDLE_W, PADDLE_H, 0.9, 0.94, 1.0, 1.0)
+        draw_quad(S.paddle_x - PADDLE_W * 0.5, PADDLE_Y, PADDLE_W, PADDLE_H, 0.9, 0.94, 1.0, 1.0)
     end
-    if ball_tex ~= 0 then
-        sprite_draw(ball_tex, ball_x - BALL_R, ball_y - BALL_R, BALL_R * 2, BALL_R * 2)
+    if S.ball_tex ~= 0 then
+        sprite_draw(S.ball_tex, S.ball_x - BALL_R, S.ball_y - BALL_R, BALL_R * 2, BALL_R * 2)
     else
-        draw_quad(ball_x - BALL_R, ball_y - BALL_R, BALL_R * 2, BALL_R * 2, 1.0, 1.0, 1.0, 1.0)
+        draw_quad(S.ball_x - BALL_R, S.ball_y - BALL_R, BALL_R * 2, BALL_R * 2, 1.0, 1.0, 1.0, 1.0)
     end
 
     -- Debris sparks: additive glow, all emitters in one batched run.
@@ -304,24 +307,24 @@ local function draw(pow)
     part_draw()
     draw_set_blend(0)
 
-    if state == ST_READY then
+    if S.state == ST_READY then
         if math.sin(time_elapsed() * 6.0) > 0 then
             local hint = "PRESS SPACE OR CLICK TO LAUNCH"
             local hw = text_width(hint, 0.6)
             draw_text(hint, W * 0.5 - hw * 0.5, PADDLE_Y + 34, 0.6, 0.9, 0.92, 0.98, 0.9)
         end
     end
-    if state == ST_OVER or state == ST_WIN then
+    if S.state == ST_OVER or S.state == ST_WIN then
         draw_quad(0, 0, W, H, 0.0, 0.0, 0.0, 0.55)
         local banner = "GAME OVER"
         local br, bg, bb = 0.95, 0.35, 0.35
-        if state == ST_WIN then
+        if S.state == ST_WIN then
             banner = "YOU WIN!"
             br, bg, bb = 1.0, 0.85, 0.35
         end
         local bw2 = text_width(banner, 1.6)
         draw_text(banner, W * 0.5 - bw2 * 0.5, H * 0.5 - 30, 1.6, br, bg, bb, 1.0)
-        local sub = "SCORE " .. score
+        local sub = "SCORE " .. S.score
         local sw2 = text_width(sub, 0.7)
         draw_text(sub, W * 0.5 - sw2 * 0.5, H * 0.5 + 24, 0.7, 0.9, 0.92, 0.98, 1.0)
     end
@@ -330,8 +333,9 @@ end
 function update(dt)
     -- FakeLua only allows definitions at file level, so one-time
     -- initialization happens on the first update instead.
-    if not inited then
-        inited = true
+    if not S.inited then
+        S.inited = true
+        reset_state()
         start_game()
     end
 
@@ -341,31 +345,31 @@ function update(dt)
 
     -- paddle steering: the mouse wins when it moves, arrows otherwise
     local mx = input_mouse_x()
-    if mx ~= mouse_x and mx >= 0 then
-        paddle_x = mx
-        mouse_x = mx
+    if mx ~= S.mouse_x and mx >= 0 then
+        S.paddle_x = mx
+        S.mouse_x = mx
     end
     if input_key_down("left") then
-        paddle_x = paddle_x - PADDLE_SPEED * dt
+        S.paddle_x = S.paddle_x - PADDLE_SPEED * dt
     end
     if input_key_down("right") then
-        paddle_x = paddle_x + PADDLE_SPEED * dt
+        S.paddle_x = S.paddle_x + PADDLE_SPEED * dt
     end
-    if paddle_x < PADDLE_W * 0.5 then paddle_x = PADDLE_W * 0.5 end
-    if paddle_x > W - PADDLE_W * 0.5 then paddle_x = W - PADDLE_W * 0.5 end
+    if S.paddle_x < PADDLE_W * 0.5 then S.paddle_x = PADDLE_W * 0.5 end
+    if S.paddle_x > W - PADDLE_W * 0.5 then S.paddle_x = W - PADDLE_W * 0.5 end
 
     local launch_pressed = input_key_pressed("space") or input_key_pressed("return") or input_mouse_pressed(0)
-    wait_frames = wait_frames + 1
+    S.wait_frames = S.wait_frames + 1
 
-    if state == ST_READY then
+    if S.state == ST_READY then
         stick_ball()
-        if launch_pressed or wait_frames > 300 then
+        if launch_pressed or S.wait_frames > 300 then
             launch()
         end
-    elseif state == ST_PLAY then
+    elseif S.state == ST_PLAY then
         step_ball(dt, pow)
     else
-        if launch_pressed or wait_frames > 450 then
+        if launch_pressed or S.wait_frames > 450 then
             start_game()
         end
     end
