@@ -103,6 +103,16 @@ void SetRichPresence(std::string_view key, std::string_view value) {
 #endif
 }
 
+void ClearRichPresence() {
+#if defined(FAKE2D_WITH_STEAM_SDK)
+    if (g_available) {
+        if (ISteamFriends *friends = SteamFriends()) {
+            friends->ClearRichPresence();
+        }
+    }
+#endif
+}
+
 std::string Language() {
     return g_language;
 }
