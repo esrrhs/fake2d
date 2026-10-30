@@ -724,4 +724,89 @@ float Font::DrawTextEx(SpriteBatch &batch, std::string_view text,
     return pen_y;
 }
 
+float Font::MeasureTextEx(std::string_view text, float scale, float wrap_width) const {
+    // DrawTextEx 的无绘制镜像：同一断行走查，只累计行高。draw 与 measure 永远一致。
+    if (!texture_.IsValid()) {
+        return 0.0f;
+    }
+    if (wrap_width <= 0.0f) {
+        return line_height_ * scale;
+    }
+
+    const float lh = line_height_ * scale;
+    const std::size_t n = text.size();
+    float pen_y = 0.0f;
+    std::size_t i = 0;
+
+    while (i <= n) {
+        if (i == n) {
+            break;
+        }
+
+        std::size_t line_start = i;
+        std::size_t line_end = i;
+        std::size_t scan = i;
+        float line_w = 0.0f;
+        bool has_content = false;
+        bool hit_newline = false;
+        char32_t previous_content = 0;
+
+        while (scan < n) {
+            std::size_t cursor = scan;
+            const char32_t cp = DecodeUtf8(text, cursor);
+            if (cp == '\n') {
+                line_end = scan;
+                scan = cursor;
+                hit_newline = true;
+                break;
+            }
+            const bool space = IsSpace(cp);
+            if (!space && !IsCjk(cp)) {
+                while (cursor < n) {
+                    const std::size_t save = cursor;
+                    const char32_t next = DecodeUtf8(text, cursor);
+                    if (IsSpace(next) || next == '\n' || IsCjk(next)) {
+                        cursor = save;
+                        break;
+                    }
+                }
+            }
+            const std::size_t cluster_end = cursor;
+            const float cluster_w =
+                MeasureText(text.substr(scan, cluster_end - scan)) * scale;
+
+            const bool can_break =
+                !NoLineStart(cp) && !NoLineEnd(previous_content);
+            if (has_content && !space && can_break &&
+                line_w + cluster_w > wrap_width) {
+                line_end = scan; // wrap before this cluster
+                break;
+            }
+            if (!has_content && space) {
+                line_start = cluster_end;
+                line_end = cluster_end;
+                scan = cluster_end;
+                continue;
+            }
+            line_w += cluster_w;
+            line_end = cluster_end;
+            has_content = true;
+            if (!space) {
+                previous_content = cp;
+            }
+            scan = cluster_end;
+        }
+
+        pen_y += lh;
+
+        i = scan;
+        if (hit_newline) {
+            i = scan;
+        } else if (i == line_start && !has_content) {
+            ++i; // safety: never stall on a zero-width line
+        }
+    }
+    return pen_y;
+}
+
 } // namespace fake2d
