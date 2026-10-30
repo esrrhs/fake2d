@@ -93,13 +93,18 @@ public:
                      float x, float y, float scale, int align, float wrap_width,
                      const Color &tint = Color::White()) const;
 
+    /// Height text would occupy when laid out exactly as DrawTextEx places it
+    /// (lines × line height at this scale), without submitting any quads.
+    /// Pass the same scale/wrap_width as the matching DrawTextEx call.
+    [[nodiscard]] float MeasureTextEx(std::string_view text, float scale,
+                                      float wrap_width) const;
+
     /// Rotated single line: every glyph quad is rotated by angle_rad around
     /// the pen origin (x, y). Returns the end pen x (unrotated).
     float DrawTextRotated(SpriteBatch &batch, std::string_view text,
                           float x, float y, float scale, float angle_rad,
                           const Color &tint = Color::White()) const;
 
-private:
     struct Glyph {
         Rect atlas;        // pixel rect in the atlas
         Vec2 offset{};     // draw offset from the line origin (top-left box)
@@ -110,9 +115,13 @@ private:
     };
 
     /// Cached glyph, rasterizing and uploading it on first use (vector fonts).
-    const Glyph *GetGlyph(char32_t codepoint) const;
+    /// Public so hosts can lay out custom effects (letter spacing, custom
+    /// pivots) on top of the shared atlas instead of rasterizing their own.
+    [[nodiscard]] const Glyph *GetGlyph(char32_t codepoint) const;
     /// Kerning between two glyphs of the same face (0 across faces).
-    float KernAdvance(const Glyph *previous, const Glyph *next) const;
+    [[nodiscard]] float KernAdvance(const Glyph *previous, const Glyph *next) const;
+
+private:
     bool CreateAtlasTexture(int width, int height, const std::uint8_t *rgba);
 
     struct Impl;
