@@ -3941,6 +3941,215 @@ void RegisterShaderApi(fakelua::State *state, Engine *engine) {
             }));
 }
 
+/// Lighting: moving light sources whose pools and projected shadows react to
+/// the scene's own geometry. Ids are 1-based, 0 means "no such light".
+void RegisterLightingApi(fakelua::State *state, Engine *engine) {
+    auto lights = [engine]() -> LightSystem & { return engine->GetRenderer().Lights(); };
+
+    fakelua::RegisterNativeFunction(
+        state, "light_create", false,
+        std::function<std::int64_t(fakelua::State *)>(
+            [lights](fakelua::State *) -> std::int64_t {
+                return lights().AddLight();
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "light_destroy", false,
+        std::function<void(fakelua::State *, double)>(
+            [lights](fakelua::State *, double id) {
+                lights().RemoveLight(static_cast<int>(id));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "light_valid", false,
+        std::function<std::int64_t(fakelua::State *, double)>(
+            [lights](fakelua::State *, double id) -> std::int64_t {
+                return lights().HasLight(static_cast<int>(id)) ? 1 : 0;
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "light_count", false,
+        std::function<std::int64_t(fakelua::State *)>(
+            [lights](fakelua::State *) -> std::int64_t {
+                return lights().LightCount();
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "light_set_position", false,
+        std::function<void(fakelua::State *, double, double, double)>(
+            [lights](fakelua::State *, double id, double x, double y) {
+                lights().SetLightPosition(static_cast<int>(id), static_cast<float>(x),
+                                          static_cast<float>(y));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "light_set_radius", false,
+        std::function<void(fakelua::State *, double, double)>(
+            [lights](fakelua::State *, double id, double radius) {
+                lights().SetLightRadius(static_cast<int>(id), static_cast<float>(radius));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "light_set_color", false,
+        std::function<void(fakelua::State *, double, double, double, double, double)>(
+            [lights](fakelua::State *, double id, double r, double g, double b,
+                     double intensity) {
+                lights().SetLightColor(static_cast<int>(id), static_cast<float>(r),
+                                       static_cast<float>(g), static_cast<float>(b),
+                                       static_cast<float>(intensity));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "light_set_shadows", false,
+        std::function<void(fakelua::State *, double, double)>(
+            [lights](fakelua::State *, double id, double on) {
+                lights().SetLightShadows(static_cast<int>(id), on != 0.0);
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "light_set_enabled", false,
+        std::function<void(fakelua::State *, double, double)>(
+            [lights](fakelua::State *, double id, double on) {
+                lights().SetLightEnabled(static_cast<int>(id), on != 0.0);
+            }));
+
+    // --- shadow casters ----------------------------------------------------
+    fakelua::RegisterNativeFunction(
+        state, "occluder_add_rect", false,
+        std::function<std::int64_t(fakelua::State *, double, double, double, double)>(
+            [lights](fakelua::State *, double x, double y, double w,
+                     double h) -> std::int64_t {
+                const Vec2 box[4] = {{static_cast<float>(x), static_cast<float>(y)},
+                                     {static_cast<float>(x + w), static_cast<float>(y)},
+                                     {static_cast<float>(x + w), static_cast<float>(y + h)},
+                                     {static_cast<float>(x), static_cast<float>(y + h)}};
+                return lights().AddOccluder(box, 4);
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "occluder_set_rect", false,
+        std::function<void(fakelua::State *, double, double, double, double, double)>(
+            [lights](fakelua::State *, double id, double x, double y, double w,
+                     double h) {
+                lights().SetOccluderRect(static_cast<int>(id), static_cast<float>(x),
+                                         static_cast<float>(y), static_cast<float>(w),
+                                         static_cast<float>(h));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "occluder_add_poly", false,
+        std::function<std::int64_t(fakelua::State *, double, double, double, double, double,
+                                   double, double, double)>(
+            [lights](fakelua::State *, double x1, double y1, double x2, double y2, double x3,
+                     double y3, double x4, double y4) -> std::int64_t {
+                const Vec2 poly[4] = {{static_cast<float>(x1), static_cast<float>(y1)},
+                                      {static_cast<float>(x2), static_cast<float>(y2)},
+                                      {static_cast<float>(x3), static_cast<float>(y3)},
+                                      {static_cast<float>(x4), static_cast<float>(y4)}};
+                return lights().AddOccluder(poly, 4);
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "occluder_add_body", false,
+        std::function<std::int64_t(fakelua::State *, double)>(
+            [lights](fakelua::State *, double body) -> std::int64_t {
+                return lights().AddBodyOccluder(static_cast<int>(body));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "occluder_set_poly", false,
+        std::function<void(fakelua::State *, double, double, double, double, double, double,
+                           double, double, double)>(
+            [lights](fakelua::State *, double id, double x1, double y1, double x2, double y2,
+                     double x3, double y3, double x4, double y4) {
+                const Vec2 poly[4] = {{static_cast<float>(x1), static_cast<float>(y1)},
+                                      {static_cast<float>(x2), static_cast<float>(y2)},
+                                      {static_cast<float>(x3), static_cast<float>(y3)},
+                                      {static_cast<float>(x4), static_cast<float>(y4)}};
+                lights().SetOccluderPoly(static_cast<int>(id), poly, 4);
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "occluder_destroy", false,
+        std::function<void(fakelua::State *, double)>(
+            [lights](fakelua::State *, double id) {
+                lights().RemoveOccluder(static_cast<int>(id));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "occluder_set_enabled", false,
+        std::function<void(fakelua::State *, double, double)>(
+            [lights](fakelua::State *, double id, double on) {
+                lights().SetOccluderEnabled(static_cast<int>(id), on != 0.0);
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "occluder_count", false,
+        std::function<std::int64_t(fakelua::State *)>(
+            [lights](fakelua::State *) -> std::int64_t {
+                return lights().OccluderCount();
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "occluder_sync_bodies", false,
+        std::function<void(fakelua::State *)>(
+            [engine, lights](fakelua::State *) {
+                lights().SyncBodyOccluders(engine->GetPhysics());
+            }));
+
+    // --- look and the pass -------------------------------------------------
+    fakelua::RegisterNativeFunction(
+        state, "light_set_ambient", false,
+        std::function<void(fakelua::State *, double, double, double, double)>(
+            [lights](fakelua::State *, double r, double g, double b, double a) {
+                lights().SetAmbient(static_cast<float>(r), static_cast<float>(g),
+                                    static_cast<float>(b), static_cast<float>(a));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "light_set_shadow_darkness", false,
+        std::function<void(fakelua::State *, double)>(
+            [lights](fakelua::State *, double keep) {
+                lights().SetShadowDarkness(static_cast<float>(keep));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "light_set_core", false,
+        std::function<void(fakelua::State *, double, double)>(
+            [lights](fakelua::State *, double scale, double intensity) {
+                lights().SetCore(static_cast<float>(scale), static_cast<float>(intensity));
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "light_set_on", false,
+        std::function<void(fakelua::State *, double)>(
+            [lights](fakelua::State *, double on) { lights().SetEnabled(on != 0.0); }));
+
+    fakelua::RegisterNativeFunction(
+        state, "light_render", false,
+        std::function<void(fakelua::State *)>(
+            [lights](fakelua::State *) { lights().Render(); }));
+
+    // 1 lights, 2 visible, 3 casting, 4 occluders, 5 shadow quads,
+    // 6 budget-clipped, 7 draw calls.
+    fakelua::RegisterNativeFunction(
+        state, "light_stat", false,
+        std::function<std::int64_t(fakelua::State *, double)>(
+            [lights](fakelua::State *, double which) -> std::int64_t {
+                const LightSystem::Stats s = lights().GetStats();
+                switch (static_cast<int>(which)) {
+                    case 1: return s.lights;
+                    case 2: return s.visible_lights;
+                    case 3: return s.shadow_lights;
+                    case 4: return s.occluders;
+                    case 5: return s.shadow_quads;
+                    case 6: return s.budget_clipped;
+                    case 7: return s.draw_calls;
+                    default: return 0;
+                }
+            }));
+}
+
 void RegisterWindowApi(fakelua::State *state, Engine *engine) {
     fakelua::RegisterNativeFunction(
         state, "window_quit", false,
@@ -4102,6 +4311,7 @@ void RegisterScriptApi(fakelua::State *state, Engine *engine) {
     RegisterEntityApi(state, engine);
     RegisterShaderApi(state, engine);
     RegisterWindowApi(state, engine);
+    RegisterLightingApi(state, engine);
     RegisterDebugApi(state);
 }
 

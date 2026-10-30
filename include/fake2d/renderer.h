@@ -4,6 +4,7 @@
 #include "fake2d/font.h"
 #include "fake2d/math.h"
 #include "fake2d/render_target.h"
+#include "fake2d/lighting.h"
 #include "fake2d/shader.h"
 #include "fake2d/sprite_batch.h"
 #include "fake2d/texture.h"
@@ -111,6 +112,12 @@ public:
     // --- offscreen render targets -------------------------------------------
     RenderTargetLibrary &GetRenderTargets() { return targets_; }
     [[nodiscard]] const RenderTargetLibrary &GetRenderTargets() const { return targets_; }
+
+    /// Real-time 2D lights and projected shadow volumes. Owned by the renderer
+    /// because the pass needs the batch, the target pool and the camera; games
+    /// call `Lights().Render()` after drawing the world and before the HUD.
+    LightSystem &Lights() { return lights_; }
+    [[nodiscard]] const LightSystem &Lights() const { return lights_; }
 
     /// Redirect every subsequent draw into render target `id` (1-based, as
     /// returned by RenderTargetLibrary::Create). The pending batch is flushed
@@ -282,6 +289,7 @@ private:
     SpriteBatch batch_;
     Font font_;
     RenderTargetLibrary targets_;
+    LightSystem lights_;
     /// 1-based id of the bound target; 0 = the window.
     int active_target_ = 0;
     /// Canvas camera for the active target: top-left origin, own pixel size.
