@@ -66,6 +66,12 @@ assets/*
 !assets/m_tiles.png
 !assets/p_tiles.png
 !assets/s_tiles.png
+!assets/m_goomba.png
+!assets/m_mushroom.png
+!assets/m_player_s.png
+!assets/m_player_b.png
+!assets/player.png
+!assets/s_player.png
 !assets/arcade/
 !assets/arcade/**
 !assets/art/
