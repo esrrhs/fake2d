@@ -64,6 +64,7 @@ local PHASE_SEQ = 2
 local inited = false
 local tex_ball = 0 + 0
 local tex_white = 0 + 0
+local tex_table = 0 + 0
 local vw = 960.0 + 0.0
 local vh = 540.0 + 0.0
 
@@ -1287,31 +1288,10 @@ local function draw_table()
     local ow = TW + RAIL * 2.0
     local oh = TH + RAIL * 2.0
 
-    draw_quad(ox + 10.0, oy + 18.0, ow, oh, 0.0, 0.0, 0.0, 0.50)
-    draw_quad(ox + 4.0, oy + 8.0, ow, oh, 0.0, 0.0, 0.0, 0.32)
-    draw_quad(ox, oy, ow, oh, 0.28, 0.150, 0.068, 1.0)
-    draw_quad(ox + 3.0, oy + 3.0, ow - 6.0, oh - 6.0, 0.40, 0.225, 0.105, 1.0)
-    draw_quad(ox + 7.0, oy + 7.0, ow - 14.0, oh - 14.0, 0.33, 0.180, 0.080, 1.0)
-    draw_quad(ox + 3.0, oy + 3.0, ow - 6.0, 2.0, 0.78, 0.55, 0.30, 0.55)
-    draw_quad(ox + 3.0, oy + oh - 5.0, ow - 6.0, 2.0, 0.10, 0.05, 0.02, 0.55)
+    -- AI key art: full table (rails, baize, pockets) in one photographed sheet.
+    sprite_draw(tex_table, ox, oy, ow, oh)
 
-    for i = 0, 9 do
-        local gy = oy + 6.0 + i * (oh - 12.0) / 9.0
-        draw_quad(ox + 5.0, gy, ow - 10.0, 1.0, 0.58, 0.37, 0.17, 0.22)
-    end
-
-    -- Cloth with a soft centre light and darkened edges.
-    draw_quad(TX, TY, TW, TH, 0.045, 0.325, 0.165, 1.0)
-    draw_set_blend(1)
-    draw_quad(TX + TW * 0.13, TY + TH * 0.08, TW * 0.74, TH * 0.56, 0.05, 0.12, 0.07, 0.30)
-    draw_quad(TX + TW * 0.27, TY + TH * 0.20, TW * 0.46, TH * 0.34, 0.04, 0.10, 0.06, 0.22)
-    draw_set_blend(0)
-    draw_quad(TX, TY, TW, 9.0, 0.0, 0.04, 0.02, 0.20)
-    draw_quad(TX, TY + TH - 9.0, TW, 9.0, 0.0, 0.04, 0.02, 0.16)
-    draw_quad(TX, TY, 9.0, TH, 0.0, 0.04, 0.02, 0.18)
-    draw_quad(TX + TW - 9.0, TY, 9.0, TH, 0.0, 0.04, 0.02, 0.16)
-
-    -- Baulk line, D and the colour spots.
+    -- Baulk line, D and the colour spots drawn over the photographed cloth.
     draw_quad(BAX - 0.6, TY + 3.0, 1.2, TH - 6.0, 0.72, 0.88, 0.74, 0.18)
     local seg = 26
     for i = 0, seg do
@@ -1326,16 +1306,6 @@ local function draw_table()
     spot_mark(home_x(4), home_y(4))
     spot_mark(home_x(5), home_y(5))
     spot_mark(home_x(6), home_y(6))
-
-    -- Cushions just outside the cloth, then the pocket mouths.
-    draw_quad(TX, TY - CUSH, TW, CUSH, 0.030, 0.230, 0.118, 1.0)
-    draw_quad(TX, TY + TH, TW, CUSH, 0.030, 0.230, 0.118, 1.0)
-    draw_quad(TX - CUSH, TY, CUSH, TH, 0.030, 0.230, 0.118, 1.0)
-    draw_quad(TX + TW, TY, CUSH, TH, 0.030, 0.230, 0.118, 1.0)
-    draw_quad(TX, TY - 1.0, TW, 1.0, 0.34, 0.62, 0.40, 0.50)
-    draw_quad(TX, TY + TH, TW, 1.0, 0.34, 0.62, 0.40, 0.35)
-    draw_quad(TX - 1.0, TY, 1.0, TH, 0.34, 0.62, 0.40, 0.45)
-    draw_quad(TX + TW, TY, 1.0, TH, 0.34, 0.62, 0.40, 0.35)
 
     draw_pocket(TX, TY)
     draw_pocket(TX + TW, TY)
@@ -1674,8 +1644,9 @@ end
 local function init()
     vw = camera_viewport_w()
     vh = camera_viewport_h()
-    tex_ball = sprite_load("assets/snooker/ball.png")
+    tex_ball = sprite_load("assets/art/snooker_ball.png")
     tex_white = sprite_load_nearest("assets/white.png")
+    tex_table = sprite_load("assets/art/snooker_table.png")
     rng_seed(20261030)
     camera_snap(0.0, 0.0)
     camera_clear_bounds()

@@ -40,6 +40,13 @@ local TAG_PROP = 3
 
 local brick_tex = 0 + 0
 local ball_tex = 0 + 0
+local bg_tex = 0 + 0
+local ground_tex = 0 + 0
+local head_tex = 0 + 0
+local torso_tex = 0 + 0
+local limb_tex = 0 + 0
+local rope_tex = 0 + 0
+local water_tex = 0 + 0
 local inited = false
 
 -- world statics (created once)
@@ -94,8 +101,17 @@ local function add_entity(tag, body, joint)
 end
 
 local function init_assets()
-    brick_tex = sprite_load("assets/brick.png")
+    brick_tex = sprite_load("assets/art/wood_plank.png")
     ball_tex = sprite_load("assets/ball.png")
+    bg_tex = sprite_load("assets/art/limbo_bg.png")
+    ground_tex = sprite_load("assets/art/limbo_ground.png")
+    -- AI-illustrated silhouette set; the primitive painters below keep the
+    -- sandbox readable when the shipped art is absent.
+    head_tex = sprite_load("assets/limbo/head.png")
+    torso_tex = sprite_load("assets/limbo/torso.png")
+    limb_tex = sprite_load("assets/limbo/limb.png")
+    rope_tex = sprite_load("assets/limbo/rope.png")
+    water_tex = sprite_load("assets/limbo/water.png")
 end
 
 local function create_statics()
@@ -466,39 +482,29 @@ end
 local function draw_background()
     local cam_x = camera_x()
     draw_set_layer(0)
-    draw_quad(cam_x, 0.0, SCREEN_W, 120.0, 0.30, 0.33, 0.31, 1.0)
-    draw_quad(cam_x, 120.0, SCREEN_W, 120.0, 0.39, 0.42, 0.39, 1.0)
-    draw_quad(cam_x, 240.0, SCREEN_W, 120.0, 0.50, 0.53, 0.48, 1.0)
-    draw_quad(cam_x, 360.0, SCREEN_W, 90.0, 0.60, 0.62, 0.56, 1.0)
-
-    -- slow mist bands
-    local t = time_elapsed()
-    local drift = (t * 12.0) - math.floor((t * 12.0) / 260.0) * 260.0
-    draw_quad(cam_x - 260.0 + drift, 330.0, 700.0, 90.0, 0.78, 0.80, 0.76, 0.10)
-    draw_quad(cam_x - 40.0 - drift * 0.6, 290.0, 620.0, 70.0, 0.82, 0.84, 0.80, 0.08)
-
-    -- parallax tree silhouettes
-    local px = cam_x * 0.65
-    draw_set_layer(1)
-    for i = 1, 8 do
-        local tr = trees[i]
-        local x = px + tr.x * 0.7
-        draw_quad(x, tr.top, tr.w, tr.h, 0.16, 0.18, 0.16, 1.0)
-        sprite_draw_tinted(ball_tex, x - 34.0, tr.top - 44.0, 86.0, 66.0,
-                           0.15, 0.17, 0.15, 1.0)
-        sprite_draw_tinted(ball_tex, x - 52.0, tr.top - 20.0, 90.0, 60.0,
-                           0.14, 0.16, 0.14, 1.0)
-    end
+    -- Monochrome AI key art fills the viewport; mist and trees are baked in.
+    sprite_draw(bg_tex, cam_x, 0.0, SCREEN_W, SCREEN_H)
 end
 
 local function draw_ground_water()
     draw_set_layer(2)
-    draw_quad(0.0, GROUND_Y, WORLD_W, SCREEN_H - GROUND_Y, 0.05, 0.06, 0.05, 1.0)
-    draw_quad(0.0, GROUND_Y - 26.0, WORLD_W, 26.0, 0.33, 0.35, 0.32, 1.0)
+    local gx = 0.0
+    while gx < WORLD_W do
+        sprite_draw(ground_tex, gx, GROUND_Y, 256.0, SCREEN_H - GROUND_Y)
+        gx = gx + 256.0
+    end
 end
 
 local function draw_water()
     draw_set_layer(4)
+    if water_tex ~= 0 then
+        -- Illustrated pool: the art carries its own surface line and depth, so
+        -- the whole body just bobs a couple of pixels on the tide.
+        local bob = math.sin(time_elapsed() * 1.6) * 2.0
+        sprite_draw(water_tex, WATER_X0, WATER_Y - 6.0 + bob,
+                    WATER_X1 - WATER_X0, GROUND_Y - WATER_Y + 10.0)
+        return
+    end
     draw_quad(WATER_X0, WATER_Y, WATER_X1 - WATER_X0,
               GROUND_Y - WATER_Y, 0.17, 0.25, 0.30, 0.52)
     local t = time_elapsed()
@@ -545,13 +551,24 @@ local function draw_rope()
             local dx = x1 - x0
             local dy = y1 - y0
             local len = math.sqrt(dx * dx + dy * dy)
-            local steps = math.floor(len / 4.0) + 1
-            for s = 0, steps do
-                local t = s / steps
-                local px = x0 + dx * t
-                local py = y0 + dy * t
-                sprite_draw_tinted(ball_tex, px - 3.5, py - 3.5, 7.0, 7.0,
-                                   0.05, 0.06, 0.05, 1.0)
+            if rope_tex ~= 0 then
+                -- One illustrated strand between each pair of rope nodes.
+                local mx = (x0 + x1) * 0.5
+                local my = (y0 + y1) * 0.5
+                sprite_draw_rotated_tinted(rope_tex, 0.0, 0.0,
+                                           sprite_width(rope_tex), sprite_height(rope_tex),
+                                           mx - len * 0.5, my - 4.0, len, 8.0,
+                                           math.atan2(dy, dx), len * 0.5, 4.0,
+                                           1.0, 1.0, 1.0, 1.0)
+            else
+                local steps = math.floor(len / 4.0) + 1
+                for s = 0, steps do
+                    local t = s / steps
+                    local px = x0 + dx * t
+                    local py = y0 + dy * t
+                    sprite_draw_tinted(ball_tex, px - 3.5, py - 3.5, 7.0, 7.0,
+                                       0.05, 0.06, 0.05, 1.0)
+                end
             end
             local r = 5.0
             if i == n - 1 then
@@ -594,6 +611,21 @@ local function draw_props()
     end
 end
 
+-- One illustrated silhouette part, placed and rotated by its physics body.
+local function draw_part(tex, body, w, h)
+    if tex == 0 or body == 0 then
+        return false
+    end
+    local x = phys_smooth_x(body)
+    local y = phys_smooth_y(body)
+    local rot = phys_smooth_rot(body)
+    sprite_draw_rotated_tinted(tex, 0.0, 0.0,
+                               sprite_width(tex), sprite_height(tex),
+                               x - w * 0.5, y - h * 0.5, w, h,
+                               rot, w * 0.5, h * 0.5, 1.0, 1.0, 1.0, 1.0)
+    return true
+end
+
 local function draw_hero()
     if hd_torso == 0 then
         return
@@ -603,12 +635,24 @@ local function draw_hero()
     local y = phys_smooth_y(hd_torso)
     sprite_draw_tinted(ball_tex, x - 60.0, y - 60.0, 120.0, 120.0,
                        1.0, 1.0, 0.95, 0.05)
-    draw_circle_body(hd_head, 8.0, 0.04, 0.05, 0.04)
-    draw_box_body(hd_torso, 8.0, 16.0, 0.04, 0.05, 0.04)
-    draw_box_body(hd_arm_l, 4.0, 10.0, 0.04, 0.05, 0.04)
-    draw_box_body(hd_arm_r, 4.0, 10.0, 0.04, 0.05, 0.04)
-    draw_box_body(hd_leg_l, 4.0, 11.0, 0.04, 0.05, 0.04)
-    draw_box_body(hd_leg_r, 4.0, 11.0, 0.04, 0.05, 0.04)
+    if not draw_part(head_tex, hd_head, 22.0, 22.0) then
+        draw_circle_body(hd_head, 8.0, 0.04, 0.05, 0.04)
+    end
+    if not draw_part(torso_tex, hd_torso, 20.0, 36.0) then
+        draw_box_body(hd_torso, 8.0, 16.0, 0.04, 0.05, 0.04)
+    end
+    if not draw_part(limb_tex, hd_arm_l, 11.0, 24.0) then
+        draw_box_body(hd_arm_l, 4.0, 10.0, 0.04, 0.05, 0.04)
+    end
+    if not draw_part(limb_tex, hd_arm_r, 11.0, 24.0) then
+        draw_box_body(hd_arm_r, 4.0, 10.0, 0.04, 0.05, 0.04)
+    end
+    if not draw_part(limb_tex, hd_leg_l, 11.0, 28.0) then
+        draw_box_body(hd_leg_l, 4.0, 11.0, 0.04, 0.05, 0.04)
+    end
+    if not draw_part(limb_tex, hd_leg_r, 11.0, 28.0) then
+        draw_box_body(hd_leg_r, 4.0, 11.0, 0.04, 0.05, 0.04)
+    end
 
     if alive == 0 then
         -- faint tethers: the pieces are separated but still pulled together

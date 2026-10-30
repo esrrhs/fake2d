@@ -72,6 +72,7 @@ local WALK_OUT_SPEED = 95.0
 local map_id = 0 + 0
 local tex_sheet, tex_goomba, tex_mush = 0 + 0, 0 + 0, 0 + 0
 local tex_ps, tex_pb = 0 + 0, 0 + 0
+local tex_sky = 0 + 0  -- AI-illustrated sky, drawn behind the tilemap
 -- Engine-owned frame clips (AnimationSystem) for the player forms and the
 -- per-goomba waddle. Clips live in C++, so they survive the per-frame Lua
 -- arena reset without an EntityStore slot for phase.
@@ -1160,7 +1161,11 @@ local function player_frame(dt)
 end
 
 local function draw_world(dt)
-    draw_quad(cam_x, cam_y, cam_vw, cam_vh, 0.36, 0.58, 0.95, 1.0)
+    if tex_sky ~= 0 then
+        sprite_draw(tex_sky, cam_x, cam_y, cam_vw, cam_vh)
+    else
+        draw_quad(cam_x, cam_y, cam_vw, cam_vh, 0.36, 0.58, 0.95, 1.0)
+    end
     map_draw(map_id)
 
     -- Phase 8 per-draw custom shader: a shimmer band travels down the goal
@@ -1573,6 +1578,7 @@ function update(dt)
 
         map_id = map_load("assets/mario.json")
         tex_sheet = sprite_load("assets/m_tiles.png")
+        tex_sky = sprite_load("assets/art/mario_sky.png")
         tex_goomba = sprite_load("assets/m_goomba.png")
         tex_mush = sprite_load("assets/m_mushroom.png")
         tex_ps = sprite_load("assets/m_player_s.png")

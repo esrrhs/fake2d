@@ -58,6 +58,7 @@ local inited = false
 local tex_walk, tex_idle, tex_hurt = 0 + 0, 0 + 0, 0 + 0
 local tex_enemy, tex_expl = 0 + 0, 0 + 0
 local tex_moon, tex_glow, tex_white = 0 + 0, 0 + 0, 0 + 0
+local tex_jungle, tex_wood, tex_stone = 0 + 0, 0 + 0, 0 + 0
 local fx_expl = 0 + 0
 
 local px, py = 0.0 + 0.0, 0.0 + 0.0
@@ -1407,70 +1408,16 @@ end
 
 local function draw_background()
     local cx = camera_x()
-    draw_quad(cx, 0.0, VW, 170.0, 0.045, 0.070, 0.130, 1.0)
-    draw_quad(cx, 170.0, VW, 130.0, 0.080, 0.120, 0.200, 1.0)
-    draw_quad(cx, 300.0, VW, 90.0, 0.130, 0.190, 0.260, 1.0)
-    draw_quad(cx, 390.0, VW, 80.0, 0.210, 0.260, 0.280, 1.0)
-    draw_quad(cx, 430.0, VW, 110.0, 0.140, 0.190, 0.160, 1.0)
+    -- AI key art: night jungle with layered mountains and palms baked in.
+    sprite_draw(tex_jungle, cx, 0.0, VW, VH)
 
-    -- Warm dusk band under the moon.
-    draw_set_blend(1)
-    draw_quad(cx, 300.0, VW, 150.0, 0.35, 0.22, 0.16, 0.16)
-    draw_set_blend(0)
-
-    -- Fixed moon with a soft halo.
+    -- Fixed moon with a soft halo over the painted sky.
     local mx = cx + 722.0
     local my = 96.0
     glow_at(mx, my, 240.0, 0.55, 0.70, 0.95, 0.18)
     sprite_draw_rotated_tinted(tex_moon, 0.0, 0.0, 64.0, 64.0,
                                mx - 34.0, my - 34.0, 68.0, 68.0,
                                0.0, 0.0, 0.0, 0.82, 0.88, 1.0, 1.0)
-
-    -- Stars, very slow parallax.
-    local f1 = 0.05
-    for i = 0, 19 do
-        local sx = i * 137.0 - cx * f1
-        local wy = 18.0 + (i % 6) * 24.0
-        local tw = 0.35 + 0.25 * math.sin(time_elapsed() * 1.6 + i * 2.0)
-        draw_set_blend(1)
-        draw_quad(cx + sx - 1.0, wy - 1.0, 2.0, 2.0, 0.70, 0.80, 1.0, tw)
-        draw_set_blend(0)
-    end
-
-    -- Far mountains: layered diamonds whose top halves read as ridges.
-    local f2 = 0.12
-    local spacing = 210.0
-    local i0 = math.floor(cx * f2 / spacing)
-    for k = -2, 6 do
-        local idx = i0 + k
-        local sx = idx * spacing - cx * f2
-        local hh = 110.0 + (math.sin(idx * 1.7) + 1.0) * 58.0
-        mountain(cx + sx, 490.0, hh * 1.55, 0.055, 0.080, 0.115)
-        mountain(cx + sx - 46.0, 486.0, hh * 1.15, 0.085, 0.120, 0.158)
-    end
-
-    -- Mid jungle canopy.
-    local f3 = 0.34
-    local sp3 = 150.0
-    local j0 = math.floor(cx * f3 / sp3)
-    for k = -2, 9 do
-        local idx = j0 + k
-        local sx = idx * sp3 - cx * f3
-        local hh = 120.0 + (math.sin(idx * 2.3) + 1.0) * 50.0
-        palm(cx + sx, 476.0, hh, (idx % 3) * 8.0 - 8.0, 0.070, 0.175, 0.105)
-        draw_quad(cx + sx - 70.0, 452.0, 150.0, 28.0, 0.060, 0.140, 0.085, 0.75)
-    end
-
-    -- Near jungle silhouettes.
-    local f4 = 0.62
-    local sp4 = 230.0
-    local n0 = math.floor(cx * f4 / sp4)
-    for k = -2, 7 do
-        local idx = n0 + k
-        local sx = idx * sp4 - cx * f4
-        palm(cx + sx, 502.0, 200.0, (idx % 2) * 26.0 - 13.0, 0.045, 0.110, 0.068)
-        draw_quad(cx + sx - 40.0, 478.0, 120.0, 24.0, 0.038, 0.090, 0.058, 0.9)
-    end
 
     -- Mist band over the ground line.
     draw_set_blend(1)
@@ -1495,39 +1442,22 @@ local function draw_platforms()
             local kind = ent_num(p, ETYPE)
             if x + w > camx - 80.0 and x < camx + VW + 80.0 then
                 if kind == 0 then
-                    draw_quad(x, y, w, h, 0.165, 0.120, 0.085, 1.0)
-                    draw_quad(x, y, w, 10.0, 0.130, 0.390, 0.165, 1.0)
-                    draw_quad(x, y, w, 3.0, 0.290, 0.600, 0.250, 1.0)
-                    draw_quad(x, y + 10.0, w, 2.0, 0.070, 0.210, 0.090, 0.75)
-                    local tx = x + 14.0
-                    while tx < x + w - 10.0 do
-                        draw_quad(tx, y + 18.0, 3.0, 3.0, 0.110, 0.080, 0.055, 0.55)
-                        draw_quad(tx + 7.0, y + 30.0 + (math.floor(tx) % 18), 2.0, 2.0,
-                                  0.130, 0.092, 0.062, 0.45)
-                        tx = tx + 26.0
-                    end
+                    sprite_draw_region(tex_wood, 0.0, 0.0, 256.0, 64.0,
+                                       x, y, w, h)
+                    draw_quad(x, y, w, 4.0, 0.24, 0.52, 0.26, 0.85)
                 elseif kind == 1 then
-                    draw_quad(x, y, w, h, 0.270, 0.285, 0.315, 1.0)
-                    draw_quad(x, y, w, 4.0, 0.580, 0.620, 0.670, 1.0)
-                    draw_quad(x, y + h - 3.0, w, 3.0, 0.100, 0.105, 0.125, 1.0)
-                    local tx = x + 10.0
-                    while tx < x + w - 6.0 do
-                        draw_quad(tx, y + 7.0, 2.0, 2.0, 0.500, 0.520, 0.560, 0.9)
-                        tx = tx + 22.0
-                    end
+                    sprite_draw_region(tex_stone, 0.0, 0.0, 256.0, 256.0,
+                                       x, y, w, h)
+                    draw_quad(x, y, w, 3.0, 0.72, 0.76, 0.82, 0.75)
                 elseif kind == 2 then
-                    draw_quad(x, y, w, h, 0.380, 0.240, 0.125, 1.0)
-                    draw_quad(x + 2.0, y + 2.0, w - 4.0, h - 4.0, 0.480, 0.310, 0.165, 1.0)
+                    sprite_draw_region(tex_wood, 0.0, 0.0, 256.0, 64.0,
+                                       x, y, w, h)
                     seg(x + 4.0, y + 4.0, x + w - 4.0, y + h - 4.0, 3.0, 0.260, 0.160, 0.080, 0.9)
                     seg(x + w - 4.0, y + 4.0, x + 4.0, y + h - 4.0, 3.0, 0.260, 0.160, 0.080, 0.9)
                 else
-                    draw_quad(x, y, w, h, 0.130, 0.135, 0.155, 1.0)
-                    draw_quad(x, y, w, 6.0, 0.300, 0.310, 0.345, 1.0)
-                    local tx = x + 20.0
-                    while tx < x + w - 20.0 do
-                        draw_quad(tx, y + 14.0, 10.0, 8.0, 0.360, 0.310, 0.090, 0.8)
-                        tx = tx + 80.0
-                    end
+                    sprite_draw_region(tex_stone, 0.0, 0.0, 256.0, 256.0,
+                                       x, y, w, h)
+                    draw_quad(x, y, w, 6.0, 0.55, 0.58, 0.64, 0.65)
                 end
             end
         end
@@ -1934,10 +1864,13 @@ local function init()
     tex_idle = sprite_load_nearest("assets/brawler/NES_Soldier_Idle_1_strip4.png")
     tex_hurt = sprite_load_nearest("assets/brawler/NES_Soldier_Hurt.png")
     tex_enemy = sprite_load_nearest("assets/brawler/Renegade_Walk_1_strip4.png")
-    tex_expl = sprite_load_nearest("assets/contra/explosion.png")
-    tex_moon = sprite_load("assets/contra/moon.png")
+    tex_expl = sprite_load_nearest("assets/art/explosion.png")
+    tex_moon = sprite_load("assets/art/moon.png")
     tex_glow = sprite_load("assets/contra/glow.png")
     tex_white = sprite_load_nearest("assets/white.png")
+    tex_jungle = sprite_load("assets/art/contra_jungle.png")
+    tex_wood = sprite_load("assets/art/wood_plank.png")
+    tex_stone = sprite_load("assets/art/stone_tex.png")
 
     fx_expl = part_create()
     part_set_lifetime(fx_expl, 0.44, 0.95)
