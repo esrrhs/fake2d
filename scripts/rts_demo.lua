@@ -59,6 +59,7 @@ local inited = false
 local tex_inf, tex_rocket, tex_tank, tex_harv = 0 + 0, 0 + 0, 0 + 0, 0 + 0
 local tex_cy, tex_power, tex_barracks, tex_factory = 0 + 0, 0 + 0, 0 + 0, 0 + 0
 local tex_refinery, tex_turret = 0 + 0, 0 + 0
+local tex_tracers = 0 + 0  -- 3-cell sheet: rifle tracer, rocket, cannon shell
 local boom_fx = 0 + 0
 
 local credits_p = 3500.0 + 0.0
@@ -1804,6 +1805,7 @@ end
 local function setup_scene()
     map_id = map_load("assets/rts/map.json")
     tex_inf = sprite_load_nearest("assets/rts/units/infantry.png")
+    tex_tracers = sprite_load_nearest("assets/rts/tracers.png")
     tex_rocket = sprite_load_nearest("assets/rts/units/rocket.png")
     tex_tank = sprite_load_nearest("assets/rts/units/tank.png")
     tex_harv = sprite_load_nearest("assets/rts/units/harvester.png")
@@ -2001,13 +2003,28 @@ local function draw_projectiles()
         local y = ent_num(id, S_Y)
         local kind = ent_num(id, S_TYPE)
         if kind == 0 then
-            draw_line(x, y, x - 8.0, y, 1.0, 0.95, 0.55, 0.9)
-            draw_quad(x - 2.0, y - 1.0, 4.0, 2.0, 1.0, 0.92, 0.55, 1.0)
+            if tex_tracers ~= 0 then
+                sprite_draw_region(tex_tracers, 0.0, 0.0, 24.0, 12.0,
+                                   x - 8.0, y - 4.0, 16.0, 8.0)
+            else
+                draw_line(x, y, x - 8.0, y, 1.0, 0.95, 0.55, 0.9)
+                draw_quad(x - 2.0, y - 1.0, 4.0, 2.0, 1.0, 0.92, 0.55, 1.0)
+            end
         elseif kind == 1 then
-            draw_quad(x - 3.0, y - 3.0, 6.0, 6.0, 1.0, 0.65, 0.30, 1.0)
-            draw_quad(x - 1.0, y - 1.0, 2.0, 2.0, 1.0, 0.95, 0.70, 1.0)
+            if tex_tracers ~= 0 then
+                sprite_draw_region(tex_tracers, 24.0, 0.0, 24.0, 12.0,
+                                   x - 7.0, y - 5.0, 14.0, 10.0)
+            else
+                draw_quad(x - 3.0, y - 3.0, 6.0, 6.0, 1.0, 0.65, 0.30, 1.0)
+                draw_quad(x - 1.0, y - 1.0, 2.0, 2.0, 1.0, 0.95, 0.70, 1.0)
+            end
         else
-            draw_quad(x - 3.0, y - 3.0, 6.0, 6.0, 0.95, 0.82, 0.42, 1.0)
+            if tex_tracers ~= 0 then
+                sprite_draw_region(tex_tracers, 48.0, 0.0, 24.0, 12.0,
+                                   x - 5.0, y - 5.0, 10.0, 10.0)
+            else
+                draw_quad(x - 3.0, y - 3.0, 6.0, 6.0, 0.95, 0.82, 0.42, 1.0)
+            end
         end
         i = i + 1
     end
