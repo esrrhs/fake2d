@@ -235,6 +235,9 @@ jobs:
           # Shipped art tree: every committed PNG the game demos render from.
           run_xvfb ./build/bin/fake2d_hello --art-test > art.log 2>&1
           rc_art=$?
+          # Demo launcher catalogue: unique flags, known categories, real scripts.
+          run_xvfb ./build/bin/fake2d_hello --launcher-test > launcher.log 2>&1
+          rc_launcher=$?
           # Snooker ball sprite: shading/alpha probes and loader rejection.
           run_xvfb ./build/bin/fake2d_hello --snooker-test > snooker.log 2>&1
           rc_snooker=$?
@@ -250,6 +253,15 @@ jobs:
           # Visual-novel art: backgrounds, portraits, alpha probes.
           run_xvfb ./build/bin/fake2d_hello --vn-test > vn.log 2>&1
           rc_vn=$?
+          # Launcher: the menu renders from shipped art, and a picked demo
+          # requests the relaunch the host would honour with a fresh process.
+          LAUNCHER_TEST_PICK=3 run_xvfb ./build/bin/fake2d_hello --headless --frames 40 \
+            --launcher --screenshot launcher.png --shot-min-colors 12 \
+            > launcher_demo.log 2>&1
+          rc_launcher_demo=$?
+          test -s launcher.png
+          grep -q "launcher: starting platformer" launcher_demo.log
+          grep -q "would restart with --platformer-demo" launcher_demo.log
           # Brawler demo: waves, hit detection and a full headless stage run.
           run_xvfb ./build/bin/fake2d_hello --headless --frames 240 \
             --beat-em-up-demo --screenshot beat.png --shot-min-colors 12 \
@@ -310,7 +322,7 @@ jobs:
             --entry scripts/phys_test.lua > phys_test.log 2>&1
           rc_lua=$?
           set -e
-          echo "exit codes: query=$rc_query filter=$rc_filter rigid=$rc_rigid extended=$rc_extended birds=$rc_birds limbo=$rc_limbo timestep=$rc_timestep path=$rc_path rt=$rc_rt ui=$rc_ui post=$rc_post fx=$rc_fx fog=$rc_fog audio=$rc_audio mapobj=$rc_mapobj tile=$rc_tile font=$rc_font platform=$rc_platform gameplay=$rc_gameplay combat=$rc_combat shmup=$rc_shmup art=$rc_art snooker=$rc_snooker contra=$rc_contra city=$rc_city rts=$rc_rts vn=$rc_vn beat=$rc_beat shmupdemo=$rc_shmup_demo snookerdemo=$rc_snooker_demo contrademo=$rc_contra_demo citydemo=$rc_city_demo rtsdemo=$rc_rts_demo vndemo=$rc_vn_demo lua=$rc_lua"
+          echo "exit codes: query=$rc_query filter=$rc_filter rigid=$rc_rigid extended=$rc_extended birds=$rc_birds limbo=$rc_limbo timestep=$rc_timestep path=$rc_path rt=$rc_rt ui=$rc_ui post=$rc_post fx=$rc_fx fog=$rc_fog audio=$rc_audio mapobj=$rc_mapobj tile=$rc_tile font=$rc_font platform=$rc_platform gameplay=$rc_gameplay combat=$rc_combat shmup=$rc_shmup art=$rc_art launcher=$rc_launcher snooker=$rc_snooker contra=$rc_contra city=$rc_city rts=$rc_rts vn=$rc_vn beat=$rc_beat shmupdemo=$rc_shmup_demo snookerdemo=$rc_snooker_demo contrademo=$rc_contra_demo citydemo=$rc_city_demo rtsdemo=$rc_rts_demo vndemo=$rc_vn_demo lua=$rc_lua"
           [ "$rc_query" -eq 0 ]
           [ "$rc_filter" -eq 0 ]
           [ "$rc_rigid" -eq 0 ]
@@ -333,6 +345,7 @@ jobs:
           [ "$rc_combat" -eq 0 ]
           [ "$rc_shmup" -eq 0 ]
           [ "$rc_art" -eq 0 ]
+          [ "$rc_launcher" -eq 0 ]
           [ "$rc_snooker" -eq 0 ]
           [ "$rc_contra" -eq 0 ]
           [ "$rc_city" -eq 0 ]
@@ -607,6 +620,7 @@ jobs:
           ./build/bin/fake2d_hello --combat-test
           ./build/bin/fake2d_hello --shmup-test
           ./build/bin/fake2d_hello --art-test
+          ./build/bin/fake2d_hello --launcher-test
           ./build/bin/fake2d_hello --snooker-test
           ./build/bin/fake2d_hello --contra-test
           ./build/bin/fake2d_hello --city-test

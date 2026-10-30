@@ -3,6 +3,7 @@
 // (PNG/Tiled JSON/WAV, since scripts cannot encode binary files), and the
 // micro-benchmarks that measure engine internals.
 #include "fake2d/app_paths.h"
+#include "fake2d/demos.h"
 #include "fake2d/ease.h"
 #include "fake2d/engine.h"
 #include "fake2d/i18n.h"
@@ -22,6 +23,13 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <vector>
+
+#if defined(_WIN32)
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
 #include <string_view>
 #include <vector>
 
@@ -9247,12 +9255,86 @@ void EnsureTileAnimAssets() {
 
 } // namespace
 
+// ---------------------------------------------------------------------------
+// Demo launcher
+// ---------------------------------------------------------------------------
+
+/// Start a fresh process for the demo the launcher picked. Switching demos
+/// means a different entry script *and* a different set of host-side asset and
+/// audio setup, and Run() already tears the window down on the way out — so
+/// re-execing beats unwinding a live engine, and it matches how a launcher is
+/// actually used: pick a game now, restart for another one later.
+bool RelaunchWithDemo(const char *self, const std::string &flag, int max_frames) {
+    std::vector<std::string> args;
+    args.push_back("--" + flag + "-demo");
+    if (max_frames > 0) {
+        // Forward the frame budget so a scripted run cannot spawn a session
+        // that never ends.
+        args.push_back("--frames");
+        args.push_back(std::to_string(max_frames));
+    }
+    std::vector<char *> argv;
+    argv.push_back(const_cast<char *>(self));
+    for (auto &arg : args) {
+        argv.push_back(arg.data());
+    }
+    argv.push_back(nullptr);
+#if defined(_WIN32)
+    return _execv(self, argv.data()) == 0;
+#else
+    return execvp(self, argv.data()) == 0;
+#endif
+}
+
+/// Self-test of the catalogue the launcher menu and the command line share: a
+/// demo can only be offered if its flag is unique, its category is one the menu
+/// can group by, and its script is really in the checkout.
+int RunLauncherTest() {
+    int failures = 0;
+    int checks = 0;
+    auto check = [&](bool ok, const std::string &what) {
+        ++checks;
+        if (!ok) {
+            ++failures;
+            std::printf("[launcher] FAIL %s\n", what.c_str());
+        }
+    };
+
+    std::error_code ec;
+    check(fake2d::kDemoCount >= 25, "the catalogue covers every demo");
+    check(std::filesystem::exists("scripts/launcher.lua", ec),
+          "the launcher script ships");
+
+    std::vector<std::string_view> flags;
+    for (std::size_t i = 0; i < fake2d::kDemoCount; ++i) {
+        const fake2d::DemoInfo &demo = fake2d::kDemos[i];
+        const std::string_view flag = demo.flag == nullptr ? "" : demo.flag;
+        check(!flag.empty(), std::string("flag set for demo ") + std::to_string(i));
+        check(std::filesystem::exists(demo.script, ec),
+              std::string("script exists: ") + demo.script);
+        const std::string_view category =
+            demo.category == nullptr ? "" : demo.category;
+        check(category == "game" || category == "engine",
+              "category is game or engine: " + std::string(flag));
+        check(std::find(flags.begin(), flags.end(), flag) == flags.end(),
+              "duplicate flag: " + std::string(flag));
+        flags.push_back(flag);
+    }
+
+    std::printf("[launcher] %s: %d checks, %d failures (%zu demos)\n",
+                failures == 0 ? "PASS" : "FAILED", checks, failures,
+                fake2d::kDemoCount);
+    return failures == 0 ? 0 : 1;
+}
+
 int main(int argc, char **argv) {
     fake2d::EngineConfig cfg;
     cfg.title = "fake2d";
     cfg.width = 960;
     cfg.height = 540;
-    cfg.script_entry = "scripts/game.lua";
+    // Left empty on purpose: which script runs is decided after the parse
+    // loop, so a bare windowed launch can open the demo launcher instead.
+    cfg.script_entry.clear();
 
     bool map_demo = false;
     bool tile_demo = false;
@@ -9302,6 +9384,8 @@ int main(int argc, char **argv) {
     int shot_min_colors = 0;
     std::string screenshot;
     bool regen_assets = false;
+    bool launcher_mode = false;
+    bool launcher_test = false;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg = argv[i];
         if (arg == "--headless") {
@@ -9310,6 +9394,17 @@ int main(int argc, char **argv) {
             max_frames = std::atoi(argv[++i]);
         } else if (arg == "--hot-reload") {
             cfg.hot_reload = true;
+        } else if (arg == "--launcher") {
+            // Interactive demo picker.
+            launcher_mode = true;
+        } else if (arg == "--launcher-test") {
+            // Self-test of the demo catalogue the launcher and CLI share.
+            launcher_test = true;
+            cfg.headless = true;
+            cfg.vsync = false;
+        } else if (arg == "--breakout-demo") {
+            // The brick-breaker sample that used to be the only default entry.
+            cfg.script_entry = "scripts/game.lua";
         } else if (arg == "--scene-demo") {
             cfg.script_entry = "scripts/scene_demo.lua";
         } else if (arg == "--angry-birds-demo") {
@@ -9614,6 +9709,18 @@ int main(int argc, char **argv) {
         }
     }
 
+    if (launcher_test) {
+        return RunLauncherTest();
+    }
+    if (launcher_mode) {
+        cfg.script_entry = "scripts/launcher.lua";
+    } else if (cfg.script_entry.empty()) {
+        // A bare windowed run opens the picker; a bare headless run keeps the
+        // historical Breakout default so existing smoke tests are unaffected.
+        cfg.script_entry =
+            cfg.headless ? "scripts/game.lua" : "scripts/launcher.lua";
+    }
+
     // The engine auto-loads <resource root>/assets/lang at Init, so the demo
     // language packs must exist before the engine starts.
     if (text_demo) {
@@ -9795,5 +9902,23 @@ int main(int argc, char **argv) {
     }
 
     const int rc = engine.Run(max_frames);
+
+    // The launcher asked for a demo: hand it to a fresh process. A headless run
+    // only reports the request, so a CI smoke test cannot spawn an unbounded
+    // second session.
+    if (const std::string chosen = engine.PendingRelaunch(); !chosen.empty()) {
+        if (cfg.headless) {
+            std::printf("fake2d_hello: would restart with --%s-demo\n",
+                        chosen.c_str());
+            return shot_blank ? 2 : rc;
+        }
+        if (RelaunchWithDemo(argv[0], chosen, max_frames)) {
+            return rc;  // only reached if exec failed to replace the image
+        }
+        std::fprintf(stderr,
+                     "fake2d_hello: could not restart for '%s'; run: %s --%s-demo\n",
+                     chosen.c_str(), argv[0], chosen.c_str());
+        return 1;
+    }
     return shot_blank ? 2 : rc;
 }

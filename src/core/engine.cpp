@@ -49,6 +49,8 @@ struct Engine::Impl {
     double step_accumulator = 0.0;
     int last_physics_steps = 0;
     float interp_alpha = 1.0f;
+    /// Demo the launcher asked to start next; consumed by the host entry point.
+    std::string pending_relaunch;
 };
 
 Engine::Engine() : impl_(std::make_unique<Impl>()) {}
@@ -291,6 +293,15 @@ void Engine::SetFrameCallback(std::function<void(Engine &)> callback) {
 
 void Engine::RequestQuit() {
     impl_->window.SetShouldClose(true);
+}
+
+void Engine::RequestRelaunch(std::string_view demo) {
+    impl_->pending_relaunch = std::string(demo);
+    impl_->window.SetShouldClose(true);
+}
+
+std::string Engine::PendingRelaunch() const {
+    return impl_->pending_relaunch;
 }
 
 void Engine::SetWindowTitle(std::string_view title) {

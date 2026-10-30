@@ -3,6 +3,7 @@
 #include "fake2d/animation.h"
 #include "fake2d/app_paths.h"
 #include "fake2d/audio.h"
+#include "fake2d/demos.h"
 #include "fake2d/ease.h"
 #include "fake2d/engine.h"
 #include "fake2d/i18n.h"
@@ -3945,6 +3946,53 @@ void RegisterWindowApi(fakelua::State *state, Engine *engine) {
         state, "window_quit", false,
         std::function<void(fakelua::State *)>(
             [engine](fakelua::State *) { engine->RequestQuit(); }));
+
+    // Demo launcher. The catalogue lives in fake2d/demos.h and is the same one
+    // the command line parses, so the menu can only ever offer a demo the host
+    // knows how to start.
+    fakelua::RegisterNativeFunction(
+        state, "app_launch", false,
+        std::function<void(fakelua::State *, std::string_view)>(
+            [engine](fakelua::State *, std::string_view demo) {
+                engine->RequestRelaunch(demo);
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "demo_count", false,
+        std::function<std::int64_t(fakelua::State *)>(
+            [](fakelua::State *) -> std::int64_t {
+                return static_cast<std::int64_t>(kDemoCount);
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "demo_flag", false,
+        std::function<std::string(fakelua::State *, double)>(
+            [](fakelua::State *, double index) -> std::string {
+                if (index < 0 || static_cast<std::size_t>(index) >= kDemoCount) {
+                    return {};
+                }
+                return kDemos[static_cast<std::size_t>(index)].flag;
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "demo_script", false,
+        std::function<std::string(fakelua::State *, double)>(
+            [](fakelua::State *, double index) -> std::string {
+                if (index < 0 || static_cast<std::size_t>(index) >= kDemoCount) {
+                    return {};
+                }
+                return kDemos[static_cast<std::size_t>(index)].script;
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "demo_category", false,
+        std::function<std::string(fakelua::State *, double)>(
+            [](fakelua::State *, double index) -> std::string {
+                if (index < 0 || static_cast<std::size_t>(index) >= kDemoCount) {
+                    return {};
+                }
+                return kDemos[static_cast<std::size_t>(index)].category;
+            }));
 
     fakelua::RegisterNativeFunction(
         state, "window_set_title", false,
