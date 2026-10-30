@@ -197,8 +197,9 @@ end
 
 --- Catalogue indices the filter currently shows, in catalogue order. Rebuilt
 --- every frame: per-frame tables are arena memory, so this is free and there is
---- no cache to invalidate when the filter changes. The length is published on
---- the object because FakeLua's `#` is unreliable on a locally built table.
+--- no cache to invalidate when the filter changes. The count rides along on the
+--- object because the caller needs both and the loop already computes it; `#`
+--- works on a table like this, it is just a second pass over it.
 local function visible()
     local v = {}
     local n = 0

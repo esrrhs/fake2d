@@ -32,14 +32,15 @@
 --      it is 20px, over the 16px assist, and the player stops dead. Hence no
 --      section here uses a cap; the assist stays for hand-made stepped crests.
 
-local MAP_W = 48 * S.TILE
-local GROUND_TOP = 13 * S.TILE
+local TILE = 32
+local MAP_W = 48 * TILE
+local GROUND_TOP = 13 * TILE
 
 -- section anchors, used for the labels
 local SECTIONS = {
-    { x = 3 * S.TILE, label = "A  RISE 32  45 deg" },
-    { x = 14 * S.TILE, label = "B  RISE 64  63 deg" },
-    { x = 22 * S.TILE, label = "C  RISE 32  LONG" }
+    { x = 3 * TILE, label = "A  RISE 32  45 deg" },
+    { x = 14 * TILE, label = "B  RISE 64  63 deg" },
+    { x = 22 * TILE, label = "C  RISE 32  LONG" }
 }
 
 local WALK_SPEED, RUN_SPEED = 150.0, 235.0
@@ -68,7 +69,6 @@ local box_w, box_h = 20.0 + 0.0, 28.0 + 0.0
 local S = new_global_obj("slope_demo", "state")
 
 local function reset_state()
-    S.TILE = 32
     S.map_id = 0 + 0
     S.tex_player = 0 + 0
     S.tex_sky = 0 + 0  -- AI-illustrated night sky behind the slope ridges
@@ -111,10 +111,10 @@ local function solid_at(c, r)
 end
 
 local function box_hits_solid(nx, ny, w, h)
-    local c0 = math.floor(nx / S.TILE)
-    local c1 = math.floor((nx + w - 0.01) / S.TILE)
-    local r0 = math.floor(ny / S.TILE)
-    local r1 = math.floor((ny + h - 0.01) / S.TILE)
+    local c0 = math.floor(nx / TILE)
+    local c1 = math.floor((nx + w - 0.01) / TILE)
+    local r0 = math.floor(ny / TILE)
+    local r1 = math.floor((ny + h - 0.01) / TILE)
     for r = r0, r1 do
         for c = c0, c1 do
             if solid_at(c, r) then return true end
@@ -131,8 +131,8 @@ end
 -- one tile up and one tile down and keeping the nearer answer covers both the
 -- climb and the descent.
 local function ground_probe(wx, feet)
-    local lo = map_ground_y(S.map_id, wx, feet - S.TILE)
-    local hi = map_ground_y(S.map_id, wx, feet + S.TILE)
+    local lo = map_ground_y(S.map_id, wx, feet - TILE)
+    local hi = map_ground_y(S.map_id, wx, feet + TILE)
     if lo >= 0.0 and hi >= 0.0 then
         if hi < lo then return hi end
         return lo
@@ -145,7 +145,7 @@ end
 -- matter how far its surface is from the player.
 local function surface_at(wx, near_y)
     for k = 0, 8 do
-        local reach = near_y + (k - 4) * S.TILE
+        local reach = near_y + (k - 4) * TILE
         local y = map_ground_y(S.map_id, wx, reach)
         if y >= 0.0 then return y end
     end
@@ -174,15 +174,15 @@ local function snap_to_slope()
     -- unaffected: there the snap itself moves the feet up, so vy stays 0.
     if S.vy < 0.0 then return end
     local cx = S.px + box_w * 0.5
-    local col = math.floor(cx / S.TILE)
-    local r_now = math.floor(feet / S.TILE)
+    local col = math.floor(cx / TILE)
+    local r_now = math.floor(feet / TILE)
     -- HUD readout only: look a couple of rows around the feet for the ramp.
     for r = r_now - 2, r_now + 1 do
         local d = map_slope_dir(S.map_id, col, r)
         if d ~= 0 then
             S.last_dir = d
             local rise = map_slope_rise(S.map_id, col, r)
-            S.last_rise = rise > 0 and rise or S.TILE
+            S.last_rise = rise > 0 and rise or TILE
             break
         end
     end
@@ -220,9 +220,9 @@ local function move_x(dx)
         return
     end
     if dx > 0.0 then
-        S.px = math.floor((nx + box_w) / S.TILE) * S.TILE - box_w
+        S.px = math.floor((nx + box_w) / TILE) * TILE - box_w
     else
-        S.px = (math.floor(nx / S.TILE) + 1) * S.TILE
+        S.px = (math.floor(nx / TILE) + 1) * TILE
     end
     S.vx = 0.0
 end
@@ -234,17 +234,17 @@ local function move_y(dy)
         return
     end
     if dy > 0.0 then
-        S.py = math.floor((ny + box_h) / S.TILE) * S.TILE - box_h
+        S.py = math.floor((ny + box_h) / TILE) * TILE - box_h
         S.vy = 0.0
         S.on_ground = true
     else
-        S.py = (math.floor(ny / S.TILE) + 1) * S.TILE
+        S.py = (math.floor(ny / TILE) + 1) * TILE
         S.vy = 0.0
     end
 end
 
 local function reset_player()
-    S.px = 1 * S.TILE
+    S.px = 1 * TILE
     S.py = GROUND_TOP - box_h
     S.vx, S.vy = 0.0, 0.0
     S.on_ground = true
@@ -367,8 +367,8 @@ local function draw_hud()
     draw_text("SLOPE LAB   A/D move   SPACE jump   SHIFT run   V surface   R reset",
               sx + 16.0, sy + 12.0, 0.45, 1.0, 1.0, 1.0, 1.0)
     local feet = S.py + box_h
-    local col = math.floor((S.px + box_w * 0.5) / S.TILE)
-    local r = math.floor(feet / S.TILE)
+    local col = math.floor((S.px + box_w * 0.5) / TILE)
+    local r = math.floor(feet / TILE)
     local dir = map_slope_dir(S.map_id, col, r)
     if dir == 0 then dir = S.last_dir end
     local word = "flat"

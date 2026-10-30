@@ -86,6 +86,16 @@ def run_case(flua, chunk, jit_type, name, frames, extra_env):
     return proc.returncode, proc.stdout, proc.stderr
 
 
+def write_lua(path, text):
+    """Write a generated chunk with LF endings.
+
+    `Path.write_text(newline=)` only exists from Python 3.10, and this harness
+    runs on whatever python3 the box has.
+    """
+    with open(path, "w", newline="\n") as handle:
+        handle.write(text)
+
+
 def main():
     repo_root = Path(__file__).resolve().parents[2]
     ap = argparse.ArgumentParser()
@@ -130,11 +140,9 @@ def main():
                                 "function fix_game_step(dt)", 1)
             scen_dir = workdir / ("d_" + Path(script).stem)
             scen_dir.mkdir(parents=True, exist_ok=True)
-            (scen_dir / "a_head.lua").write_text(head, newline="\n")
-            (scen_dir / "b_body.lua").write_text('package "main"\n\n' + body,
-                                                 newline="\n")
-            (scen_dir / "c_tail.lua").write_text('package "main"\n\n' + tail,
-                                                 newline="\n")
+            write_lua(scen_dir / "a_head.lua", head)
+            write_lua(scen_dir / "b_body.lua", 'package "main"\n\n' + body)
+            write_lua(scen_dir / "c_tail.lua", 'package "main"\n\n' + tail)
             chunk_paths[script] = scen_dir
 
     total = 0
