@@ -46,32 +46,33 @@ Each rule below was verified empirically against the installed FakeLua 2.0.0:
 2. **File-level locals must have an initializer.** `local lives` alone is
    rejected ("global constant must be initialize").
 
-3. **Never initialize a mutable numeric with a bare literal.**
-   A literal initializer (`local score = 0`) makes the JIT declare the
-   variable `static const int64_t` in generated C; assigning it from a
-   function is rejected by semantic analysis with
-   `cannot reassign file-level constant 'score'`. Initialize from an
-   expression instead — the `+ 0` idiom used throughout `scripts/game.lua`:
+3. **File-level locals are const bindings.** A file-level `local` cannot be
+   reassigned from a function after initialisation, whatever the initializer
+   looks like — `local score = 0` and `local score = 0 + 0` are both rejected
+   with `cannot reassign file-level constant 'score'`. Treat every file-level
+   local as a constant (`local MAX = 640`), and keep cross-frame mutable state
+   in a **NativeObject**, whose fields read and write like an ordinary table:
 
    ```lua
-   local score = 0 + 0      -- mutable (expression initializer)
-   local lives = 3 + 0      -- mutable
-   local MAX  = 640         -- never reassigned: a literal is fine
+   local S = new_global_obj("game", "state")   -- const binding, mutable object
+
+   -- in update():
+   S.score = S.score + 10
+   S.state = ST_PLAY
    ```
 
-   This is **current FakeLua 2.0 semantics, not a stale bug workaround** —
-   re-verified against `a55a4bf`. Booleans are safe as literals
-   (`local done = false`, then `done = true` works).
+   `new_global_obj(key, type)` / `get_global_obj(key)` are FakeLua's object
+   module; the object lives on the C++ side, so it survives the arena reset.
+   `scripts/launcher.lua` is the reference for this pattern.
+   ⚠️ Most older demos still use the pre-2.0 `+ 0` idiom and no longer compile
+   against a current FakeLua; they need migrating to NativeObject state.
 
-4. **File-level tables are runtime-const.** `local S = {}` followed by
-   `S.hp = 10` inside a function throws "attempt to modify a const table".
-   Persistent structured state must be flattened into scalars (e.g. a bitmask
-   number, as `brick_mask` does) or live on the C++ side.
-   ⚠️ The const-ness depends on the table's *shape*, not just its scope — an
-   empty constructor followed by a **field** write is const even inside
-   `update`, while an **index** write (`t[i] = v`) or a constructor with
-   contents is mutable. Rule 7's "per-frame tables are free" only applies to the
-   mutable forms. See "Not a bug" in Known FakeLua pitfalls for the full matrix.
+4. **File-level tables are deep-const.** A table built at file level — literal
+   or returned by a function — is read-only data: writing a field throws
+   `attempt to modify a const table`. That is exactly what you want for static
+   lookup data (the demo catalogue in `scripts/launcher.lua`, sprite clip
+   tables, palettes). Anything that changes belongs in a NativeObject (rule 3)
+   or in C++ (`EntityStore`).
 
 5. **Globals are not supported.** Assignments to undeclared names fail the
    JIT compile. Everything is a file-level `local` (upvalue).
@@ -91,11 +92,11 @@ Each rule below was verified empirically against the installed FakeLua 2.0.0:
 local W, H = 960, 540        -- constants: literals are fine (never reassigned)
 local ST_READY, ST_PLAY = 1, 2
 
-local inited = false         -- booleans: literal initializer is safe
-local state = ST_READY + 0   -- mutable number: expression initializer
-local score = 0 + 0
-local bricks = 0 + 0         -- structured state flattened into a bitmask
-local spawned = {}           -- DANGER: const table — never do this
+local S = new_global_obj("game", "state")  -- ALL mutable cross-frame state
+local MAX = 640              -- read-only constant
+local CLIPS = {...}          -- read-only lookup table
+
+-- in update(dt):  S.score = S.score + 10, S.state = ST_PLAY, ...
 ```
 
 ---

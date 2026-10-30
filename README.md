@@ -87,11 +87,12 @@ Fake2D is a fully battery-included engine, not just a bare graphics library:
 
 ## 🎮 Runnable Demos Matrix
 
-Fake2D comes with 23 rich, self-contained demos demonstrating platformer mechanics, retro brawler and run-and-gun gameplay, cue-sport physics, city simulation, real-time strategy, dating-sim storytelling, spatial audio, immediate UI, and graphical post-processing:
+Fake2D comes with 27 rich, self-contained demos plus an in-engine launcher for picking between them, demonstrating platformer mechanics, retro brawler and run-and-gun gameplay, cue-sport physics, city simulation, real-time strategy, dating-sim storytelling, spatial audio, immediate UI, and graphical post-processing:
 
 | Demo Flag | Topic | Key Highlighted Features |
 |---|---|---|
-| `./fake2d_hello` | **Breakout (Default)** | Ball physics reflections, brick destruction, particle debris, HUD text, and procedural audio chirps |
+| `--launcher` | **Demo Launcher (default)** | Cover-art picker for all 27 demos: category filter, mouse and keyboard navigation, and the exact command line behind each entry; picking one re-execs into it |
+| `--breakout-demo` | **Breakout** | Ball physics reflections, brick destruction, particle debris, HUD text, and procedural audio chirps |
 | `--mario-demo` | **Super Mario Bros 1-1** | Faithful SMB 1-1 recreation; small/big Mario forms, Goomba patrols & squashing, ? blocks, brick shatter particles, flag pole sequence, attract AI |
 | `--angry-birds-demo` | **Angry Birds Sandbox** | Slingshot impulse launch, stacked towers that sleep and wake, contact-driven pig pops, camera follow, synthesized SFX |
 | `--limbo-demo` | **LIMBO Jointed Sandbox** | 6-part revolute ragdoll, 9-node rope chain and revolute bridge, buoyancy water, and sever-on-death pieces that stay tethered |
@@ -158,6 +159,28 @@ AI-generated materials. `tools/art_key.py` bakes the committed PNGs from the raw
 generations, and `--art-test` walks the whole art tree and loads every file, so
 a folder that falls out of `.gitignore` fails the build instead of silently
 dropping a demo back to its painters.
+
+### Demo Launcher
+
+Running the binary without a demo flag opens an in-engine picker: every demo as
+a card with its shipped cover art, a one-line summary, its control scheme and
+the exact command line behind it.
+
+```bash
+./build/bin/fake2d_hello              # windowed, no flag -> the launcher
+./build/bin/fake2d_hello --launcher   # the same, explicitly
+```
+
+UP/DOWN or the mouse selects, ENTER or a click launches, TAB cycles the
+category filter (all / games / engine features), the wheel and PAGEUP/PAGEDOWN
+scroll, ESC quits. The catalogue is `include/fake2d/demos.h` — the same table
+the command line parses — so the menu can only ever offer a demo the host knows
+how to start, and adding a row there lists it automatically. `--launcher-test`
+gates that table (unique flags, known categories, script files that exist).
+
+Picking a demo re-execs the process with `--<flag>-demo`, so every demo gets a
+clean session with its own asset and audio setup. To play something else, come
+back to the launcher and pick again.
 
 ### Launching Demos
 

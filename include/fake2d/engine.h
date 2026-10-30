@@ -88,6 +88,13 @@ public:
     // --- window control (safe no-ops in headless runs) ---
     /// Ask the host window to close after this frame; ends Run().
     void RequestQuit();
+    /// Close this session and ask the host to start another demo instead.
+    /// The launcher uses this: the host re-execs itself with `--<demo>-demo`,
+    /// so switching demos never has to unwind a live engine.
+    void RequestRelaunch(std::string_view demo);
+    /// The demo requested by RequestRelaunch, empty when the user did not pick
+    /// one. Only the host entry point reads this.
+    [[nodiscard]] std::string PendingRelaunch() const;
     /// Replace the OS title bar text.
     void SetWindowTitle(std::string_view title);
     /// Enter/leave borderless fullscreen on the primary monitor.

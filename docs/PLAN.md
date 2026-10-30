@@ -591,3 +591,15 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 - [x] **World objects, not just terrain**: the Contra fortress boss (wall plates, reactor core, sandbag turrets, weapon pods and pickup crates), the snooker cue stick, the Angry Birds slingshot band and the slope lab's night sky all moved from primitive quads to illustrated sprites, each with the painter kept as the missing-art fallback.
 - [x] **`--art-test` (162 checks)**: walks every shipped art folder plus the map-driven sheets at the `assets/` root, loads each PNG and fails when a folder is missing, empty or unreadable — the gate that catches a folder silently dropping out of `.gitignore`, which is exactly how this regression hid.
 - [x] Verification: `--art-test` 122 textures loaded; 127 sprite assertions across the 7 per-demo suites; all 12 game demos headless with screenshots, including a full Contra run that still destroys the fortress core.
+
+---
+
+## Phase 44 — Demo launcher (1.38.x)
+
+- [x] **`--launcher`**: an in-engine picker, so a demo is chosen instead of remembered as a command-line flag. A windowed run with no demo flag opens it; a bare headless run keeps the historical Breakout entry so existing smoke tests are untouched.
+- [x] **One catalogue, two front doors**: `include/fake2d/demos.h` lists every demo as `{flag, script, category}`. The menu reads it through `demo_count()` / `demo_flag()` / `demo_script()` / `demo_category()` and the command line parses the same flags, so the launcher can only ever offer what the host can start. Adding a row lists the demo automatically.
+- [x] **`app_launch(flag)`**: the host re-execs itself with `--<flag>-demo` once `Run()` returns, forwarding `--frames`. Every demo keeps a clean process and its own asset/audio setup. A headless run reports the request instead of execing, so a CI smoke test cannot spawn an unbounded second session.
+- [x] **The menu itself**: cover art drawn from the shipped `assets/` tree, category chips (all / games / engine), a detail panel with the summary, control scheme, exact command line and script path, and full mouse plus keyboard navigation (arrows, PgUp/PgDn, Home, Tab, Enter, Esc, wheel).
+- [x] **`--launcher-test` (110 checks)**: unique flags, only categories the menu can group by, and a script that actually exists for every row.
+- [x] **State model**: launcher state lives in a `new_global_obj` NativeObject, because file-level locals are const bindings. `docs/SCRIPTING.md` rules 3 and 4 now say that plainly — the `+ 0` idiom the older demos use predates the current semantics, and the demo suite still needs migrating to object state.
+- [x] Verification: launcher renders headless under the colour probe; `LAUNCHER_TEST_PICK` proves select → relaunch request → re-exec into the chosen demo; catalogue test green.
