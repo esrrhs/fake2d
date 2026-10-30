@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <string_view>
 
 namespace fake2d {
 
@@ -32,6 +33,7 @@ inline constexpr DemoInfo kDemos[] = {
     {"rts", "scripts/rts_demo.lua", "game"},
     {"vn", "scripts/vn_demo.lua", "game"},
     // --- engine feature showcases ----------------------------------------
+    {"light", "scripts/light_demo.lua", "engine"},
     {"scene", "scripts/scene_demo.lua", "engine"},
     {"slope", "scripts/slope_demo.lua", "engine"},
     {"path", "scripts/path_demo.lua", "engine"},
@@ -50,5 +52,17 @@ inline constexpr DemoInfo kDemos[] = {
 };
 
 inline constexpr std::size_t kDemoCount = sizeof(kDemos) / sizeof(kDemos[0]);
+
+/// Catalogue lookup used by both `--<flag>-demo` parsing and the launcher test.
+/// Adding an entry to kDemos is therefore the only step needed to make a demo
+/// startable; a flag that is not here cannot be launched at all.
+inline constexpr const DemoInfo *FindDemo(std::string_view flag) {
+    for (const DemoInfo &demo : kDemos) {
+        if (flag == demo.flag) {
+            return &demo;
+        }
+    }
+    return nullptr;
+}
 
 }  // namespace fake2d

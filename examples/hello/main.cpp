@@ -6504,6 +6504,400 @@ Stereo MixStereo(fake2d::AudioEngine &audio, int frames) {
             out[static_cast<std::size_t>(frames - 1) * 2 + 1]};
 }
 
+/// Lighting self-test. The shadow pass is geometry, so the properties that
+/// matter are measured on the light buffer itself instead of trusted from the
+/// counters: a pool brightens exactly as far as its radius, a shadow darkens
+/// behind its caster, a shadow never escapes the circle of the light that cast
+/// it, and a hundred extra casters cost no extra draw calls.
+int RunLightTest(fake2d::Engine &engine) {
+    int failures = 0;
+    int checks = 0;
+    auto check = [&](bool ok, const char *what) {
+        ++checks;
+        if (!ok) {
+            ++failures;
+            std::printf("[light] FAIL %s\n", what);
+        }
+    };
+    // 8-bit channels: a little slack absorbs filtering and rounding.
+    auto near = [](float a, float b) { return std::fabs(a - b) < 0.02f; };
+
+    fake2d::Renderer &r = engine.GetRenderer();
+    if (!r.IsReady()) {
+        std::printf("[light] FAIL renderer is not initialised\n");
+        return 1;
+    }
+    fake2d::LightSystem &L = r.Lights();
+    check(L.IsReady(), "the pass initialised");
+    check(L.TargetId() == 0, "the light buffer is taken lazily, not at init");
+
+    // A mid grey ambient makes "unlit" a number a probe can compare against,
+    // and a zero-size core keeps the sources out of the buffer readings.
+    L.SetEnabled(true);
+    L.SetAmbient(0.25f, 0.25f, 0.25f, 1.0f);
+    L.SetShadowDarkness(0.0f);
+    L.SetCore(0.0f, 0.0f);
+
+    const fake2d::Vec2 origin = r.GetCamera().Position();
+    const float vw = r.GetCamera().ViewportWidth();
+    const float vh = r.GetCamera().ViewportHeight();
+    check(vw > 320.0f && vh > 320.0f, "the view is big enough to light");
+
+    // The buffer covers exactly the view, whose top-left corner is the camera
+    // position, so probes are taken in view coordinates and converted here.
+    auto probe = [&](float x, float y) {
+        fake2d::Color c{-1.0f, -1.0f, -1.0f, -1.0f};
+        fake2d::RenderTarget *t = r.GetRenderTargets().Get(L.TargetId());
+        const int tx = static_cast<int>(x - origin.x);
+        const int ty = static_cast<int>(y - origin.y);
+        if (t != nullptr) {
+            t->ReadPixel(tx, ty, c);
+        }
+        return c;
+    };
+    auto render = [&]() {
+        r.BeginFrame(0.0f, 0.0f, 0.0f, 1.0f);
+        L.Render();
+    };
+    auto is_ambient = [&](const fake2d::Color &c) {
+        return near(c.r, 0.25f) && near(c.g, 0.25f) && near(c.b, 0.25f);
+    };
+
+    const float cx = origin.x + vw * 0.5f;
+    const float cy = origin.y + vh * 0.5f;
+    constexpr float kR = 110.0f;
+
+    const int a = L.AddLight();
+    L.SetLightPosition(a, cx, cy);
+    L.SetLightRadius(a, kR);
+    L.SetLightColor(a, 1.0f, 1.0f, 1.0f, 1.0f);
+    // A crate sitting between the light and the +x direction: everything past
+    // its right edge is in shadow.
+    const int crate = L.AddOccluder(nullptr, 0);
+    check(crate == 0, "a caster needs real points");
+    const fake2d::Vec2 box[4] = {{cx + 30.0f, cy - 25.0f}, {cx + 70.0f, cy - 25.0f},
+                                 {cx + 70.0f, cy + 25.0f}, {cx + 30.0f, cy + 25.0f}};
+    const int occ = L.AddOccluder(box, 4);
+    check(occ > 0, "a polygon caster is accepted");
+    check(L.AddOccluder(box, 2) == 0, "a two-vertex caster is rejected");
+    check(L.AddOccluder(box, fake2d::LightSystem::kMaxOccluderVerts + 1) == 0,
+          "an over-long caster is rejected");
+
+    render();
+    check(L.TargetId() > 0, "the first Render takes a buffer slot");
+    fake2d::Color px = probe(cx, cy);
+    check(px.r > 0.9f && px.g > 0.9f, "the pool centre is bright");
+    px = probe(cx + 60.0f, cy);
+    check(near(px.r, 0.0f) && near(px.g, 0.0f),
+          "behind the caster the light is cut to nothing");
+    px = probe(cx + 30.0f, cy + 45.0f);
+    check(px.r > 0.4f, "outside the cone the pool still reaches");
+    px = probe(cx + 150.0f, cy);
+    check(is_ambient(px), "past the radius the buffer is plain ambient");
+
+    // Containment, the property the whole pass rests on: no shadow quad may
+    // darken a texel outside the circle of the light that cast it. Sampled all
+    // the way round, because a wrong-way wedge points somewhere.
+    int escaped = 0;
+    for (int i = 0; i < 24; ++i) {
+        const float ang = static_cast<float>(i) * 2.0f * 3.14159265358979f / 24.0f;
+        const fake2d::Color c = probe(cx + std::cos(ang) * kR * 1.35f,
+                                      cy + std::sin(ang) * kR * 1.35f);
+        if (!is_ambient(c)) {
+            ++escaped;
+        }
+    }
+    check(escaped == 0, "no shadow reaches past its own light circle");
+
+    // The shadow polygon ends at the chord between the two rim points, so a
+    // crescent between that chord and the arc is never darkened. Gated rather
+    // than assumed: the falloff has already spent itself by then, which is what
+    // keeps the seam invisible.
+    px = probe(cx + kR * 0.77f, cy);
+    check(px.r < 0.30f, "the pool is nearly spent where the shadow polygon stops");
+
+    const fake2d::LightSystem::Stats one = L.GetStats();
+    check(one.lights == 1 && one.visible_lights == 1 && one.shadow_lights == 1,
+          "stats: one visible casting light");
+    check(one.shadow_quads == 1,
+          "stats: only the light-facing edge is extruded");
+    check(one.budget_clipped == 0, "stats: the budget is not in play yet");
+
+    // A neighbour keeps its own pool: the only thing that can darken a texel is
+    // a shadow cast by a light whose circle contains it.
+    const int b = L.AddLight();
+    L.SetLightPosition(b, cx + 140.0f, cy);
+    L.SetLightRadius(b, kR);
+    L.SetLightColor(b, 0.2f, 0.6f, 1.0f, 1.0f);
+    render();
+    px = probe(cx + 140.0f, cy);
+    check(px.b > 0.30f && px.b > px.r + 0.15f,
+          "a neighbouring pool stays lit outside the first light's reach");
+
+    // Culling: off-view lights cost nothing and are not counted as visible.
+    const int far_away = L.AddLight();
+    L.SetLightPosition(far_away, cx + 5000.0f, cy);
+    L.SetLightRadius(far_away, kR);
+    render();
+    const fake2d::LightSystem::Stats culled = L.GetStats();
+    check(culled.lights == 3 && culled.visible_lights == 2,
+          "a light outside the view is culled");
+
+    // Co-batching: casters are the volume that grows, and they must not turn
+    // into draw calls. Same call count with 60 casters as with one.
+    const int calls_with_one = culled.draw_calls;
+    std::vector<int> extra;
+    for (int i = 0; i < 60; ++i) {
+        const float ex = cx - 200.0f + static_cast<float>(i % 10) * 45.0f;
+        const float ey = cy - 120.0f + static_cast<float>(i / 10) * 45.0f;
+        const fake2d::Vec2 small[4] = {{ex, ey}, {ex + 20.0f, ey},
+                                       {ex + 20.0f, ey + 20.0f}, {ex, ey + 20.0f}};
+        extra.push_back(L.AddOccluder(small, 4));
+    }
+    render();
+    const fake2d::LightSystem::Stats crowded = L.GetStats();
+    check(crowded.occluders == 61, "stats: every caster is counted");
+    check(crowded.shadow_quads > one.shadow_quads, "the crowded stage casts more");
+    check(crowded.draw_calls == calls_with_one,
+          "60 extra casters add no draw calls: they co-batch");
+
+    // The budget is a cap that engages rather than a limit that breaks the
+    // frame: quads stop, the pass still completes, and the clipping is reported.
+    L.SetQuadBudget(2);
+    render();
+    const fake2d::LightSystem::Stats clipped = L.GetStats();
+    check(clipped.shadow_quads <= 2, "the quad budget caps the shadow pass");
+    check(clipped.budget_clipped > 0, "the budget reports that it clipped");
+    L.SetQuadBudget(fake2d::LightSystem::kDefaultQuadBudget);
+
+    // In-place edits keep ids alive, which is what lets a script cache them.
+    const int kept = occ;
+    L.SetOccluderRect(kept, cx + 30.0f, cy + 40.0f, 40.0f, 40.0f);
+    check(L.HasOccluder(kept) && L.OccluderCount() == 61,
+          "resizing a caster in place keeps its id");
+    L.SetOccluderEnabled(kept, false);
+    render();
+    check(L.GetStats().occluders == 60, "a disabled caster stops casting");
+    L.SetOccluderEnabled(kept, true);
+
+    // Robustness: bad ids are ignored, not dereferenced.
+    L.SetLightPosition(0, 1.0f, 1.0f);
+    L.SetLightRadius(-3, 10.0f);
+    L.SetLightColor(static_cast<int>(fake2d::LightSystem::kMaxLights) + 1, 1.0f,
+                    1.0f, 1.0f, 1.0f);
+    L.SetOccluderRect(0, 0.0f, 0.0f, 10.0f, 10.0f);
+    L.RemoveOccluder(9999);
+    check(!L.HasLight(0) && !L.HasLight(-1), "invalid light ids are not held");
+    check(!L.HasOccluder(0), "invalid caster ids are not held");
+    check(L.GetLight(9999) == nullptr, "GetLight reports nothing for a bad id");
+
+    // The pool is fixed size and exhausts cleanly rather than growing.
+    for (int i = 0; i < fake2d::LightSystem::kMaxLights; ++i) {
+        L.AddLight();
+    }
+    check(L.LightCount() == static_cast<int>(fake2d::LightSystem::kMaxLights),
+          "the light pool fills to its documented cap");
+    check(L.AddLight() == 0, "the pool refuses one light too many");
+    L.RemoveLight(a);
+    check(!L.HasLight(a), "a removed light stops answering");
+    check(L.AddLight() > 0, "a removed light frees its slot");
+
+    // The master toggle is the cheap exit: no buffer work, no composite.
+    for (int i = 1; i <= static_cast<int>(fake2d::LightSystem::kMaxLights); ++i) {
+        L.RemoveLight(i);
+    }
+    for (int i = 1; i <= static_cast<int>(fake2d::LightSystem::kMaxOccluders); ++i) {
+        L.RemoveOccluder(i);
+    }
+    L.SetEnabled(false);
+    render();
+    check(L.GetStats().lights == 0, "a disabled pass does nothing at all");
+    L.SetEnabled(true);
+    check(L.LightCount() == 0 && L.OccluderCount() == 0, "the test left nothing behind");
+
+    std::printf("[light] %s: %d checks, %d failures\n",
+                failures == 0 ? "PASS" : "FAILED", checks, failures);
+    return failures == 0 ? 0 : 1;
+}
+
+/// Lighting performance gate. What is being claimed is that the pass is
+/// *bounded*: pools and shadow quads co-batch, so the number of draw calls does
+/// not grow with the number of lights, and the shadow geometry has a ceiling a
+/// game can set. The exit code is the gate, so a regression that turns the pass
+/// into one draw call per light fails CI on any machine -- which is exactly what
+/// it caught while it was being written.
+int RunLightBenchmark(fake2d::Engine &engine) {
+    /// A full pool of casters (the slot cap) and a realistic load of moving
+    /// lights, kept small enough that the vertex buffer still holds the shadow
+    /// segment in one batch -- which is exactly what the draw-call gate measures.
+    constexpr int kLights = 64;
+    constexpr int kCasters = static_cast<int>(fake2d::LightSystem::kMaxOccluders);
+    constexpr int kFrames = 120;
+    constexpr int kWarmup = 20;
+
+    fake2d::Renderer &r = engine.GetRenderer();
+    if (!r.IsReady()) {
+        std::printf("[light-bench] FAIL renderer is not initialised\n");
+        return 1;
+    }
+    fake2d::LightSystem &L = r.Lights();
+    L.SetEnabled(true);
+    L.SetAmbient(0.12f, 0.13f, 0.18f, 1.0f);
+    L.SetShadowDarkness(0.0f);
+    L.SetCore(0.18f, 0.5f);
+
+    const fake2d::Vec2 origin = r.GetCamera().Position();
+    const float vw = r.GetCamera().ViewportWidth();
+    const float vh = r.GetCamera().ViewportHeight();
+
+    struct Result {
+        double avg_ms = 0.0;
+        double max_ms = 0.0;
+        int draw_calls = 0;
+        int shadow_quads = 0;
+        int visible_lights = 0;
+    };
+
+    auto measure = [&](int light_count, int caster_count) {
+        for (int i = 1; i <= static_cast<int>(fake2d::LightSystem::kMaxLights); ++i) {
+            L.RemoveLight(i);
+        }
+        for (int i = 1; i <= static_cast<int>(fake2d::LightSystem::kMaxOccluders); ++i) {
+            L.RemoveOccluder(i);
+        }
+        std::vector<fake2d::Vec2> base;
+        base.reserve(static_cast<size_t>(light_count));
+        for (int i = 0; i < light_count; ++i) {
+            const int id = L.AddLight();
+            if (id == 0) {
+                break;
+            }
+            const float angle = static_cast<float>(i) * 0.7f;
+            const float bx = origin.x + vw * 0.5f +
+                             std::cos(angle) * (vw * 0.42f) *
+                                 static_cast<float>((i % 5) + 1) / 5.0f;
+            const float by = origin.y + vh * 0.5f +
+                             std::sin(angle) * (vh * 0.42f) *
+                                 static_cast<float>((i % 7) + 1) / 7.0f;
+            base.push_back({bx, by});
+            L.SetLightRadius(id, 90.0f + static_cast<float>(i % 5) * 40.0f);
+            L.SetLightColor(id, 1.0f, 0.8f - static_cast<float>(i % 4) * 0.1f,
+                            0.5f + static_cast<float>(i % 3) * 0.2f, 0.9f);
+        }
+        // Casters are hung around the lights rather than spread over the view:
+        // a benchmark whose casters all sit out of reach measures nothing, and
+        // the 1-light case below has to cast a real shadow to be a baseline.
+        for (int i = 0; i < caster_count; ++i) {
+            const fake2d::Vec2 anchor =
+                base.empty() ? fake2d::Vec2{origin.x + vw * 0.5f, origin.y + vh * 0.5f}
+                             : base[static_cast<size_t>(i) % base.size()];
+            const float ang = static_cast<float>(i) * 2.39996f;
+            const float rad = 26.0f + static_cast<float>(i % 7) * 15.0f;
+            const float cx = anchor.x + std::cos(ang) * rad;
+            const float cy = anchor.y + std::sin(ang) * rad;
+            const fake2d::Vec2 quad[4] = {{cx, cy}, {cx + 26.0f, cy},
+                                          {cx + 26.0f, cy + 26.0f}, {cx, cy + 26.0f}};
+            if (L.AddOccluder(quad, 4) == 0) {
+                break;
+            }
+        }
+
+        auto step = [&](float t) {
+            for (size_t i = 0; i < base.size(); ++i) {
+                const float phase = t + static_cast<float>(i) * 0.35f;
+                L.SetLightPosition(static_cast<int>(i) + 1,
+                                   base[i].x + std::cos(phase) * 70.0f,
+                                   base[i].y + std::sin(phase * 1.3f) * 70.0f);
+            }
+            r.BeginFrame(0.02f, 0.02f, 0.04f, 1.0f);
+            L.Render();
+            r.EndFrame();
+        };
+        for (int f = 0; f < kWarmup; ++f) {
+            step(static_cast<float>(f) * 0.05f);
+        }
+        Result out;
+        for (int f = 0; f < kFrames; ++f) {
+            const auto t0 = std::chrono::steady_clock::now();
+            step(static_cast<float>(kWarmup + f) * 0.05f);
+            const auto t1 = std::chrono::steady_clock::now();
+            const double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+            out.avg_ms += ms;
+            out.max_ms = std::max(out.max_ms, ms);
+            const fake2d::LightSystem::Stats s = L.GetStats();
+            out.draw_calls = s.draw_calls;
+            out.shadow_quads += s.shadow_quads;
+            out.visible_lights = s.visible_lights;
+        }
+        out.avg_ms /= kFrames;
+        out.shadow_quads /= kFrames;
+        return out;
+    };
+
+    const Result one = measure(1, 1);
+    const Result full = measure(kLights, kCasters);
+    // The same stage with the budget pulled in: the worst case is a knob, not
+    // a cliff, and that is the property that keeps a crowded scene on frame.
+    constexpr int kCappedQuads = 1200;
+    L.SetQuadBudget(kCappedQuads);
+    const Result capped = measure(kLights, kCasters);
+    L.SetQuadBudget(fake2d::LightSystem::kDefaultQuadBudget);
+
+    std::printf("== fake2d 2D lighting benchmark ==\n");
+    std::printf("frames/side: %d (%d warmup), view %.0fx%.0f, %d lights x %d casters\n",
+                kFrames, kWarmup, vw, vh, kLights, kCasters);
+    const auto report = [](const char *name, const Result &res) {
+        std::printf(
+            "%-10s avg %6.3f ms | max %6.3f ms | draw calls %2d | shadow quads/frame %5d "
+            "| lights in view %d\n",
+            name, res.avg_ms, res.max_ms, res.draw_calls, res.shadow_quads,
+            res.visible_lights);
+    };
+    report("1 light", one);
+    report("full", full);
+    report("capped", capped);
+
+    int failures = 0;
+    int gates = 0;
+    auto expect = [&](bool ok, const char *what) {
+        ++gates;
+        if (!ok) {
+            ++failures;
+            std::printf("[light-bench] FAIL %s\n", what);
+        }
+    };
+    // A benchmark that measured nothing is not a gate.
+    expect(one.shadow_quads > 0 && full.shadow_quads > 0,
+           "the scene actually casts shadows");
+    expect(full.visible_lights >= kLights - 4,
+           "the full stage really is a full pool of lights in view");
+    // The batch's own capacity is the only reason for the allowance: past 4096
+    // quads a segment spills into a second flush, which is a geometry cost and
+    // not a per-light one. A pass that flushed once per light would land in the
+    // hundreds here -- which is exactly the regression this gate caught.
+    expect(full.draw_calls <= one.draw_calls + 2,
+           "64x the lights and 256x the casters add no per-light draw calls");
+    expect(full.draw_calls <= 8, "the whole stage stays within single-digit draw calls");
+    expect(capped.shadow_quads <= kCappedQuads,
+           "the quad budget holds the worst case down under load");
+    expect(capped.avg_ms <= full.avg_ms * 1.25 + 2.0,
+           "capping the shadow geometry does not make the frame slower");
+    // No absolute millisecond bound here on purpose. This pass is fill-rate
+    // bound, and the same frame is an order of magnitude apart on a GPU versus
+    // the software GL a CI runner uses; a ceiling loose enough for llvmpipe
+    // would wave a real regression through. What is gated is the work submitted
+    // -- draw calls and geometry -- which holds on any machine, and the clock
+    // is printed so the trend is visible in the log.
+    std::printf("clock (reported, not gated): full stage %.3f ms/frame = %.0f fps\n",
+                full.avg_ms, 1000.0 / (full.avg_ms + 1e-6));
+
+    std::printf("[light-bench] %s: %d checks, %d failures (full stage %.3f ms/frame, "
+                "%d draw calls, %d quads)\n",
+                failures == 0 ? "PASS" : "FAILED", gates, failures, full.avg_ms,
+                full.draw_calls, full.shadow_quads);
+    return failures == 0 ? 0 : 1;
+}
+
 int RunAudioTest(fake2d::Engine & /*engine*/) {
     int failures = 0;
     int checks = 0;
@@ -9286,6 +9680,24 @@ bool RelaunchWithDemo(const char *self, const std::string &flag, int max_frames)
 #endif
 }
 
+/// Recognize the `--<flag>-demo` form RelaunchWithDemo emits and resolve it
+/// through the catalogue. The argument parser and the launcher test both go
+/// through here, so the string the menu re-execs with and the grammar the host
+/// accepts cannot drift apart.
+enum class DemoArg { kNotADemoFlag, kUnknownDemo, kResolved };
+DemoArg ParseDemoArg(std::string_view arg, const fake2d::DemoInfo **out) {
+    if (!arg.starts_with("--") || arg.size() <= 7 || !arg.ends_with("-demo")) {
+        return DemoArg::kNotADemoFlag;
+    }
+    const fake2d::DemoInfo *info =
+        fake2d::FindDemo(arg.substr(2, arg.size() - 7));
+    if (info == nullptr) {
+        return DemoArg::kUnknownDemo;
+    }
+    *out = info;
+    return DemoArg::kResolved;
+}
+
 /// Self-test of the catalogue the launcher menu and the command line share: a
 /// demo can only be offered if its flag is unique, its category is one the menu
 /// can group by, and its script is really in the checkout.
@@ -9319,7 +9731,27 @@ int RunLauncherTest() {
         check(std::find(flags.begin(), flags.end(), flag) == flags.end(),
               "duplicate flag: " + std::string(flag));
         flags.push_back(flag);
+
+        // The relaunch string the menu builds must be the form the host parses,
+        // and it must land on this entry's script. This is what catches a demo
+        // that is listed but can never actually be started.
+        const std::string arg = "--" + std::string(flag) + "-demo";
+        const fake2d::DemoInfo *resolved = nullptr;
+        check(ParseDemoArg(arg, &resolved) == DemoArg::kResolved,
+              "command line can select: " + arg);
+        check(resolved != nullptr &&
+              std::string_view(resolved->script) ==
+                  std::string_view(demo.script),
+              "flag resolves to the catalogued script: " + arg);
     }
+
+    const fake2d::DemoInfo *resolved = nullptr;
+    check(ParseDemoArg("--no-such-demo", &resolved) == DemoArg::kUnknownDemo,
+          "an unlisted demo flag is reported, not ignored");
+    check(ParseDemoArg("--headless", &resolved) == DemoArg::kNotADemoFlag,
+          "a plain option is not mistaken for a demo flag");
+    check(ParseDemoArg("--demo", &resolved) == DemoArg::kNotADemoFlag,
+          "the bare --demo form is not a demo flag");
 
     std::printf("[launcher] %s: %d checks, %d failures (%zu demos)\n",
                 failures == 0 ? "PASS" : "FAILED", checks, failures,
@@ -9363,6 +9795,8 @@ int main(int argc, char **argv) {
     bool post_test = false;
     bool fx_test = false;
     bool fog_test = false;
+    bool light_test = false;
+    bool light_bench = false;
     bool audio_test = false;
     bool combat_test = false;
     bool beat_demo = false;
@@ -9386,6 +9820,45 @@ int main(int argc, char **argv) {
     bool regen_assets = false;
     bool launcher_mode = false;
     bool launcher_test = false;
+    const fake2d::DemoInfo *demo_info = nullptr;
+    // Host-side extras a demo needs before its script runs: the procedural
+    // sprite sheets and synthesized sound sets that only the host can build.
+    // Which script to load is *not* decided here — that stays in the catalogue.
+    auto apply_demo_setup = [&](std::string_view flag) {
+        if (flag == "angry-birds" || flag == "limbo") {
+            angry_demo = true;  // limbo reuses the slingshot SFX set
+        } else if (flag == "audio" || flag == "spatial") {
+            audio_clips = true;
+        } else if (flag == "map") {
+            map_demo = true;
+        } else if (flag == "tile") {
+            tile_demo = true;
+        } else if (flag == "platformer") {
+            platformer_demo = true;
+        } else if (flag == "mario") {
+            mario_demo = true;
+        } else if (flag == "slope") {
+            slope_demo = true;
+        } else if (flag == "path") {
+            path_demo = true;
+        } else if (flag == "text") {
+            text_demo = true;
+        } else if (flag == "beat-em-up") {
+            beat_demo = true;
+        } else if (flag == "shmup") {
+            shmup_demo = true;
+        } else if (flag == "snooker") {
+            snooker_demo = true;
+        } else if (flag == "contra") {
+            contra_demo = true;
+        } else if (flag == "city") {
+            city_demo = true;
+        } else if (flag == "rts") {
+            rts_demo = true;
+        } else if (flag == "vn") {
+            vn_demo = true;
+        }
+    };
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg = argv[i];
         if (arg == "--headless") {
@@ -9402,113 +9875,19 @@ int main(int argc, char **argv) {
             launcher_test = true;
             cfg.headless = true;
             cfg.vsync = false;
-        } else if (arg == "--breakout-demo") {
-            // The brick-breaker sample that used to be the only default entry.
-            cfg.script_entry = "scripts/game.lua";
-        } else if (arg == "--scene-demo") {
-            cfg.script_entry = "scripts/scene_demo.lua";
-        } else if (arg == "--angry-birds-demo") {
-            // Slingshot physics sandbox: drag the bird, release, topple the
-            // towers (joints-free rigid bodies, stacking and impulses).
-            angry_demo = true;
-            cfg.script_entry = "scripts/angry_birds_demo.lua";
-        } else if (arg == "--limbo-demo") {
-            // Joint-heavy sandbox: ragdoll, rope chain, rope bridge, buoyancy
-            // and death severing (dynamic joint creation at runtime).
-            angry_demo = true; // shares the synthesized SFX set
-            cfg.script_entry = "scripts/limbo_demo.lua";
-        } else if (arg == "--text-demo") {
-            // UTF-8/CJK text, runtime language switching, app paths, save
-            // containers v2 and the Steam adapter state.
-            text_demo = true;
-            cfg.script_entry = "scripts/text_demo.lua";
-        } else if (arg == "--map-demo") {
-            map_demo = true;
-            cfg.script_entry = "scripts/map_demo.lua";
-        } else if (arg == "--tile-demo") {
-            // Animated tiles: a pond and torches running Tiled tileset cycles.
-            tile_demo = true;
-            cfg.script_entry = "scripts/tile_demo.lua";
-        } else if (arg == "--platformer-demo") {
-            platformer_demo = true;
-            cfg.script_entry = "scripts/platformer_demo.lua";
-        } else if (arg == "--mario-demo") {
-            mario_demo = true;
-            cfg.script_entry = "scripts/mario.lua";
-        } else if (arg == "--slope-demo") {
-            slope_demo = true;
-            cfg.script_entry = "scripts/slope_demo.lua";
-        } else if (arg == "--path-demo") {
-            path_demo = true;
-            cfg.script_entry = "scripts/path_demo.lua";
-        } else if (arg == "--rt-demo") {
-            // Offscreen render targets: bake-once art + accumulating trail.
-            // Needs no procedural assets — everything is drawn from quads.
-            cfg.script_entry = "scripts/rt_demo.lua";
-        } else if (arg == "--ui-demo") {
-            // Sliders, checkboxes, text fields and scroll areas.
-            cfg.script_entry = "scripts/ui_demo.lua";
-        } else if (arg == "--ui2-demo") {
-            // Round 2: progress bars, radio groups and combo boxes.
-            cfg.script_entry = "scripts/ui2_demo.lua";
-        } else if (arg == "--ui3-demo") {
-            // Round 3: a draggable window, a tab bar and collapsible trees.
-            cfg.script_entry = "scripts/ui3_demo.lua";
-        } else if (arg == "--fog-demo") {
-            // Fog of war: an accumulating coverage mask multiplied over the
-            // scene, with a clickable minimap and no binary assets.
-            cfg.script_entry = "scripts/fog_demo.lua";
-        } else if (arg == "--post-demo") {
-            // Post-processing pass over the whole world + a baked minimap.
-            cfg.script_entry = "scripts/post_demo.lua";
-        } else if (arg == "--fx-demo") {
-            // Multi-pass chain: bloom over a procedural skyline + a
-            // split-screen mode.
-            cfg.script_entry = "scripts/fx_demo.lua";
-        } else if (arg == "--audio-demo") {
-            // Mixer front panel: bus gains, cross-fade, pause, VU meter.
-            audio_clips = true;
-            cfg.script_entry = "scripts/audio_demo.lua";
-        } else if (arg == "--spatial-demo") {
-            // Positional audio: place one-shots in the world and move the
-            // listener through them with WASD / the mouse.
-            audio_clips = true;
-            cfg.script_entry = "scripts/spatial_demo.lua";
-        } else if (arg == "--beat-em-up-demo") {
-            // 2.5D brawler: ground-plane movement, y-sorted fighters, combo
-            // attacks with hit-stop, wave waves and a boss.
-            beat_demo = true;
-            cfg.script_entry = "scripts/beat_em_up_demo.lua";
-        } else if (arg == "--shmup-demo") {
-            // Vertical shoot'em up: scrolling desert, weapon upgrades, bombs,
-            // fighter waves and a multi-pattern boss.
-            shmup_demo = true;
-            cfg.script_entry = "scripts/shmup_demo.lua";
-        } else if (arg == "--snooker-demo") {
-            // Snooker: substepped billiards physics, spin, pockets and a
-            // two-player frame with simplified rules.
-            snooker_demo = true;
-            cfg.script_entry = "scripts/snooker_demo.lua";
-        } else if (arg == "--contra-demo") {
-            // Run-and-gun: a jungle stage, 8-way aiming, weapon pickups,
-            // turrets, flying capsules and a fortress boss.
-            contra_demo = true;
-            cfg.script_entry = "scripts/contra_demo.lua";
-        } else if (arg == "--city-demo") {
-            // City builder: zone, road and power placement on a generated
-            // 56x42 map, with a monthly economy and an attract mayor AI.
-            city_demo = true;
-            cfg.script_entry = "scripts/city_demo.lua";
-        } else if (arg == "--rts-demo") {
-            // Red Alert-style RTS: bases, harvesters, tanks, infantry and
-            // an enemy commander on a 64x48 battle map.
-            rts_demo = true;
-            cfg.script_entry = "scripts/rts_demo.lua";
-        } else if (arg == "--vn-demo") {
-            // Tokimeki-style dating sim: portraits, backgrounds, branching
-            // dialogue, a daily schedule and four heroines.
-            vn_demo = true;
-            cfg.script_entry = "scripts/vn_demo.lua";
+        } else if (const DemoArg kind = ParseDemoArg(arg, &demo_info);
+                   kind != DemoArg::kNotADemoFlag) {
+            // `--<flag>-demo`: the catalogue owns the entry script, so the
+            // command line and the launcher menu can never disagree about what
+            // is startable, and an unlisted flag is an error instead of an
+            // argument silently ignored.
+            if (kind == DemoArg::kUnknownDemo) {
+                std::fprintf(stderr, "fake2d_hello: unknown demo flag '%.*s'\n",
+                             static_cast<int>(arg.size()), arg.data());
+                return 1;
+            }
+            cfg.script_entry = demo_info->script;
+            apply_demo_setup(demo_info->flag);
         } else if (arg == "--screenshot" && i + 1 < argc) {
             screenshot = argv[++i];
         } else if (arg == "--shot-frame" && i + 1 < argc) {
@@ -9632,6 +10011,21 @@ int main(int argc, char **argv) {
             // accumulation target that persists across frames, and pixel
             // sampling.
             fog_test = true;
+            cfg.headless = true;
+            cfg.script_entry.clear();
+            cfg.vsync = false;
+        } else if (arg == "--light-test") {
+            // Headless self-test of the lighting pass: pools, projected
+            // shadows, shadow containment inside the light circle, culling and
+            // the quad budget -- all read back out of the light buffer.
+            light_test = true;
+            cfg.headless = true;
+            cfg.script_entry.clear();
+            cfg.vsync = false;
+        } else if (arg == "--light-bench") {
+            // Gated performance run for the lighting pass: the exit code says
+            // whether the pass stayed batched and inside the frame budget.
+            light_bench = true;
             cfg.headless = true;
             cfg.script_entry.clear();
             cfg.vsync = false;
@@ -9788,6 +10182,12 @@ int main(int argc, char **argv) {
     }
     if (fog_test) {
         return RunFogTest(engine);
+    }
+    if (light_test) {
+        return RunLightTest(engine);
+    }
+    if (light_bench) {
+        return RunLightBenchmark(engine);
     }
     if (audio_test) {
         return RunAudioTest(engine);

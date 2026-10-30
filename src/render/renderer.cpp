@@ -59,6 +59,10 @@ bool Renderer::Init(int logical_width, int logical_height) {
     // The embedded 8x8 font guarantees this succeeds even on fontless hosts.
     font_.LoadDefault(28.0f);
 
+    // Lights own two small textures and (lazily) one render target; failing to
+    // build them must not take the whole renderer down.
+    lights_.Init(this);
+
     ready_ = true;
     return true;
 }
@@ -386,6 +390,9 @@ void Renderer::Shutdown() {
         active_shader_ = nullptr;
         // Release the glyph atlas while the GL context is still current.
         font_.Reset();
+        // Lights hold two textures and one pooled target; free them while the
+        // context is current and before the pool is cleared under them.
+        lights_.Shutdown();
         // Targets hold an FBO + texture each; free them before the context goes.
         targets_.Clear();
         active_target_ = 0;

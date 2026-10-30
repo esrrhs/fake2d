@@ -472,6 +472,83 @@ rt_present(scene_rt, 0)
 this — accumulating reveal, a baked minimap multiplied by the same mask, a
 click-to-jump map, and an "explored %" readout driven by `rt_sample`.
 
+### Lighting
+
+A 2D game still has light sources. A light is a position, a radius and a
+colour; `light_render()` stamps every light into an offscreen buffer, cuts a
+hard projected shadow behind each caster, and multiplies the result over
+whatever the frame has already drawn — so every pixel of every sprite answers
+to the lights, and a torch that moves sweeps its shadow across the crates in
+front of it. No shaders and no per-object work: one generated falloff sprite,
+one blit, and the geometry does the rest.
+
+Call it **after the world and before the HUD**, or the interface gets dimmed
+with the room.
+
+```lua
+-- once, at setup
+local lantern = light_create()
+light_set_color(lantern, 1.0, 0.78, 0.45, 1.15)   -- rgb + intensity
+light_set_radius(lantern, 235.0)
+local crate = occluder_add_rect(150.0, 330.0, 62.0, 62.0)
+
+-- every frame
+light_set_position(lantern, px, py)               -- the pool and shadow follow
+occluder_set_rect(crate, bx, by, 62.0, 62.0)      -- same id, new place
+draw_world()
+light_render()                                    -- the whole pass: ~4 draw calls
+draw_hud()                                        -- stays at full brightness
+```
+
+Ids are 1-based and stay valid across frames, which is what lets a script keep
+them in its state object. `0` means the pool is full (256 lights, 256 casters).
+
+| call | what it does |
+| --- | --- |
+| `light_create()` → id | a new light at the origin, radius 220, warm white |
+| `light_destroy(id)` | frees the slot |
+| `light_valid(id)` / `light_count()` | is the id alive / how many are |
+| `light_set_position(id, x, y)` | where it is |
+| `light_set_radius(id, r)` | how far it reaches (>= 1) |
+| `light_set_color(id, r, g, b, i)` | hue and intensity; `i` scales the pool |
+| `light_set_shadows(id, on)` | cast, or fill the room without casting |
+| `light_set_enabled(id, on)` | off without losing the id |
+| `occluder_add_rect(x, y, w, h)` → id | an axis-aligned caster |
+| `occluder_add_poly(x1..y4)` → id | a four-corner caster |
+| `occluder_add_body(body)` → id | a caster that tracks a physics body |
+| `occluder_set_rect(id, x, y, w, h)` | move/resize in place, id survives |
+| `occluder_set_poly(id, x1..y4)` | re-shape it, for casters that rotate |
+| `occluder_sync_bodies()` | pull fresh polygons out of the world; call once a frame |
+| `occluder_destroy(id)` / `occluder_set_enabled(id, on)` / `occluder_count()` | as they read |
+| `light_set_ambient(r, g, b, a)` | the light that exists where no light does |
+| `light_set_shadow_darkness(keep)` | how much survives behind a caster, 0 = black |
+| `light_set_core(scale, intensity)` | the bright dot at the source itself |
+| `light_set_on(on)` | the master toggle |
+| `light_stat(which)` | 1 lights, 2 in view, 3 casting, 4 casters, 5 quads, 6 budget-clipped, 7 draw calls |
+
+`light_stat` is the readout to watch: a shadow is two triangles per
+light-facing edge, and the count is what the budget caps.
+
+**Cost is bounded by design.** Lights outside the view are skipped, casters
+outside a light's reach are never looked at, and only the edges that *face* the
+light are extruded — which is both the correct silhouette and 3/4 of the
+geometry saved. `--light-bench` runs 64 moving lights against all 256 caster
+slots and gates the result: the draw-call count stays flat in the number of
+lights, and pulling the budget in lowers the frame cost rather than raising it.
+`--light-test` reads the light buffer back and proves the geometry from the
+other side: a pool is bright exactly as far as its radius, a shadow is dark
+behind its caster, and no shadow lands outside the circle of the light that
+cast it.
+
+A shadow is confined to its own light's circle on purpose. That is what lets a
+fill light be added after the shadow pass — an opaque crate stops the lantern,
+not the ceiling lamp behind it — without a single light being able to black out
+its neighbour.
+
+`scripts/light_demo.lua` (`--light-demo`) is a cavern with a carried lantern, a
+flickering wall torch, an orbiting orb, a sliding crate and a rotating beam,
+plus a `SPACE` burst that switches on 24 more lights for 24 frames.
+
 ### Audio
 
 A mixer, not a fire-and-forget player. Clips are mono float PCM registered
