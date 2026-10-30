@@ -27,6 +27,8 @@ void Tick();
 
 void UnlockAchievement(std::string_view id);
 void SetRichPresence(std::string_view key, std::string_view value);
+/// Drop the rich-presence keys set earlier (no-op backends ignore it).
+void ClearRichPresence();
 /// Steam UI language when available, otherwise "english".
 [[nodiscard]] std::string Language();
 
