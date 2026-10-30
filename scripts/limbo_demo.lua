@@ -38,49 +38,13 @@ local TAG_ROPE = 1
 local TAG_PLANK = 2
 local TAG_PROP = 3
 
-local brick_tex = 0 + 0
-local ball_tex = 0 + 0
-local bg_tex = 0 + 0
-local ground_tex = 0 + 0
-local head_tex = 0 + 0
-local torso_tex = 0 + 0
-local limb_tex = 0 + 0
-local rope_tex = 0 + 0
-local water_tex = 0 + 0
-local inited = false
 
 -- world statics (created once)
-local ground = 0 + 0
-local rope_anchor = 0 + 0
-local bridge_a = 0 + 0
-local bridge_b = 0 + 0
 
 -- ragdoll parts / joints
-local hd_head = 0 + 0
-local hd_torso = 0 + 0
-local hd_arm_l = 0 + 0
-local hd_arm_r = 0 + 0
-local hd_leg_l = 0 + 0
-local hd_leg_r = 0 + 0
-local j_neck = 0 + 0
-local j_shoulder_l = 0 + 0
-local j_shoulder_r = 0 + 0
-local j_hip_l = 0 + 0
-local j_hip_r = 0 + 0
-local j_grab = 0 + 0
-local j_bridge_end = 0 + 0
-local rope_tip = 0 + 0
 
 -- props (also mirrored into entities for drawing)
-local p_ball = 0 + 0
-local p_wood = 0 + 0
-local p_stone = 0 + 0
-local p_small = 0 + 0
 
-local alive = 1 + 0
-local grabbed = 1 - 1
-local frame = 0 + 0
-local auto = 0 + 0
 
 local trees = {
     {x = 120.0, h = 260.0, w = 16.0, top = 210.0},
@@ -93,6 +57,50 @@ local trees = {
     {x = 2300.0, h = 220.0, w = 13.0, top = 250.0}
 }
 
+-- FakeLua binds file-level locals as const, so everything that changes
+-- across frames lives in a host-side NativeObject instead (see
+-- docs/SCRIPTING.md rule 3). Fields read and write like a plain table.
+local S = new_global_obj("limbo_demo", "state")
+
+local function reset_state()
+    S.brick_tex = 0 + 0
+    S.ball_tex = 0 + 0
+    S.bg_tex = 0 + 0
+    S.ground_tex = 0 + 0
+    S.head_tex = 0 + 0
+    S.torso_tex = 0 + 0
+    S.limb_tex = 0 + 0
+    S.rope_tex = 0 + 0
+    S.water_tex = 0 + 0
+    S.inited = false
+    S.ground = 0 + 0
+    S.rope_anchor = 0 + 0
+    S.bridge_a = 0 + 0
+    S.bridge_b = 0 + 0
+    S.hd_head = 0 + 0
+    S.hd_torso = 0 + 0
+    S.hd_arm_l = 0 + 0
+    S.hd_arm_r = 0 + 0
+    S.hd_leg_l = 0 + 0
+    S.hd_leg_r = 0 + 0
+    S.j_neck = 0 + 0
+    S.j_shoulder_l = 0 + 0
+    S.j_shoulder_r = 0 + 0
+    S.j_hip_l = 0 + 0
+    S.j_hip_r = 0 + 0
+    S.j_grab = 0 + 0
+    S.j_bridge_end = 0 + 0
+    S.rope_tip = 0 + 0
+    S.p_ball = 0 + 0
+    S.p_wood = 0 + 0
+    S.p_stone = 0 + 0
+    S.p_small = 0 + 0
+    S.alive = 1 + 0
+    S.grabbed = 1 - 1
+    S.frame = 0 + 0
+    S.auto = 0 + 0
+end
+
 local function add_entity(tag, body, joint)
     local e = ent_create(tag)
     ent_set_num(e, 0, body)
@@ -101,36 +109,36 @@ local function add_entity(tag, body, joint)
 end
 
 local function init_assets()
-    brick_tex = sprite_load("assets/art/wood_plank.png")
-    ball_tex = sprite_load("assets/ball.png")
-    bg_tex = sprite_load("assets/art/limbo_bg.png")
-    ground_tex = sprite_load("assets/art/limbo_ground.png")
+    S.brick_tex = sprite_load("assets/art/wood_plank.png")
+    S.ball_tex = sprite_load("assets/ball.png")
+    S.bg_tex = sprite_load("assets/art/limbo_bg.png")
+    S.ground_tex = sprite_load("assets/art/limbo_ground.png")
     -- AI-illustrated silhouette set; the primitive painters below keep the
     -- sandbox readable when the shipped art is absent.
-    head_tex = sprite_load("assets/limbo/head.png")
-    torso_tex = sprite_load("assets/limbo/torso.png")
-    limb_tex = sprite_load("assets/limbo/limb.png")
-    rope_tex = sprite_load("assets/limbo/rope.png")
-    water_tex = sprite_load("assets/limbo/water.png")
+    S.head_tex = sprite_load("assets/limbo/head.png")
+    S.torso_tex = sprite_load("assets/limbo/torso.png")
+    S.limb_tex = sprite_load("assets/limbo/limb.png")
+    S.rope_tex = sprite_load("assets/limbo/rope.png")
+    S.water_tex = sprite_load("assets/limbo/water.png")
 end
 
 local function create_statics()
-    if ground == 0 then
-        ground = phys_create_box(WORLD_W * 0.5, GROUND_Y + 20.0,
+    if S.ground == 0 then
+        S.ground = phys_create_box(WORLD_W * 0.5, GROUND_Y + 20.0,
                                  WORLD_W * 0.5 + 60.0, 20.0)
-        phys_set_static(ground, true)
-        phys_set_friction(ground, 0.9)
-        phys_set_restitution(ground, 0.0)
+        phys_set_static(S.ground, true)
+        phys_set_friction(S.ground, 0.9)
+        phys_set_restitution(S.ground, 0.0)
     end
-    if rope_anchor == 0 then
-        rope_anchor = phys_create_circle(ROPE_AX, ROPE_AY, 6.0)
-        phys_set_static(rope_anchor, true)
+    if S.rope_anchor == 0 then
+        S.rope_anchor = phys_create_circle(ROPE_AX, ROPE_AY, 6.0)
+        phys_set_static(S.rope_anchor, true)
     end
-    if bridge_a == 0 then
-        bridge_a = phys_create_circle(BRIDGE_AX, BRIDGE_Y, 5.0)
-        phys_set_static(bridge_a, true)
-        bridge_b = phys_create_circle(BRIDGE_BX, BRIDGE_Y, 5.0)
-        phys_set_static(bridge_b, true)
+    if S.bridge_a == 0 then
+        S.bridge_a = phys_create_circle(BRIDGE_AX, BRIDGE_Y, 5.0)
+        phys_set_static(S.bridge_a, true)
+        S.bridge_b = phys_create_circle(BRIDGE_BX, BRIDGE_Y, 5.0)
+        phys_set_static(S.bridge_b, true)
     end
 end
 
@@ -150,27 +158,27 @@ end
 local function build_ragdoll()
     local x = SPAWN_X
     local y = SPAWN_Y
-    hd_head = make_part(0, x, y - 24.0, 8.0, 8.0, 0.5)
-    hd_torso = make_part(1, x, y, 8.0, 16.0, 0.7)
-    hd_arm_l = make_part(1, x - 14.0, y - 12.0, 4.0, 10.0, 0.45)
-    hd_arm_r = make_part(1, x + 14.0, y - 12.0, 4.0, 10.0, 0.45)
-    hd_leg_l = make_part(1, x - 6.0, y + 27.0, 4.0, 11.0, 0.5)
-    hd_leg_r = make_part(1, x + 6.0, y + 27.0, 4.0, 11.0, 0.5)
+    S.hd_head = make_part(0, x, y - 24.0, 8.0, 8.0, 0.5)
+    S.hd_torso = make_part(1, x, y, 8.0, 16.0, 0.7)
+    S.hd_arm_l = make_part(1, x - 14.0, y - 12.0, 4.0, 10.0, 0.45)
+    S.hd_arm_r = make_part(1, x + 14.0, y - 12.0, 4.0, 10.0, 0.45)
+    S.hd_leg_l = make_part(1, x - 6.0, y + 27.0, 4.0, 11.0, 0.5)
+    S.hd_leg_r = make_part(1, x + 6.0, y + 27.0, 4.0, 11.0, 0.5)
 
-    j_neck = phys_joint_revolute(hd_torso, hd_head, x, y - 16.0, x, y - 16.0)
-    j_shoulder_l = phys_joint_revolute(hd_torso, hd_arm_l,
+    S.j_neck = phys_joint_revolute(S.hd_torso, S.hd_head, x, y - 16.0, x, y - 16.0)
+    S.j_shoulder_l = phys_joint_revolute(S.hd_torso, S.hd_arm_l,
                                        x - 8.0, y - 10.0, x - 8.0, y - 10.0)
-    j_shoulder_r = phys_joint_revolute(hd_torso, hd_arm_r,
+    S.j_shoulder_r = phys_joint_revolute(S.hd_torso, S.hd_arm_r,
                                        x + 8.0, y - 10.0, x + 8.0, y - 10.0)
-    j_hip_l = phys_joint_revolute(hd_torso, hd_leg_l,
+    S.j_hip_l = phys_joint_revolute(S.hd_torso, S.hd_leg_l,
                                   x - 5.0, y + 16.0, x - 5.0, y + 16.0)
-    j_hip_r = phys_joint_revolute(hd_torso, hd_leg_r,
+    S.j_hip_r = phys_joint_revolute(S.hd_torso, S.hd_leg_r,
                                   x + 5.0, y + 16.0, x + 5.0, y + 16.0)
 end
 
 local function build_rope()
-    local prev = rope_anchor
-    rope_tip = 0
+    local prev = S.rope_anchor
+    S.rope_tip = 0
     for i = 0, ROPE_NODES - 1 do
         local r = 5.0
         if i == ROPE_NODES - 1 then
@@ -186,11 +194,11 @@ local function build_rope()
         add_entity(TAG_ROPE, b, j)
         prev = b
     end
-    rope_tip = prev
+    S.rope_tip = prev
 end
 
 local function build_bridge()
-    local prev = bridge_a
+    local prev = S.bridge_a
     for i = 1, BRIDGE_PLANKS do
         local cx = BRIDGE_AX + 25.0 + (i - 1) * 50.0
         local b = phys_create_box(cx, BRIDGE_Y, 26.0, 4.0)
@@ -205,7 +213,7 @@ local function build_bridge()
         add_entity(TAG_PLANK, b, j)
         prev = b
     end
-    j_bridge_end = phys_joint_revolute(prev, bridge_b,
+    S.j_bridge_end = phys_joint_revolute(prev, S.bridge_b,
                                        BRIDGE_BX - 2.0, BRIDGE_Y,
                                        BRIDGE_BX - 2.0, BRIDGE_Y)
 end
@@ -242,49 +250,49 @@ end
 
 local function reset_scene()
     -- ragdoll joints first (destroying bodies would also drop them)
-    if j_neck ~= 0 then phys_joint_destroy(j_neck); j_neck = 0 end
-    if j_shoulder_l ~= 0 then phys_joint_destroy(j_shoulder_l); j_shoulder_l = 0 end
-    if j_shoulder_r ~= 0 then phys_joint_destroy(j_shoulder_r); j_shoulder_r = 0 end
-    if j_hip_l ~= 0 then phys_joint_destroy(j_hip_l); j_hip_l = 0 end
-    if j_hip_r ~= 0 then phys_joint_destroy(j_hip_r); j_hip_r = 0 end
-    if j_grab ~= 0 then phys_joint_destroy(j_grab); j_grab = 0 end
-    if j_bridge_end ~= 0 then phys_joint_destroy(j_bridge_end); j_bridge_end = 0 end
+    if S.j_neck ~= 0 then phys_joint_destroy(S.j_neck); S.j_neck = 0 end
+    if S.j_shoulder_l ~= 0 then phys_joint_destroy(S.j_shoulder_l); S.j_shoulder_l = 0 end
+    if S.j_shoulder_r ~= 0 then phys_joint_destroy(S.j_shoulder_r); S.j_shoulder_r = 0 end
+    if S.j_hip_l ~= 0 then phys_joint_destroy(S.j_hip_l); S.j_hip_l = 0 end
+    if S.j_hip_r ~= 0 then phys_joint_destroy(S.j_hip_r); S.j_hip_r = 0 end
+    if S.j_grab ~= 0 then phys_joint_destroy(S.j_grab); S.j_grab = 0 end
+    if S.j_bridge_end ~= 0 then phys_joint_destroy(S.j_bridge_end); S.j_bridge_end = 0 end
 
-    local parts = {hd_head, hd_torso, hd_arm_l, hd_arm_r, hd_leg_l, hd_leg_r}
+    local parts = {S.hd_head, S.hd_torso, S.hd_arm_l, S.hd_arm_r, S.hd_leg_l, S.hd_leg_r}
     for i = 1, 6 do
         if parts[i] ~= 0 then
             phys_destroy(parts[i])
         end
     end
-    hd_head = 0
-    hd_torso = 0
-    hd_arm_l = 0
-    hd_arm_r = 0
-    hd_leg_l = 0
-    hd_leg_r = 0
+    S.hd_head = 0
+    S.hd_torso = 0
+    S.hd_arm_l = 0
+    S.hd_arm_r = 0
+    S.hd_leg_l = 0
+    S.hd_leg_r = 0
 
     destroy_entities(TAG_ROPE)
     destroy_entities(TAG_PLANK)
     destroy_entities(TAG_PROP)
     ent_clear()
 
-    rope_tip = 0
-    p_ball = 0
-    p_wood = 0
-    p_stone = 0
-    p_small = 0
+    S.rope_tip = 0
+    S.p_ball = 0
+    S.p_wood = 0
+    S.p_stone = 0
+    S.p_small = 0
 
     create_statics()
     build_ragdoll()
     build_rope()
     build_bridge()
-    p_ball = add_prop(0, 1250.0, 360.0, 14.0, 14.0, 0.15, 1.8, 0.96)
-    p_wood = add_prop(1, 1310.0, 375.0, 12.0, 12.0, 0.35, 1.45, 0.76)
-    p_stone = add_prop(1, 1370.0, 360.0, 14.0, 10.0, 2.0, 0.65, 0.42)
-    p_small = add_prop(0, 1230.0, 380.0, 8.0, 8.0, 0.5, 1.2, 0.9)
+    S.p_ball = add_prop(0, 1250.0, 360.0, 14.0, 14.0, 0.15, 1.8, 0.96)
+    S.p_wood = add_prop(1, 1310.0, 375.0, 12.0, 12.0, 0.35, 1.45, 0.76)
+    S.p_stone = add_prop(1, 1370.0, 360.0, 14.0, 10.0, 2.0, 0.65, 0.42)
+    S.p_small = add_prop(0, 1230.0, 380.0, 8.0, 8.0, 0.5, 1.2, 0.9)
 
-    alive = 1
-    grabbed = 0
+    S.alive = 1
+    S.grabbed = 0
 
     camera_set_bounds(0.0, 0.0, WORLD_W, SCREEN_H)
     camera_deadzone(120.0, 0.0)
@@ -293,21 +301,21 @@ local function reset_scene()
 end
 
 local function sever()
-    if alive == 0 then
+    if S.alive == 0 then
         return
     end
-    alive = 0
-    if j_neck ~= 0 then phys_joint_destroy(j_neck); j_neck = 0 end
-    if j_shoulder_l ~= 0 then phys_joint_destroy(j_shoulder_l); j_shoulder_l = 0 end
-    if j_shoulder_r ~= 0 then phys_joint_destroy(j_shoulder_r); j_shoulder_r = 0 end
-    if j_hip_l ~= 0 then phys_joint_destroy(j_hip_l); j_hip_l = 0 end
-    if j_hip_r ~= 0 then phys_joint_destroy(j_hip_r); j_hip_r = 0 end
-    if j_grab ~= 0 then phys_joint_destroy(j_grab); j_grab = 0 end
-    grabbed = 0
+    S.alive = 0
+    if S.j_neck ~= 0 then phys_joint_destroy(S.j_neck); S.j_neck = 0 end
+    if S.j_shoulder_l ~= 0 then phys_joint_destroy(S.j_shoulder_l); S.j_shoulder_l = 0 end
+    if S.j_shoulder_r ~= 0 then phys_joint_destroy(S.j_shoulder_r); S.j_shoulder_r = 0 end
+    if S.j_hip_l ~= 0 then phys_joint_destroy(S.j_hip_l); S.j_hip_l = 0 end
+    if S.j_hip_r ~= 0 then phys_joint_destroy(S.j_hip_r); S.j_hip_r = 0 end
+    if S.j_grab ~= 0 then phys_joint_destroy(S.j_grab); S.j_grab = 0 end
+    S.grabbed = 0
 
-    local tx = phys_x(hd_torso)
-    local ty = phys_y(hd_torso)
-    local parts = {hd_head, hd_arm_l, hd_arm_r, hd_leg_l, hd_leg_r}
+    local tx = phys_x(S.hd_torso)
+    local ty = phys_y(S.hd_torso)
+    local parts = {S.hd_head, S.hd_arm_l, S.hd_arm_r, S.hd_leg_l, S.hd_leg_r}
     for i = 1, 5 do
         local b = parts[i]
         if b ~= 0 then
@@ -316,7 +324,7 @@ local function sever()
             local dx = px - tx
             local dy = py - ty
             local d = math.sqrt(dx * dx + dy * dy)
-            phys_joint_rope(hd_torso, b, tx, ty, px, py, d * 1.35 + 10.0)
+            phys_joint_rope(S.hd_torso, b, tx, ty, px, py, d * 1.35 + 10.0)
         end
     end
     audio_play("brick", 0.7)
@@ -325,12 +333,12 @@ local function sever()
 end
 
 local function teleport_hero(x, y)
-    if hd_torso == 0 then
+    if S.hd_torso == 0 then
         return
     end
-    local dx = x - phys_x(hd_torso)
-    local dy = y - phys_y(hd_torso)
-    local parts = {hd_head, hd_torso, hd_arm_l, hd_arm_r, hd_leg_l, hd_leg_r}
+    local dx = x - phys_x(S.hd_torso)
+    local dy = y - phys_y(S.hd_torso)
+    local parts = {S.hd_head, S.hd_torso, S.hd_arm_l, S.hd_arm_r, S.hd_leg_l, S.hd_leg_r}
     for i = 1, 6 do
         local b = parts[i]
         if b ~= 0 then
@@ -342,11 +350,11 @@ local function teleport_hero(x, y)
 end
 
 local function grounded()
-    if hd_torso == 0 then
+    if S.hd_torso == 0 then
         return false
     end
-    local tx = phys_x(hd_torso)
-    local ty = phys_y(hd_torso)
+    local tx = phys_x(S.hd_torso)
+    local ty = phys_y(S.hd_torso)
     if phys_raycast(tx, ty + 18.0, tx, ty + 52.0) then
         return phys_ray_hit_dist() < 34.0
     end
@@ -385,12 +393,12 @@ local function buoyancy(body, hy, ratio, dt)
 end
 
 local function apply_water(dt)
-    buoyancy(hd_head, 8.0, 1.0, dt)
-    buoyancy(hd_torso, 16.0, 1.0, dt)
-    buoyancy(hd_arm_l, 10.0, 1.0, dt)
-    buoyancy(hd_arm_r, 10.0, 1.0, dt)
-    buoyancy(hd_leg_l, 11.0, 1.0, dt)
-    buoyancy(hd_leg_r, 11.0, 1.0, dt)
+    buoyancy(S.hd_head, 8.0, 1.0, dt)
+    buoyancy(S.hd_torso, 16.0, 1.0, dt)
+    buoyancy(S.hd_arm_l, 10.0, 1.0, dt)
+    buoyancy(S.hd_arm_r, 10.0, 1.0, dt)
+    buoyancy(S.hd_leg_l, 11.0, 1.0, dt)
+    buoyancy(S.hd_leg_r, 11.0, 1.0, dt)
 
     local n = ent_count(TAG_ROPE)
     for i = 0, n - 1 do
@@ -414,13 +422,13 @@ local function update_controls(dt)
         reset_scene()
         return
     end
-    if hd_torso == 0 then
+    if S.hd_torso == 0 then
         return
     end
 
-    if alive == 1 then
-        local tx = phys_x(hd_torso)
-        local ty = phys_y(hd_torso)
+    if S.alive == 1 then
+        local tx = phys_x(S.hd_torso)
+        local ty = phys_y(S.hd_torso)
         local dir = 0.0
         if input_key_down("a") or input_key_down("left") then
             dir = dir - 1.0
@@ -429,36 +437,36 @@ local function update_controls(dt)
             dir = dir + 1.0
         end
         if dir ~= 0.0 then
-            phys_apply_impulse(hd_torso, dir * 620000.0 * dt, 0.0, tx, ty)
+            phys_apply_impulse(S.hd_torso, dir * 620000.0 * dt, 0.0, tx, ty)
         end
         if input_key_pressed("space") and grounded() then
-            local mt = phys_mass(hd_torso)
-            phys_apply_impulse(hd_torso, 0.0, -mt * 420.0, tx, ty)
-            phys_apply_impulse(hd_leg_l, 0.0,
-                               -phys_mass(hd_leg_l) * 220.0,
-                               phys_x(hd_leg_l), phys_y(hd_leg_l))
-            phys_apply_impulse(hd_leg_r, 0.0,
-                               -phys_mass(hd_leg_r) * 220.0,
-                               phys_x(hd_leg_r), phys_y(hd_leg_r))
+            local mt = phys_mass(S.hd_torso)
+            phys_apply_impulse(S.hd_torso, 0.0, -mt * 420.0, tx, ty)
+            phys_apply_impulse(S.hd_leg_l, 0.0,
+                               -phys_mass(S.hd_leg_l) * 220.0,
+                               phys_x(S.hd_leg_l), phys_y(S.hd_leg_l))
+            phys_apply_impulse(S.hd_leg_r, 0.0,
+                               -phys_mass(S.hd_leg_r) * 220.0,
+                               phys_x(S.hd_leg_r), phys_y(S.hd_leg_r))
             audio_play("jump", 0.5)
         end
 
         -- grab / release the rope hook with the right hand
         if input_key_pressed("e") then
-            if grabbed == 1 then
-                if j_grab ~= 0 then
-                    phys_joint_destroy(j_grab)
-                    j_grab = 0
+            if S.grabbed == 1 then
+                if S.j_grab ~= 0 then
+                    phys_joint_destroy(S.j_grab)
+                    S.j_grab = 0
                 end
-                grabbed = 0
-            elseif rope_tip ~= 0 then
-                local dx = phys_x(hd_arm_r) - phys_x(rope_tip)
-                local dy = phys_y(hd_arm_r) - phys_y(rope_tip)
+                S.grabbed = 0
+            elseif S.rope_tip ~= 0 then
+                local dx = phys_x(S.hd_arm_r) - phys_x(S.rope_tip)
+                local dy = phys_y(S.hd_arm_r) - phys_y(S.rope_tip)
                 if dx * dx + dy * dy <= 44.0 * 44.0 then
-                    j_grab = phys_joint_revolute(hd_arm_r, rope_tip,
-                                                 phys_x(hd_arm_r), phys_y(hd_arm_r),
-                                                 phys_x(hd_arm_r), phys_y(hd_arm_r))
-                    grabbed = 1
+                    S.j_grab = phys_joint_revolute(S.hd_arm_r, S.rope_tip,
+                                                 phys_x(S.hd_arm_r), phys_y(S.hd_arm_r),
+                                                 phys_x(S.hd_arm_r), phys_y(S.hd_arm_r))
+                    S.grabbed = 1
                     audio_play("coin", 0.4)
                 end
             end
@@ -470,9 +478,9 @@ local function update_controls(dt)
     end
 
     -- drowning: a torso deep in the water ends the run
-    if alive == 1 and hd_torso ~= 0 then
-        local tx = phys_x(hd_torso)
-        local ty = phys_y(hd_torso)
+    if S.alive == 1 and S.hd_torso ~= 0 then
+        local tx = phys_x(S.hd_torso)
+        local ty = phys_y(S.hd_torso)
         if tx > WATER_X0 and tx < WATER_X1 and ty > WATER_Y + 42.0 then
             sever()
         end
@@ -483,25 +491,25 @@ local function draw_background()
     local cam_x = camera_x()
     draw_set_layer(0)
     -- Monochrome AI key art fills the viewport; mist and trees are baked in.
-    sprite_draw(bg_tex, cam_x, 0.0, SCREEN_W, SCREEN_H)
+    sprite_draw(S.bg_tex, cam_x, 0.0, SCREEN_W, SCREEN_H)
 end
 
 local function draw_ground_water()
     draw_set_layer(2)
     local gx = 0.0
     while gx < WORLD_W do
-        sprite_draw(ground_tex, gx, GROUND_Y, 256.0, SCREEN_H - GROUND_Y)
+        sprite_draw(S.ground_tex, gx, GROUND_Y, 256.0, SCREEN_H - GROUND_Y)
         gx = gx + 256.0
     end
 end
 
 local function draw_water()
     draw_set_layer(4)
-    if water_tex ~= 0 then
+    if S.water_tex ~= 0 then
         -- Illustrated pool: the art carries its own surface line and depth, so
         -- the whole body just bobs a couple of pixels on the tide.
         local bob = math.sin(time_elapsed() * 1.6) * 2.0
-        sprite_draw(water_tex, WATER_X0, WATER_Y - 6.0 + bob,
+        sprite_draw(S.water_tex, WATER_X0, WATER_Y - 6.0 + bob,
                     WATER_X1 - WATER_X0, GROUND_Y - WATER_Y + 10.0)
         return
     end
@@ -525,7 +533,7 @@ local function draw_box_body(body, hx, hy, r, g, b)
     local rot = phys_smooth_rot(body)
     local w = hx * 2.0
     local h = hy * 2.0
-    sprite_draw_rotated_tinted(brick_tex, 0.0, 0.0, 86.0, 26.0,
+    sprite_draw_rotated_tinted(S.brick_tex, 0.0, 0.0, 86.0, 26.0,
                                x - w * 0.5, y - h * 0.5, w, h,
                                rot, w * 0.5, h * 0.5, r, g, b, 1.0)
 end
@@ -533,12 +541,12 @@ end
 local function draw_circle_body(body, radius, r, g, b)
     local x = phys_smooth_x(body)
     local y = phys_smooth_y(body)
-    sprite_draw_tinted(ball_tex, x - radius, y - radius,
+    sprite_draw_tinted(S.ball_tex, x - radius, y - radius,
                        radius * 2.0, radius * 2.0, r, g, b, 1.0)
 end
 
 local function draw_rope()
-    local prev = rope_anchor
+    local prev = S.rope_anchor
     local n = ent_count(TAG_ROPE)
     for i = 0, n - 1 do
         local e = ent_at(i, TAG_ROPE)
@@ -551,12 +559,12 @@ local function draw_rope()
             local dx = x1 - x0
             local dy = y1 - y0
             local len = math.sqrt(dx * dx + dy * dy)
-            if rope_tex ~= 0 then
+            if S.rope_tex ~= 0 then
                 -- One illustrated strand between each pair of rope nodes.
                 local mx = (x0 + x1) * 0.5
                 local my = (y0 + y1) * 0.5
-                sprite_draw_rotated_tinted(rope_tex, 0.0, 0.0,
-                                           sprite_width(rope_tex), sprite_height(rope_tex),
+                sprite_draw_rotated_tinted(S.rope_tex, 0.0, 0.0,
+                                           sprite_width(S.rope_tex), sprite_height(S.rope_tex),
                                            mx - len * 0.5, my - 4.0, len, 8.0,
                                            math.atan2(dy, dx), len * 0.5, 4.0,
                                            1.0, 1.0, 1.0, 1.0)
@@ -566,7 +574,7 @@ local function draw_rope()
                     local t = s / steps
                     local px = x0 + dx * t
                     local py = y0 + dy * t
-                    sprite_draw_tinted(ball_tex, px - 3.5, py - 3.5, 7.0, 7.0,
+                    sprite_draw_tinted(S.ball_tex, px - 3.5, py - 3.5, 7.0, 7.0,
                                        0.05, 0.06, 0.05, 1.0)
                 end
             end
@@ -589,8 +597,8 @@ local function draw_bridge()
             draw_box_body(b, 26.0, 4.0, 0.06, 0.07, 0.06)
         end
     end
-    draw_circle_body(bridge_a, 5.0, 0.08, 0.09, 0.08)
-    draw_circle_body(bridge_b, 5.0, 0.08, 0.09, 0.08)
+    draw_circle_body(S.bridge_a, 5.0, 0.08, 0.09, 0.08)
+    draw_circle_body(S.bridge_b, 5.0, 0.08, 0.09, 0.08)
 end
 
 local function draw_props()
@@ -627,38 +635,38 @@ local function draw_part(tex, body, w, h)
 end
 
 local function draw_hero()
-    if hd_torso == 0 then
+    if S.hd_torso == 0 then
         return
     end
     -- soft glow so the black silhouette reads against the mist
-    local x = phys_smooth_x(hd_torso)
-    local y = phys_smooth_y(hd_torso)
-    sprite_draw_tinted(ball_tex, x - 60.0, y - 60.0, 120.0, 120.0,
+    local x = phys_smooth_x(S.hd_torso)
+    local y = phys_smooth_y(S.hd_torso)
+    sprite_draw_tinted(S.ball_tex, x - 60.0, y - 60.0, 120.0, 120.0,
                        1.0, 1.0, 0.95, 0.05)
-    if not draw_part(head_tex, hd_head, 22.0, 22.0) then
-        draw_circle_body(hd_head, 8.0, 0.04, 0.05, 0.04)
+    if not draw_part(S.head_tex, S.hd_head, 22.0, 22.0) then
+        draw_circle_body(S.hd_head, 8.0, 0.04, 0.05, 0.04)
     end
-    if not draw_part(torso_tex, hd_torso, 20.0, 36.0) then
-        draw_box_body(hd_torso, 8.0, 16.0, 0.04, 0.05, 0.04)
+    if not draw_part(S.torso_tex, S.hd_torso, 20.0, 36.0) then
+        draw_box_body(S.hd_torso, 8.0, 16.0, 0.04, 0.05, 0.04)
     end
-    if not draw_part(limb_tex, hd_arm_l, 11.0, 24.0) then
-        draw_box_body(hd_arm_l, 4.0, 10.0, 0.04, 0.05, 0.04)
+    if not draw_part(S.limb_tex, S.hd_arm_l, 11.0, 24.0) then
+        draw_box_body(S.hd_arm_l, 4.0, 10.0, 0.04, 0.05, 0.04)
     end
-    if not draw_part(limb_tex, hd_arm_r, 11.0, 24.0) then
-        draw_box_body(hd_arm_r, 4.0, 10.0, 0.04, 0.05, 0.04)
+    if not draw_part(S.limb_tex, S.hd_arm_r, 11.0, 24.0) then
+        draw_box_body(S.hd_arm_r, 4.0, 10.0, 0.04, 0.05, 0.04)
     end
-    if not draw_part(limb_tex, hd_leg_l, 11.0, 28.0) then
-        draw_box_body(hd_leg_l, 4.0, 11.0, 0.04, 0.05, 0.04)
+    if not draw_part(S.limb_tex, S.hd_leg_l, 11.0, 28.0) then
+        draw_box_body(S.hd_leg_l, 4.0, 11.0, 0.04, 0.05, 0.04)
     end
-    if not draw_part(limb_tex, hd_leg_r, 11.0, 28.0) then
-        draw_box_body(hd_leg_r, 4.0, 11.0, 0.04, 0.05, 0.04)
+    if not draw_part(S.limb_tex, S.hd_leg_r, 11.0, 28.0) then
+        draw_box_body(S.hd_leg_r, 4.0, 11.0, 0.04, 0.05, 0.04)
     end
 
-    if alive == 0 then
+    if S.alive == 0 then
         -- faint tethers: the pieces are separated but still pulled together
-        local tx = phys_smooth_x(hd_torso)
-        local ty = phys_smooth_y(hd_torso)
-        local parts = {hd_head, hd_arm_l, hd_arm_r, hd_leg_l, hd_leg_r}
+        local tx = phys_smooth_x(S.hd_torso)
+        local ty = phys_smooth_y(S.hd_torso)
+        local parts = {S.hd_head, S.hd_arm_l, S.hd_arm_r, S.hd_leg_l, S.hd_leg_r}
         for i = 1, 5 do
             local b = parts[i]
             if b ~= 0 then
@@ -672,7 +680,7 @@ local function draw_hero()
                     local t = s2 / steps
                     local qx = tx + dx * t
                     local qy = ty + dy * t
-                    sprite_draw_tinted(ball_tex, qx - 1.5, qy - 1.5,
+                    sprite_draw_tinted(S.ball_tex, qx - 1.5, qy - 1.5,
                                        3.0, 3.0, 0.55, 0.60, 0.55, 0.28)
                 end
             end
@@ -690,17 +698,17 @@ local function draw_hud()
               cam_x + 24.0, 42.0, 0.58, 0.14, 0.16, 0.14, 0.9)
     local jc = phys_joint_count()
     local st = "alive"
-    if alive == 0 then
+    if S.alive == 0 then
         st = "severed"
     end
     local hold = ""
-    if grabbed == 1 then
+    if S.grabbed == 1 then
         hold = "   rope held"
     end
     draw_text("joints " .. jc .. "   state " .. st .. hold,
               cam_x + 24.0, 68.0, 0.55, 0.16, 0.18, 0.16, 0.85)
 
-    if alive == 0 then
+    if S.alive == 0 then
         draw_quad(cam_x, 204.0, SCREEN_W, 112.0, 0.06, 0.07, 0.06, 0.72)
         draw_set_z(1.0)
         draw_text("SEVERED", cam_x + 396.0, 222.0, 1.3, 0.92, 0.90, 0.84, 1.0)
@@ -709,10 +717,10 @@ local function draw_hud()
         draw_text("R to restart", cam_x + 410.0, 292.0, 0.6,
                   0.72, 0.72, 0.68, 0.9)
         draw_set_z(0.0)
-    elseif hd_torso ~= 0 and rope_tip ~= 0 then
-        local dx = phys_x(hd_arm_r) - phys_x(rope_tip)
-        local dy = phys_y(hd_arm_r) - phys_y(rope_tip)
-        if dx * dx + dy * dy <= 44.0 * 44.0 and grabbed == 0 then
+    elseif S.hd_torso ~= 0 and S.rope_tip ~= 0 then
+        local dx = phys_x(S.hd_arm_r) - phys_x(S.rope_tip)
+        local dy = phys_y(S.hd_arm_r) - phys_y(S.rope_tip)
+        if dx * dx + dy * dy <= 44.0 * 44.0 and S.grabbed == 0 then
             draw_text("E  grab rope", cam_x + 420.0, 470.0, 0.62,
                       0.12, 0.14, 0.12, 0.9)
         end
@@ -732,37 +740,42 @@ local function draw_all()
 end
 
 function update(dt)
-    if not inited then
-        inited = true
+    if S.seeded == nil then
+        S.seeded = true
+        reset_state()
+    end
+
+    if not S.inited then
+        S.inited = true
         init_assets()
         phys_gravity(0.0, 900.0)
         phys_set_sleep(true)
         if os.getenv("LIMBO_TEST") ~= nil then
-            auto = 1
+            S.auto = 1
         end
         reset_scene()
     end
 
-    frame = frame + 1
+    S.frame = S.frame + 1
 
-    if auto == 1 then
-        if frame == 30 then
+    if S.auto == 1 then
+        if S.frame == 30 then
             teleport_hero(1500.0, 369.0)
         end
-        if frame == 60 then
+        if S.frame == 60 then
             sever()
         end
-        if frame == 2000 then
-            if p_ball ~= 0 then
-                log_number(800 + math.floor(phys_y(p_ball)))
+        if S.frame == 2000 then
+            if S.p_ball ~= 0 then
+                log_number(800 + math.floor(phys_y(S.p_ball)))
             end
-            if p_stone ~= 0 then
-                log_number(850 + math.floor(phys_y(p_stone)))
+            if S.p_stone ~= 0 then
+                log_number(850 + math.floor(phys_y(S.p_stone)))
             end
-            if hd_torso ~= 0 then
-                local tx = phys_x(hd_torso)
-                local ty = phys_y(hd_torso)
-                local parts = {hd_head, hd_arm_l, hd_arm_r, hd_leg_l, hd_leg_r}
+            if S.hd_torso ~= 0 then
+                local tx = phys_x(S.hd_torso)
+                local ty = phys_y(S.hd_torso)
+                local parts = {S.hd_head, S.hd_arm_l, S.hd_arm_r, S.hd_leg_l, S.hd_leg_r}
                 local max_d = 0.0
                 for i = 1, 5 do
                     local b = parts[i]
@@ -785,8 +798,8 @@ function update(dt)
     apply_water(sdt)
 
     local follow_x = 0.0
-    if hd_torso ~= 0 then
-        follow_x = phys_x(hd_torso)
+    if S.hd_torso ~= 0 then
+        follow_x = phys_x(S.hd_torso)
     end
     camera_follow(follow_x, SCREEN_H * 0.5)
 

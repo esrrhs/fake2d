@@ -603,4 +603,14 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 - [x] **`--launcher-test` (110 checks)**: unique flags, only categories the menu can group by, and a script that actually exists for every row.
 - [x] **State model**: launcher state lives in a `new_global_obj` NativeObject, because file-level locals are const bindings. `docs/SCRIPTING.md` rules 3 and 4 now say that plainly — the `+ 0` idiom the older demos use predates the current semantics, and the demo suite still needs migrating to object state.
 - [x] Verification: launcher renders headless under the colour probe; `LAUNCHER_TEST_PICK` proves select → relaunch request → re-exec into the chosen demo; catalogue test green.
-- [x] **State migration started**: `scripts/game.lua` now keeps its whole mutable state in a `new_global_obj` NativeObject instead of file-level `+ 0` scalars, so it compiles against a current FakeLua again. The other 26 demos still use the old idiom and fail to compile until they get the same treatment.
+- [x] **State model**: launcher state lives in a `new_global_obj` NativeObject, because file-level locals are const bindings. `docs/SCRIPTING.md` rules 3 and 4 now say that plainly.
+
+---
+
+## Phase 45 — Demos move to NativeObject state (1.38.x)
+
+FakeLua binds every file-level `local` as const, so the `local score = 0 + 0` idiom the whole demo suite was written against stopped compiling: each script died at `cannot reassign file-level constant 'x'` and the window stayed blank. All 27 demos now keep their cross-frame state in a `new_global_obj` NativeObject whose fields read and write like an ordinary table.
+
+- [x] **`tools/migrate_state.py`**: the conversion, done as a tool rather than 27 hand edits so it is reviewable. It moves exactly the locals that are reassigned outside their own declaration line (names that are never reassigned stay put as the constants they are), skips comment and string text, leaves table-constructor keys alone, picks an object name that collides with no local at any scope, and turns the old declarations into a `reset_state()` seeding function.
+- [x] **Seeding before first use**: `update()` opens with `if S.seeded == nil then reset_state() end`. An unset NativeObject field reads back nil, not 0, and several demos touch state on their very first line — `mario.lua` incremented its frame counter before its old `inited` guard ran. Seeding at the top of `update` is the one position that is always early enough.
+- [x] Verification: all 27 demos compile and run 120 headless frames with no script error; the long runs still reach their milestones (Contra clears the fortress core, RTS goes first blood → player victory, the snooker AI resolves shot after shot, the VN story advances); 301 assertions across the 9 suites, including `--launcher-test` and `--art-test`.

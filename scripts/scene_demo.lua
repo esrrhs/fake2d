@@ -6,38 +6,46 @@
 
 local W, H = 960, 540
 
-local brick_tex = 0 + 0
-local paddle_tex = 0 + 0
-local ball_tex = 0 + 0
-local coin_tex = 0 + 0
-local coin_anim = 0 + 0
-local spark_fx = 0 + 0
-local inited = false
+
+-- FakeLua binds file-level locals as const, so everything that changes
+-- across frames lives in a host-side NativeObject instead (see
+-- docs/SCRIPTING.md rule 3). Fields read and write like a plain table.
+local S = new_global_obj("scene_demo", "state")
+
+local function reset_state()
+    S.brick_tex = 0 + 0
+    S.paddle_tex = 0 + 0
+    S.ball_tex = 0 + 0
+    S.coin_tex = 0 + 0
+    S.coin_anim = 0 + 0
+    S.spark_fx = 0 + 0
+    S.inited = false
+end
 
 local function init_assets()
-    brick_tex = sprite_load("assets/brick.png")
-    paddle_tex = sprite_load("assets/paddle.png")
-    ball_tex = sprite_load("assets/ball.png")
-    coin_tex = sprite_load("assets/coin.png")
+    S.brick_tex = sprite_load("assets/brick.png")
+    S.paddle_tex = sprite_load("assets/paddle.png")
+    S.ball_tex = sprite_load("assets/ball.png")
+    S.coin_tex = sprite_load("assets/coin.png")
 
-    coin_anim = anim_create()
-    anim_frame(coin_anim, coin_tex, 0, 0, 16, 16)
-    anim_frame(coin_anim, coin_tex, 16, 0, 16, 16)
-    anim_frame(coin_anim, coin_tex, 32, 0, 16, 16)
-    anim_frame(coin_anim, coin_tex, 48, 0, 16, 16)
-    anim_fps(coin_anim, 9)
-    anim_loop(coin_anim, true)
-    anim_play(coin_anim)
+    S.coin_anim = anim_create()
+    anim_frame(S.coin_anim, S.coin_tex, 0, 0, 16, 16)
+    anim_frame(S.coin_anim, S.coin_tex, 16, 0, 16, 16)
+    anim_frame(S.coin_anim, S.coin_tex, 32, 0, 16, 16)
+    anim_frame(S.coin_anim, S.coin_tex, 48, 0, 16, 16)
+    anim_fps(S.coin_anim, 9)
+    anim_loop(S.coin_anim, true)
+    anim_play(S.coin_anim)
 
-    spark_fx = part_create()
-    part_set_lifetime(spark_fx, 0.4, 0.9)
-    part_set_speed(spark_fx, 20, 90)
-    part_set_direction(spark_fx, 0, 6.28)
-    part_set_size(spark_fx, 4, 1)
-    part_set_gravity(spark_fx, 0, 0)
-    part_set_drag(spark_fx, 0.6)
-    part_set_spin(spark_fx, 4)
-    part_set_color(spark_fx, 1.0, 0.85, 0.4, 1.0, 0.0)
+    S.spark_fx = part_create()
+    part_set_lifetime(S.spark_fx, 0.4, 0.9)
+    part_set_speed(S.spark_fx, 20, 90)
+    part_set_direction(S.spark_fx, 0, 6.28)
+    part_set_size(S.spark_fx, 4, 1)
+    part_set_gravity(S.spark_fx, 0, 0)
+    part_set_drag(S.spark_fx, 0.6)
+    part_set_spin(S.spark_fx, 4)
+    part_set_color(S.spark_fx, 1.0, 0.85, 0.4, 1.0, 0.0)
 end
 
 -- Orbiting sprite slots (file-level table is runtime-constant state).
@@ -68,7 +76,7 @@ local function draw()
 
     -- additive sparkle cloud around the pivot
     draw_set_blend(1)
-    part_emit(spark_fx, 2, cx + math.cos(t * 0.8) * 150,
+    part_emit(S.spark_fx, 2, cx + math.cos(t * 0.8) * 150,
               cy + math.sin(t * 0.8) * 150)
     part_draw()
     draw_set_blend(0)
@@ -76,8 +84,8 @@ local function draw()
     -- orbiters: tinted textured quads positioned on rings, each spinning.
     for i = 1, 6 do
         local o = orbiters[i]
-        local tex = brick_tex
-        if o.tex == 1 then tex = paddle_tex end
+        local tex = S.brick_tex
+        if o.tex == 1 then tex = S.paddle_tex end
         local ang = t * o.speed + o.phase
         local x = cx + math.cos(ang) * o.ring - o.size * 0.5
         local y = cy + math.sin(ang) * o.ring - o.size * 0.5
@@ -94,11 +102,11 @@ local function draw()
     end
 
     -- center ball + debug outline
-    sprite_draw(ball_tex, cx - 11, cy - 11, 22, 22)
+    sprite_draw(S.ball_tex, cx - 11, cy - 11, 22, 22)
     draw_circle_outline(cx, cy, 16, 24, 0.4, 0.9, 1.0, 0.8)
 
     -- spinning coin chip, top right
-    anim_draw(coin_anim, W - 60, 22, 26, 26)
+    anim_draw(S.coin_anim, W - 60, 22, 26, 26)
     draw_rect_outline(W - 66, 16, 38, 38, 1.0, 0.85, 0.4, 0.5)
 
     -- pulsing hint
@@ -111,8 +119,13 @@ local function draw()
 end
 
 function update(dt)
-    if not inited then
-        inited = true
+    if S.seeded == nil then
+        S.seeded = true
+        reset_state()
+    end
+
+    if not S.inited then
+        S.inited = true
         init_assets()
     end
     draw()

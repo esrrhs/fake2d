@@ -51,67 +51,76 @@ local BAR_H = 70
 local INFO_W = 230
 local INFO_H = 178
 
-local map_id = 0 + 0
-local tex_bld = 0 + 0
-local smoke_fx = 0 + 0
-local inited = false
 
-local money = START_MONEY + 0.0
-local tax = 0.09 + 0.0
-local tax_drag = false
-local month_num = 1 + 0
-local month_frames = 0 + 0
-local speed = 1 + 0
-local speed_before_pause = 1 + 0
 
-local pop = 0.0 + 0.0
-local jobs = 0.0 + 0.0
-local jobs_com = 0.0 + 0.0
-local jobs_ind = 0.0 + 0.0
-local res_n = 0 + 0
-local com_n = 0 + 0
-local ind_n = 0 + 0
-local plant_n = 0 + 0
-local park_n = 0 + 0
-local road_n = 0 + 0
-local zone_n = 0 + 0
-local happiness = 62.0 + 0.0
-local dem_res = 0.4 + 0.0
-local dem_com = 0.4 + 0.0
-local dem_ind = 0.5 + 0.0
-local income_last = 0.0 + 0.0
-local expense_last = 0.0 + 0.0
 
-local tool = T_ROAD + 0
-local minimap_on = true
-local overlay_power = false
-local alert_code = 0 + 0
-local alert_frames = 0 + 0
 
-local idle_frames = 0 + 0
-local attract = false
-local ai_t = 0 + 0
-local ai_actions = 0 + 0
-local frame_no = 0 + 0
 
-local ms100 = 0 + 0
-local ms250 = 0 + 0
-local ms500 = 0 + 0
-local ms1000 = 0 + 0
 
-local cam_left = 0.0 + 0.0
-local cam_top = 0.0 + 0.0
-local inv_zoom = 1.0 + 0.0
-local vw = 960.0 + 0.0
-local vh = 540.0 + 0.0
-local mouse_x = 0.0 + 0.0
-local mouse_y = 0.0 + 0.0
-local hover_col = -1.0 + 0.0
-local hover_row = -1.0 + 0.0
 
-local paint_col = -1.0 + 0.0
-local paint_row = -1.0 + 0.0
-local painting = false
+
+-- FakeLua binds file-level locals as const, so everything that changes
+-- across frames lives in a host-side NativeObject instead (see
+-- docs/SCRIPTING.md rule 3). Fields read and write like a plain table.
+local S = new_global_obj("city_demo", "state")
+
+local function reset_state()
+    S.map_id = 0 + 0
+    S.tex_bld = 0 + 0
+    S.smoke_fx = 0 + 0
+    S.inited = false
+    S.money = START_MONEY + 0.0
+    S.tax = 0.09 + 0.0
+    S.tax_drag = false
+    S.month_num = 1 + 0
+    S.month_frames = 0 + 0
+    S.speed = 1 + 0
+    S.speed_before_pause = 1 + 0
+    S.pop = 0.0 + 0.0
+    S.jobs = 0.0 + 0.0
+    S.jobs_com = 0.0 + 0.0
+    S.jobs_ind = 0.0 + 0.0
+    S.res_n = 0 + 0
+    S.com_n = 0 + 0
+    S.ind_n = 0 + 0
+    S.plant_n = 0 + 0
+    S.park_n = 0 + 0
+    S.road_n = 0 + 0
+    S.zone_n = 0 + 0
+    S.happiness = 62.0 + 0.0
+    S.dem_res = 0.4 + 0.0
+    S.dem_com = 0.4 + 0.0
+    S.dem_ind = 0.5 + 0.0
+    S.income_last = 0.0 + 0.0
+    S.expense_last = 0.0 + 0.0
+    S.tool = T_ROAD + 0
+    S.minimap_on = true
+    S.overlay_power = false
+    S.alert_code = 0 + 0
+    S.alert_frames = 0 + 0
+    S.idle_frames = 0 + 0
+    S.attract = false
+    S.ai_t = 0 + 0
+    S.ai_actions = 0 + 0
+    S.frame_no = 0 + 0
+    S.ms100 = 0 + 0
+    S.ms250 = 0 + 0
+    S.ms500 = 0 + 0
+    S.ms1000 = 0 + 0
+    S.cam_left = 0.0 + 0.0
+    S.cam_top = 0.0 + 0.0
+    S.inv_zoom = 1.0 + 0.0
+    S.vw = 960.0 + 0.0
+    S.vh = 540.0 + 0.0
+    S.mouse_x = 0.0 + 0.0
+    S.mouse_y = 0.0 + 0.0
+    S.hover_col = -1.0 + 0.0
+    S.hover_row = -1.0 + 0.0
+    S.paint_col = -1.0 + 0.0
+    S.paint_row = -1.0 + 0.0
+    S.painting = false
+    S.over_hud = false
+end
 
 local function clampf(v, lo, hi)
     if v < lo then return lo end
@@ -124,7 +133,7 @@ local function idx(c, r)
 end
 
 local function tile_at(c, r)
-    return map_tile(map_id, c, r)
+    return map_tile(S.map_id, c, r)
 end
 
 local function tool_cost(t)
@@ -192,25 +201,25 @@ local function alert_text(code)
 end
 
 local function notify(code)
-    alert_code = code
-    alert_frames = 170
+    S.alert_code = code
+    S.alert_frames = 170
 end
 
 -- Screen-space HUD helpers: the engine draws everything in world space, so
 -- every panel coordinate is projected through the camera at the current zoom.
 local function hquad(x, y, w, h, r, g, b, a)
-    draw_quad(cam_left + x * inv_zoom, cam_top + y * inv_zoom,
-              w * inv_zoom, h * inv_zoom, r, g, b, a)
+    draw_quad(S.cam_left + x * S.inv_zoom, S.cam_top + y * S.inv_zoom,
+              w * S.inv_zoom, h * S.inv_zoom, r, g, b, a)
 end
 
 local function hrect(x, y, w, h, r, g, b, a)
-    draw_rect_outline(cam_left + x * inv_zoom, cam_top + y * inv_zoom,
-                      w * inv_zoom, h * inv_zoom, r, g, b, a)
+    draw_rect_outline(S.cam_left + x * S.inv_zoom, S.cam_top + y * S.inv_zoom,
+                      w * S.inv_zoom, h * S.inv_zoom, r, g, b, a)
 end
 
 local function htext(text, x, y, s, r, g, b, a)
-    draw_text(text, cam_left + x * inv_zoom, cam_top + y * inv_zoom,
-              s * inv_zoom, r, g, b, a)
+    draw_text(text, S.cam_left + x * S.inv_zoom, S.cam_top + y * S.inv_zoom,
+              s * S.inv_zoom, r, g, b, a)
 end
 
 local function htext_c(text, cx, y, s, r, g, b, a)
@@ -327,16 +336,16 @@ local function try_build(c, r, t, quiet)
         end
     end
     local cost = tool_cost(t)
-    if money < cost then
+    if S.money < cost then
         if not quiet then notify(1); audio_play("city_error", 0.4) end
         return false
     end
 
     if t == T_ROAD then
         if tile_at(c, r) == G_ROAD then return false end
-        money = money - cost
-        map_set_tile(map_id, c, r, G_ROAD)
-        road_n = road_n + 1
+        S.money = S.money - cost
+        map_set_tile(S.map_id, c, r, G_ROAD)
+        S.road_n = S.road_n + 1
         if not quiet then audio_play("city_build", 0.35) end
         return true
     elseif t == T_BULL then
@@ -346,22 +355,22 @@ local function try_build(c, r, t, quiet)
         if g == G_GRASS or g == G_FLOWER then
             if bid == 0 then return true end
         end
-        money = money - cost
-        map_set_tile(map_id, c, r, G_GRASS)
+        S.money = S.money - cost
+        map_set_tile(S.map_id, c, r, G_GRASS)
         if not quiet then audio_play("city_bulldoze", 0.4) end
         return true
     elseif t == T_PARK then
-        money = money - cost
-        map_set_tile(map_id, c, r, G_PARK)
+        S.money = S.money - cost
+        map_set_tile(S.map_id, c, r, G_PARK)
         spawn_building(c, r, B_PARK, 1)
-        park_n = park_n + 1
+        S.park_n = S.park_n + 1
         if not quiet then audio_play("city_zone", 0.4) end
         return true
     elseif t == T_POWER then
-        money = money - cost
-        map_set_tile(map_id, c, r, G_POWER)
+        S.money = S.money - cost
+        map_set_tile(S.map_id, c, r, G_POWER)
         spawn_building(c, r, B_POWER, 1)
-        plant_n = plant_n + 1
+        S.plant_n = S.plant_n + 1
         if not quiet then
             audio_play("city_power", 0.45)
             notify(7)
@@ -369,9 +378,9 @@ local function try_build(c, r, t, quiet)
         return true
     end
 
-    money = money - cost
-    map_set_tile(map_id, c, r, zone_gid(t))
-    zone_n = zone_n + 1
+    S.money = S.money - cost
+    map_set_tile(S.map_id, c, r, zone_gid(t))
+    S.zone_n = S.zone_n + 1
     if not quiet then audio_play("city_zone", 0.35) end
     return true
 end
@@ -385,13 +394,13 @@ local function build_road_reach()
     local queue = {}
     local head = 0
     local tail = 0
-    road_n = 0
+    S.road_n = 0
     local r = 0
     while r < ROWS do
         local c = 0
         while c < COLS do
             if tile_at(c, r) == G_ROAD then
-                road_n = road_n + 1
+                S.road_n = S.road_n + 1
             end
             c = c + 1
         end
@@ -436,13 +445,13 @@ end
 
 local function build_power_grid()
     local grid = {}
-    plant_n = 0
+    S.plant_n = 0
     local n = ent_count(TAG_BLD)
     local i = 0
     while i < n do
         local id = ent_at(i, TAG_BLD)
         if id ~= 0 and ent_num(id, S_TYPE) == B_POWER then
-            plant_n = plant_n + 1
+            S.plant_n = S.plant_n + 1
             local pc = ent_num(id, S_COL)
             local pr = ent_num(id, S_ROW)
             local dr = -POWER_R
@@ -467,13 +476,13 @@ local function build_power_grid()
 end
 
 local function update_buildings(reach, power)
-    pop = 0.0
-    jobs_com = 0.0
-    jobs_ind = 0.0
-    res_n = 0
-    com_n = 0
-    ind_n = 0
-    park_n = 0
+    S.pop = 0.0
+    S.jobs_com = 0.0
+    S.jobs_ind = 0.0
+    S.res_n = 0
+    S.com_n = 0
+    S.ind_n = 0
+    S.park_n = 0
     local i = ent_count(TAG_BLD) - 1
     while i >= 0 do
         local id = ent_at(i, TAG_BLD)
@@ -482,7 +491,7 @@ local function update_buildings(reach, power)
             local rr = ent_num(id, S_ROW)
             local ty = ent_num(id, S_TYPE)
             if ty == B_PARK then
-                park_n = park_n + 1
+                S.park_n = S.park_n + 1
             elseif ty ~= B_POWER then
                 local powered = power[idx(c, rr)] ~= nil
                 local connected = false
@@ -515,7 +524,7 @@ local function update_buildings(reach, power)
                         decay = decay + 1.0
                     end
                     if decay >= 3.0 then
-                        map_set_tile(map_id, c, rr, G_RUBBLE)
+                        map_set_tile(S.map_id, c, rr, G_RUBBLE)
                         ent_destroy(id)
                     end
                 else
@@ -547,39 +556,39 @@ local function update_buildings(reach, power)
                 end
                 ent_set_num(id, S_POP, p)
                 ent_set_num(id, S_JOBS, j)
-                pop = pop + p
+                S.pop = S.pop + p
                 if ty == B_RES then
-                    res_n = res_n + 1
+                    S.res_n = S.res_n + 1
                 elseif ty == B_COM then
-                    com_n = com_n + 1
-                    jobs_com = jobs_com + j
+                    S.com_n = S.com_n + 1
+                    S.jobs_com = S.jobs_com + j
                 elseif ty == B_IND then
-                    ind_n = ind_n + 1
-                    jobs_ind = jobs_ind + j
+                    S.ind_n = S.ind_n + 1
+                    S.jobs_ind = S.jobs_ind + j
                 end
             end
         end
         i = i - 1
     end
-    jobs = jobs_com + jobs_ind
+    S.jobs = S.jobs_com + S.jobs_ind
 end
 
 local function update_economy()
-    local income = tax * (pop * 4.5 + jobs * 2.5)
-    local expense = road_n * 0.8 + plant_n * 40.0 + park_n * 8.0
-    money = money + income - expense
-    income_last = income
-    expense_last = expense
+    local income = S.tax * (S.pop * 4.5 + S.jobs * 2.5)
+    local expense = S.road_n * 0.8 + S.plant_n * 40.0 + S.park_n * 8.0
+    S.money = S.money + income - expense
+    S.income_last = income
+    S.expense_last = expense
 
-    local pollution = ind_n * 2.0 / (1.0 + pop / 220.0)
-    happiness = clampf(62.0 + math.min(park_n * 3.0, 20.0)
-                       - (tax - 0.07) * 520.0 - pollution, 0.0, 100.0)
-    local target_pop = jobs * 2.4 + 50.0
-    dem_res = clampf((target_pop - pop) / 220.0 + 0.18 + (happiness - 52.0) / 260.0, 0.0, 1.0)
-    local com_target = pop * 0.24 + 8.0
-    dem_com = clampf((com_target - jobs_com) / 26.0 + 0.12, 0.0, 1.0)
-    local ind_target = pop * 0.2 + 12.0
-    dem_ind = clampf((ind_target - jobs_ind) / 30.0 + 0.12, 0.0, 1.0)
+    local pollution = S.ind_n * 2.0 / (1.0 + S.pop / 220.0)
+    S.happiness = clampf(62.0 + math.min(S.park_n * 3.0, 20.0)
+                       - (S.tax - 0.07) * 520.0 - pollution, 0.0, 100.0)
+    local target_pop = S.jobs * 2.4 + 50.0
+    S.dem_res = clampf((target_pop - S.pop) / 220.0 + 0.18 + (S.happiness - 52.0) / 260.0, 0.0, 1.0)
+    local com_target = S.pop * 0.24 + 8.0
+    S.dem_com = clampf((com_target - S.jobs_com) / 26.0 + 0.12, 0.0, 1.0)
+    local ind_target = S.pop * 0.2 + 12.0
+    S.dem_ind = clampf((ind_target - S.jobs_ind) / 30.0 + 0.12, 0.0, 1.0)
 end
 
 local function develop_zones(reach, power)
@@ -594,7 +603,7 @@ local function develop_zones(reach, power)
         i = i + 1
     end
 
-    zone_n = 0
+    S.zone_n = 0
     local r = 0
     while r < ROWS do
         local c = 0
@@ -602,7 +611,7 @@ local function develop_zones(reach, power)
             local g = tile_at(c, r)
             local ty = zone_type_from_gid(g)
             if ty == B_RES or ty == B_COM or ty == B_IND then
-                zone_n = zone_n + 1
+                S.zone_n = S.zone_n + 1
                 if occupied[idx(c, r)] == nil and power[idx(c, r)] ~= nil then
                     local connected = false
                     if c > 0 and tile_at(c - 1, r) == G_ROAD and reach[idx(c - 1, r)] ~= nil then connected = true end
@@ -610,9 +619,9 @@ local function develop_zones(reach, power)
                     if r > 0 and tile_at(c, r - 1) == G_ROAD and reach[idx(c, r - 1)] ~= nil then connected = true end
                     if r < ROWS - 1 and tile_at(c, r + 1) == G_ROAD and reach[idx(c, r + 1)] ~= nil then connected = true end
                     if connected then
-                        local demand = dem_res
-                        if ty == B_COM then demand = dem_com end
-                        if ty == B_IND then demand = dem_ind end
+                        local demand = S.dem_res
+                        if ty == B_COM then demand = S.dem_com end
+                        if ty == B_IND then demand = S.dem_ind end
                         local chance = 0.15 + demand * 0.75
                         if rng_float() < chance then
                             spawn_building(c, r, ty, 1)
@@ -627,34 +636,34 @@ local function develop_zones(reach, power)
 end
 
 local function month_tick()
-    month_num = month_num + 1
+    S.month_num = S.month_num + 1
     local reach = build_road_reach()
     local power = build_power_grid()
     update_buildings(reach, power)
     update_economy()
     develop_zones(reach, power)
 
-    if money < 0.0 then notify(6) end
-    if pop >= 100.0 and ms100 == 0 then
-        ms100 = 1
-        log_info(string.format("city: population milestone 100 (month %d)", month_num))
+    if S.money < 0.0 then notify(6) end
+    if S.pop >= 100.0 and S.ms100 == 0 then
+        S.ms100 = 1
+        log_info(string.format("city: population milestone 100 (month %d)", S.month_num))
     end
-    if pop >= 250.0 and ms250 == 0 then
-        ms250 = 1
-        log_info(string.format("city: population milestone 250 (month %d)", month_num))
+    if S.pop >= 250.0 and S.ms250 == 0 then
+        S.ms250 = 1
+        log_info(string.format("city: population milestone 250 (month %d)", S.month_num))
     end
-    if pop >= 500.0 and ms500 == 0 then
-        ms500 = 1
-        log_info(string.format("city: population milestone 500 (month %d)", month_num))
+    if S.pop >= 500.0 and S.ms500 == 0 then
+        S.ms500 = 1
+        log_info(string.format("city: population milestone 500 (month %d)", S.month_num))
     end
-    if pop >= 1000.0 and ms1000 == 0 then
-        ms1000 = 1
-        log_info(string.format("city: population milestone 1000 (month %d)", month_num))
+    if S.pop >= 1000.0 and S.ms1000 == 0 then
+        S.ms1000 = 1
+        log_info(string.format("city: population milestone 1000 (month %d)", S.month_num))
     end
     log_info(string.format("city: month %d pop %d jobs %d money %d",
-                           month_num, math.floor(pop), math.floor(jobs),
-                           math.floor(money)))
-    if month_num % 6 == 0 then
+                           S.month_num, math.floor(S.pop), math.floor(S.jobs),
+                           math.floor(S.money)))
+    if S.month_num % 6 == 0 then
         audio_play("city_month", 0.2)
     end
 end
@@ -664,17 +673,17 @@ end
 -- ---------------------------------------------------------------------------
 
 local function ai_step()
-    ai_actions = ai_actions + 1
+    S.ai_actions = S.ai_actions + 1
 
     -- Electric supply first: one central plant, then one per ~35 plots.
-    local want_plants = 1 + math.floor(zone_n / 35.0)
-    if plant_n < want_plants then
-        if money >= POWER_COST then
+    local want_plants = 1 + math.floor(S.zone_n / 35.0)
+    if S.plant_n < want_plants then
+        if S.money >= POWER_COST then
             local k = 0
             while k < 80 do
                 local c = 0
                 local r = 0
-                if plant_n == 0 then
+                if S.plant_n == 0 then
                     c = math.floor(rng_float() * 9.0) + 12
                     r = math.floor(rng_float() * 9.0) + 16
                 else
@@ -737,24 +746,23 @@ local function ai_step()
 
     -- One in five actions extends the street grid (more early on); the rest
     -- fill the gaps between roads with zoned plots.
-    if (ai_actions % 5 == 0 and road_n < 100) or road_n < 35 then
+    if (S.ai_actions % 5 == 0 and S.road_n < 100) or S.road_n < 35 then
         try_build(nc, nr, T_ROAD, true)
         return
     end
 
     local t = T_IND
-    if dem_res >= dem_com and dem_res >= dem_ind then
+    if S.dem_res >= S.dem_com and S.dem_res >= S.dem_ind then
         t = T_RES
-    elseif dem_com >= dem_ind then
+    elseif S.dem_com >= S.dem_ind then
         t = T_COM
     end
-    if happiness < 54.0 and park_n < 8 and ai_actions % 5 == 0 then
+    if S.happiness < 54.0 and S.park_n < 8 and S.ai_actions % 5 == 0 then
         t = T_PARK
     end
     try_build(nc, nr, t, true)
 end
 
-local over_hud = false
 
 local function month_name(mo)
     if mo == 0 then return "JAN" end
@@ -772,20 +780,20 @@ local function month_name(mo)
 end
 
 local function setup_scene()
-    map_id = map_load("assets/city/city_map.json")
-    tex_bld = sprite_load_nearest("assets/city/buildings.png")
+    S.map_id = map_load("assets/city/city_map.json")
+    S.tex_bld = sprite_load_nearest("assets/city/buildings.png")
     camera_set_bounds(0.0, 0.0, COLS * TILE, ROWS * TILE)
     camera_set_position(0.0, 21.0 * TILE - 270.0)
     camera_set_zoom(0.9)
-    smoke_fx = part_create()
-    part_set_lifetime(smoke_fx, 1.2, 2.4)
-    part_set_speed(smoke_fx, 12, 44)
-    part_set_direction(smoke_fx, -1.57, 0.6)
-    part_set_size(smoke_fx, 2, 6)
-    part_set_gravity(smoke_fx, 0, -6)
-    part_set_drag(smoke_fx, 0.6)
-    part_set_spin(smoke_fx, 1)
-    part_set_color(smoke_fx, 0.58, 0.62, 0.64, 1.0, 0.0)
+    S.smoke_fx = part_create()
+    part_set_lifetime(S.smoke_fx, 1.2, 2.4)
+    part_set_speed(S.smoke_fx, 12, 44)
+    part_set_direction(S.smoke_fx, -1.57, 0.6)
+    part_set_size(S.smoke_fx, 2, 6)
+    part_set_gravity(S.smoke_fx, 0, -6)
+    part_set_drag(S.smoke_fx, 0.6)
+    part_set_spin(S.smoke_fx, 1)
+    part_set_color(S.smoke_fx, 0.58, 0.62, 0.64, 1.0, 0.0)
     audio_loop("city_theme", 0.12, 1.0)
 end
 
@@ -801,9 +809,9 @@ local function update_camera()
         camera_set_zoom(zoom)
     end
     zoom = camera_zoom()
-    cam_left = camera_screen_to_world_x(0.0, 0.0)
-    cam_top = camera_screen_to_world_y(0.0, 0.0)
-    inv_zoom = 1.0 / zoom
+    S.cam_left = camera_screen_to_world_x(0.0, 0.0)
+    S.cam_top = camera_screen_to_world_y(0.0, 0.0)
+    S.inv_zoom = 1.0 / zoom
 end
 
 local function update_keys()
@@ -820,91 +828,91 @@ local function update_keys()
         activity = true
     end
     if activity then
-        idle_frames = 0
-        if attract then
-            attract = false
-            speed = 1
+        S.idle_frames = 0
+        if S.attract then
+            S.attract = false
+            S.speed = 1
         end
     else
-        idle_frames = idle_frames + 1
-        if idle_frames > 90 then attract = true end
+        S.idle_frames = S.idle_frames + 1
+        if S.idle_frames > 90 then S.attract = true end
     end
 
-    if input_key_pressed("1") then tool = T_ROAD end
-    if input_key_pressed("2") then tool = T_RES end
-    if input_key_pressed("3") then tool = T_COM end
-    if input_key_pressed("4") then tool = T_IND end
-    if input_key_pressed("5") then tool = T_PARK end
-    if input_key_pressed("6") then tool = T_POWER end
-    if input_key_pressed("7") then tool = T_BULL end
-    if input_key_pressed("m") then minimap_on = not minimap_on end
-    if input_key_pressed("o") then overlay_power = not overlay_power end
+    if input_key_pressed("1") then S.tool = T_ROAD end
+    if input_key_pressed("2") then S.tool = T_RES end
+    if input_key_pressed("3") then S.tool = T_COM end
+    if input_key_pressed("4") then S.tool = T_IND end
+    if input_key_pressed("5") then S.tool = T_PARK end
+    if input_key_pressed("6") then S.tool = T_POWER end
+    if input_key_pressed("7") then S.tool = T_BULL end
+    if input_key_pressed("m") then S.minimap_on = not S.minimap_on end
+    if input_key_pressed("o") then S.overlay_power = not S.overlay_power end
     if input_key_pressed("space") then
-        if speed == 0 then
-            speed = speed_before_pause
-            if speed == 0 then speed = 1 end
+        if S.speed == 0 then
+            S.speed = S.speed_before_pause
+            if S.speed == 0 then S.speed = 1 end
         else
-            speed_before_pause = speed
-            speed = 0
+            S.speed_before_pause = S.speed
+            S.speed = 0
         end
     end
     if input_key_pressed("equals") or input_key_pressed("plus") then
-        if speed == 0 then speed = 2
-        elseif speed < 4 then speed = speed * 2 end
+        if S.speed == 0 then S.speed = 2
+        elseif S.speed < 4 then S.speed = S.speed * 2 end
     end
     if input_key_pressed("minus") then
-        if speed > 1 then speed = math.floor(speed / 2) end
+        if S.speed > 1 then S.speed = math.floor(S.speed / 2) end
     end
 end
 
 local function update_sim_clock()
-    if speed > 0 then
-        month_frames = month_frames + speed
-        if month_frames >= MONTH_FRAMES then
-            month_frames = month_frames - MONTH_FRAMES
+    if S.speed > 0 then
+        S.month_frames = S.month_frames + S.speed
+        if S.month_frames >= MONTH_FRAMES then
+            S.month_frames = S.month_frames - MONTH_FRAMES
             month_tick()
         end
     end
-    if attract then
-        if speed ~= 4 then speed = 4 end
-        ai_t = ai_t + 1
-        if ai_t >= 10 then
-            ai_t = 0
+    if S.attract then
+        if S.speed ~= 4 then S.speed = 4 end
+        S.ai_t = S.ai_t + 1
+        if S.ai_t >= 10 then
+            S.ai_t = 0
             ai_step()
         end
     end
 end
 
 local function update_pointer()
-    local wx = camera_screen_to_world_x(mouse_x, mouse_y)
-    local wy = camera_screen_to_world_y(mouse_x, mouse_y)
-    hover_col = math.floor(wx / TILE)
-    hover_row = math.floor(wy / TILE)
+    local wx = camera_screen_to_world_x(S.mouse_x, S.mouse_y)
+    local wy = camera_screen_to_world_y(S.mouse_x, S.mouse_y)
+    S.hover_col = math.floor(wx / TILE)
+    S.hover_row = math.floor(wy / TILE)
 
-    over_hud = false
-    if in_rect(mouse_x, mouse_y, 0, 0, vw, TOP_H) then over_hud = true end
-    if in_rect(mouse_x, mouse_y, 0, vh - BAR_H, vw, BAR_H) then over_hud = true end
-    if in_rect(mouse_x, mouse_y, vw - INFO_W - 10, TOP_H + 8, INFO_W + 10, INFO_H + 8) then over_hud = true end
-    if minimap_on and in_rect(mouse_x, mouse_y, vw - 184, vh - BAR_H - 150, 176, 146) then over_hud = true end
+    S.over_hud = false
+    if in_rect(S.mouse_x, S.mouse_y, 0, 0, S.vw, TOP_H) then S.over_hud = true end
+    if in_rect(S.mouse_x, S.mouse_y, 0, S.vh - BAR_H, S.vw, BAR_H) then S.over_hud = true end
+    if in_rect(S.mouse_x, S.mouse_y, S.vw - INFO_W - 10, TOP_H + 8, INFO_W + 10, INFO_H + 8) then S.over_hud = true end
+    if S.minimap_on and in_rect(S.mouse_x, S.mouse_y, S.vw - 184, S.vh - BAR_H - 150, 176, 146) then S.over_hud = true end
 
     local pressed = input_mouse_pressed(0)
     local down = input_mouse_down(0)
 
     -- Speed buttons, top-right.
-    local sbx = vw - 150
+    local sbx = S.vw - 150
     local sby = 9
     local si = 0
     while si < 4 do
-        if pressed and in_rect(mouse_x, mouse_y, sbx + si * 36, sby, 32, 28) then
+        if pressed and in_rect(S.mouse_x, S.mouse_y, sbx + si * 36, sby, 32, 28) then
             if si == 0 then
-                if speed > 0 then speed_before_pause = speed end
-                speed = 0
+                if S.speed > 0 then S.speed_before_pause = S.speed end
+                S.speed = 0
             elseif si == 1 then
-                speed = 1
+                S.speed = 1
             elseif si == 2 then
-                speed = 2
+                S.speed = 2
             else
-                speed = 4
+                S.speed = 4
             end
         end
         si = si + 1
@@ -912,72 +920,72 @@ local function update_pointer()
 
     -- Tool palette.
     local bx = 8
-    local by = vh - BAR_H + 8
+    local by = S.vh - BAR_H + 8
     local ti = 0
     while ti < TOOL_COUNT do
-        if pressed and in_rect(mouse_x, mouse_y, bx + ti * 80, by, 76, BAR_H - 16) then
-            tool = ti
+        if pressed and in_rect(S.mouse_x, S.mouse_y, bx + ti * 80, by, 76, BAR_H - 16) then
+            S.tool = ti
             audio_play("click", 0.2)
         end
         ti = ti + 1
     end
 
     -- Tax slider, info card.
-    local ix = vw - INFO_W - 4
+    local ix = S.vw - INFO_W - 4
     local iy = TOP_H + 12
     local track_x = ix + 14
     local track_y = iy + 122
     local track_w = INFO_W - 28
-    if pressed and in_rect(mouse_x, mouse_y, track_x, track_y - 6, track_w, 20) then
-        tax_drag = true
+    if pressed and in_rect(S.mouse_x, S.mouse_y, track_x, track_y - 6, track_w, 20) then
+        S.tax_drag = true
     end
-    if tax_drag then
+    if S.tax_drag then
         if down then
-            tax = clampf((mouse_x - track_x) / track_w * 0.20, 0.0, 0.20)
+            S.tax = clampf((S.mouse_x - track_x) / track_w * 0.20, 0.0, 0.20)
         else
-            tax_drag = false
+            S.tax_drag = false
         end
     end
 
     -- Minimap click jumps the camera.
-    if minimap_on and pressed and in_rect(mouse_x, mouse_y, vw - 184, vh - BAR_H - 150, 176, 146) then
-        local mx0 = vw - 180
-        local my0 = vh - BAR_H - 138
-        local fx = clampf((mouse_x - mx0) / 168.0, 0.0, 1.0)
-        local fy = clampf((mouse_y - my0) / 126.0, 0.0, 1.0)
+    if S.minimap_on and pressed and in_rect(S.mouse_x, S.mouse_y, S.vw - 184, S.vh - BAR_H - 150, 176, 146) then
+        local mx0 = S.vw - 180
+        local my0 = S.vh - BAR_H - 138
+        local fx = clampf((S.mouse_x - mx0) / 168.0, 0.0, 1.0)
+        local fy = clampf((S.mouse_y - my0) / 126.0, 0.0, 1.0)
         camera_set_position(fx * COLS * TILE, fy * ROWS * TILE)
     end
 
     -- World placement: press, then drag-paint roads and zones.
-    if pressed and not over_hud then
-        painting = true
-        paint_col = hover_col
-        paint_row = hover_row
-        if hover_col >= 0.0 and hover_row >= 0.0 and hover_col < COLS and hover_row < ROWS then
-            try_build(hover_col, hover_row, tool, false)
-            if tool == T_BULL or tool == T_PARK or tool == T_POWER then
-                painting = false
+    if pressed and not S.over_hud then
+        S.painting = true
+        S.paint_col = S.hover_col
+        S.paint_row = S.hover_row
+        if S.hover_col >= 0.0 and S.hover_row >= 0.0 and S.hover_col < COLS and S.hover_row < ROWS then
+            try_build(S.hover_col, S.hover_row, S.tool, false)
+            if S.tool == T_BULL or S.tool == T_PARK or S.tool == T_POWER then
+                S.painting = false
             end
         else
-            painting = false
+            S.painting = false
         end
     end
-    if painting then
-        if down and not over_hud then
-            if hover_col >= 0.0 and hover_row >= 0.0 and hover_col < COLS and hover_row < ROWS then
-                if hover_col ~= paint_col or hover_row ~= paint_row then
-                    paint_col = hover_col
-                    paint_row = hover_row
-                    try_build(hover_col, hover_row, tool, false)
+    if S.painting then
+        if down and not S.over_hud then
+            if S.hover_col >= 0.0 and S.hover_row >= 0.0 and S.hover_col < COLS and S.hover_row < ROWS then
+                if S.hover_col ~= S.paint_col or S.hover_row ~= S.paint_row then
+                    S.paint_col = S.hover_col
+                    S.paint_row = S.hover_row
+                    try_build(S.hover_col, S.hover_row, S.tool, false)
                 end
             end
         else
-            painting = false
+            S.painting = false
         end
     end
 
-    if alert_frames > 0 then alert_frames = alert_frames - 1 end
-    if alert_frames == 0 then alert_code = 0 end
+    if S.alert_frames > 0 then S.alert_frames = S.alert_frames - 1 end
+    if S.alert_frames == 0 then S.alert_code = 0 end
 end
 
 local function draw_road_marks(c0, c1, r0, r1)
@@ -1051,8 +1059,8 @@ local function draw_buildings(c0, c1, r0, r1)
                 row_ids[brow * 80 + k] = id
             end
             if ent_num(id, S_TYPE) == B_IND and ent_num(id, S_ABANDON) <= 0.0 and
-               ent_num(id, S_AGE) >= 1.0 and frame_no % 40 == 0 and i % 3 == 0 then
-                part_emit(smoke_fx, 2, bc * TILE + 23.0, brow * TILE - 18.0)
+               ent_num(id, S_AGE) >= 1.0 and S.frame_no % 40 == 0 and i % 3 == 0 then
+                part_emit(S.smoke_fx, 2, bc * TILE + 23.0, brow * TILE - 18.0)
             end
         end
         i = i + 1
@@ -1084,7 +1092,7 @@ local function draw_buildings(c0, c1, r0, r1)
                     if li > 2 then li = 2 end
                     sx = li * 32.0
                 end
-                sprite_draw_region(tex_bld, sx, sy, 32.0, 64.0,
+                sprite_draw_region(S.tex_bld, sx, sy, 32.0, 64.0,
                                    x, y - 32.0, 32.0, 64.0)
             end
             k = k - 1
@@ -1094,31 +1102,31 @@ local function draw_buildings(c0, c1, r0, r1)
 end
 
 local function draw_world()
-    map_draw(map_id)
+    map_draw(S.map_id)
 
-    local visible_w = vw * inv_zoom
-    local visible_h = vh * inv_zoom
-    local c0 = math.floor(cam_left / TILE)
-    local r0 = math.floor(cam_top / TILE)
-    local c1 = math.floor((cam_left + visible_w) / TILE) + 1
-    local r1 = math.floor((cam_top + visible_h) / TILE) + 1
+    local visible_w = S.vw * S.inv_zoom
+    local visible_h = S.vh * S.inv_zoom
+    local c0 = math.floor(S.cam_left / TILE)
+    local r0 = math.floor(S.cam_top / TILE)
+    local c1 = math.floor((S.cam_left + visible_w) / TILE) + 1
+    local r1 = math.floor((S.cam_top + visible_h) / TILE) + 1
     if c0 < 0 then c0 = 0 end
     if r0 < 0 then r0 = 0 end
     if c1 > COLS - 1 then c1 = COLS - 1 end
     if r1 > ROWS - 1 then r1 = ROWS - 1 end
 
     draw_road_marks(c0, c1, r0, r1)
-    if overlay_power or tool == T_POWER then
+    if S.overlay_power or S.tool == T_POWER then
         draw_power_overlay(c0, c1, r0, r1)
     end
     draw_buildings(c0, c1, r0, r1)
     part_draw()
 
-    if hover_col >= 0.0 and hover_row >= 0.0 and hover_col < COLS and hover_row < ROWS then
-        local x = hover_col * TILE
-        local y = hover_row * TILE
-        local ok = can_place(hover_col, hover_row, tool)
-        if tool == T_BULL then ok = tile_at(hover_col, hover_row) ~= G_WATER end
+    if S.hover_col >= 0.0 and S.hover_row >= 0.0 and S.hover_col < COLS and S.hover_row < ROWS then
+        local x = S.hover_col * TILE
+        local y = S.hover_row * TILE
+        local ok = can_place(S.hover_col, S.hover_row, S.tool)
+        if S.tool == T_BULL then ok = tile_at(S.hover_col, S.hover_row) ~= G_WATER end
         if ok then
             draw_rect_outline(x, y, TILE, TILE, 0.85, 1.0, 0.55, 0.95)
         else
@@ -1129,8 +1137,8 @@ local function draw_world()
 end
 
 local function draw_speed_button(x, y, w, h, value, label)
-    local hovered = in_rect(mouse_x, mouse_y, x, y, w, h)
-    local active = speed == value
+    local hovered = in_rect(S.mouse_x, S.mouse_y, x, y, w, h)
+    local active = S.speed == value
     local r, g, b = 0.14, 0.17, 0.23
     if active then r, g, b = 0.22, 0.46, 0.56 end
     if hovered then r, g, b = r + 0.08, g + 0.08, b + 0.08 end
@@ -1140,37 +1148,37 @@ local function draw_speed_button(x, y, w, h, value, label)
 end
 
 local function draw_topbar()
-    hquad(0.0, 0.0, vw, TOP_H, 0.055, 0.075, 0.110, 0.94)
-    hquad(0.0, TOP_H - 2, vw, 2, 0.24, 0.46, 0.52, 0.9)
+    hquad(0.0, 0.0, S.vw, TOP_H, 0.055, 0.075, 0.110, 0.94)
+    hquad(0.0, TOP_H - 2, S.vw, 2, 0.24, 0.46, 0.52, 0.9)
 
     htext("FAKE2D CITY", 12, 8, 0.52, 0.62, 0.92, 0.96, 1.0)
     htext("SIM", 12, 30, 0.32, 0.42, 0.60, 0.66, 0.9)
 
     htext("FUNDS", 178, 10, 0.30, 0.55, 0.66, 0.72, 0.9)
-    htext(fmt_money(money), 178, 23, 0.50, 0.94, 0.86, 0.52, 1.0)
+    htext(fmt_money(S.money), 178, 23, 0.50, 0.94, 0.86, 0.52, 1.0)
 
-    local mo = (month_num - 1) % 12
-    local yr = 2026 + math.floor((month_num - 1) / 12)
+    local mo = (S.month_num - 1) % 12
+    local yr = 2026 + math.floor((S.month_num - 1) / 12)
     htext("DATE", 314, 10, 0.30, 0.55, 0.66, 0.72, 0.9)
     htext(month_name(mo) .. " " .. fmt_int(yr), 314, 23, 0.48, 0.86, 0.92, 0.96, 1.0)
 
     htext("POP", 438, 10, 0.30, 0.55, 0.66, 0.72, 0.9)
-    htext(fmt_int(pop), 438, 23, 0.48, 0.94, 0.94, 0.92, 1.0)
+    htext(fmt_int(S.pop), 438, 23, 0.48, 0.94, 0.94, 0.92, 1.0)
     htext("JOBS", 500, 10, 0.30, 0.55, 0.66, 0.72, 0.9)
-    htext(fmt_int(jobs), 500, 23, 0.48, 0.90, 0.86, 0.60, 1.0)
+    htext(fmt_int(S.jobs), 500, 23, 0.48, 0.90, 0.86, 0.60, 1.0)
 
     htext("R", 560, 10, 0.32, 0.44, 0.86, 0.50, 1.0)
-    hquad(576, 13, 34 * dem_res, 7, 0.34, 0.78, 0.42, 0.95)
+    hquad(576, 13, 34 * S.dem_res, 7, 0.34, 0.78, 0.42, 0.95)
     htext("C", 560, 21, 0.32, 0.40, 0.66, 0.92, 1.0)
-    hquad(576, 24, 34 * dem_com, 7, 0.34, 0.60, 0.90, 0.95)
+    hquad(576, 24, 34 * S.dem_com, 7, 0.34, 0.60, 0.90, 0.95)
     htext("I", 561, 32, 0.30, 0.90, 0.72, 0.36, 1.0)
-    hquad(576, 35, 34 * dem_ind, 7, 0.90, 0.68, 0.30, 0.95)
+    hquad(576, 35, 34 * S.dem_ind, 7, 0.90, 0.68, 0.30, 0.95)
     hrect(576, 13, 34, 7, 0.30, 0.36, 0.44, 0.8)
     hrect(576, 24, 34, 7, 0.30, 0.36, 0.44, 0.8)
     hrect(576, 35, 34, 7, 0.30, 0.36, 0.44, 0.8)
 
-    htext("SPEED", vw - 202, 38, 0.28, 0.52, 0.62, 0.68, 0.8)
-    local sbx = vw - 150
+    htext("SPEED", S.vw - 202, 38, 0.28, 0.52, 0.62, 0.68, 0.8)
+    local sbx = S.vw - 150
     local sby = 9
     draw_speed_button(sbx, sby, 32, 28, 0, "||")
     draw_speed_button(sbx + 36, sby, 32, 28, 1, "1x")
@@ -1179,19 +1187,19 @@ local function draw_topbar()
 end
 
 local function draw_toolbar()
-    hquad(0.0, vh - BAR_H, vw, BAR_H, 0.055, 0.075, 0.110, 0.94)
-    hquad(0.0, vh - BAR_H, vw, 2, 0.24, 0.46, 0.52, 0.9)
+    hquad(0.0, S.vh - BAR_H, S.vw, BAR_H, 0.055, 0.075, 0.110, 0.94)
+    hquad(0.0, S.vh - BAR_H, S.vw, 2, 0.24, 0.46, 0.52, 0.9)
     htext("LMB BUILD   DRAG ROAD / ZONE   WASD PAN   WHEEL ZOOM   SPACE PAUSE   M MAP   O POWER",
-          10, vh - BAR_H - 18, 0.36, 0.70, 0.80, 0.84, 0.85)
+          10, S.vh - BAR_H - 18, 0.36, 0.70, 0.80, 0.84, 0.85)
 
     local bx = 8
-    local by = vh - BAR_H + 8
+    local by = S.vh - BAR_H + 8
     local i = 0
     while i < TOOL_COUNT do
         local x = bx + i * 80
-        local hovered = in_rect(mouse_x, mouse_y, x, by, 76, BAR_H - 16)
+        local hovered = in_rect(S.mouse_x, S.mouse_y, x, by, 76, BAR_H - 16)
         local r, g, b = tool_color(i)
-        local selected = tool == i
+        local selected = S.tool == i
         local bg = 0.10
         if selected then bg = 0.20 end
         if hovered then bg = bg + 0.06 end
@@ -1205,50 +1213,50 @@ local function draw_toolbar()
 end
 
 local function draw_info_card()
-    local ix = vw - INFO_W - 4
+    local ix = S.vw - INFO_W - 4
     local iy = TOP_H + 12
     hquad(ix, iy, INFO_W, INFO_H, 0.055, 0.075, 0.110, 0.92)
     hrect(ix, iy, INFO_W, INFO_H, 0.26, 0.36, 0.42, 0.9)
     htext("BUDGET", ix + 12, iy + 10, 0.42, 0.60, 0.90, 0.94, 1.0)
     htext("INCOME", ix + 12, iy + 36, 0.32, 0.60, 0.70, 0.74, 0.9)
-    htext(fmt_money(income_last) .. "/mo", ix + 118, iy + 34, 0.36, 0.60, 0.90, 0.58, 1.0)
+    htext(fmt_money(S.income_last) .. "/mo", ix + 118, iy + 34, 0.36, 0.60, 0.90, 0.58, 1.0)
     htext("UPKEEP", ix + 12, iy + 56, 0.32, 0.60, 0.70, 0.74, 0.9)
-    htext("-" .. fmt_money(expense_last) .. "/mo", ix + 118, iy + 54, 0.36, 0.92, 0.62, 0.50, 1.0)
+    htext("-" .. fmt_money(S.expense_last) .. "/mo", ix + 118, iy + 54, 0.36, 0.92, 0.62, 0.50, 1.0)
     htext("ROADS", ix + 12, iy + 78, 0.30, 0.55, 0.64, 0.68, 0.9)
-    htext(fmt_int(road_n), ix + 170, iy + 76, 0.34, 0.78, 0.86, 0.88, 1.0)
+    htext(fmt_int(S.road_n), ix + 170, iy + 76, 0.34, 0.78, 0.86, 0.88, 1.0)
     htext("HAPPY", ix + 12, iy + 96, 0.30, 0.55, 0.64, 0.68, 0.9)
-    local hr = 0.50 + (100.0 - happiness) * 0.004
-    local hg = 0.86 - (100.0 - happiness) * 0.004
-    htext(fmt_int(happiness), ix + 170, iy + 94, 0.34, hr, hg, 0.50, 1.0)
+    local hr = 0.50 + (100.0 - S.happiness) * 0.004
+    local hg = 0.86 - (100.0 - S.happiness) * 0.004
+    htext(fmt_int(S.happiness), ix + 170, iy + 94, 0.34, hr, hg, 0.50, 1.0)
 
-    htext("TAX " .. fmt_int(tax * 100.0) .. "%", ix + 12, iy + 116, 0.34,
+    htext("TAX " .. fmt_int(S.tax * 100.0) .. "%", ix + 12, iy + 116, 0.34,
           0.78, 0.86, 0.90, 1.0)
     local track_x = ix + 14
     local track_y = iy + 122
     local track_w = INFO_W - 28
     hquad(track_x, track_y, track_w, 6, 0.14, 0.18, 0.24, 1.0)
-    hquad(track_x, track_y, track_w * (tax / 0.20), 6, 0.32, 0.66, 0.74, 1.0)
-    hquad(track_x + track_w * (tax / 0.20) - 3, track_y - 3, 7, 12, 0.92, 0.94, 0.96, 1.0)
+    hquad(track_x, track_y, track_w * (S.tax / 0.20), 6, 0.32, 0.66, 0.74, 1.0)
+    hquad(track_x + track_w * (S.tax / 0.20) - 3, track_y - 3, 7, 12, 0.92, 0.94, 0.96, 1.0)
     htext("0%", ix + 12, iy + 132, 0.28, 0.52, 0.60, 0.64, 0.8)
     htext("20%", ix + INFO_W - 44, iy + 132, 0.28, 0.52, 0.60, 0.64, 0.8)
-    htext("ZONES " .. fmt_int(zone_n) .. "   POWER " .. fmt_int(plant_n),
+    htext("ZONES " .. fmt_int(S.zone_n) .. "   POWER " .. fmt_int(S.plant_n),
           ix + 12, iy + 150, 0.30, 0.58, 0.68, 0.72, 0.9)
 end
 
 local function draw_alert()
-    if alert_frames > 0 and alert_code ~= 0 then
-        local text = alert_text(alert_code)
+    if S.alert_frames > 0 and S.alert_code ~= 0 then
+        local text = alert_text(S.alert_code)
         local w = text_width(text, 0.45) + 36
-        local bx = (vw - w) * 0.5
+        local bx = (S.vw - w) * 0.5
         hquad(bx, TOP_H + 10, w, 30, 0.32, 0.10, 0.08, 0.92)
         hrect(bx, TOP_H + 10, w, 30, 0.95, 0.42, 0.34, 0.95)
-        htext_c(text, vw * 0.5, TOP_H + 18, 0.45, 1.0, 0.86, 0.80, 1.0)
+        htext_c(text, S.vw * 0.5, TOP_H + 18, 0.45, 1.0, 0.86, 0.80, 1.0)
     end
 end
 
 local function draw_minimap()
-    local mmx = vw - 180
-    local mmy = vh - BAR_H - 138
+    local mmx = S.vw - 180
+    local mmy = S.vh - BAR_H - 138
     hquad(mmx - 4, mmy - 20, 176, 146, 0.04, 0.06, 0.09, 0.92)
     hrect(mmx - 4, mmy - 20, 176, 146, 0.28, 0.40, 0.46, 0.9)
     htext("CITY MAP", mmx + 4, mmy - 16, 0.34, 0.62, 0.82, 0.88, 1.0)
@@ -1274,17 +1282,17 @@ local function draw_minimap()
         end
         r = r + 1
     end
-    local vx = mmx + cam_left / (COLS * TILE) * 168.0
-    local vy = mmy + cam_top / (ROWS * TILE) * 126.0
-    local vw2 = (vw * inv_zoom) / (COLS * TILE) * 168.0
-    local vh2 = (vh * inv_zoom) / (ROWS * TILE) * 126.0
+    local vx = mmx + S.cam_left / (COLS * TILE) * 168.0
+    local vy = mmy + S.cam_top / (ROWS * TILE) * 126.0
+    local vw2 = (S.vw * S.inv_zoom) / (COLS * TILE) * 168.0
+    local vh2 = (S.vh * S.inv_zoom) / (ROWS * TILE) * 126.0
     hrect(vx, vy, vw2, vh2, 0.95, 0.94, 0.82, 0.9)
 end
 
 local function draw_tooltip()
-    if over_hud then return end
-    if hover_col < 0.0 or hover_col >= COLS or hover_row < 0.0 or hover_row >= ROWS then return end
-    local bid = find_building(hover_col, hover_row)
+    if S.over_hud then return end
+    if S.hover_col < 0.0 or S.hover_col >= COLS or S.hover_row < 0.0 or S.hover_row >= ROWS then return end
+    local bid = find_building(S.hover_col, S.hover_row)
     if bid == 0 then return end
     local ty = ent_num(bid, S_TYPE)
     local lv = ent_num(bid, S_LEVEL)
@@ -1293,10 +1301,10 @@ local function draw_tooltip()
     local powered = ent_num(bid, S_POWER) > 0.0
     local connected = ent_num(bid, S_CNCT) > 0.0
     local abandoned = ent_num(bid, S_ABANDON) > 0.0
-    local tx = mouse_x + 16
-    local tyy = mouse_y + 16
-    if tx + 170 > vw then tx = mouse_x - 186 end
-    if tyy + 74 > vh then tyy = mouse_y - 90 end
+    local tx = S.mouse_x + 16
+    local tyy = S.mouse_y + 16
+    if tx + 170 > S.vw then tx = S.mouse_x - 186 end
+    if tyy + 74 > S.vh then tyy = S.mouse_y - 90 end
     hquad(tx, tyy, 170, 74, 0.05, 0.07, 0.10, 0.94)
     hrect(tx, tyy, 170, 74, 0.32, 0.46, 0.52, 0.9)
     htext(btype_name(ty) .. "  LV" .. fmt_int(lv), tx + 8, tyy + 7, 0.38,
@@ -1316,23 +1324,28 @@ local function draw_hud()
     draw_toolbar()
     draw_info_card()
     draw_alert()
-    if minimap_on then draw_minimap() end
+    if S.minimap_on then draw_minimap() end
     draw_tooltip()
 end
 
 function update(dt)
-    frame_no = frame_no + 1
-    if not inited then
-        inited = true
+    if S.seeded == nil then
+        S.seeded = true
+        reset_state()
+    end
+
+    S.frame_no = S.frame_no + 1
+    if not S.inited then
+        S.inited = true
         setup_scene()
     end
 
-    vw = camera_viewport_w()
-    vh = camera_viewport_h()
-    mouse_x = input_mouse_x()
-    mouse_y = input_mouse_y()
+    S.vw = camera_viewport_w()
+    S.vh = camera_viewport_h()
+    S.mouse_x = input_mouse_x()
+    S.mouse_y = input_mouse_y()
 
-    if map_id == 0 or tex_bld == 0 then
+    if S.map_id == 0 or S.tex_bld == 0 then
         draw_text("CITY ASSETS FAILED TO LOAD", 40.0, 60.0, 0.7, 1.0, 0.4, 0.4, 1.0)
         return 0
     end

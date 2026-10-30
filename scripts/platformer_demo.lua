@@ -24,26 +24,9 @@ local JUMP_V = 430.0
 local JUMP_CUT = 0.45
 local COYOTE, JUMP_BUFFER = 0.09, 0.12
 
-local map_id = 0 + 0
-local player_tex = 0 + 0
-local player_anim = 0 + 0
-local inited = false
 
-local px, py = 0.0 + 0.0, 0.0 + 0.0   -- top-left of the player box
-local vx, vy = 0.0 + 0.0, 0.0 + 0.0
-local on_ground = false
-local facing = 1 + 0
 -- squash-and-stretch walk phase for the 4-frame blob strip
-local walk_t = 0.0 + 0.0
-local coyote_t = 0.0 + 0.0
-local buffer_t = 0.0 + 0.0
-local cut_used = false
-local jump_hold = 0 + 0
-local coins = 0 + 0
-local total_coins = 0 + 0
-local win_timer = -1 + 0
 
-local cols, rows, tile = 0 + 0, 0 + 0, 32 + 0
 
 -- Known coin cells (match the generated level). Numeric file locals because
 -- FakeLua file-level tables are read-only.
@@ -53,6 +36,35 @@ local cr1, cr2, cr3, cr4 = 10, 8, 10, 7
 local cr5, cr6, cr7, cr8 = 9, 6, 13, 12
 local GOAL_COL, GOAL_ROW = 38, 14
 local N_COINS = 8
+
+-- FakeLua binds file-level locals as const, so everything that changes
+-- across frames lives in a host-side NativeObject instead (see
+-- docs/SCRIPTING.md rule 3). Fields read and write like a plain table.
+local S = new_global_obj("platformer_demo", "state")
+
+local function reset_state()
+    S.map_id = 0 + 0
+    S.player_tex = 0 + 0
+    S.player_anim = 0 + 0
+    S.inited = false
+    S.px = 0.0 + 0.0
+    S.py = 0.0 + 0.0   -- top-left of the player box
+    S.vx = 0.0 + 0.0
+    S.vy = 0.0 + 0.0
+    S.on_ground = false
+    S.facing = 1 + 0
+    S.walk_t = 0.0 + 0.0
+    S.coyote_t = 0.0 + 0.0
+    S.buffer_t = 0.0 + 0.0
+    S.cut_used = false
+    S.jump_hold = 0 + 0
+    S.coins = 0 + 0
+    S.total_coins = 0 + 0
+    S.win_timer = -1 + 0
+    S.cols = 0 + 0
+    S.rows = 0 + 0
+    S.tile = 32 + 0
+end
 
 local function coin_col(i)
     if i == 1 then return cc1 elseif i == 2 then return cc2
@@ -77,31 +89,31 @@ local function clampf(v, lo, hi)
 end
 
 local function spawn()
-    px = 2.0 * tile
-    py = 13.0 * tile
-    vx, vy = 0.0, 0.0
-    on_ground = false
-    coyote_t, buffer_t = 0.0, 0.0
-    cut_used = false
-    win_timer = -1
-    coins = 0
+    S.px = 2.0 * S.tile
+    S.py = 13.0 * S.tile
+    S.vx, S.vy = 0.0, 0.0
+    S.on_ground = false
+    S.coyote_t, S.buffer_t = 0.0, 0.0
+    S.cut_used = false
+    S.win_timer = -1
+    S.coins = 0
     -- Engine camera: snappy smoothed follow, reset with the level.
     camera_smoothing(10.0)
     camera_deadzone(0.0, 0.0)
     camera_forward_only(false)
-    camera_snap(px + HALF_W, py + HALF_H)
+    camera_snap(S.px + HALF_W, S.py + HALF_H)
     -- Restore collectibles from their known level positions.
     for i = 1, N_COINS do
-        map_set_tile(map_id, coin_col(i), coin_row(i), G_COIN)
+        map_set_tile(S.map_id, coin_col(i), coin_row(i), G_COIN)
     end
-    map_set_tile(map_id, GOAL_COL, GOAL_ROW, G_GOAL)
+    map_set_tile(S.map_id, GOAL_COL, GOAL_ROW, G_GOAL)
 end
 
 -- Highest walkable surface under the box footprint (solids + slopes), -1 none.
 local function ground_hint(nx, reach)
-    local g = map_ground_y(map_id, nx + 2.0, reach)
-    local gm = map_ground_y(map_id, nx + HALF_W, reach)
-    local gf = map_ground_y(map_id, nx + HALF_W * 2.0 - 2.0, reach)
+    local g = map_ground_y(S.map_id, nx + 2.0, reach)
+    local gm = map_ground_y(S.map_id, nx + HALF_W, reach)
+    local gf = map_ground_y(S.map_id, nx + HALF_W * 2.0 - 2.0, reach)
     if gm >= 0.0 and (g < 0.0 or gm < g) then g = gm end
     if gf >= 0.0 and (g < 0.0 or gf < g) then g = gf end
     return g
@@ -110,38 +122,38 @@ end
 -- Horizontal swept move; slope cells are never walls, and surface lips up
 -- to 8px are stepped onto automatically.
 local function move_x(dx)
-    local nx = px + dx
-    local c0 = math.floor(nx / tile)
-    local c1 = math.floor((nx + HALF_W * 2.0 - 0.01) / tile)
-    local r0 = math.floor(py / tile)
-    local r1 = math.floor((py + HALF_H * 2.0 - 0.01) / tile)
+    local nx = S.px + dx
+    local c0 = math.floor(nx / S.tile)
+    local c1 = math.floor((nx + HALF_W * 2.0 - 0.01) / S.tile)
+    local r0 = math.floor(S.py / S.tile)
+    local r1 = math.floor((S.py + HALF_H * 2.0 - 0.01) / S.tile)
     local wall_top = -1.0
     for r = r0, r1 do
         for c = c0, c1 do
-            if map_slope_dir(map_id, c, r) == 0 and map_solid(map_id, c, r) then
-                local top = r * tile
+            if map_slope_dir(S.map_id, c, r) == 0 and map_solid(S.map_id, c, r) then
+                local top = r * S.tile
                 if wall_top < 0.0 or top < wall_top then wall_top = top end
             end
         end
     end
-    local feet = py + HALF_H * 2.0
+    local feet = S.py + HALF_H * 2.0
     if wall_top >= 0.0 and wall_top < feet - 8.0 then
         -- Too tall to step: reject the move (legacy solid wall behavior).
         if dx > 0.0 then
-            px = c0 * tile - HALF_W * 2.0
+            S.px = c0 * S.tile - HALF_W * 2.0
         else
-            px = (c1 + 1) * tile
+            S.px = (c1 + 1) * S.tile
         end
-        vx = 0.0
+        S.vx = 0.0
         return
     end
-    px = nx
-    if vy >= 0.0 then
+    S.px = nx
+    if S.vy >= 0.0 then
         local lift = wall_top
-        local g = ground_hint(px, feet + 8.0)
+        local g = ground_hint(S.px, feet + 8.0)
         if g >= 0.0 and (lift < 0.0 or g < lift) then lift = g end
         if lift >= 0.0 and lift < feet and feet - lift <= 8.0 then
-            py = lift - HALF_H * 2.0
+            S.py = lift - HALF_H * 2.0
         end
     end
 end
@@ -149,30 +161,30 @@ end
 -- Vertical swept move; feet_bottom is the pre-move bottom (one-way test).
 -- Returns downward landing speed (>0 means a landing happened).
 local function move_y(dy, feet_before)
-    py = py + dy
-    local c0 = math.floor((px + 0.5) / tile)
-    local c1 = math.floor((px + HALF_W * 2.0 - 0.5) / tile)
-    local r0 = math.floor(py / tile)
-    local r1 = math.floor((py + HALF_H * 2.0) / tile)
+    S.py = S.py + dy
+    local c0 = math.floor((S.px + 0.5) / S.tile)
+    local c1 = math.floor((S.px + HALF_W * 2.0 - 0.5) / S.tile)
+    local r0 = math.floor(S.py / S.tile)
+    local r1 = math.floor((S.py + HALF_H * 2.0) / S.tile)
     for r = r0, r1 do
         for c = c0, c1 do
-            local solid = map_solid(map_id, c, r)
-            local oneway = map_oneway(map_id, c, r)
+            local solid = map_solid(S.map_id, c, r)
+            local oneway = map_oneway(S.map_id, c, r)
             if solid or oneway then
-                local tile_top = r * tile
+                local tile_top = r * S.tile
                 if dy > 0.0 then
                     -- one-way only catches when feet were above the top
                     if oneway and not solid and feet_before > tile_top + 0.5 then
                         -- pass through
                     else
-                        local impact = vy
-                        py = tile_top - HALF_H * 2.0
-                        vy = 0.0
+                        local impact = S.vy
+                        S.py = tile_top - HALF_H * 2.0
+                        S.vy = 0.0
                         return impact
                     end
                 elseif dy < 0.0 and solid then
-                    py = (r + 1) * tile
-                    vy = 0.0
+                    S.py = (r + 1) * S.tile
+                    S.vy = 0.0
                     return 0.0
                 end
             end
@@ -181,12 +193,12 @@ local function move_y(dy, feet_before)
     -- Slope fallback (slope tiles are not solid AABBs): snap down onto a
     -- reachable surface while falling. Upward steps are handled in move_x.
     if dy > 0.0 then
-        local feet_now = py + HALF_H * 2.0
-        local g = ground_hint(px, feet_now + 6.0)
+        local feet_now = S.py + HALF_H * 2.0
+        local g = ground_hint(S.px, feet_now + 6.0)
         if g >= 0.0 and g <= feet_now + 6.0 and g >= feet_now - 2.0 then
-            local impact = vy
-            py = g - HALF_H * 2.0
-            vy = 0.0
+            local impact = S.vy
+            S.py = g - HALF_H * 2.0
+            S.vy = 0.0
             return impact
         end
     end
@@ -194,83 +206,83 @@ local function move_y(dy, feet_before)
 end
 
 local function center()
-    return px + HALF_W, py + HALF_H
+    return S.px + HALF_W, S.py + HALF_H
 end
 
 local function step_player(dt, intent_x, jump_pressed, jump_held)
-    if intent_x > 0.1 then facing = 1 end
-    if intent_x < -0.1 then facing = -1 end
+    if intent_x > 0.1 then S.facing = 1 end
+    if intent_x < -0.1 then S.facing = -1 end
 
     -- horizontal accel / friction
     local target = intent_x * RUN_SPEED
     if math.abs(intent_x) > 0.1 then
         local rate = GROUND_ACCEL
-        if not on_ground then rate = AIR_ACCEL end
-        if vx < target then
-            vx = math.min(target, vx + rate * dt)
-        elseif vx > target then
-            vx = math.max(target, vx - rate * dt)
+        if not S.on_ground then rate = AIR_ACCEL end
+        if S.vx < target then
+            S.vx = math.min(target, S.vx + rate * dt)
+        elseif S.vx > target then
+            S.vx = math.max(target, S.vx - rate * dt)
         end
-    elseif on_ground then
-        if vx > 0.0 then vx = math.max(0.0, vx - GROUND_FRICTION * dt)
-        else vx = math.min(0.0, vx + GROUND_FRICTION * dt) end
+    elseif S.on_ground then
+        if S.vx > 0.0 then S.vx = math.max(0.0, S.vx - GROUND_FRICTION * dt)
+        else S.vx = math.min(0.0, S.vx + GROUND_FRICTION * dt) end
     end
 
     -- coyote + buffer
-    if jump_pressed then buffer_t = JUMP_BUFFER else buffer_t = buffer_t - dt end
-    if on_ground then coyote_t = COYOTE else coyote_t = coyote_t - dt end
+    if jump_pressed then S.buffer_t = JUMP_BUFFER else S.buffer_t = S.buffer_t - dt end
+    if S.on_ground then S.coyote_t = COYOTE else S.coyote_t = S.coyote_t - dt end
 
     local jumped = false
-    if buffer_t > 0.0 and coyote_t > 0.0 then
-        vy = -JUMP_V
-        on_ground = false
-        coyote_t = 0.0
-        buffer_t = 0.0
-        cut_used = false
+    if S.buffer_t > 0.0 and S.coyote_t > 0.0 then
+        S.vy = -JUMP_V
+        S.on_ground = false
+        S.coyote_t = 0.0
+        S.buffer_t = 0.0
+        S.cut_used = false
         jumped = true
     end
-    if not jump_held and vy < 0.0 and not cut_used then
-        vy = vy * JUMP_CUT
-        cut_used = true
+    if not jump_held and S.vy < 0.0 and not S.cut_used then
+        S.vy = S.vy * JUMP_CUT
+        S.cut_used = true
     end
 
-    vy = math.min(MAX_FALL, vy + GRAVITY * dt)
+    S.vy = math.min(MAX_FALL, S.vy + GRAVITY * dt)
 
     -- substepped integration
-    local dx, ddy = vx * dt, vy * dt
+    local dx, ddy = S.vx * dt, S.vy * dt
     local n = math.ceil(math.max(math.abs(dx), math.abs(ddy)) / 12.0)
     if n < 1 then n = 1 end
     local sdx, sdy = dx / n, ddy / n
     local impact = 0.0
     for i = 1, n do
         move_x(sdx)
-        local feet_before = py + HALF_H * 2.0
+        local feet_before = S.py + HALF_H * 2.0
         local hit = move_y(sdy, feet_before)
         if sdy > 0.0 and hit > 0.0 then
-            on_ground = true
+            S.on_ground = true
             impact = hit
         end
     end
 
     -- ground probe (keeps on_ground true across flat runs)
-    if vy >= 0.0 then
+    if S.vy >= 0.0 then
         local supported = false
-        local feet = py + HALF_H * 2.0
+        local feet = S.py + HALF_H * 2.0
         local probe = feet + 1.5
-        local c = math.floor((px + HALF_W) / tile)
-        local r = math.floor(probe / tile)
-        if map_solid(map_id, c, r) then
+        local c = math.floor((S.px + HALF_W) / S.tile)
+        local r = math.floor(probe / S.tile)
+        if map_solid(S.map_id, c, r) then
             supported = true
-        elseif map_oneway(map_id, c, r) and probe - 1.5 <= r * tile + 0.5 then
+        elseif map_oneway(S.map_id, c, r) and probe - 1.5 <= r * S.tile + 0.5 then
             supported = true
         end
         if not supported then
-            local gs = ground_hint(px, feet + 1.5)
+            local gs = ground_hint(S.px, feet + 1.5)
             if gs >= 0.0 and math.abs(gs - feet) <= 2.0 then
                 supported = true
             end
         end
-        on_ground = supported
+        S.on_ground = supported
     end
     return jumped, impact
 end
@@ -288,20 +300,20 @@ local function build_intent(frame)
     end
 
     local cx, cy = center()
-    local feet_row = math.floor((cy + HALF_H + 4.0) / tile)
-    local ahead = math.floor((cx + HALF_W + 20.0) / tile)
+    local feet_row = math.floor((cy + HALF_H + 4.0) / S.tile)
+    local ahead = math.floor((cx + HALF_W + 20.0) / S.tile)
 
-    local wall = map_solid(map_id, ahead, feet_row)
-    if map_solid(map_id, ahead, feet_row - 1) then wall = true end
-    local gap = not map_solid(map_id, ahead, feet_row + 1)
-    local below_oneway = map_oneway(map_id, ahead, feet_row + 1)
+    local wall = map_solid(S.map_id, ahead, feet_row)
+    if map_solid(S.map_id, ahead, feet_row - 1) then wall = true end
+    local gap = not map_solid(S.map_id, ahead, feet_row + 1)
+    local below_oneway = map_oneway(S.map_id, ahead, feet_row + 1)
     if below_oneway then gap = false end
     local coin_ahead = false
     for dc = 0, 3 do
         for dr = -4, 0 do
             local tc = ahead + dc
             local tr = feet_row + dr
-            if map_tile(map_id, tc, tr) == G_COIN then
+            if map_tile(S.map_id, tc, tr) == G_COIN then
                 coin_ahead = true
             end
         end
@@ -310,11 +322,11 @@ local function build_intent(frame)
     local key_jump = input_key_pressed("space") or input_key_pressed("w")
         or input_key_pressed("up")
     if input_pad_connected(0) and input_pad_pressed(0, "a") then key_jump = true end
-    local ai_jump = wall or (on_ground and gap) or coin_ahead or (frame % 80 == 0)
-    local pressed = key_jump or (ai_jump and jump_hold == 0)
-    if pressed then jump_hold = 12 end
-    local held = jump_hold > 0
-    if jump_hold > 0 then jump_hold = jump_hold - 1 end
+    local ai_jump = wall or (S.on_ground and gap) or coin_ahead or (frame % 80 == 0)
+    local pressed = key_jump or (ai_jump and S.jump_hold == 0)
+    if pressed then S.jump_hold = 12 end
+    local held = S.jump_hold > 0
+    if S.jump_hold > 0 then S.jump_hold = S.jump_hold - 1 end
     return move, pressed, held
 end
 
@@ -322,11 +334,11 @@ local function collect_coins()
     local cx, cy = center()
     for dr = -1, 1 do
         for dc = -1, 1 do
-            local c = math.floor(cx / tile) + dc
-            local r = math.floor(cy / tile) + dr
-            if map_tile(map_id, c, r) == G_COIN then
-                map_set_tile(map_id, c, r, G_BACK)
-                coins = coins + 1
+            local c = math.floor(cx / S.tile) + dc
+            local r = math.floor(cy / S.tile) + dr
+            if map_tile(S.map_id, c, r) == G_COIN then
+                map_set_tile(S.map_id, c, r, G_BACK)
+                S.coins = S.coins + 1
                 audio_play("coin", 0.35)
             end
         end
@@ -334,21 +346,21 @@ local function collect_coins()
 end
 
 local function draw_debug(cam_x, cam_y, vw, vh)
-    draw_rect_outline(px, py, HALF_W * 2.0, HALF_H * 2.0, 0.3, 0.9, 1.0, 0.9)
-    local c0 = math.max(0, math.floor(cam_x / tile))
-    local c1 = math.min(cols - 1, math.floor((cam_x + vw) / tile))
-    local r0 = math.max(0, math.floor(cam_y / tile))
-    local r1 = math.min(rows - 1, math.floor((cam_y + vh) / tile))
+    draw_rect_outline(S.px, S.py, HALF_W * 2.0, HALF_H * 2.0, 0.3, 0.9, 1.0, 0.9)
+    local c0 = math.max(0, math.floor(cam_x / S.tile))
+    local c1 = math.min(S.cols - 1, math.floor((cam_x + vw) / S.tile))
+    local r0 = math.max(0, math.floor(cam_y / S.tile))
+    local r1 = math.min(S.rows - 1, math.floor((cam_y + vh) / S.tile))
     for r = r0, r1 do
         for c = c0, c1 do
-            local tx, ty = c * tile, r * tile
-            if map_oneway(map_id, c, r) then
-                draw_line(tx, ty + 5.0, tx + tile, ty + 5.0, 0.5, 1.0, 0.6, 0.8)
+            local tx, ty = c * S.tile, r * S.tile
+            if map_oneway(S.map_id, c, r) then
+                draw_line(tx, ty + 5.0, tx + S.tile, ty + 5.0, 0.5, 1.0, 0.6, 0.8)
             end
-            if map_tile(map_id, c, r) == G_COIN then
+            if map_tile(S.map_id, c, r) == G_COIN then
                 draw_circle_outline(tx + 16, ty + 16, 13, 16, 1.0, 0.9, 0.4, 0.8)
             end
-            if map_tile(map_id, c, r) == G_GOAL then
+            if map_tile(S.map_id, c, r) == G_GOAL then
                 draw_rect_outline(tx + 2, ty + 2, 28, 28, 0.5, 1.0, 0.6, 0.8)
             end
         end
@@ -356,24 +368,29 @@ local function draw_debug(cam_x, cam_y, vw, vh)
 end
 
 function update(dt)
-    if not inited then
-        inited = true
-        map_id = map_load("assets/platformer.json")
-        player_tex = sprite_load("assets/player.png")
+    if S.seeded == nil then
+        S.seeded = true
+        reset_state()
+    end
+
+    if not S.inited then
+        S.inited = true
+        S.map_id = map_load("assets/platformer.json")
+        S.player_tex = sprite_load("assets/player.png")
         -- 4-frame blob strip (idle / squash / stretch / airborne); state
         -- logic pins the frame, the engine only stores/advances the clip.
-        player_anim = anim_create()
-        anim_frame(player_anim, player_tex, 0.0, 0.0, 20.0, 30.0)
-        anim_frame(player_anim, player_tex, 20.0, 0.0, 20.0, 30.0)
-        anim_frame(player_anim, player_tex, 40.0, 0.0, 20.0, 30.0)
-        anim_frame(player_anim, player_tex, 60.0, 0.0, 20.0, 30.0)
-        anim_fps(player_anim, 10.0)
-        anim_loop(player_anim, true)
-        anim_pause(player_anim)
-        cols = map_cols(map_id)
-        rows = map_rows(map_id)
-        tile = map_tilew(map_id)
-        total_coins = N_COINS
+        S.player_anim = anim_create()
+        anim_frame(S.player_anim, S.player_tex, 0.0, 0.0, 20.0, 30.0)
+        anim_frame(S.player_anim, S.player_tex, 20.0, 0.0, 20.0, 30.0)
+        anim_frame(S.player_anim, S.player_tex, 40.0, 0.0, 20.0, 30.0)
+        anim_frame(S.player_anim, S.player_tex, 60.0, 0.0, 20.0, 30.0)
+        anim_fps(S.player_anim, 10.0)
+        anim_loop(S.player_anim, true)
+        anim_pause(S.player_anim)
+        S.cols = map_cols(S.map_id)
+        S.rows = map_rows(S.map_id)
+        S.tile = map_tilew(S.map_id)
+        S.total_coins = N_COINS
         spawn()
         audio_music("music", 0.22, 0.0)
     end
@@ -387,51 +404,51 @@ function update(dt)
     end
 
     local cx, cy = center()
-    if cy > rows * tile + 60.0 then spawn() end
+    if cy > S.rows * S.tile + 60.0 then spawn() end
 
     collect_coins()
 
-    local goal_c = math.floor(cx / tile)
-    local goal_r = math.floor(cy / tile)
-    if map_tile(map_id, goal_c, goal_r) == G_GOAL
-        and win_timer < 0 then
-        win_timer = 0
+    local goal_c = math.floor(cx / S.tile)
+    local goal_r = math.floor(cy / S.tile)
+    if map_tile(S.map_id, goal_c, goal_r) == G_GOAL
+        and S.win_timer < 0 then
+        S.win_timer = 0
         camera_shake(0.7)
         audio_play("win", 0.4)
     end
-    if win_timer >= 0 then
-        win_timer = win_timer + 1
-        if win_timer > 180 then spawn() end
+    if S.win_timer >= 0 then
+        S.win_timer = S.win_timer + 1
+        if S.win_timer > 180 then spawn() end
     end
 
     -- follow camera, now engine-owned: the view is clamped to the map bounds
     -- (bounds are computed here because map_w/map_h depend on cols*rows*tile)
     -- and smoothly tracks the player centre.
     local vw, vh = camera_viewport_w(), camera_viewport_h()
-    camera_set_bounds(0.0, -20.0, cols * tile, rows * tile + 20.0)
+    camera_set_bounds(0.0, -20.0, S.cols * S.tile, S.rows * S.tile + 20.0)
     camera_follow(cx, cy - vh * 0.05)
     local cam_x, cam_y = camera_x(), camera_y()
 
-    map_draw(map_id)
+    map_draw(S.map_id)
     -- mirror the right-facing art when walking left; the engine clip is
     -- idle / squash / stretch / airborne, sampled as a 2-pose gait while
     -- grounded.
     local pframe = 0 + 0
-    if not on_ground then
+    if not S.on_ground then
         pframe = 3
-    elseif math.abs(vx) > 12.0 then
-        walk_t = walk_t + dt * 8.0
-        local phase = math.floor(walk_t) - math.floor(math.floor(walk_t) / 4.0) * 4.0
+    elseif math.abs(S.vx) > 12.0 then
+        S.walk_t = S.walk_t + dt * 8.0
+        local phase = math.floor(S.walk_t) - math.floor(math.floor(S.walk_t) / 4.0) * 4.0
         if phase == 0.0 or phase == 2.0 then pframe = 1 else pframe = 2 end
     end
-    anim_set_frame(player_anim, pframe)
-    anim_draw_flip(player_anim, px - 2.0, py - 2.0, 24.0, 34.0,
-                   facing < 0, false)
+    anim_set_frame(S.player_anim, pframe)
+    anim_draw_flip(S.player_anim, S.px - 2.0, S.py - 2.0, 24.0, 34.0,
+                   S.facing < 0, false)
     draw_debug(cam_x, cam_y, vw, vh)
 
     -- world-anchored HUD
     ui_set_origin(cam_x, cam_y)
-    ui_label(0, cam_x + 16, cam_y + 12, "COINS " .. coins .. "/" .. total_coins,
+    ui_label(0, cam_x + 16, cam_y + 12, "COINS " .. S.coins .. "/" .. S.total_coins,
              0.6, 0.96, 0.90, 0.51, 1.0)
     ui_label(0, cam_x + 16, cam_y + 38, "A/D MOVE  SPACE JUMP", 0.4,
              0.67, 0.71, 0.80, 1.0)
@@ -439,7 +456,7 @@ function update(dt)
                  "RESTART", 0.5) then
         spawn()
     end
-    if win_timer >= 0 then
+    if S.win_timer >= 0 then
         local banner = "LEVEL COMPLETE!"
         local w = text_width(banner, 1.4)
         draw_text(banner, cam_x + vw * 0.5 - w * 0.5,

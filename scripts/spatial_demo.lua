@@ -31,30 +31,38 @@ local EMITTERS = 4 + 0
 local ex1 = 60.0 + 0.0
 local ey1 = 70.0 + 0.0
 local ep1 = 0.55 + 0.0
-local ea1 = 0.0 + 0.0
-local ef1 = 0.0 + 0.0
 local ex2 = 540.0 + 0.0
 local ey2 = 60.0 + 0.0
 local ep2 = 0.75 + 0.0
-local ea2 = 0.0 + 0.0
-local ef2 = 0.0 + 0.0
 local ex3 = 60.0 + 0.0
 local ey3 = 270.0 + 0.0
 local ep3 = 0.95 + 0.0
-local ea3 = 0.0 + 0.0
-local ef3 = 0.0 + 0.0
 local ex4 = 300.0 + 0.0
 local ey4 = 165.0 + 0.0
 local ep4 = 1.35 + 0.0
-local ea4 = 0.0 + 0.0
-local ef4 = 0.0 + 0.0
 
-local lx = 300.0 + 0.0
-local ly = 165.0 + 0.0
 local range = 300.0 + 0.0
-local inited = false
 
 local CLIPS = { "coin", "jump", "launch", "wall" }
+
+-- FakeLua binds file-level locals as const, so everything that changes
+-- across frames lives in a host-side NativeObject instead (see
+-- docs/SCRIPTING.md rule 3). Fields read and write like a plain table.
+local S = new_global_obj("spatial_demo", "state")
+
+local function reset_state()
+    S.ea1 = 0.0 + 0.0
+    S.ef1 = 0.0 + 0.0
+    S.ea2 = 0.0 + 0.0
+    S.ef2 = 0.0 + 0.0
+    S.ea3 = 0.0 + 0.0
+    S.ef3 = 0.0 + 0.0
+    S.ea4 = 0.0 + 0.0
+    S.ef4 = 0.0 + 0.0
+    S.lx = 300.0 + 0.0
+    S.ly = 165.0 + 0.0
+    S.inited = false
+end
 
 local function istr(n)
     return string.format("%d", n)
@@ -80,23 +88,23 @@ local function period(i)
 end
 
 local function set_age(i, v)
-    if i == 1 then ea1 = v elseif i == 2 then ea2 = v
-    elseif i == 3 then ea3 = v else ea4 = v end
+    if i == 1 then S.ea1 = v elseif i == 2 then S.ea2 = v
+    elseif i == 3 then S.ea3 = v else S.ea4 = v end
 end
 
 local function age(i)
-    if i == 1 then return ea1 elseif i == 2 then return ea2
-    elseif i == 3 then return ea3 else return ea4 end
+    if i == 1 then return S.ea1 elseif i == 2 then return S.ea2
+    elseif i == 3 then return S.ea3 else return S.ea4 end
 end
 
 local function flash(i)
-    if i == 1 then return ef1 elseif i == 2 then return ef2
-    elseif i == 3 then return ef3 else return ef4 end
+    if i == 1 then return S.ef1 elseif i == 2 then return S.ef2
+    elseif i == 3 then return S.ef3 else return S.ef4 end
 end
 
 local function set_flash(i, v)
-    if i == 1 then ef1 = v elseif i == 2 then ef2 = v
-    elseif i == 3 then ef3 = v else ef4 = v end
+    if i == 1 then S.ef1 = v elseif i == 2 then S.ef2 = v
+    elseif i == 3 then S.ef3 = v else S.ef4 = v end
 end
 
 -- Volume falls off with distance, so far emitters need a louder start to be
@@ -129,32 +137,37 @@ local function draw_bar(x, y, w, h, level, rr, gg, bb)
 end
 
 function update(dt)
-    if not inited then
-        inited = true
+    if S.seeded == nil then
+        S.seeded = true
+        reset_state()
+    end
+
+    if not S.inited then
+        S.inited = true
         audio_range(range)
     end
 
     -- --- input: move the listener ----------------------------------------
     if input_key_down("a") or input_key_down("left") then
-        lx = lx - SPEED * dt
+        S.lx = S.lx - SPEED * dt
     end
     if input_key_down("d") or input_key_down("right") then
-        lx = lx + SPEED * dt
+        S.lx = S.lx + SPEED * dt
     end
     if input_key_down("w") or input_key_down("up") then
-        ly = ly - SPEED * dt
+        S.ly = S.ly - SPEED * dt
     end
     if input_key_down("s") or input_key_down("down") then
-        ly = ly + SPEED * dt
+        S.ly = S.ly + SPEED * dt
     end
     if input_mouse_down(0) then
-        lx = input_mouse_x() - OX
-        ly = input_mouse_y() - OY
+        S.lx = input_mouse_x() - OX
+        S.ly = input_mouse_y() - OY
     end
-    if lx < 0.0 then lx = 0.0 end
-    if lx > WORLD_W then lx = WORLD_W end
-    if ly < 0.0 then ly = 0.0 end
-    if ly > WORLD_H then ly = WORLD_H end
+    if S.lx < 0.0 then S.lx = 0.0 end
+    if S.lx > WORLD_W then S.lx = WORLD_W end
+    if S.ly < 0.0 then S.ly = 0.0 end
+    if S.ly > WORLD_H then S.ly = WORLD_H end
 
     -- --- fire the emitters -------------------------------------------------
     local i = 1 + 0
@@ -171,7 +184,7 @@ function update(dt)
         i = i + 1
     end
 
-    audio_listener(lx, ly)
+    audio_listener(S.lx, S.ly)
 
     -- --- world -------------------------------------------------------------
     draw_text("POSITIONAL AUDIO", 40, 24, 1.2, 0.94, 0.96, 1.0, 1.0)
@@ -184,8 +197,8 @@ function update(dt)
     while i <= EMITTERS do
         local px = ex(i)
         local py = ey(i)
-        local dx = px - lx
-        local dy = py - ly
+        local dx = px - S.lx
+        local dy = py - S.ly
         local dist = math.sqrt(dx * dx + dy * dy)
         local reach = 1.0 - dist / range
         if reach < 0.0 then reach = 0.0 end
@@ -199,14 +212,14 @@ function update(dt)
         if bb > 1.0 then bb = 1.0 end
         draw_quad(OX + px - 5.0, OY + py - 5.0, 10.0, 10.0, rr, gg, bb, 1.0)
         draw_ring(px, py, 14.0 + f * 40.0, rr * 0.7, gg * 0.7, bb * 0.7)
-        draw_line(OX + px, OY + py, OX + lx, OY + ly, reach * 0.5,
+        draw_line(OX + px, OY + py, OX + S.lx, OY + S.ly, reach * 0.5,
                   reach * 0.45, reach * 0.6, 1.0)
         i = i + 1
     end
-    draw_ring(lx, ly, range, 0.30, 0.42, 0.55)
-    draw_quad(OX + lx - 4.0, OY + ly - 4.0, 8.0, 8.0, 0.98, 0.85, 0.40, 1.0)
+    draw_ring(S.lx, S.ly, range, 0.30, 0.42, 0.55)
+    draw_quad(OX + S.lx - 4.0, OY + S.ly - 4.0, 8.0, 8.0, 0.98, 0.85, 0.40, 1.0)
     draw_clear_clip()
-    draw_text("listener " .. istr(math.floor(lx)) .. "," .. istr(math.floor(ly)),
+    draw_text("listener " .. istr(math.floor(S.lx)) .. "," .. istr(math.floor(S.ly)),
               OX + 6, OY + WORLD_H + 8, 0.6, 0.75, 0.85, 0.95, 1.0)
     draw_text("range " .. istr(math.floor(range)) .. "  (silent past the ring)",
               OX + 150, OY + WORLD_H + 8, 0.6, 0.5, 0.58, 0.66, 1.0)

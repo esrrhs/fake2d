@@ -20,26 +20,36 @@
 -- PASS is logged as `[script] 0`; every failed check logs a distinct
 -- non-zero code, and the final line reports 1000 + failure count.
 
-local phase = 0 + 0
-local frame_n = 0 + 0
-local box_id = 0 + 0
-local ball_id = 0 + 0
-local failures = 0 + 0
-local began_seen = false
-local stay_seen = false
-local end_seen = false
-local teleported = false
-local finished = false
 
 -- Collision-filter scenario state (Phase 15).
-local filter_frames = 0 + 0
-local filter_seen = false       -- pair (3,4) reported while filtered out
-local filter_widened = false
-local filter_reenabled = false
-local filter_fail = false
+
+-- FakeLua binds file-level locals as const, so everything that changes
+-- across frames lives in a host-side NativeObject instead (see
+-- docs/SCRIPTING.md rule 3). Fields read and write like a plain table.
+local S = new_global_obj("phys_test", "state")
+
+local function reset_state()
+    S.phase = 0 + 0
+    S.frame_n = 0 + 0
+    S.box_id = 0 + 0
+    S.ball_id = 0 + 0
+    S.failures = 0 + 0
+    S.began_seen = false
+    S.stay_seen = false
+    S.end_seen = false
+    S.teleported = false
+    S.finished = false
+    S.filter_frames = 0 + 0
+    S.filter_seen = false       -- pair (3,4) reported while filtered out
+    S.filter_widened = false
+    S.filter_reenabled = false
+    S.filter_fail = false
+    S.filter_wall = 0 + 0
+    S.filter_faller = 0 + 0
+end
 
 local function fail(code)
-    failures = failures + 1
+    S.failures = S.failures + 1
     log_number(code)
 end
 
@@ -102,15 +112,15 @@ end
 
 local function run_immediate_queries()
     -- Static platform at (240,400), half extents 60x16 -> x[180,300] y[384,416].
-    box_id = phys_create_box(240.0, 400.0, 60.0, 16.0)
-    phys_set_static(box_id, true)
-    phys_set_user(box_id, 1)
+    S.box_id = phys_create_box(240.0, 400.0, 60.0, 16.0)
+    phys_set_static(S.box_id, true)
+    phys_set_user(S.box_id, 1)
     -- Dynamic circle r=10 resting 6px into the platform top (center y=380,
     -- box top y=384) so the very next simulation step reports a contact.
-    ball_id = phys_create_circle(240.0, 380.0, 10.0)
-    phys_set_restitution(ball_id, 0.0)
-    phys_set_gravity_scale(ball_id, 0.0)
-    phys_set_user(ball_id, 2)
+    S.ball_id = phys_create_circle(240.0, 380.0, 10.0)
+    phys_set_restitution(S.ball_id, 0.0)
+    phys_set_gravity_scale(S.ball_id, 0.0)
+    phys_set_user(S.ball_id, 2)
 
     -- +x ray hits the left face: point x=180, distance 40, normal (-1,0).
     expect(phys_raycast(140.0, 400.0, 340.0, 400.0), 1001)
@@ -150,23 +160,21 @@ end
 -- dynamic circle that only accepts category bit 0 (0x1) overlap by 6px on
 -- purpose: unfiltered that reports a began contact on the very next step, so
 -- "no contact ever" is a real assertion rather than an accidental miss.
-local filter_wall = 0 + 0
-local filter_faller = 0 + 0
 
 local function run_filter_queries()
-    filter_wall = phys_create_box_cat(600.0, 400.0, 60.0, 16.0, 2, 65535)
-    phys_set_static(filter_wall, true)
-    phys_set_user(filter_wall, 3)
-    filter_faller = phys_create_circle_cat(600.0, 380.0, 10.0, 1, 1)
-    phys_set_restitution(filter_faller, 0.0)
-    phys_set_gravity_scale(filter_faller, 0.0)
-    phys_set_user(filter_faller, 4)
+    S.filter_wall = phys_create_box_cat(600.0, 400.0, 60.0, 16.0, 2, 65535)
+    phys_set_static(S.filter_wall, true)
+    phys_set_user(S.filter_wall, 3)
+    S.filter_faller = phys_create_circle_cat(600.0, 380.0, 10.0, 1, 1)
+    phys_set_restitution(S.filter_faller, 0.0)
+    phys_set_gravity_scale(S.filter_faller, 0.0)
+    phys_set_user(S.filter_faller, 4)
 
     -- Readers mirror what was passed to the creators.
-    expect(phys_category(filter_wall) == 2 and phys_mask(filter_wall) == 65535, 1050)
-    expect(phys_category(filter_faller) == 1 and phys_mask(filter_faller) == 1, 1051)
+    expect(phys_category(S.filter_wall) == 2 and phys_mask(S.filter_wall) == 65535, 1050)
+    expect(phys_category(S.filter_faller) == 1 and phys_mask(S.filter_faller) == 1, 1051)
     -- Bodies made by the plain creators keep the "everything" default.
-    expect(phys_category(box_id) == 1 and phys_mask(box_id) == 65535, 1052)
+    expect(phys_category(S.box_id) == 1 and phys_mask(S.box_id) == 65535, 1052)
 
     -- Unmasked ray hits the wall; the 0x2 mask still hits it, 0x1 skips it.
     expect(phys_raycast(500.0, 400.0, 700.0, 400.0) and phys_ray_hit_user() == 3, 1053)
@@ -185,75 +193,80 @@ end
 -- Driven from update(): hold the filtered pair for a while, then widen the
 -- faller's mask and require the contact to appear.
 local function run_filter_step()
-    filter_frames = filter_frames + 1
-    if filter_widened then
+    S.filter_frames = S.filter_frames + 1
+    if S.filter_widened then
         if pair_in(0, 3, 4) then
-            filter_reenabled = true
-        elseif filter_frames > 40 then
-            filter_fail = true
+            S.filter_reenabled = true
+        elseif S.filter_frames > 40 then
+            S.filter_fail = true
         end
         return 0
     end
 
     -- Still filtered: an overlapping pair must never report a contact.
     if pair_in(0, 3, 4) then
-        filter_seen = true
+        S.filter_seen = true
     end
-    if filter_frames > 15 then
-        filter_widened = true
-        filter_frames = 0
-        phys_set_mask(filter_faller, 65535)
+    if S.filter_frames > 15 then
+        S.filter_widened = true
+        S.filter_frames = 0
+        phys_set_mask(S.filter_faller, 65535)
     end
     return 0
 end
 
 function update(dt)
-    frame_n = frame_n + 1
-    if finished then
+    if S.seeded == nil then
+        S.seeded = true
+        reset_state()
+    end
+
+    S.frame_n = S.frame_n + 1
+    if S.finished then
         return 0
     end
 
-    if phase == 0 then
-        phase = 1
+    if S.phase == 0 then
+        S.phase = 1
         phys_gravity(0.0, 900.0)
         run_immediate_queries()
         run_filter_queries()
     end
 
     -- The filter scenario is independent of the ball lifecycle above.
-    if phase >= 1 and not filter_reenabled then
+    if S.phase >= 1 and not S.filter_reenabled then
         run_filter_step()
     end
 
     -- Bodies were created after this frame's step; the next step resolves
     -- the initial overlap and reports began.
-    if phase == 1 then
+    if S.phase == 1 then
         if pair_in(0, 1, 2) then
-            began_seen = true
-            phase = 2
+            S.began_seen = true
+            S.phase = 2
             log_number(1100)
         end
     end
 
     -- Positional correction keeps the pair touching (slop-bounded), so the
     -- following steps report stayed.
-    if phase == 2 then
+    if S.phase == 2 then
         if pair_in(1, 1, 2) then
-            stay_seen = true
-            phase = 3
+            S.stay_seen = true
+            S.phase = 3
             log_number(1200)
         end
     end
 
     -- Teleport the ball away: the next step reports the ended event.
-    if phase == 3 then
-        if not teleported then
-            teleported = true
-            phys_set_vel(ball_id, 0.0, 0.0)
-            phys_set_pos(ball_id, 240.0, -400.0)
+    if S.phase == 3 then
+        if not S.teleported then
+            S.teleported = true
+            phys_set_vel(S.ball_id, 0.0, 0.0)
+            phys_set_pos(S.ball_id, 240.0, -400.0)
         elseif pair_in(2, 1, 2) then
-            end_seen = true
-            phase = 4
+            S.end_seen = true
+            S.phase = 4
             log_number(1300)
         end
     end
@@ -261,41 +274,41 @@ function update(dt)
     -- Tally once the widened pair has reported (or the budget runs out). The
     -- ball lifecycle above finishes long before that, so gate on the frame
     -- count instead of `phase`.
-    if (filter_reenabled and frame_n >= 60) or frame_n >= 190 then
-        finished = true
-        if began_seen then
+    if (S.filter_reenabled and S.frame_n >= 60) or S.frame_n >= 190 then
+        S.finished = true
+        if S.began_seen then
             log_number(1)
         else
             fail(2001)
         end
-        if stay_seen then
+        if S.stay_seen then
             log_number(2)
         else
             fail(2002)
         end
-        if end_seen then
+        if S.end_seen then
             log_number(3)
         else
             fail(2003)
         end
         -- Filtering: no contact while masked, contact once widened.
-        if not filter_seen then
+        if not S.filter_seen then
             log_number(4)
         else
             fail(2004)
         end
-        if filter_reenabled then
+        if S.filter_reenabled then
             log_number(5)
         else
             fail(2005)
         end
-        if filter_fail then
+        if S.filter_fail then
             fail(2006)
         end
-        if failures == 0 then
+        if S.failures == 0 then
             log_number(0)
         else
-            log_number(1000 + failures)
+            log_number(1000 + S.failures)
         end
         -- Honored on a real window; headless runs stop at the frame budget.
         window_quit()

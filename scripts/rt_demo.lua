@@ -26,29 +26,37 @@ local TRAIL_H = 320 + 0
 local COMP_W = 300 + 0
 local COMP_H = 200 + 0
 
-local bake_id = 0 + 0
-local trail_id = 0 + 0
-local inited = false
-local supported = false
-local show_trail = true
 
-local px = 240.0 + 0.0
-local py = 160.0 + 0.0
-local vx = 165.0 + 0.0
-local vy = 118.0 + 0.0
-local seed = 20240607 + 0
 
 -- Deterministic LCG: the baked starfield is identical on every run, so CI
 -- screenshots stay comparable. Kept in a range doubles represent exactly.
+-- FakeLua binds file-level locals as const, so everything that changes
+-- across frames lives in a host-side NativeObject instead (see
+-- docs/SCRIPTING.md rule 3). Fields read and write like a plain table.
+local S = new_global_obj("rt_demo", "state")
+
+local function reset_state()
+    S.bake_id = 0 + 0
+    S.trail_id = 0 + 0
+    S.inited = false
+    S.supported = false
+    S.show_trail = true
+    S.px = 240.0 + 0.0
+    S.py = 160.0 + 0.0
+    S.vx = 165.0 + 0.0
+    S.vy = 118.0 + 0.0
+    S.seed = 20240607 + 0
+end
+
 local function rnd()
-    seed = math.fmod(seed * 7 + 13, 1000000)
-    return seed / 1000000
+    S.seed = math.fmod(S.seed * 7 + 13, 1000000)
+    return S.seed / 1000000
 end
 
 -- Rendered exactly once (first frame). Everything below is drawn in the
 -- target's own pixel space: (0,0) top-left, 1 unit = 1 pixel.
 local function bake_background()
-    rt_begin(bake_id)
+    rt_begin(S.bake_id)
     rt_clear(0.035, 0.045, 0.09, 1.0)
 
     local g = 0 + 0
@@ -76,7 +84,7 @@ local function bake_background()
 end
 
 local function clear_trail()
-    rt_begin(trail_id)
+    rt_begin(S.trail_id)
     rt_clear(0.02, 0.03, 0.06, 1.0)
     rt_end()
 end
@@ -90,61 +98,66 @@ local function update_motion(dt)
     if input_key_down("down") or input_key_down("s") then ay = ay + 900.0 end
 
     if ax ~= 0.0 or ay ~= 0.0 then
-        vx = vx + ax * dt
-        vy = vy + ay * dt
+        S.vx = S.vx + ax * dt
+        S.vy = S.vy + ay * dt
         -- Clamp so steering cannot fling the mover off the canvas.
-        if vx > 420.0 then vx = 420.0 end
-        if vx < -420.0 then vx = -420.0 end
-        if vy > 420.0 then vy = 420.0 end
-        if vy < -420.0 then vy = -420.0 end
+        if S.vx > 420.0 then S.vx = 420.0 end
+        if S.vx < -420.0 then S.vx = -420.0 end
+        if S.vy > 420.0 then S.vy = 420.0 end
+        if S.vy < -420.0 then S.vy = -420.0 end
     end
 
-    px = px + vx * dt
-    py = py + vy * dt
+    S.px = S.px + S.vx * dt
+    S.py = S.py + S.vy * dt
 
-    if px < 8.0 then
-        px = 8.0
-        vx = -vx
+    if S.px < 8.0 then
+        S.px = 8.0
+        S.vx = -S.vx
     end
-    if px > TRAIL_W - 8.0 then
-        px = TRAIL_W - 8.0
-        vx = -vx
+    if S.px > TRAIL_W - 8.0 then
+        S.px = TRAIL_W - 8.0
+        S.vx = -S.vx
     end
-    if py < 8.0 then
-        py = 8.0
-        vy = -vy
+    if S.py < 8.0 then
+        S.py = 8.0
+        S.vy = -S.vy
     end
-    if py > TRAIL_H - 8.0 then
-        py = TRAIL_H - 8.0
-        vy = -vy
+    if S.py > TRAIL_H - 8.0 then
+        S.py = TRAIL_H - 8.0
+        S.vy = -S.vy
     end
 end
 
 function update(dt)
-    if not inited then
-        inited = true
-        bake_id = rt_create(BAKE_W, BAKE_H)
-        trail_id = rt_create(TRAIL_W, TRAIL_H)
-        supported = rt_valid(bake_id) and rt_valid(trail_id)
-        if supported then
+    if S.seeded == nil then
+        S.seeded = true
+        reset_state()
+    end
+
+    if not S.inited then
+        S.inited = true
+        S.bake_id = rt_create(BAKE_W, BAKE_H)
+        S.trail_id = rt_create(TRAIL_W, TRAIL_H)
+        S.supported = rt_valid(S.bake_id) and rt_valid(S.trail_id)
+        if S.supported then
             bake_background()
             clear_trail()
         end
     end
 
-    if not supported then
+    if not S.supported then
         draw_text("RENDER TARGETS UNSUPPORTED ON THIS GL CONTEXT", 40, 40, 1.0,
                   1.0, 0.4, 0.4, 1.0)
         return 0
     end
 
-    if input_key_pressed("space") then show_trail = not show_trail end
+    if input_key_pressed("space") then S.show_trail = not S.show_trail end
     if input_key_pressed("c") then clear_trail() end
     if input_key_pressed("r") then
-        px = 240.0
-        py = 160.0
-        vx = 165.0
-        vy = 118.0
+        S.px = 240.0
+        S.py = 160.0
+        S.vx = 165.0
+        S.vy = 118.0
         clear_trail()
     end
 
@@ -152,9 +165,9 @@ function update(dt)
 
     -- Accumulate: fade the previous frame instead of clearing it. That decay
     -- is the whole effect, and it can only live in a persistent surface.
-    rt_begin(trail_id)
+    rt_begin(S.trail_id)
     draw_quad(0, 0, TRAIL_W, TRAIL_H, 0.02, 0.03, 0.06, 0.09)
-    draw_quad(px - 7.0, py - 7.0, 14, 14, 1.0, 0.78, 0.25, 1.0)
+    draw_quad(S.px - 7.0, S.py - 7.0, 14, 14, 1.0, 0.78, 0.25, 1.0)
     rt_end()
 
     draw_text("OFFSCREEN RENDER TARGETS", 40, 24, 1.2, 0.94, 0.96, 1.0, 1.0)
@@ -163,16 +176,16 @@ function update(dt)
 
     -- Left: the baked surface, blitted at two sizes from one texture.
     draw_text("BAKE ONCE", 60, 82, 0.75, 0.55, 0.92, 0.94, 1.0)
-    rt_draw(bake_id, 60, 100, BAKE_W, BAKE_H)
+    rt_draw(S.bake_id, 60, 100, BAKE_W, BAKE_H)
     draw_rect_outline(60, 100, BAKE_W, BAKE_H, 0.30, 0.45, 0.55, 1.0)
     draw_text("same texture at half size", 60, 372, 0.65, 0.45, 0.62, 0.72, 1.0)
-    rt_draw(bake_id, 60, 392, 128, 128)
+    rt_draw(S.bake_id, 60, 392, 128, 128)
     draw_rect_outline(60, 392, 128, 128, 0.30, 0.45, 0.55, 1.0)
 
     -- Middle: the accumulating trail.
     draw_text("FEEDBACK TRAIL (accumulating)", 400, 82, 0.75, 1.0, 0.80, 0.35, 1.0)
-    if show_trail then
-        rt_draw(trail_id, 400, 100, TRAIL_W, TRAIL_H)
+    if S.show_trail then
+        rt_draw(S.trail_id, 400, 100, TRAIL_W, TRAIL_H)
     else
         draw_quad(400, 100, TRAIL_W, TRAIL_H, 0.02, 0.03, 0.06, 1.0)
     end
@@ -181,8 +194,8 @@ function update(dt)
     -- Right: identical motion, drawn straight to the screen (no history).
     draw_text("IMMEDIATE MODE (no history)", 900, 82, 0.75, 0.62, 0.86, 0.98, 1.0)
     draw_quad(900, 100, COMP_W, COMP_H, 0.02, 0.03, 0.06, 1.0)
-    local cx = 900 + px / TRAIL_W * COMP_W
-    local cy = 100 + py / TRAIL_H * COMP_H
+    local cx = 900 + S.px / TRAIL_W * COMP_W
+    local cy = 100 + S.py / TRAIL_H * COMP_H
     draw_quad(cx - 5.0, cy - 5.0, 10, 10, 1.0, 0.78, 0.25, 1.0)
     draw_rect_outline(900, 100, COMP_W, COMP_H, 0.30, 0.45, 0.55, 1.0)
 

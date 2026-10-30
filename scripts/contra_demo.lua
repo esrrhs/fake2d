@@ -54,69 +54,92 @@ local STEP = 0.0 + 0.0
 -- persistent state (file-level scalars only)
 -- ---------------------------------------------------------------------------
 
-local inited = false
-local tex_walk, tex_idle, tex_hurt = 0 + 0, 0 + 0, 0 + 0
-local tex_enemy, tex_expl = 0 + 0, 0 + 0
-local tex_moon, tex_glow, tex_white = 0 + 0, 0 + 0, 0 + 0
-local tex_jungle, tex_wood, tex_stone = 0 + 0, 0 + 0, 0 + 0
-local tex_wall, tex_core, tex_turret, tex_crate = 0 + 0, 0 + 0, 0 + 0, 0 + 0
-local fx_expl = 0 + 0
 
-local px, py = 0.0 + 0.0, 0.0 + 0.0
-local pvx, pvy = 0.0 + 0.0, 0.0 + 0.0
-local camx = 0.0 + 0.0
-local on_ground = false
-local facing = 1 + 0
-local crouching = false
-local pheight = PH + 0.0
-local aim_x, aim_y = 1.0 + 0.0, 0.0 + 0.0
-local coyote, jump_buf = 0.0 + 0.0, 0.0 + 0.0
-local jump_cut = false
-local walk_t = 0.0 + 0.0
-local fire_cd = 0.0 + 0.0
-local muzzle_t = 0.0 + 0.0
-local invuln = 0.0 + 0.0
-local player_dead = false
-local dead_t = 0.0 + 0.0
-local lives = 3 + 0
-local score = 0.0 + 0.0
-local stage = 1 + 0
-local weapon = 0 + 0
-local ready_t = 2.0 + 0.0
-local warn_t = 0.0 + 0.0
-local boss_seen = false
 
-local game_over = false
-local over_t = 0.0 + 0.0
-local clear_t = 0.0 + 0.0
-local clear_fx_t = 0.0 + 0.0
-local boss_core = 0 + 0
-local boss_down = false
 
-local event_code = 0 + 0
-local event_val = 0 + 0
-local event_t = 0.0 + 0.0
-local sfx_cd = 0.0 + 0.0
 
-local ai_timer = 0.0 + 0.0
-local ai_active = false
-local ai_jump_cd = 0.0 + 0.0
-local ai_jump_hold = 0.0 + 0.0
-local ai_move_hold = 0.0 + 0.0
 
 -- control snapshot shared by the keyboard and the attract AI
-local ctl_dir = 0 + 0
-local ctl_up = false
-local ctl_down = false
-local ctl_jump = false
-local ctl_jump_press = false
-local ctl_fire = false
-local ai_aim = false
-local ai_ax, ai_ay = 1.0 + 0.0, 0.0 + 0.0
 
 -- ---------------------------------------------------------------------------
 -- small helpers
 -- ---------------------------------------------------------------------------
+
+-- FakeLua binds file-level locals as const, so everything that changes
+-- across frames lives in a host-side NativeObject instead (see
+-- docs/SCRIPTING.md rule 3). Fields read and write like a plain table.
+local S = new_global_obj("contra_demo", "state")
+
+local function reset_state()
+    S.inited = false
+    S.tex_walk = 0 + 0
+    S.tex_idle = 0 + 0
+    S.tex_hurt = 0 + 0
+    S.tex_enemy = 0 + 0
+    S.tex_expl = 0 + 0
+    S.tex_moon = 0 + 0
+    S.tex_glow = 0 + 0
+    S.tex_white = 0 + 0
+    S.tex_jungle = 0 + 0
+    S.tex_wood = 0 + 0
+    S.tex_stone = 0 + 0
+    S.tex_wall = 0 + 0
+    S.tex_core = 0 + 0
+    S.tex_turret = 0 + 0
+    S.tex_crate = 0 + 0
+    S.fx_expl = 0 + 0
+    S.px = 0.0 + 0.0
+    S.py = 0.0 + 0.0
+    S.pvx = 0.0 + 0.0
+    S.pvy = 0.0 + 0.0
+    S.camx = 0.0 + 0.0
+    S.on_ground = false
+    S.facing = 1 + 0
+    S.crouching = false
+    S.pheight = PH + 0.0
+    S.aim_x = 1.0 + 0.0
+    S.aim_y = 0.0 + 0.0
+    S.coyote = 0.0 + 0.0
+    S.jump_buf = 0.0 + 0.0
+    S.jump_cut = false
+    S.walk_t = 0.0 + 0.0
+    S.fire_cd = 0.0 + 0.0
+    S.muzzle_t = 0.0 + 0.0
+    S.invuln = 0.0 + 0.0
+    S.player_dead = false
+    S.dead_t = 0.0 + 0.0
+    S.lives = 3 + 0
+    S.score = 0.0 + 0.0
+    S.stage = 1 + 0
+    S.weapon = 0 + 0
+    S.ready_t = 2.0 + 0.0
+    S.warn_t = 0.0 + 0.0
+    S.boss_seen = false
+    S.game_over = false
+    S.over_t = 0.0 + 0.0
+    S.clear_t = 0.0 + 0.0
+    S.clear_fx_t = 0.0 + 0.0
+    S.boss_core = 0 + 0
+    S.boss_down = false
+    S.event_code = 0 + 0
+    S.event_val = 0 + 0
+    S.event_t = 0.0 + 0.0
+    S.sfx_cd = 0.0 + 0.0
+    S.ai_timer = 0.0 + 0.0
+    S.ai_active = false
+    S.ai_jump_cd = 0.0 + 0.0
+    S.ai_jump_hold = 0.0 + 0.0
+    S.ai_move_hold = 0.0 + 0.0
+    S.ctl_dir = 0 + 0
+    S.ctl_up = false
+    S.ctl_down = false
+    S.ctl_jump = false
+    S.ctl_jump_press = false
+    S.ctl_fire = false
+    S.ai_aim = false
+    S.ai_ax = 1.0 + 0.0
+    S.ai_ay = 0.0 + 0.0
+end
 
 local function clampf(v, lo, hi)
     if v < lo then return lo end
@@ -262,7 +285,7 @@ local function add_runner(x, feet)
     ent_set_num(id, Y, feet)
     ent_set_num(id, VX, 0.0)
     ent_set_num(id, VY, 0.0)
-    ent_set_num(id, HP, 4.0 + (stage - 1) * 1.2)
+    ent_set_num(id, HP, 4.0 + (S.stage - 1) * 1.2)
     ent_set_num(id, ETYPE, E_RUNNER)
     ent_set_num(id, FACE, -1.0)
     ent_set_num(id, TIMER, 1.6 + rng_float() * 0.8)
@@ -282,7 +305,7 @@ local function add_turret(x, feet)
     if id == 0 then return 0 end
     ent_set_num(id, X, x)
     ent_set_num(id, Y, feet)
-    ent_set_num(id, HP, 9.0 + (stage - 1) * 2.5)
+    ent_set_num(id, HP, 9.0 + (S.stage - 1) * 2.5)
     ent_set_num(id, ETYPE, E_TURRET)
     ent_set_num(id, FACE, -1.0)
     ent_set_num(id, TIMER, 1.2 + rng_float() * 0.8)
@@ -302,7 +325,7 @@ local function add_pod(x, y)
     if id == 0 then return 0 end
     ent_set_num(id, X, x)
     ent_set_num(id, Y, y)
-    ent_set_num(id, HP, 7.0 + (stage - 1) * 2.0)
+    ent_set_num(id, HP, 7.0 + (S.stage - 1) * 2.0)
     ent_set_num(id, ETYPE, E_POD)
     ent_set_num(id, FACE, -1.0)
     ent_set_num(id, TIMER, rng_float() * 3.0)
@@ -342,7 +365,7 @@ local function add_boss_core(x, feet)
     if id == 0 then return 0 end
     ent_set_num(id, X, x)
     ent_set_num(id, Y, feet)
-    ent_set_num(id, HP, 80.0 + (stage - 1) * 25.0)
+    ent_set_num(id, HP, 80.0 + (S.stage - 1) * 25.0)
     ent_set_num(id, ETYPE, E_CORE)
     ent_set_num(id, FACE, -1.0)
     ent_set_num(id, TIMER, 1.8)
@@ -429,7 +452,7 @@ local function spawn_level()
 
     add_boss_turret(3310.0, 200.0)
     add_boss_turret(3310.0, 450.0)
-    boss_core = add_boss_core(3332.0, 390.0)
+    S.boss_core = add_boss_core(3332.0, 390.0)
 end
 
 local function find_spawn_x(x0)
@@ -445,58 +468,58 @@ local function find_spawn_x(x0)
 end
 
 local function respawn_player()
-    local sx = find_spawn_x(camx + 150.0)
-    px = sx
+    local sx = find_spawn_x(S.camx + 150.0)
+    S.px = sx
     local top = support_top(sx + PW * 0.5, GROUND_Y)
     if top < 0.0 then top = GROUND_Y end
-    py = top - PH
-    pvx = 0.0
-    pvy = 0.0
-    pheight = PH
-    crouching = false
-    on_ground = false
-    invuln = 3.0
-    player_dead = false
-    dead_t = 0.0
-    weapon = W_RIFLE
-    aim_x = 1.0
-    aim_y = 0.0
-    facing = 1
+    S.py = top - PH
+    S.pvx = 0.0
+    S.pvy = 0.0
+    S.pheight = PH
+    S.crouching = false
+    S.on_ground = false
+    S.invuln = 3.0
+    S.player_dead = false
+    S.dead_t = 0.0
+    S.weapon = W_RIFLE
+    S.aim_x = 1.0
+    S.aim_y = 0.0
+    S.facing = 1
 end
 
 local function start_stage(st)
-    stage = st
-    score = score + 0.0
-    lives = 3
-    game_over = false
-    over_t = 0.0
-    clear_t = 0.0
-    boss_down = false
-    boss_seen = false
-    warn_t = 0.0
-    ready_t = 2.0
-    event_code = 0
-    event_t = 0.0
+    S.stage = st
+    S.score = S.score + 0.0
+    S.lives = 3
+    S.game_over = false
+    S.over_t = 0.0
+    S.clear_t = 0.0
+    S.boss_down = false
+    S.boss_seen = false
+    S.warn_t = 0.0
+    S.ready_t = 2.0
+    S.event_code = 0
+    S.event_t = 0.0
     spawn_level()
-    px = 100.0
-    py = GROUND_Y - PH
-    pvx = 0.0
-    pvy = 0.0
-    pheight = PH
-    crouching = false
-    on_ground = false
-    invuln = 3.0
-    player_dead = false
-    dead_t = 0.0
-    weapon = W_RIFLE
-    aim_x = 1.0
-    aim_y = 0.0
-    facing = 1
-    fire_cd = 0.0
-    ai_timer = 0.0
-    ai_jump_cd = 0.0
-    ai_jump_hold = 0.0
-    ai_move_hold = 0.0
+    S.px = 100.0
+    S.py = GROUND_Y - PH
+    S.pvx = 0.0
+    S.pvy = 0.0
+    S.pheight = PH
+    S.crouching = false
+    S.on_ground = false
+    S.invuln = 3.0
+    S.player_dead = false
+    S.dead_t = 0.0
+    S.weapon = W_RIFLE
+    S.aim_x = 1.0
+    S.aim_y = 0.0
+    S.facing = 1
+    S.fire_cd = 0.0
+    S.ai_timer = 0.0
+    S.ai_jump_cd = 0.0
+    S.ai_jump_hold = 0.0
+    S.ai_move_hold = 0.0
     log_info(string.format("contra: stage %d start", st))
 end
 
@@ -545,35 +568,35 @@ local function spawn_pbullet(x, y, dx, dy, speed, dmg, kind, pierce)
 end
 
 local function player_shoot()
-    if player_dead or game_over or clear_t > 0.0 then return end
-    if fire_cd > 0.0 then return end
-    local cd, speed, dmg, _, count, spread = weapon_stats(weapon)
-    local cx = px + PW * 0.5
-    local sy = py + 20.0
-    if crouching then sy = py + 12.0 end
-    local ox = cx + aim_x * 22.0
-    local oy = sy + aim_y * 22.0
-    if weapon == W_LASER then
-        spawn_pbullet(ox, oy, aim_x, aim_y, speed, dmg, W_LASER, 3.0)
+    if S.player_dead or S.game_over or S.clear_t > 0.0 then return end
+    if S.fire_cd > 0.0 then return end
+    local cd, speed, dmg, _, count, spread = weapon_stats(S.weapon)
+    local cx = S.px + PW * 0.5
+    local sy = S.py + 20.0
+    if S.crouching then sy = S.py + 12.0 end
+    local ox = cx + S.aim_x * 22.0
+    local oy = sy + S.aim_y * 22.0
+    if S.weapon == W_LASER then
+        spawn_pbullet(ox, oy, S.aim_x, S.aim_y, speed, dmg, W_LASER, 3.0)
         audio_play("laser", 0.30)
-    elseif weapon == W_SPREAD then
-        local base = math.atan2(aim_y, aim_x)
+    elseif S.weapon == W_SPREAD then
+        local base = math.atan2(S.aim_y, S.aim_x)
         for k = 0, 4 do
             local a = base + (k - 2) * 0.155
             spawn_pbullet(ox, oy, math.cos(a), math.sin(a), speed, dmg, W_SPREAD, 0.0)
         end
         audio_play("spread", 0.32)
-    elseif weapon == W_MG then
+    elseif S.weapon == W_MG then
         local jx = (rng_float() - 0.5) * 0.035
-        local a = math.atan2(aim_y, aim_x) + jx
+        local a = math.atan2(S.aim_y, S.aim_x) + jx
         spawn_pbullet(ox, oy, math.cos(a), math.sin(a), speed, dmg, W_MG, 0.0)
         audio_play("mg", 0.22)
     else
-        spawn_pbullet(ox, oy, aim_x, aim_y, speed, dmg, W_RIFLE, 0.0)
+        spawn_pbullet(ox, oy, S.aim_x, S.aim_y, speed, dmg, W_RIFLE, 0.0)
         audio_play("rifle", 0.30)
     end
-    fire_cd = cd
-    muzzle_t = 0.07
+    S.fire_cd = cd
+    S.muzzle_t = 0.07
 end
 
 local function spawn_ebul(x, y, dx, dy, speed, kind)
@@ -596,8 +619,8 @@ local function spawn_ebul(x, y, dx, dy, speed, kind)
 end
 
 local function aim_at_player(ex, ey)
-    local cx = px + PW * 0.5
-    local cy = py + pheight * 0.5
+    local cx = S.px + PW * 0.5
+    local cy = S.py + S.pheight * 0.5
     local dx = cx - ex
     local dy = cy - ey
     local d = math.sqrt(dx * dx + dy * dy)
@@ -615,9 +638,9 @@ local function enemy_shoot(e, speed, kind)
     local dx = math.cos(a)
     local dy = math.sin(a)
     spawn_ebul(ex + dx * 16.0, ey + dy * 16.0, dx, dy, speed, kind)
-    if sfx_cd <= 0.0 then
+    if S.sfx_cd <= 0.0 then
         audio_play("enemy", 0.18)
-        sfx_cd = 0.08
+        S.sfx_cd = 0.08
     end
 end
 
@@ -628,168 +651,168 @@ end
 local function update_aim()
     local ax = 0
     local ay = 0
-    if ai_aim then
-        ax = ai_ax
-        ay = ai_ay
+    if S.ai_aim then
+        ax = S.ai_ax
+        ay = S.ai_ay
     else
-        if ctl_up then ay = -1 end
-        if ctl_down and not on_ground then ay = 1 end
-        if ctl_dir ~= 0 then ax = ctl_dir end
-        if ax == 0 and ay == 0 then ax = facing end
+        if S.ctl_up then ay = -1 end
+        if S.ctl_down and not S.on_ground then ay = 1 end
+        if S.ctl_dir ~= 0 then ax = S.ctl_dir end
+        if ax == 0 and ay == 0 then ax = S.facing end
         -- vertical/horizontal or diagonal: normalize below.
     end
-    if crouching and not ai_aim then
-        ax = facing
+    if S.crouching and not S.ai_aim then
+        ax = S.facing
         ay = 0
     end
     local d = math.sqrt(ax * ax + ay * ay)
     if d < 0.001 then
-        ax = facing
+        ax = S.facing
         ay = 0
         d = 1.0
     end
-    aim_x = ax / d
-    aim_y = ay / d
-    if ax > 0 then facing = 1
-    elseif ax < 0 then facing = -1 end
+    S.aim_x = ax / d
+    S.aim_y = ay / d
+    if ax > 0 then S.facing = 1
+    elseif ax < 0 then S.facing = -1 end
 end
 
 local function player_die()
-    if player_dead or invuln > 0.0 or game_over or clear_t > 0.0 then return end
-    if ai_active then
+    if S.player_dead or S.invuln > 0.0 or S.game_over or S.clear_t > 0.0 then return end
+    if S.ai_active then
         -- Attract mode: the AI shows the stage rather than burning the three
         -- player lives; pits still relocate it, hits just reset the weapon.
-        if py > PLAYER_DEATH_Y then
+        if S.py > PLAYER_DEATH_Y then
             respawn_player()
             return
         end
-        invuln = 1.4
-        weapon = W_RIFLE
-        spawn_fx(px + PW * 0.5, py + pheight * 0.5, 0.8)
+        S.invuln = 1.4
+        S.weapon = W_RIFLE
+        spawn_fx(S.px + PW * 0.5, S.py + S.pheight * 0.5, 0.8)
         audio_play("ehit", 0.3)
         return
     end
-    player_dead = true
-    dead_t = 0.9
-    lives = lives - 1
-    spawn_fx(px + PW * 0.5, py + pheight * 0.5, 2.0)
-    part_emit(fx_expl, 14, px + PW * 0.5, py + pheight * 0.5)
+    S.player_dead = true
+    S.dead_t = 0.9
+    S.lives = S.lives - 1
+    spawn_fx(S.px + PW * 0.5, S.py + S.pheight * 0.5, 2.0)
+    part_emit(S.fx_expl, 14, S.px + PW * 0.5, S.py + S.pheight * 0.5)
     audio_play("boom", 0.45)
     audio_play("death", 0.40)
-    weapon = W_RIFLE
+    S.weapon = W_RIFLE
     log_info(string.format("contra: died at %.0f,%.0f (%d lives left)",
-                           px, py, lives))
-    if lives <= 0 then
-        game_over = true
-        over_t = 3.6
-        event_code = 0
+                           S.px, S.py, S.lives))
+    if S.lives <= 0 then
+        S.game_over = true
+        S.over_t = 3.6
+        S.event_code = 0
         log_info("contra: game over")
     end
 end
 
 local function player_update(dt)
-    if player_dead then
-        dead_t = dead_t - dt
-        if dead_t <= 0.0 and not game_over then
+    if S.player_dead then
+        S.dead_t = S.dead_t - dt
+        if S.dead_t <= 0.0 and not S.game_over then
             respawn_player()
-            camera_snap(camx, 0.0)
+            camera_snap(S.camx, 0.0)
         end
         return
     end
 
-    if invuln > 0.0 then invuln = invuln - dt end
-    if fire_cd > 0.0 then fire_cd = fire_cd - dt end
-    if muzzle_t > 0.0 then muzzle_t = muzzle_t - dt end
+    if S.invuln > 0.0 then S.invuln = S.invuln - dt end
+    if S.fire_cd > 0.0 then S.fire_cd = S.fire_cd - dt end
+    if S.muzzle_t > 0.0 then S.muzzle_t = S.muzzle_t - dt end
 
-    local dir = ctl_dir
-    local want_crouch = ctl_down and on_ground
-    if want_crouch and not crouching then
-        py = py + (PH - CROUCH_H)
-        pheight = CROUCH_H
-        crouching = true
-    elseif not want_crouch and crouching then
-        py = py - (PH - CROUCH_H)
-        pheight = PH
-        crouching = false
+    local dir = S.ctl_dir
+    local want_crouch = S.ctl_down and S.on_ground
+    if want_crouch and not S.crouching then
+        S.py = S.py + (PH - CROUCH_H)
+        S.pheight = CROUCH_H
+        S.crouching = true
+    elseif not want_crouch and S.crouching then
+        S.py = S.py - (PH - CROUCH_H)
+        S.pheight = PH
+        S.crouching = false
     end
 
-    if ctl_jump_press then
-        jump_buf = 0.11
+    if S.ctl_jump_press then
+        S.jump_buf = 0.11
     end
-    if jump_buf > 0.0 then jump_buf = jump_buf - dt end
-    if on_ground then
-        coyote = 0.08
-    elseif coyote > 0.0 then
-        coyote = coyote - dt
+    if S.jump_buf > 0.0 then S.jump_buf = S.jump_buf - dt end
+    if S.on_ground then
+        S.coyote = 0.08
+    elseif S.coyote > 0.0 then
+        S.coyote = S.coyote - dt
     end
 
-    if crouching then dir = 0 end
+    if S.crouching then dir = 0 end
     local ax = 0.0
     if dir ~= 0 then
         ax = dir * ACC_GROUND
-        if not on_ground then ax = dir * ACC_AIR end
-        if dir > 0 then facing = 1 else facing = -1 end
-    elseif on_ground then
-        ax = -sgn(pvx) * FRICTION
-        if math.abs(pvx) < FRICTION * dt then ax = -pvx / dt end
+        if not S.on_ground then ax = dir * ACC_AIR end
+        if dir > 0 then S.facing = 1 else S.facing = -1 end
+    elseif S.on_ground then
+        ax = -sgn(S.pvx) * FRICTION
+        if math.abs(S.pvx) < FRICTION * dt then ax = -S.pvx / dt end
     end
-    pvx = pvx + ax * dt
-    if math.abs(pvx) > RUN_MAX then pvx = sgn(pvx) * RUN_MAX end
-    if dir == 0 and on_ground and math.abs(pvx) < 4.0 then pvx = 0.0 end
+    S.pvx = S.pvx + ax * dt
+    if math.abs(S.pvx) > RUN_MAX then S.pvx = sgn(S.pvx) * RUN_MAX end
+    if dir == 0 and S.on_ground and math.abs(S.pvx) < 4.0 then S.pvx = 0.0 end
 
     -- Jump (buffered + coyote).
-    if jump_buf > 0.0 and (on_ground or coyote > 0.0) then
-        pvy = JUMP_V
-        on_ground = false
-        coyote = 0.0
-        jump_buf = 0.0
-        jump_cut = false
-        if crouching then
-            py = py - (PH - CROUCH_H)
-            pheight = PH
-            crouching = false
+    if S.jump_buf > 0.0 and (S.on_ground or S.coyote > 0.0) then
+        S.pvy = JUMP_V
+        S.on_ground = false
+        S.coyote = 0.0
+        S.jump_buf = 0.0
+        S.jump_cut = false
+        if S.crouching then
+            S.py = S.py - (PH - CROUCH_H)
+            S.pheight = PH
+            S.crouching = false
         end
         audio_play("jump2", 0.25)
     end
-    if pvy < 0.0 and not ctl_jump and not jump_cut then
-        pvy = pvy * 0.45
-        jump_cut = true
+    if S.pvy < 0.0 and not S.ctl_jump and not S.jump_cut then
+        S.pvy = S.pvy * 0.45
+        S.jump_cut = true
     end
 
-    pvy = pvy + GRAV * dt
-    if pvy > MAX_FALL then pvy = MAX_FALL end
+    S.pvy = S.pvy + GRAV * dt
+    if S.pvy > MAX_FALL then S.pvy = MAX_FALL end
 
-    local old_top = py
-    px = move_x_for(px, py, PW, pheight, pvx * dt)
-    local ny, landed = move_y_for(px, py, PW, pheight, pvy * dt)
-    py = ny
-    if landed and pvy >= 0.0 then
-        pvy = 0.0
-        on_ground = true
+    local old_top = S.py
+    S.px = move_x_for(S.px, S.py, PW, S.pheight, S.pvx * dt)
+    local ny, landed = move_y_for(S.px, S.py, PW, S.pheight, S.pvy * dt)
+    S.py = ny
+    if landed and S.pvy >= 0.0 then
+        S.pvy = 0.0
+        S.on_ground = true
     else
-        on_ground = false
+        S.on_ground = false
     end
-    if pvy < 0.0 and old_top > py then jump_cut = true end
+    if S.pvy < 0.0 and old_top > S.py then S.jump_cut = true end
 
-    if px < 0.0 then px = 0.0; pvx = 0.0 end
-    if px > WORLD_W - PW then px = WORLD_W - PW; pvx = 0.0 end
+    if S.px < 0.0 then S.px = 0.0; S.pvx = 0.0 end
+    if S.px > WORLD_W - PW then S.px = WORLD_W - PW; S.pvx = 0.0 end
 
-    if dir ~= 0 and on_ground then
-        walk_t = walk_t + dt
-    elseif not on_ground then
-        walk_t = 0.0
+    if dir ~= 0 and S.on_ground then
+        S.walk_t = S.walk_t + dt
+    elseif not S.on_ground then
+        S.walk_t = 0.0
     else
-        walk_t = walk_t + dt * 0.3
+        S.walk_t = S.walk_t + dt * 0.3
     end
 
     update_aim()
 
-    if ctl_fire then player_shoot() end
+    if S.ctl_fire then player_shoot() end
 
-    if py > PLAYER_DEATH_Y then
+    if S.py > PLAYER_DEATH_Y then
         -- Pits kill through respawn invulnerability too.
-        if not player_dead then
-            invuln = 0.0
+        if not S.player_dead then
+            S.invuln = 0.0
             player_die()
         end
     end
@@ -804,9 +827,9 @@ local function enemy_alive_near(e)
     local ex = ent_num(e, X)
     local et = ent_num(e, ETYPE)
     if et == E_TURRET_B or et == E_CORE then
-        return camx > 2280.0
+        return S.camx > 2280.0
     end
-    if ex < camx - 260.0 or ex > camx + VW + 420.0 then return false end
+    if ex < S.camx - 260.0 or ex > S.camx + VW + 420.0 then return false end
     return ent_num(e, HP) > 0.0
 end
 
@@ -820,13 +843,13 @@ local function update_runner(e, dt)
     local vy = ent_num(e, VY)
     local grounded = ent_num(e, STATE) > 0.5
 
-    local pcx = px + PW * 0.5
+    local pcx = S.px + PW * 0.5
     local dx = pcx - ex
     face = sgn(dx)
     if face == 0 then face = 1 end
 
     local dist = math.abs(dx)
-    local speed = 62.0 + (stage - 1) * 8.0
+    local speed = 62.0 + (S.stage - 1) * 8.0
     local move = 0.0
     if dist > 230.0 and grounded then move = face * speed * dt end
     if grounded and move ~= 0.0 then
@@ -856,9 +879,9 @@ local function update_runner(e, dt)
     if flash > 0.0 then ent_set_num(e, FLASH, flash - dt) end
 
     local timer = ent_num(e, TIMER) - dt
-    if timer <= 0.0 and dist < 400.0 and math.abs((py + pheight * 0.5) - (ey - h * 0.6)) < 260.0 then
-        enemy_shoot(e, 220.0 + (stage - 1) * 22.0, 0.0)
-        timer = 2.0 + (stage - 1) * -0.08 + rng_float() * 0.5
+    if timer <= 0.0 and dist < 400.0 and math.abs((S.py + S.pheight * 0.5) - (ey - h * 0.6)) < 260.0 then
+        enemy_shoot(e, 220.0 + (S.stage - 1) * 22.0, 0.0)
+        timer = 2.0 + (S.stage - 1) * -0.08 + rng_float() * 0.5
     elseif timer <= 0.0 then
         timer = 0.6
     end
@@ -875,7 +898,7 @@ local function update_turret(e, dt)
     ent_set_num(e, AIMY, ay)
     local timer = ent_num(e, TIMER) - dt
     if timer <= 0.0 then
-        enemy_shoot(e, 230.0 + (stage - 1) * 26.0, 0.0)
+        enemy_shoot(e, 230.0 + (S.stage - 1) * 26.0, 0.0)
         if ent_num(e, ETYPE) == E_TURRET_B then
             timer = 1.0 + rng_float() * 0.35
         else
@@ -895,8 +918,8 @@ local function update_pod(e, dt)
     ent_set_num(e, TIMER, t)
     local flash = ent_num(e, FLASH)
     if flash > 0.0 then ent_set_num(e, FLASH, flash - dt) end
-    if ex < camx - 160.0 then
-        ent_set_num(e, SUB, camx + VW + 120.0)
+    if ex < S.camx - 160.0 then
+        ent_set_num(e, SUB, S.camx + VW + 120.0)
         ent_set_num(e, TIMER, 0.0)
     end
 end
@@ -924,7 +947,7 @@ local function update_boss(e, dt)
                        math.sin(math.atan2(ay, ax) - spread), 340.0, 1.0)
             spawn_ebul(ex, ey, math.cos(math.atan2(ay, ax) + spread),
                        math.sin(math.atan2(ay, ax) + spread), 340.0, 1.0)
-            timer = 2.4 - (stage - 1) * 0.2
+            timer = 2.4 - (S.stage - 1) * 0.2
             if timer < 1.2 then timer = 1.2 end
             audio_play("boss", 0.35)
         end
@@ -959,13 +982,13 @@ local function update_enemies(dt)
 end
 
 local function begin_clear()
-    if boss_down then return end
-    boss_down = true
-    clear_t = 3.6
-    clear_fx_t = 0.0
-    score = score + ent_num(boss_core, SCOREV)
-    event_code = 3
-    event_t = 3.2
+    if S.boss_down then return end
+    S.boss_down = true
+    S.clear_t = 3.6
+    S.clear_fx_t = 0.0
+    S.score = S.score + ent_num(S.boss_core, SCOREV)
+    S.event_code = 3
+    S.event_t = 3.2
     clear_entities(TAG_EBUL)
     audio_play("clear", 0.55)
     audio_play("boom", 0.5)
@@ -981,13 +1004,13 @@ local function kill_enemy(e)
         begin_clear()
         return
     end
-    score = score + sc
+    S.score = S.score + sc
     spawn_fx(x, y, 1.4)
-    part_emit(fx_expl, 10, x, y)
+    part_emit(S.fx_expl, 10, x, y)
     audio_play("boom", 0.35)
     if ty == E_POD then
         -- Carriers drop the next weapon capsule.
-        local kind = (weapon + 1) % 4
+        local kind = (S.weapon + 1) % 4
         if kind == W_RIFLE then kind = W_MG end
         local pid = ent_create(TAG_PICK)
         if pid ~= 0 then
@@ -1019,7 +1042,7 @@ local function update_bullets(dt)
         local pierce = ent_num(b, AIMX)
         local dead = false
 
-        if nx < camx - 80.0 or nx > camx + VW + 120.0 or ny < -40.0 or ny > VH + 60.0 then
+        if nx < S.camx - 80.0 or nx > S.camx + VW + 120.0 or ny < -40.0 or ny > VH + 60.0 then
             dead = true
         end
         if not dead and solid_at(nx - 2.0, ny - 2.0, 4.0, 4.0) then
@@ -1078,14 +1101,14 @@ local function update_bullets(dt)
         local nx = ent_num(b, X) + ent_num(b, VX) * dt
         local ny = ent_num(b, Y) + ent_num(b, VY) * dt
         local dead = false
-        if nx < camx - 120.0 or nx > camx + VW + 200.0 or ny < -80.0 or ny > VH + 120.0 then
+        if nx < S.camx - 120.0 or nx > S.camx + VW + 200.0 or ny < -80.0 or ny > VH + 120.0 then
             dead = true
         end
         if not dead and solid_at(nx - 2.0, ny - 2.0, 4.0, 4.0) then
             dead = true
         end
-        if not dead and not player_dead and invuln <= 0.0 and not game_over then
-            if box_hit(nx - 3.0, ny - 3.0, 6.0, 6.0, px, py, PW, pheight) then
+        if not dead and not S.player_dead and S.invuln <= 0.0 and not S.game_over then
+            if box_hit(nx - 3.0, ny - 3.0, 6.0, 6.0, S.px, S.py, PW, S.pheight) then
                 player_die()
                 dead = true
             end
@@ -1120,12 +1143,12 @@ local function update_pickups(dt)
                 ent_set_num(p, VY, vy)
                 if hit then ent_set_num(p, STATE, 1.0) end
             end
-            if not player_dead and box_hit(ent_num(p, X) - 16.0, ent_num(p, Y) - 26.0,
-                                           32.0, 26.0, px, py, PW, pheight) then
-                weapon = ent_num(p, ETYPE)
-                event_code = 1
-                event_val = weapon
-                event_t = 1.9
+            if not S.player_dead and box_hit(ent_num(p, X) - 16.0, ent_num(p, Y) - 26.0,
+                                           32.0, 26.0, S.px, S.py, PW, S.pheight) then
+                S.weapon = ent_num(p, ETYPE)
+                S.event_code = 1
+                S.event_val = S.weapon
+                S.event_t = 1.9
                 audio_play("pickup", 0.45)
                 ent_destroy(p)
             else
@@ -1151,7 +1174,7 @@ local function update_fx(dt)
 end
 
 local function update_contacts()
-    if player_dead or invuln > 0.0 or game_over or clear_t > 0.0 then return end
+    if S.player_dead or S.invuln > 0.0 or S.game_over or S.clear_t > 0.0 then return end
     local n = ent_count(TAG_ENEMY)
     for i = 0, n - 1 do
         local e = ent_at(i, TAG_ENEMY)
@@ -1160,7 +1183,7 @@ local function update_contacts()
             local ey = ent_num(e, Y)
             local w = ent_num(e, WW)
             local h = ent_num(e, HH)
-            if box_hit(px, py, PW, pheight, ex - w * 0.5, ey - h, w, h) then
+            if box_hit(S.px, S.py, PW, S.pheight, ex - w * 0.5, ey - h, w, h) then
                 player_die()
                 return
             end
@@ -1183,7 +1206,7 @@ local function ai_pick_target()
             if enemy_alive_near(e) then
                 local ex = ent_num(e, X)
                 local ey = ent_num(e, Y) - ent_num(e, HH) * 0.6
-                local d = math.abs(ex - (px + PW * 0.5)) + math.abs(ey - (py + pheight * 0.5))
+                local d = math.abs(ex - (S.px + PW * 0.5)) + math.abs(ey - (S.py + S.pheight * 0.5))
                 if d < best then
                     best = d
                     bx = ex
@@ -1198,8 +1221,8 @@ local function ai_pick_target()
 end
 
 local function ai_bullet_threat()
-    local cx = px + PW * 0.5
-    local cy = py + pheight * 0.5
+    local cx = S.px + PW * 0.5
+    local cy = S.py + S.pheight * 0.5
     local n = ent_count(TAG_EBUL)
     for i = 0, n - 1 do
         local b = ent_at(i, TAG_EBUL)
@@ -1219,67 +1242,67 @@ local function ai_bullet_threat()
 end
 
 local function ai_update(dt)
-    ai_jump_cd = ai_jump_cd - dt
-    ai_jump_hold = ai_jump_hold - dt
-    if ai_move_hold > 0.0 then ai_move_hold = ai_move_hold - dt end
-    ctl_dir = 1
-    ctl_up = false
-    ctl_down = false
-    ctl_jump = ai_jump_hold > 0.0
-    ctl_jump_press = false
-    ctl_fire = true
-    ai_aim = true
+    S.ai_jump_cd = S.ai_jump_cd - dt
+    S.ai_jump_hold = S.ai_jump_hold - dt
+    if S.ai_move_hold > 0.0 then S.ai_move_hold = S.ai_move_hold - dt end
+    S.ctl_dir = 1
+    S.ctl_up = false
+    S.ctl_down = false
+    S.ctl_jump = S.ai_jump_hold > 0.0
+    S.ctl_jump_press = false
+    S.ctl_fire = true
+    S.ai_aim = true
 
-    local cx = px + PW * 0.5
-    local feet = py + pheight
+    local cx = S.px + PW * 0.5
+    local feet = S.py + S.pheight
 
     -- Two short samples (20px and 44px) stay inside a 60px pit, so the far
     -- side cannot masquerade as continuous ground.
     local s1 = support_top(cx + 20.0, feet)
     local s2 = support_top(cx + 44.0, feet)
-    local wall = solid_at(px + PW + 4.0, py + pheight - 34.0, 14.0, 30.0)
-    local must_move = on_ground and (s1 < 0.0 or s2 < 0.0 or wall)
+    local wall = solid_at(S.px + PW + 4.0, S.py + S.pheight - 34.0, 14.0, 30.0)
+    local must_move = S.on_ground and (s1 < 0.0 or s2 < 0.0 or wall)
 
-    if on_ground then
+    if S.on_ground then
         if must_move then
-            ctl_jump_press = true
-            ctl_jump = true
-            ai_jump_hold = 0.22
-            ai_jump_cd = 0.30
-            ai_move_hold = 0.55
+            S.ctl_jump_press = true
+            S.ctl_jump = true
+            S.ai_jump_hold = 0.22
+            S.ai_jump_cd = 0.30
+            S.ai_move_hold = 0.55
         elseif ai_bullet_threat() then
-            ctl_down = true
+            S.ctl_down = true
         end
     end
 
     local tx, ty, found = ai_pick_target()
     if found then
-        local sx = cx + facing * 3.0
-        local sy = py + 20.0
+        local sx = cx + S.facing * 3.0
+        local sy = S.py + 20.0
         local dx = tx - sx
         local dy = ty - sy
         -- Free aim for the attract AI: turrets sit above the ground line, so
         -- an 8-way-quantized aim would shoot under them.
         local d = math.sqrt(dx * dx + dy * dy)
         if d > 1.0 then
-            ai_ax = dx / d
-            ai_ay = dy / d
+            S.ai_ax = dx / d
+            S.ai_ay = dy / d
         else
-            ai_ax = 1.0
-            ai_ay = 0.0
+            S.ai_ax = 1.0
+            S.ai_ay = 0.0
         end
         -- Run and gun: standing still lets crates block shots and turns the
         -- AI into a sitting target.
     else
-        ai_ax = 1.0
-        ai_ay = 0.0
+        S.ai_ax = 1.0
+        S.ai_ay = 0.0
     end
 
-    if ai_move_hold > 0.0 then ctl_dir = 1 end
+    if S.ai_move_hold > 0.0 then S.ctl_dir = 1 end
 
     -- Hold position inside the fortress arena instead of running into the core.
-    if camx > 2280.0 and px > 3150.0 then
-        ctl_dir = 0
+    if S.camx > 2280.0 and S.px > 3150.0 then
+        S.ctl_dir = 0
     end
 end
 
@@ -1289,34 +1312,34 @@ end
 
 local function read_input(dt)
     local any = false
-    ctl_dir = 0
-    ctl_up = false
-    ctl_down = false
-    ctl_fire = false
-    ctl_jump = false
-    ctl_jump_press = false
-    ai_aim = false
+    S.ctl_dir = 0
+    S.ctl_up = false
+    S.ctl_down = false
+    S.ctl_fire = false
+    S.ctl_jump = false
+    S.ctl_jump_press = false
+    S.ai_aim = false
 
-    if input_key_down("a") or input_key_down("left") then ctl_dir = -1; any = true end
-    if input_key_down("d") or input_key_down("right") then ctl_dir = 1; any = true end
-    if input_key_down("w") or input_key_down("up") then ctl_up = true; any = true end
-    if input_key_down("s") or input_key_down("down") then ctl_down = true; any = true end
-    if input_key_down("space") or input_key_down("z") then ctl_jump = true; any = true end
-    if input_key_pressed("space") or input_key_pressed("z") then ctl_jump_press = true; any = true end
-    if input_key_down("j") or input_key_down("x") then ctl_fire = true; any = true end
+    if input_key_down("a") or input_key_down("left") then S.ctl_dir = -1; any = true end
+    if input_key_down("d") or input_key_down("right") then S.ctl_dir = 1; any = true end
+    if input_key_down("w") or input_key_down("up") then S.ctl_up = true; any = true end
+    if input_key_down("s") or input_key_down("down") then S.ctl_down = true; any = true end
+    if input_key_down("space") or input_key_down("z") then S.ctl_jump = true; any = true end
+    if input_key_pressed("space") or input_key_pressed("z") then S.ctl_jump_press = true; any = true end
+    if input_key_down("j") or input_key_down("x") then S.ctl_fire = true; any = true end
 
-    if any then ai_timer = 0.0 end
-    if ai_timer > 0.5 then
-        ai_active = true
+    if any then S.ai_timer = 0.0 end
+    if S.ai_timer > 0.5 then
+        S.ai_active = true
         ai_update(dt)
     else
-        ai_active = false
+        S.ai_active = false
     end
-    ai_timer = ai_timer + dt
+    S.ai_timer = S.ai_timer + dt
 end
 
 local function update_camera(dt)
-    camera_follow(px + PW * 0.5, 0.0)
+    camera_follow(S.px + PW * 0.5, 0.0)
 end
 
 -- ---------------------------------------------------------------------------
@@ -1335,7 +1358,7 @@ local function seg(x1, y1, x2, y2, thick, r, g, b, a)
     local dy = y2 - y1
     local len = math.sqrt(dx * dx + dy * dy)
     if len < 0.2 then return end
-    sprite_draw_rotated_tinted(tex_white, 0.0, 0.0, 1.0, 1.0,
+    sprite_draw_rotated_tinted(S.tex_white, 0.0, 0.0, 1.0, 1.0,
                                mx - len * 0.5, my - thick * 0.5, len, thick,
                                math.atan2(dy, dx), len * 0.5, thick * 0.5,
                                r, g, b, a)
@@ -1343,7 +1366,7 @@ end
 
 local function glow_at(x, y, size, r, g, b, a)
     draw_set_blend(1)
-    sprite_draw_rotated_tinted(tex_glow, 0.0, 0.0, 64.0, 64.0,
+    sprite_draw_rotated_tinted(S.tex_glow, 0.0, 0.0, 64.0, 64.0,
                                x - size * 0.5, y - size * 0.5, size, size,
                                0.0, 0.0, 0.0, r, g, b, a)
     draw_set_blend(0)
@@ -1402,7 +1425,7 @@ local function palm(x, base_y, height, lean, cr, cg, cb)
 end
 
 local function mountain(x, base_y, size, r, g, b)
-    sprite_draw_rotated_tinted(tex_white, 0.0, 0.0, 1.0, 1.0,
+    sprite_draw_rotated_tinted(S.tex_white, 0.0, 0.0, 1.0, 1.0,
                                x - size * 0.5, base_y - size * 0.5, size, size,
                                0.785, size * 0.5, size * 0.5, r, g, b, 1.0)
 end
@@ -1410,13 +1433,13 @@ end
 local function draw_background()
     local cx = camera_x()
     -- AI key art: night jungle with layered mountains and palms baked in.
-    sprite_draw(tex_jungle, cx, 0.0, VW, VH)
+    sprite_draw(S.tex_jungle, cx, 0.0, VW, VH)
 
     -- Fixed moon with a soft halo over the painted sky.
     local mx = cx + 722.0
     local my = 96.0
     glow_at(mx, my, 240.0, 0.55, 0.70, 0.95, 0.18)
-    sprite_draw_rotated_tinted(tex_moon, 0.0, 0.0, 64.0, 64.0,
+    sprite_draw_rotated_tinted(S.tex_moon, 0.0, 0.0, 64.0, 64.0,
                                mx - 34.0, my - 34.0, 68.0, 68.0,
                                0.0, 0.0, 0.0, 0.82, 0.88, 1.0, 1.0)
 
@@ -1441,22 +1464,22 @@ local function draw_platforms()
             local w = ent_num(p, WW)
             local h = ent_num(p, HH)
             local kind = ent_num(p, ETYPE)
-            if x + w > camx - 80.0 and x < camx + VW + 80.0 then
+            if x + w > S.camx - 80.0 and x < S.camx + VW + 80.0 then
                 if kind == 0 then
-                    sprite_draw_region(tex_wood, 0.0, 0.0, 256.0, 64.0,
+                    sprite_draw_region(S.tex_wood, 0.0, 0.0, 256.0, 64.0,
                                        x, y, w, h)
                     draw_quad(x, y, w, 4.0, 0.24, 0.52, 0.26, 0.85)
                 elseif kind == 1 then
-                    sprite_draw_region(tex_stone, 0.0, 0.0, 256.0, 256.0,
+                    sprite_draw_region(S.tex_stone, 0.0, 0.0, 256.0, 256.0,
                                        x, y, w, h)
                     draw_quad(x, y, w, 3.0, 0.72, 0.76, 0.82, 0.75)
                 elseif kind == 2 then
-                    sprite_draw_region(tex_wood, 0.0, 0.0, 256.0, 64.0,
+                    sprite_draw_region(S.tex_wood, 0.0, 0.0, 256.0, 64.0,
                                        x, y, w, h)
                     seg(x + 4.0, y + 4.0, x + w - 4.0, y + h - 4.0, 3.0, 0.260, 0.160, 0.080, 0.9)
                     seg(x + w - 4.0, y + 4.0, x + 4.0, y + h - 4.0, 3.0, 0.260, 0.160, 0.080, 0.9)
                 else
-                    sprite_draw_region(tex_stone, 0.0, 0.0, 256.0, 256.0,
+                    sprite_draw_region(S.tex_stone, 0.0, 0.0, 256.0, 256.0,
                                        x, y, w, h)
                     draw_quad(x, y, w, 6.0, 0.55, 0.58, 0.64, 0.65)
                 end
@@ -1474,34 +1497,34 @@ local function draw_actor_sprite(tex, x, y, w, h, face, tint_r, tint_g, tint_b, 
 end
 
 local function draw_player()
-    if player_dead then return end
-    if invuln > 0.0 and math.floor(time_elapsed() * 18.0) % 2 == 0 then return end
-    local cx = px + PW * 0.5
-    local feet = py + pheight
+    if S.player_dead then return end
+    if S.invuln > 0.0 and math.floor(time_elapsed() * 18.0) % 2 == 0 then return end
+    local cx = S.px + PW * 0.5
+    local feet = S.py + S.pheight
     local dh = 64.0
-    if crouching then dh = 40.0 end
+    if S.crouching then dh = 40.0 end
     local frame = 0
-    if on_ground and math.abs(pvx) > 20.0 then
-        frame = math.floor(walk_t * 9.0) % 4
-        draw_actor_sprite(tex_walk, cx, feet, 32.0, dh, facing, 1.0, 1.0, 1.0, frame, 1.0)
+    if S.on_ground and math.abs(S.pvx) > 20.0 then
+        frame = math.floor(S.walk_t * 9.0) % 4
+        draw_actor_sprite(S.tex_walk, cx, feet, 32.0, dh, S.facing, 1.0, 1.0, 1.0, frame, 1.0)
     else
         frame = math.floor(time_elapsed() * 4.0) % 4
-        draw_actor_sprite(tex_idle, cx, feet, 32.0, dh, facing, 1.0, 1.0, 1.0, frame, 1.0)
+        draw_actor_sprite(S.tex_idle, cx, feet, 32.0, dh, S.facing, 1.0, 1.0, 1.0, frame, 1.0)
     end
 
     -- Procedural gun arm in the aim direction with a muzzle flash.
-    local sy = py + 18.0
-    if crouching then sy = py + 10.0 end
-    local sx = cx + facing * 2.0
-    local tipx = sx + aim_x * 20.0
-    local tipy = sy + aim_y * 20.0
-    seg(sx, sy, sx + aim_x * 10.0, sy + aim_y * 10.0, 4.4, 0.78, 0.58, 0.34, 1.0)
-    seg(sx + aim_x * 7.0, sy + aim_y * 7.0, tipx, tipy, 3.6, 0.10, 0.11, 0.14, 1.0)
-    seg(sx + aim_x * 9.0, sy + aim_y * 9.0 - 1.0, tipx, tipy - 1.0,
+    local sy = S.py + 18.0
+    if S.crouching then sy = S.py + 10.0 end
+    local sx = cx + S.facing * 2.0
+    local tipx = sx + S.aim_x * 20.0
+    local tipy = sy + S.aim_y * 20.0
+    seg(sx, sy, sx + S.aim_x * 10.0, sy + S.aim_y * 10.0, 4.4, 0.78, 0.58, 0.34, 1.0)
+    seg(sx + S.aim_x * 7.0, sy + S.aim_y * 7.0, tipx, tipy, 3.6, 0.10, 0.11, 0.14, 1.0)
+    seg(sx + S.aim_x * 9.0, sy + S.aim_y * 9.0 - 1.0, tipx, tipy - 1.0,
         1.3, 0.46, 0.50, 0.58, 1.0)
-    if muzzle_t > 0.0 then
-        local g = muzzle_t / 0.07
-        glow_at(tipx + aim_x * 8.0, tipy + aim_y * 8.0, 32.0 + 16.0 * g,
+    if S.muzzle_t > 0.0 then
+        local g = S.muzzle_t / 0.07
+        glow_at(tipx + S.aim_x * 8.0, tipy + S.aim_y * 8.0, 32.0 + 16.0 * g,
                 1.0, 0.85, 0.35, 0.85 * g)
         draw_quad(tipx - 2.0, tipy - 2.0, 4.0, 4.0, 1.0, 1.0, 0.85, g)
     end
@@ -1515,7 +1538,7 @@ local function draw_runner(e)
     local frame = math.floor(time_elapsed() * 7.0 + ex * 0.1) % 4
     local r, g, b = 0.95, 0.72, 0.70
     if flash > 0.0 then r, g, b = 1.0, 1.0, 1.0 end
-    draw_actor_sprite(tex_enemy, ex, ey, 32.0, 64.0, face, r, g, b, frame, 1.0)
+    draw_actor_sprite(S.tex_enemy, ex, ey, 32.0, 64.0, face, r, g, b, frame, 1.0)
     local sy = ey - 44.0
     local ax = ent_num(e, AIMX)
     local ay = ent_num(e, AIMY)
@@ -1532,8 +1555,8 @@ local function draw_turret(e)
     local flash = ent_num(e, FLASH)
     local r, g, b = 0.24, 0.26, 0.30
     if flash > 0.0 then r, g, b = 0.85, 0.85, 0.85 end
-    if tex_turret ~= 0 then
-        sprite_draw_tinted(tex_turret, ex - w * 0.5, ey - 34.0, w, 34.0, r, g, b, 1.0)
+    if S.tex_turret ~= 0 then
+        sprite_draw_tinted(S.tex_turret, ex - w * 0.5, ey - 34.0, w, 34.0, r, g, b, 1.0)
     else
         draw_quad(ex - w * 0.5, ey - 14.0, w, 14.0, r, g, b, 1.0)
         draw_quad(ex - w * 0.5 + 3.0, ey - 26.0, w - 6.0, 14.0, r * 0.8, g * 0.8, b * 0.8, 1.0)
@@ -1555,8 +1578,8 @@ local function draw_pod(e)
     local r, g, b = 0.42, 0.46, 0.52
     if flash > 0.0 then r, g, b = 1.0, 1.0, 1.0 end
     glow_at(ex, ey - 10.0 + bob, 54.0, 0.25, 0.65, 0.75, 0.20)
-    if tex_crate ~= 0 then
-        sprite_draw_tinted(tex_crate, ex - 22.0, ey - 26.0 + bob, 44.0, 26.0, r, g, b, 1.0)
+    if S.tex_crate ~= 0 then
+        sprite_draw_tinted(S.tex_crate, ex - 22.0, ey - 26.0 + bob, 44.0, 26.0, r, g, b, 1.0)
     else
         draw_quad(ex - 18.0, ey - 18.0 + bob, 36.0, 16.0, r, g, b, 1.0)
         draw_quad(ex - 12.0, ey - 24.0 + bob, 24.0, 8.0, r * 0.8, g * 0.8, b * 0.8, 1.0)
@@ -1568,10 +1591,10 @@ local function draw_pod(e)
 end
 
 local function draw_boss_wall()
-    if camx < 2050.0 then return end
+    if S.camx < 2050.0 then return end
     local x = 3240.0
-    if tex_wall ~= 0 then
-        sprite_draw(tex_wall, x, 70.0, 160.0, 400.0)
+    if S.tex_wall ~= 0 then
+        sprite_draw(S.tex_wall, x, 70.0, 160.0, 400.0)
     else
         draw_quad(x, 70.0, 160.0, 400.0, 0.105, 0.110, 0.128, 1.0)
         draw_quad(x + 6.0, 76.0, 148.0, 388.0, 0.150, 0.158, 0.180, 1.0)
@@ -1596,8 +1619,8 @@ local function draw_boss_wall()
     draw_quad(x + 6.0, 72.0, 148.0, 6.0, 0.26, 0.27, 0.31, 1.0)
 
     -- Central armoured housing behind the core.
-    if tex_wall ~= 0 then
-        sprite_draw(tex_wall, 3268.0, 226.0, 124.0, 176.0)
+    if S.tex_wall ~= 0 then
+        sprite_draw(S.tex_wall, 3268.0, 226.0, 124.0, 176.0)
     else
         draw_quad(3268.0, 226.0, 124.0, 176.0, 0.120, 0.126, 0.148, 1.0)
         draw_quad(3274.0, 232.0, 112.0, 164.0, 0.185, 0.192, 0.220, 1.0)
@@ -1620,8 +1643,8 @@ local function draw_boss_part(e)
         local cx = ex
         local cy = ey - 38.0
         glow_at(cx, cy, 170.0, 1.0, 0.18, 0.10, 0.20 + pulse * 0.10)
-        if tex_wall ~= 0 then
-            sprite_draw(tex_wall, cx - 32.0, ey - 78.0, 64.0, 80.0)
+        if S.tex_wall ~= 0 then
+            sprite_draw(S.tex_wall, cx - 32.0, ey - 78.0, 64.0, 80.0)
         else
             draw_quad(cx - 32.0, ey - 78.0, 64.0, 80.0, 0.14, 0.15, 0.18, 1.0)
             draw_quad(cx - 26.0, ey - 72.0, 52.0, 68.0, 0.23, 0.24, 0.29, 1.0)
@@ -1629,8 +1652,8 @@ local function draw_boss_part(e)
         end
         glow_at(cx, cy, 66.0, 1.0, 0.30, 0.16, 0.55 + pulse * 0.2)
         glow_at(cx, cy, 34.0, 1.0, 0.20, 0.10, 0.95)
-        if tex_core ~= 0 then
-            sprite_draw(tex_core, cx - 26.0, cy - 26.0, 52.0, 52.0)
+        if S.tex_core ~= 0 then
+            sprite_draw(S.tex_core, cx - 26.0, cy - 26.0, 52.0, 52.0)
         else
             draw_quad(cx - 10.0, cy - 10.0, 20.0, 20.0, 0.95, 0.28, 0.16, 1.0)
             draw_quad(cx - 4.0, cy - 4.0, 8.0, 8.0, 1.0, 0.85, 0.55, 1.0)
@@ -1641,8 +1664,8 @@ local function draw_boss_part(e)
     else
         local r, g, b = 0.22, 0.23, 0.27
         if flash > 0.0 then r, g, b = 0.95, 0.95, 0.95 end
-        if tex_turret ~= 0 then
-            sprite_draw_tinted(tex_turret, ex - 24.0, ey - 44.0, 48.0, 44.0, r, g, b, 1.0)
+        if S.tex_turret ~= 0 then
+            sprite_draw_tinted(S.tex_turret, ex - 24.0, ey - 44.0, 48.0, 44.0, r, g, b, 1.0)
         else
             draw_quad(ex - 24.0, ey - 28.0, 48.0, 28.0, r, g, b, 1.0)
             draw_quad(ex - 18.0, ey - 44.0, 36.0, 18.0, r * 0.8, g * 0.8, b * 0.8, 1.0)
@@ -1665,7 +1688,7 @@ local function draw_enemies()
         local e = ent_at(i, TAG_ENEMY)
         if e ~= 0 and ent_active(e) and ent_num(e, HP) > 0.0 then
             local ex = ent_num(e, X)
-            if ex > camx - 80.0 and ex < camx + VW + 100.0 then
+            if ex > S.camx - 80.0 and ex < S.camx + VW + 100.0 then
                 local ty = ent_num(e, ETYPE)
                 if ty == E_RUNNER then
                     draw_runner(e)
@@ -1742,8 +1765,8 @@ local function draw_pickups()
             local r, g, b = weapon_color(kind)
             local bob = math.sin(time_elapsed() * 3.0 + x) * 2.0
             glow_at(x, y - 12.0 + bob, 46.0, r, g, b, 0.30)
-            if tex_crate ~= 0 then
-                sprite_draw_tinted(tex_crate, x - 13.0, y - 26.0 + bob, 26.0, 22.0,
+            if S.tex_crate ~= 0 then
+                sprite_draw_tinted(S.tex_crate, x - 13.0, y - 26.0 + bob, 26.0, 22.0,
                                    r, g, b, 0.98)
             else
                 draw_quad(x - 13.0, y - 24.0 + bob, 26.0, 20.0, 0.15, 0.16, 0.20, 1.0)
@@ -1779,7 +1802,7 @@ local function draw_fx()
             if frame > 4.0 then frame = 4.0 end
             local s = 16.0 * 3.0 * scale
             draw_set_blend(1)
-            blit(tex_expl, frame * 16.0, 0.0, 16.0, 16.0,
+            blit(S.tex_expl, frame * 16.0, 0.0, 16.0, 16.0,
                  x - s * 0.5, y - s * 0.5, s, s, 1.0, 0.85, 0.55, 1.0)
             draw_set_blend(0)
         end
@@ -1794,45 +1817,45 @@ local function draw_hud()
     draw_set_blend(0)
     -- The UI still draws in world space; shift the origin and every position
     -- by the camera so the bar stays glued to the screen.
-    local ox = camx
+    local ox = S.camx
     ui_set_origin(ox, 0.0)
     draw_quad(ox, 0.0, VW, 56.0, 0.025, 0.030, 0.040, 0.94)
     draw_quad(ox, 55.0, VW, 2.0, 0.10, 0.12, 0.15, 1.0)
 
     ui_label(0, ox + 16.0, 12.0, "SCORE", 0.30, 0.62, 0.68, 0.78, 1.0)
-    draw_text(string.format("%06d", math.floor(score)), ox + 16.0, 28.0, 0.55,
+    draw_text(string.format("%06d", math.floor(S.score)), ox + 16.0, 28.0, 0.55,
               1.0, 0.95, 0.78, 1.0)
 
     ui_label(0, ox + 170.0, 12.0, "LIVES", 0.30, 0.62, 0.68, 0.78, 1.0)
     local lx = 170.0
-    for k = 1, lives do
-        sprite_draw_flip_tinted(tex_idle, 0.0, 0.0, 16.0, 32.0,
+    for k = 1, S.lives do
+        sprite_draw_flip_tinted(S.tex_idle, 0.0, 0.0, 16.0, 32.0,
                                 ox + lx, 22.0, 16.0, 32.0, 0.0, 0.0,
                                 1.0, 1.0, 1.0, 1.0)
         lx = lx + 18.0
     end
 
-    local wr, wg, wb = weapon_color(weapon)
+    local wr, wg, wb = weapon_color(S.weapon)
     draw_quad(ox + 392.0, 22.0, 14.0, 14.0, wr, wg, wb, 1.0)
     ui_label(0, ox + 414.0, 12.0, "WEAPON", 0.28, 0.62, 0.68, 0.78, 1.0)
-    ui_label(0, ox + 414.0, 30.0, weapon_name(weapon), 0.40, 1.0, 0.94, 0.80, 1.0)
+    ui_label(0, ox + 414.0, 30.0, weapon_name(S.weapon), 0.40, 1.0, 0.94, 0.80, 1.0)
 
     ui_label(0, ox + 690.0, 12.0, "STAGE", 0.28, 0.62, 0.68, 0.78, 1.0)
-    ui_label(0, ox + 690.0, 30.0, string.format("%d", stage), 0.55,
+    ui_label(0, ox + 690.0, 30.0, string.format("%d", S.stage), 0.55,
              1.0, 0.92, 0.70, 1.0)
 
     ui_label(0, ox + 790.0, 14.0, "A/D RUN   W UP   S CROUCH",
              0.22, 0.52, 0.58, 0.68, 0.9)
     ui_label(0, ox + 790.0, 32.0, "SPACE JUMP   J/X FIRE",
              0.22, 0.52, 0.58, 0.68, 0.9)
-    if ai_active then
+    if S.ai_active then
         ui_label(0, ox + 878.0, 12.0, "AUTO", 0.24, 0.95, 0.62, 0.30, 1.0)
     end
 
     -- Boss bar.
-    if boss_core ~= 0 and ent_active(boss_core) and camx > 2280.0 and not boss_down then
-        local hp = ent_num(boss_core, HP)
-        local maxhp = 80.0 + (stage - 1) * 25.0
+    if S.boss_core ~= 0 and ent_active(S.boss_core) and S.camx > 2280.0 and not S.boss_down then
+        local hp = ent_num(S.boss_core, HP)
+        local maxhp = 80.0 + (S.stage - 1) * 25.0
         local ratio = clampf(hp / maxhp, 0.0, 1.0)
         local bw = 360.0
         local bx = ox + (VW - bw) * 0.5
@@ -1842,29 +1865,29 @@ local function draw_hud()
         ui_label(0, bx, 80.0, "FORTRESS CORE", 0.30, 1.0, 0.72, 0.35, 1.0)
     end
 
-    if ready_t > 0.0 then
-        local m = "STAGE " .. string.format("%d", stage)
+    if S.ready_t > 0.0 then
+        local m = "STAGE " .. string.format("%d", S.stage)
         local tw = text_width(m, 0.95)
         draw_set_blend(1)
         draw_text(m, ox + VW * 0.5 - tw * 0.5, 190.0, 0.95, 0.65, 1.0, 0.65, 1.0)
         draw_set_blend(0)
     end
-    if warn_t > 0.0 and math.floor(time_elapsed() * 8.0) % 2 == 0 then
+    if S.warn_t > 0.0 and math.floor(time_elapsed() * 8.0) % 2 == 0 then
         local m = "WARNING"
         local tw = text_width(m, 0.9)
         draw_set_blend(1)
         draw_text(m, ox + VW * 0.5 - tw * 0.5, 130.0, 0.9, 1.0, 0.25, 0.20, 1.0)
         draw_set_blend(0)
     end
-    if event_t > 0.0 and event_code == 1 then
-        local m = weapon_name(event_val) .. "!"
+    if S.event_t > 0.0 and S.event_code == 1 then
+        local m = weapon_name(S.event_val) .. "!"
         local tw = text_width(m, 0.55)
         draw_quad(ox + VW * 0.5 - tw * 0.5 - 14.0, 96.0, tw + 28.0, 30.0,
                   0.02, 0.03, 0.04, 0.85)
-        local wr2, wg2, wb2 = weapon_color(event_val)
+        local wr2, wg2, wb2 = weapon_color(S.event_val)
         draw_text(m, ox + VW * 0.5 - tw * 0.5, 102.0, 0.55, wr2, wg2, wb2, 1.0)
     end
-    if game_over then
+    if S.game_over then
         draw_quad(ox, 56.0, VW, VH - 56.0, 0.0, 0.0, 0.0, 0.55)
         local m = "GAME OVER"
         local tw = text_width(m, 1.2)
@@ -1876,7 +1899,7 @@ local function draw_hud()
                       0.75, 0.80, 0.90, 1.0)
         end
     end
-    if clear_t > 0.0 then
+    if S.clear_t > 0.0 then
         draw_quad(ox, 56.0, VW, VH - 56.0, 0.0, 0.0, 0.0, 0.30)
         local m = "STAGE CLEAR"
         local tw = text_width(m, 1.2)
@@ -1894,30 +1917,30 @@ end
 -- ---------------------------------------------------------------------------
 
 local function init()
-    tex_walk = sprite_load_nearest("assets/brawler/NES_Soldier_Walk_1_strip4.png")
-    tex_idle = sprite_load_nearest("assets/brawler/NES_Soldier_Idle_1_strip4.png")
-    tex_hurt = sprite_load_nearest("assets/brawler/NES_Soldier_Hurt.png")
-    tex_enemy = sprite_load_nearest("assets/brawler/Renegade_Walk_1_strip4.png")
-    tex_expl = sprite_load_nearest("assets/art/explosion.png")
-    tex_moon = sprite_load("assets/art/moon.png")
-    tex_glow = sprite_load("assets/contra/glow.png")
-    tex_white = sprite_load_nearest("assets/white.png")
-    tex_jungle = sprite_load("assets/art/contra_jungle.png")
-    tex_wood = sprite_load("assets/art/wood_plank.png")
-    tex_stone = sprite_load("assets/art/stone_tex.png")
-    tex_wall = sprite_load("assets/contra/boss-wall.png")
-    tex_core = sprite_load("assets/contra/boss-core.png")
-    tex_turret = sprite_load("assets/contra/turret.png")
-    tex_crate = sprite_load("assets/contra/crate.png")
+    S.tex_walk = sprite_load_nearest("assets/brawler/NES_Soldier_Walk_1_strip4.png")
+    S.tex_idle = sprite_load_nearest("assets/brawler/NES_Soldier_Idle_1_strip4.png")
+    S.tex_hurt = sprite_load_nearest("assets/brawler/NES_Soldier_Hurt.png")
+    S.tex_enemy = sprite_load_nearest("assets/brawler/Renegade_Walk_1_strip4.png")
+    S.tex_expl = sprite_load_nearest("assets/art/explosion.png")
+    S.tex_moon = sprite_load("assets/art/moon.png")
+    S.tex_glow = sprite_load("assets/contra/glow.png")
+    S.tex_white = sprite_load_nearest("assets/white.png")
+    S.tex_jungle = sprite_load("assets/art/contra_jungle.png")
+    S.tex_wood = sprite_load("assets/art/wood_plank.png")
+    S.tex_stone = sprite_load("assets/art/stone_tex.png")
+    S.tex_wall = sprite_load("assets/contra/boss-wall.png")
+    S.tex_core = sprite_load("assets/contra/boss-core.png")
+    S.tex_turret = sprite_load("assets/contra/turret.png")
+    S.tex_crate = sprite_load("assets/contra/crate.png")
 
-    fx_expl = part_create()
-    part_set_lifetime(fx_expl, 0.44, 0.95)
-    part_set_speed(fx_expl, 60.0, 240.0)
-    part_set_direction(fx_expl, 0.0, 6.283)
-    part_set_size(fx_expl, 5.0, 2.0)
-    part_set_color(fx_expl, 0.55, 0.72, 0.35, 1.0, 0.0)
-    part_set_gravity(fx_expl, 0.0, 640.0)
-    part_set_drag(fx_expl, 1.0)
+    S.fx_expl = part_create()
+    part_set_lifetime(S.fx_expl, 0.44, 0.95)
+    part_set_speed(S.fx_expl, 60.0, 240.0)
+    part_set_direction(S.fx_expl, 0.0, 6.283)
+    part_set_size(S.fx_expl, 5.0, 2.0)
+    part_set_color(S.fx_expl, 0.55, 0.72, 0.35, 1.0, 0.0)
+    part_set_gravity(S.fx_expl, 0.0, 640.0)
+    part_set_drag(S.fx_expl, 1.0)
 
     rng_seed(20261031)
     camera_set_bounds(0.0, 0.0, WORLD_W, VH)
@@ -1930,42 +1953,47 @@ local function init()
     audio_loop("contra_theme", 0.22, 1.0)
     start_stage(1)
     camera_snap(0.0, 0.0)
-    if tex_walk == 0 or tex_enemy == 0 then
+    if S.tex_walk == 0 or S.tex_enemy == 0 then
         log_warn("contra: soldier art missing, the stage will look empty")
     else
         log_info("contra: jungle stage ready")
     end
-    inited = true
+    S.inited = true
 end
 
 function update(dt)
-    if not inited then init() end
+    if S.seeded == nil then
+        S.seeded = true
+        reset_state()
+    end
+
+    if not S.inited then init() end
     if dt > 0.05 then dt = 0.05 end
-    camx = camera_x()
-    if sfx_cd > 0.0 then sfx_cd = sfx_cd - dt end
-    if event_t > 0.0 then event_t = event_t - dt end
-    if muzzle_t > 0.0 then muzzle_t = muzzle_t - dt end
+    S.camx = camera_x()
+    if S.sfx_cd > 0.0 then S.sfx_cd = S.sfx_cd - dt end
+    if S.event_t > 0.0 then S.event_t = S.event_t - dt end
+    if S.muzzle_t > 0.0 then S.muzzle_t = S.muzzle_t - dt end
 
-    if ready_t > 0.0 then ready_t = ready_t - dt end
+    if S.ready_t > 0.0 then S.ready_t = S.ready_t - dt end
 
-    if game_over then
-        over_t = over_t - dt
-        if over_t <= 0.0 then
-            score = 0.0
+    if S.game_over then
+        S.over_t = S.over_t - dt
+        if S.over_t <= 0.0 then
+            S.score = 0.0
             start_stage(1)
             camera_snap(0.0, 0.0)
         end
-    elseif clear_t > 0.0 then
-        clear_t = clear_t - dt
-        clear_fx_t = clear_fx_t - dt
-        if clear_fx_t <= 0.0 then
-            clear_fx_t = 0.12
+    elseif S.clear_t > 0.0 then
+        S.clear_t = S.clear_t - dt
+        S.clear_fx_t = S.clear_fx_t - dt
+        if S.clear_fx_t <= 0.0 then
+            S.clear_fx_t = 0.12
             spawn_fx(3250.0 + rng_float() * 130.0,
                      140.0 + rng_float() * 300.0, 1.2 + rng_float() * 0.8)
             audio_play("boom", 0.25)
         end
-        if clear_t <= 0.0 then
-            start_stage(stage + 1)
+        if S.clear_t <= 0.0 then
+            start_stage(S.stage + 1)
             camera_snap(0.0, 0.0)
         end
     else
@@ -1976,17 +2004,17 @@ function update(dt)
         update_pickups(dt)
         update_contacts()
 
-        if camx > 2220.0 and not boss_seen then
-            boss_seen = true
-            warn_t = 1.6
+        if S.camx > 2220.0 and not S.boss_seen then
+            S.boss_seen = true
+            S.warn_t = 1.6
             audio_play("boss", 0.5)
         end
-        if warn_t > 0.0 then warn_t = warn_t - dt end
+        if S.warn_t > 0.0 then S.warn_t = S.warn_t - dt end
     end
 
     update_fx(dt)
     update_camera(dt)
-    camx = camera_x()
+    S.camx = camera_x()
 
     draw_set_blend(0)
     draw_background()

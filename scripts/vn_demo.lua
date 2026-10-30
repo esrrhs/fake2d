@@ -39,62 +39,91 @@ local FONTS = {
     {path = "C:\\Windows\\Fonts\\simhei.ttf", name = "SimHei"},
 }
 
-local bg_gate, bg_classroom, bg_library, bg_gym = 0 + 0, 0 + 0, 0 + 0, 0 + 0
-local bg_park, bg_cafe, bg_rooftop, bg_festival = 0 + 0, 0 + 0, 0 + 0, 0 + 0
-local p_linxia_n, p_linxia_s, p_linxia_b, p_linxia_d = 0 + 0, 0 + 0, 0 + 0, 0 + 0
-local p_suqing_n, p_suqing_s, p_suqing_b, p_suqing_d = 0 + 0, 0 + 0, 0 + 0, 0 + 0
-local p_guyu_n, p_guyu_s, p_guyu_b, p_guyu_d = 0 + 0, 0 + 0, 0 + 0, 0 + 0
-local p_tangxin_n, p_tangxin_s, p_tangxin_b, p_tangxin_d = 0 + 0, 0 + 0, 0 + 0, 0 + 0
-local petal_fx = 0 + 0
-local font_ok = 0 + 0
 
-local state = ST_TITLE + 0
-local frame_no = 0 + 0
-local inited = false
 
 -- Calendar / stats.
-local day = 1 + 0
-local energy = 5 + 0
-local money = 100 + 0
-local study = 0 + 0
-local sport = 0 + 0
-local charm = 0 + 0
-local aff1, aff2, aff3, aff4 = 0 + 0, 0 + 0, 0 + 0, 0 + 0
-local festival_done = false
-local save_exists = 0 + 0
 
 -- Dialogue state.
-local dlg_mode = 0 + 0
-local dlg_girl = 0 + 0
-local dlg_topic = 0 + 0
-local dlg_line = 0 + 0
-local dlg_char = 0.0 + 0.0
-local dlg_choice = false
-local dlg_after = false
-local dlg_after_girl = 0 + 0
-local dlg_after_gain = 0 + 0
-local dlg_after_expr = 0 + 0
-local dlg_fade = 0.0 + 0.0
-local dlg_portrait_x = 0.0 + 0.0
-local dlg_blip = 0 + 0
-local aff_toast_t = 0 + 0
-local aff_toast_gain = 0 + 0
 
 -- Menus / AI.
-local topics_girl = 0 + 0
-local hub_toast = 0 + 0
-local hub_toast_t = 0 + 0
-local ending_girl = 0 + 0
-local ending_success = false
-local idle_frames = 0 + 0
-local attract = false
-local auto_t = 0 + 0
-local mouse_x = 0.0 + 0.0
-local mouse_y = 0.0 + 0.0
 
 -- ---------------------------------------------------------------------------
 -- small helpers
 -- ---------------------------------------------------------------------------
+
+-- FakeLua binds file-level locals as const, so everything that changes
+-- across frames lives in a host-side NativeObject instead (see
+-- docs/SCRIPTING.md rule 3). Fields read and write like a plain table.
+local S = new_global_obj("vn_demo", "state")
+
+local function reset_state()
+    S.bg_gate = 0 + 0
+    S.bg_classroom = 0 + 0
+    S.bg_library = 0 + 0
+    S.bg_gym = 0 + 0
+    S.bg_park = 0 + 0
+    S.bg_cafe = 0 + 0
+    S.bg_rooftop = 0 + 0
+    S.bg_festival = 0 + 0
+    S.p_linxia_n = 0 + 0
+    S.p_linxia_s = 0 + 0
+    S.p_linxia_b = 0 + 0
+    S.p_linxia_d = 0 + 0
+    S.p_suqing_n = 0 + 0
+    S.p_suqing_s = 0 + 0
+    S.p_suqing_b = 0 + 0
+    S.p_suqing_d = 0 + 0
+    S.p_guyu_n = 0 + 0
+    S.p_guyu_s = 0 + 0
+    S.p_guyu_b = 0 + 0
+    S.p_guyu_d = 0 + 0
+    S.p_tangxin_n = 0 + 0
+    S.p_tangxin_s = 0 + 0
+    S.p_tangxin_b = 0 + 0
+    S.p_tangxin_d = 0 + 0
+    S.petal_fx = 0 + 0
+    S.font_ok = 0 + 0
+    S.state = ST_TITLE + 0
+    S.frame_no = 0 + 0
+    S.inited = false
+    S.day = 1 + 0
+    S.energy = 5 + 0
+    S.money = 100 + 0
+    S.study = 0 + 0
+    S.sport = 0 + 0
+    S.charm = 0 + 0
+    S.aff1 = 0 + 0
+    S.aff2 = 0 + 0
+    S.aff3 = 0 + 0
+    S.aff4 = 0 + 0
+    S.festival_done = false
+    S.save_exists = 0 + 0
+    S.dlg_mode = 0 + 0
+    S.dlg_girl = 0 + 0
+    S.dlg_topic = 0 + 0
+    S.dlg_line = 0 + 0
+    S.dlg_char = 0.0 + 0.0
+    S.dlg_choice = false
+    S.dlg_after = false
+    S.dlg_after_girl = 0 + 0
+    S.dlg_after_gain = 0 + 0
+    S.dlg_after_expr = 0 + 0
+    S.dlg_fade = 0.0 + 0.0
+    S.dlg_portrait_x = 0.0 + 0.0
+    S.dlg_blip = 0 + 0
+    S.aff_toast_t = 0 + 0
+    S.aff_toast_gain = 0 + 0
+    S.topics_girl = 0 + 0
+    S.hub_toast = 0 + 0
+    S.hub_toast_t = 0 + 0
+    S.ending_girl = 0 + 0
+    S.ending_success = false
+    S.idle_frames = 0 + 0
+    S.attract = false
+    S.auto_t = 0 + 0
+    S.mouse_x = 0.0 + 0.0
+    S.mouse_y = 0.0 + 0.0
+end
 
 local function clampf(v, lo, hi)
     if v < lo then return lo end
@@ -139,19 +168,19 @@ local function utf8_prefix(s, chars)
 end
 
 local function get_aff(g)
-    if g == 1 then return aff1 end
-    if g == 2 then return aff2 end
-    if g == 3 then return aff3 end
-    return aff4
+    if g == 1 then return S.aff1 end
+    if g == 2 then return S.aff2 end
+    if g == 3 then return S.aff3 end
+    return S.aff4
 end
 
 local function set_aff(g, v)
     if v < 0 then v = 0 end
     if v > 100 then v = 100 end
-    if g == 1 then aff1 = v
-    elseif g == 2 then aff2 = v
-    elseif g == 3 then aff3 = v
-    else aff4 = v end
+    if g == 1 then S.aff1 = v
+    elseif g == 2 then S.aff2 = v
+    elseif g == 3 then S.aff3 = v
+    else S.aff4 = v end
 end
 
 local function add_aff(g, v)
@@ -159,9 +188,9 @@ local function add_aff(g, v)
 end
 
 local function stat_value(which)
-    if which == 1 then return study end
-    if which == 2 then return sport end
-    return charm
+    if which == 1 then return S.study end
+    if which == 2 then return S.sport end
+    return S.charm
 end
 
 local function pref_value(g)
@@ -174,37 +203,37 @@ local function girl_name(g)
 end
 
 local function bg_tex(id)
-    if id == 0 then return bg_gate end
-    if id == 1 then return bg_classroom end
-    if id == 2 then return bg_library end
-    if id == 3 then return bg_gym end
-    if id == 4 then return bg_park end
-    if id == 5 then return bg_cafe end
-    if id == 6 then return bg_rooftop end
-    return bg_festival
+    if id == 0 then return S.bg_gate end
+    if id == 1 then return S.bg_classroom end
+    if id == 2 then return S.bg_library end
+    if id == 3 then return S.bg_gym end
+    if id == 4 then return S.bg_park end
+    if id == 5 then return S.bg_cafe end
+    if id == 6 then return S.bg_rooftop end
+    return S.bg_festival
 end
 
 local function portrait_tex(g, expr)
     if g == 1 then
-        if expr == 0 then return p_linxia_n end
-        if expr == 1 then return p_linxia_s end
-        if expr == 2 then return p_linxia_b end
-        return p_linxia_d
+        if expr == 0 then return S.p_linxia_n end
+        if expr == 1 then return S.p_linxia_s end
+        if expr == 2 then return S.p_linxia_b end
+        return S.p_linxia_d
     elseif g == 2 then
-        if expr == 0 then return p_suqing_n end
-        if expr == 1 then return p_suqing_s end
-        if expr == 2 then return p_suqing_b end
-        return p_suqing_d
+        if expr == 0 then return S.p_suqing_n end
+        if expr == 1 then return S.p_suqing_s end
+        if expr == 2 then return S.p_suqing_b end
+        return S.p_suqing_d
     elseif g == 3 then
-        if expr == 0 then return p_guyu_n end
-        if expr == 1 then return p_guyu_s end
-        if expr == 2 then return p_guyu_b end
-        return p_guyu_d
+        if expr == 0 then return S.p_guyu_n end
+        if expr == 1 then return S.p_guyu_s end
+        if expr == 2 then return S.p_guyu_b end
+        return S.p_guyu_d
     end
-    if expr == 0 then return p_tangxin_n end
-    if expr == 1 then return p_tangxin_s end
-    if expr == 2 then return p_tangxin_b end
-    return p_tangxin_d
+    if expr == 0 then return S.p_tangxin_n end
+    if expr == 1 then return S.p_tangxin_s end
+    if expr == 2 then return S.p_tangxin_b end
+    return S.p_tangxin_d
 end
 
 local function toast_text(code)
@@ -222,8 +251,8 @@ local function toast_text(code)
 end
 
 local function notify_hub(code)
-    hub_toast = code
-    hub_toast_t = 140
+    S.hub_toast = code
+    S.hub_toast_t = 140
 end
 
 -- ---------------------------------------------------------------------------
@@ -484,10 +513,10 @@ local function scene_festival()
 end
 
 local function scene_ending()
-    local g = ending_girl
+    local g = S.ending_girl
     if g < 1 then g = 1 end
     local n = girl_name(g)
-    if ending_success then
+    if S.ending_success then
         return {
             bg = 6, girl = g,
             who = {WHO_NARRATOR, WHO_PLAYER, g, WHO_NARRATOR},
@@ -513,15 +542,15 @@ local function scene_ending()
 end
 
 local function current_scene()
-    if dlg_mode == DM_INTRO then return scene_intro() end
-    if dlg_mode == DM_CHAT then
-        if dlg_girl == 1 then return scene_linxia(dlg_topic) end
-        if dlg_girl == 2 then return scene_suqing(dlg_topic) end
-        if dlg_girl == 3 then return scene_guyu(dlg_topic) end
-        return scene_tangxin(dlg_topic)
+    if S.dlg_mode == DM_INTRO then return scene_intro() end
+    if S.dlg_mode == DM_CHAT then
+        if S.dlg_girl == 1 then return scene_linxia(S.dlg_topic) end
+        if S.dlg_girl == 2 then return scene_suqing(S.dlg_topic) end
+        if S.dlg_girl == 3 then return scene_guyu(S.dlg_topic) end
+        return scene_tangxin(S.dlg_topic)
     end
-    if dlg_mode == DM_DATE then return scene_date(dlg_girl) end
-    if dlg_mode == DM_FESTIVAL then return scene_festival() end
+    if S.dlg_mode == DM_DATE then return scene_date(S.dlg_girl) end
+    if S.dlg_mode == DM_FESTIVAL then return scene_festival() end
     return scene_ending()
 end
 
@@ -538,19 +567,19 @@ end
 local function save_game()
     storage_reset()
     storage_set_num("vn_ver", 1)
-    storage_set_num("vn_day", day)
-    storage_set_num("vn_energy", energy)
-    storage_set_num("vn_money", money)
-    storage_set_num("vn_study", study)
-    storage_set_num("vn_sport", sport)
-    storage_set_num("vn_charm", charm)
-    storage_set_num("vn_aff1", aff1)
-    storage_set_num("vn_aff2", aff2)
-    storage_set_num("vn_aff3", aff3)
-    storage_set_num("vn_aff4", aff4)
-    storage_set_num("vn_fest", festival_done and 1 or 0)
+    storage_set_num("vn_day", S.day)
+    storage_set_num("vn_energy", S.energy)
+    storage_set_num("vn_money", S.money)
+    storage_set_num("vn_study", S.study)
+    storage_set_num("vn_sport", S.sport)
+    storage_set_num("vn_charm", S.charm)
+    storage_set_num("vn_aff1", S.aff1)
+    storage_set_num("vn_aff2", S.aff2)
+    storage_set_num("vn_aff3", S.aff3)
+    storage_set_num("vn_aff4", S.aff4)
+    storage_set_num("vn_fest", S.festival_done and 1 or 0)
     if storage_save("vn_quick") then
-        save_exists = 1
+        S.save_exists = 1
         notify_hub(8)
         log_info("vn: save")
         return true
@@ -561,38 +590,38 @@ end
 local function load_game()
     if not storage_load("vn_quick") then return false end
     if not storage_has("vn_day") then return false end
-    day = math.floor(storage_get_num("vn_day", 1.0))
-    energy = math.floor(storage_get_num("vn_energy", 5.0))
-    money = storage_get_num("vn_money", 100.0)
-    study = storage_get_num("vn_study", 0.0)
-    sport = storage_get_num("vn_sport", 0.0)
-    charm = storage_get_num("vn_charm", 0.0)
-    aff1 = storage_get_num("vn_aff1", 0.0)
-    aff2 = storage_get_num("vn_aff2", 0.0)
-    aff3 = storage_get_num("vn_aff3", 0.0)
-    aff4 = storage_get_num("vn_aff4", 0.0)
-    festival_done = storage_get_num("vn_fest", 0.0) > 0.5
-    save_exists = 1
-    state = ST_HUB
+    S.day = math.floor(storage_get_num("vn_day", 1.0))
+    S.energy = math.floor(storage_get_num("vn_energy", 5.0))
+    S.money = storage_get_num("vn_money", 100.0)
+    S.study = storage_get_num("vn_study", 0.0)
+    S.sport = storage_get_num("vn_sport", 0.0)
+    S.charm = storage_get_num("vn_charm", 0.0)
+    S.aff1 = storage_get_num("vn_aff1", 0.0)
+    S.aff2 = storage_get_num("vn_aff2", 0.0)
+    S.aff3 = storage_get_num("vn_aff3", 0.0)
+    S.aff4 = storage_get_num("vn_aff4", 0.0)
+    S.festival_done = storage_get_num("vn_fest", 0.0) > 0.5
+    S.save_exists = 1
+    S.state = ST_HUB
     notify_hub(9)
     log_info("vn: load")
     return true
 end
 
 local function reset_game()
-    day = 1
-    energy = 5
-    money = 100
-    study = 0
-    sport = 0
-    charm = 0
-    aff1 = 0
-    aff2 = 0
-    aff3 = 0
-    aff4 = 0
-    festival_done = false
-    ending_girl = 0
-    ending_success = false
+    S.day = 1
+    S.energy = 5
+    S.money = 100
+    S.study = 0
+    S.sport = 0
+    S.charm = 0
+    S.aff1 = 0
+    S.aff2 = 0
+    S.aff3 = 0
+    S.aff4 = 0
+    S.festival_done = false
+    S.ending_girl = 0
+    S.ending_success = false
 end
 
 -- ---------------------------------------------------------------------------
@@ -600,21 +629,21 @@ end
 -- ---------------------------------------------------------------------------
 
 local function begin_scene(mode, g, t)
-    dlg_mode = mode
-    dlg_girl = g
-    dlg_topic = t
-    dlg_line = 0
-    dlg_char = 0.0
-    dlg_choice = false
-    dlg_after = false
-    dlg_after_girl = 0
-    dlg_after_gain = 0
-    dlg_after_expr = NEUTRAL
-    dlg_fade = 1.0
-    dlg_portrait_x = 48.0
-    aff_toast_t = 0
-    state = ST_DIALOGUE
-    auto_t = 0
+    S.dlg_mode = mode
+    S.dlg_girl = g
+    S.dlg_topic = t
+    S.dlg_line = 0
+    S.dlg_char = 0.0
+    S.dlg_choice = false
+    S.dlg_after = false
+    S.dlg_after_girl = 0
+    S.dlg_after_gain = 0
+    S.dlg_after_expr = NEUTRAL
+    S.dlg_fade = 1.0
+    S.dlg_portrait_x = 48.0
+    S.aff_toast_t = 0
+    S.state = ST_DIALOGUE
+    S.auto_t = 0
     if mode == DM_INTRO then
         log_info("vn: intro")
     elseif mode == DM_CHAT then
@@ -624,44 +653,44 @@ local function begin_scene(mode, g, t)
     elseif mode == DM_FESTIVAL then
         log_info("vn: festival")
     elseif mode == DM_ENDING then
-        if ending_success then
-            log_info(string.format("vn: ending %s success (frame %d)", girl_name(ending_girl), frame_no))
+        if S.ending_success then
+            log_info(string.format("vn: ending %s success (frame %d)", girl_name(S.ending_girl), S.frame_no))
         else
-            log_info(string.format("vn: solo ending (frame %d)", frame_no))
+            log_info(string.format("vn: solo ending (frame %d)", S.frame_no))
         end
     end
 end
 
 local function enter_hub()
-    if day > GAME_DAYS then
-        state = ST_DIALOGUE
-        ending_girl = 1
-        local best = aff1
-        if aff2 > best then best = aff2; ending_girl = 2 end
-        if aff3 > best then best = aff3; ending_girl = 3 end
-        if aff4 > best then best = aff4; ending_girl = 4 end
-        ending_success = best >= 60
-        begin_scene(DM_ENDING, ending_girl, 0)
+    if S.day > GAME_DAYS then
+        S.state = ST_DIALOGUE
+        S.ending_girl = 1
+        local best = S.aff1
+        if S.aff2 > best then best = S.aff2; S.ending_girl = 2 end
+        if S.aff3 > best then best = S.aff3; S.ending_girl = 3 end
+        if S.aff4 > best then best = S.aff4; S.ending_girl = 4 end
+        S.ending_success = best >= 60
+        begin_scene(DM_ENDING, S.ending_girl, 0)
         return
     end
-    if not festival_done and day >= FESTIVAL_DAY then
-        festival_done = true
+    if not S.festival_done and S.day >= FESTIVAL_DAY then
+        S.festival_done = true
         begin_scene(DM_FESTIVAL, 0, 0)
         return
     end
-    state = ST_HUB
-    auto_t = 0
+    S.state = ST_HUB
+    S.auto_t = 0
 end
 
 local function advance_day()
-    day = day + 1
-    log_info(string.format("vn: day %d", day))
+    S.day = S.day + 1
+    log_info(string.format("vn: day %d", S.day))
 end
 
 local function finish_scene()
-    if dlg_mode == DM_ENDING then
-        state = ST_SUMMARY
-        auto_t = 0
+    if S.dlg_mode == DM_ENDING then
+        S.state = ST_SUMMARY
+        S.auto_t = 0
         return
     end
     enter_hub()
@@ -679,17 +708,17 @@ local function pick_option(k)
     if pref_value(target) >= 10 and gain >= 8 then bonus = 2 end
     local total = gain + bonus
     add_aff(target, total)
-    dlg_after = true
-    dlg_after_girl = target
-    dlg_after_gain = total
-    if total >= 10 then dlg_after_expr = SMILE
-    elseif total >= 4 then dlg_after_expr = NEUTRAL
-    else dlg_after_expr = SAD end
-    dlg_char = 0.0
-    dlg_choice = false
-    aff_toast_gain = total
-    aff_toast_t = 90
-    auto_t = 0
+    S.dlg_after = true
+    S.dlg_after_girl = target
+    S.dlg_after_gain = total
+    if total >= 10 then S.dlg_after_expr = SMILE
+    elseif total >= 4 then S.dlg_after_expr = NEUTRAL
+    else S.dlg_after_expr = SAD end
+    S.dlg_char = 0.0
+    S.dlg_choice = false
+    S.aff_toast_gain = total
+    S.aff_toast_t = 90
+    S.auto_t = 0
     if total >= 10 then
         audio_play("vn_heart", 0.4)
     elseif total >= 0 then
@@ -713,32 +742,32 @@ local function best_option()
 end
 
 local function advance_dialogue()
-    if dlg_choice then return end
-    if dlg_after then
-        local text = after_text(dlg_after_gain)
-        if dlg_char < utf8_len(text) then
-            dlg_char = utf8_len(text) + 0.0
+    if S.dlg_choice then return end
+    if S.dlg_after then
+        local text = after_text(S.dlg_after_gain)
+        if S.dlg_char < utf8_len(text) then
+            S.dlg_char = utf8_len(text) + 0.0
             return
         end
         finish_scene()
         return
     end
     local sc = current_scene()
-    local text = sc.lines[dlg_line + 1]
+    local text = sc.lines[S.dlg_line + 1]
     if text == nil then return end
     local total = utf8_len(text)
-    if dlg_char < total then
-        dlg_char = total + 0.0
+    if S.dlg_char < total then
+        S.dlg_char = total + 0.0
         return
     end
-    dlg_line = dlg_line + 1
-    dlg_char = 0.0
+    S.dlg_line = S.dlg_line + 1
+    S.dlg_char = 0.0
     local count = #sc.lines
-    if dlg_line >= count then
+    if S.dlg_line >= count then
         if sc.opts ~= nil then
-            dlg_choice = true
-            dlg_line = count - 1
-            auto_t = 0
+            S.dlg_choice = true
+            S.dlg_line = count - 1
+            S.auto_t = 0
         else
             finish_scene()
         end
@@ -746,44 +775,44 @@ local function advance_dialogue()
 end
 
 local function update_dialogue()
-    if dlg_fade > 0.0 then dlg_fade = clampf(dlg_fade - 0.045, 0.0, 1.0) end
-    if dlg_portrait_x > 0.0 then dlg_portrait_x = clampf(dlg_portrait_x - 3.0, 0.0, 48.0) end
-    if aff_toast_t > 0 then aff_toast_t = aff_toast_t - 1 end
+    if S.dlg_fade > 0.0 then S.dlg_fade = clampf(S.dlg_fade - 0.045, 0.0, 1.0) end
+    if S.dlg_portrait_x > 0.0 then S.dlg_portrait_x = clampf(S.dlg_portrait_x - 3.0, 0.0, 48.0) end
+    if S.aff_toast_t > 0 then S.aff_toast_t = S.aff_toast_t - 1 end
 
     local sc = current_scene()
     local text = ""
     local speed = 0.55
-    if attract then speed = 1.8 end
-    if dlg_after then
-        text = after_text(dlg_after_gain)
+    if S.attract then speed = 1.8 end
+    if S.dlg_after then
+        text = after_text(S.dlg_after_gain)
     else
-        text = sc.lines[dlg_line + 1]
+        text = sc.lines[S.dlg_line + 1]
         if text == nil then text = "" end
     end
     local total = utf8_len(text)
-    if dlg_char < total then
-        local before = math.floor(dlg_char)
-        dlg_char = dlg_char + speed
-        if math.floor(dlg_char) > before then
-            dlg_blip = dlg_blip + 1
-            if dlg_blip % 4 == 0 then audio_play("vn_blip", 0.08) end
+    if S.dlg_char < total then
+        local before = math.floor(S.dlg_char)
+        S.dlg_char = S.dlg_char + speed
+        if math.floor(S.dlg_char) > before then
+            S.dlg_blip = S.dlg_blip + 1
+            if S.dlg_blip % 4 == 0 then audio_play("vn_blip", 0.08) end
         end
     end
 
-    if attract then
-        auto_t = auto_t + 1
-        if dlg_choice then
-            if auto_t >= 34 then
+    if S.attract then
+        S.auto_t = S.auto_t + 1
+        if S.dlg_choice then
+            if S.auto_t >= 34 then
                 pick_option(best_option())
-                auto_t = 0
+                S.auto_t = 0
             end
-        elseif dlg_char >= total then
-            if auto_t >= 26 then
+        elseif S.dlg_char >= total then
+            if S.auto_t >= 26 then
                 advance_dialogue()
-                auto_t = 0
+                S.auto_t = 0
             end
         else
-            auto_t = 0
+            S.auto_t = 0
         end
     end
 end
@@ -794,22 +823,22 @@ end
 
 local function do_action(kind)
     if kind == 5 then
-        energy = math.min(energy + 2, 5)
+        S.energy = math.min(S.energy + 2, 5)
         notify_hub(5)
         advance_day()
         enter_hub()
         return
     end
-    if energy <= 0 then
+    if S.energy <= 0 then
         notify_hub(7)
         return
     end
-    if kind == 1 then study = math.min(study + 3, 40)
-    elseif kind == 2 then sport = math.min(sport + 3, 40)
-    elseif kind == 3 then charm = math.min(charm + 3, 40)
-    elseif kind == 4 then money = money + 25
+    if kind == 1 then S.study = math.min(S.study + 3, 40)
+    elseif kind == 2 then S.sport = math.min(S.sport + 3, 40)
+    elseif kind == 3 then S.charm = math.min(S.charm + 3, 40)
+    elseif kind == 4 then S.money = S.money + 25
     end
-    energy = energy - 1
+    S.energy = S.energy - 1
     notify_hub(kind)
     audio_play("vn_click", 0.22)
     advance_day()
@@ -817,11 +846,11 @@ local function do_action(kind)
 end
 
 local function start_chat(g, t)
-    if energy <= 0 then
+    if S.energy <= 0 then
         notify_hub(7)
         return false
     end
-    energy = energy - 1
+    S.energy = S.energy - 1
     advance_day()
     begin_scene(DM_CHAT, g, t)
     return true
@@ -832,35 +861,35 @@ local function start_date(g)
         notify_hub(10)
         return false
     end
-    if energy <= 0 then
+    if S.energy <= 0 then
         notify_hub(7)
         return false
     end
-    energy = energy - 1
+    S.energy = S.energy - 1
     advance_day()
     begin_scene(DM_DATE, g, 0)
     return true
 end
 
 local function give_gift(g)
-    if money < 20 then
+    if S.money < 20 then
         notify_hub(1)
         return
     end
-    money = money - 20
+    S.money = S.money - 20
     add_aff(g, 8)
     notify_hub(6)
     audio_play("vn_aff", 0.35)
 end
 
 local function begin_ending()
-    ending_girl = 1
-    local best = aff1
-    if aff2 > best then best = aff2; ending_girl = 2 end
-    if aff3 > best then best = aff3; ending_girl = 3 end
-    if aff4 > best then best = aff4; ending_girl = 4 end
-    ending_success = best >= 60
-    begin_scene(DM_ENDING, ending_girl, 0)
+    S.ending_girl = 1
+    local best = S.aff1
+    if S.aff2 > best then best = S.aff2; S.ending_girl = 2 end
+    if S.aff3 > best then best = S.aff3; S.ending_girl = 3 end
+    if S.aff4 > best then best = S.aff4; S.ending_girl = 4 end
+    S.ending_success = best >= 60
+    begin_scene(DM_ENDING, S.ending_girl, 0)
 end
 
 local function start_new_game()
@@ -885,11 +914,11 @@ end
 local function update_title_input(clicked)
     local bx = 720.0
     local by = 190.0
-    if clicked and in_rect(mouse_x, mouse_y, bx, by, 210.0, 48.0) then
+    if clicked and in_rect(S.mouse_x, S.mouse_y, bx, by, 210.0, 48.0) then
         start_new_game()
-    elseif clicked and save_exists > 0 and in_rect(mouse_x, mouse_y, bx, by + 60.0, 210.0, 48.0) then
+    elseif clicked and S.save_exists > 0 and in_rect(S.mouse_x, S.mouse_y, bx, by + 60.0, 210.0, 48.0) then
         if not load_game() then start_new_game() end
-    elseif clicked and in_rect(mouse_x, mouse_y, bx, by + 120.0, 210.0, 48.0) then
+    elseif clicked and in_rect(S.mouse_x, S.mouse_y, bx, by + 120.0, 210.0, 48.0) then
         window_quit()
     end
 end
@@ -898,7 +927,7 @@ local function update_hub_input(clicked)
     if clicked then
         local i = 0
         while i < 5 do
-            if in_rect(mouse_x, mouse_y, 16.0 + i * 94.0, 452.0, 90.0, 64.0) then
+            if in_rect(S.mouse_x, S.mouse_y, 16.0 + i * 94.0, 452.0, 90.0, 64.0) then
                 do_action(i + 1)
                 return
             end
@@ -907,27 +936,27 @@ local function update_hub_input(clicked)
         i = 0
         while i < 4 do
             local y = 70.0 + i * 96.0
-            if in_rect(mouse_x, mouse_y, 540.0, y, 404.0, 86.0) then
-                if in_rect(mouse_x, mouse_y, 826.0, y + 48.0, 104.0, 30.0) then
+            if in_rect(S.mouse_x, S.mouse_y, 540.0, y, 404.0, 86.0) then
+                if in_rect(S.mouse_x, S.mouse_y, 826.0, y + 48.0, 104.0, 30.0) then
                     start_date(i + 1)
                 else
-                    topics_girl = i + 1
-                    state = ST_TOPICS
+                    S.topics_girl = i + 1
+                    S.state = ST_TOPICS
                     audio_play("vn_click", 0.22)
                 end
                 return
             end
             i = i + 1
         end
-        if day >= 10 and in_rect(mouse_x, mouse_y, 744.0, 12.0, 204.0, 28.0) then
+        if S.day >= 10 and in_rect(S.mouse_x, S.mouse_y, 744.0, 12.0, 204.0, 28.0) then
             begin_ending()
             return
         end
-        if in_rect(mouse_x, mouse_y, 600.0, 12.0, 64.0, 28.0) then
+        if in_rect(S.mouse_x, S.mouse_y, 600.0, 12.0, 64.0, 28.0) then
             save_game()
             return
         end
-        if in_rect(mouse_x, mouse_y, 670.0, 12.0, 64.0, 28.0) then
+        if in_rect(S.mouse_x, S.mouse_y, 670.0, 12.0, 64.0, 28.0) then
             load_game()
             return
         end
@@ -935,11 +964,11 @@ local function update_hub_input(clicked)
 end
 
 local function update_topics_input(clicked)
-    local g = topics_girl
+    local g = S.topics_girl
     if clicked then
         local i = 1
         while i <= 3 do
-            if in_rect(mouse_x, mouse_y, 392.0, 116.0 + (i - 1) * 74.0, 388.0, 60.0) then
+            if in_rect(S.mouse_x, S.mouse_y, 392.0, 116.0 + (i - 1) * 74.0, 388.0, 60.0) then
                 if i == 3 and get_aff(g) < 20 then
                     audio_play("vn_sad", 0.2)
                 else
@@ -949,39 +978,39 @@ local function update_topics_input(clicked)
             end
             i = i + 1
         end
-        if in_rect(mouse_x, mouse_y, 392.0, 348.0, 186.0, 46.0) then
+        if in_rect(S.mouse_x, S.mouse_y, 392.0, 348.0, 186.0, 46.0) then
             give_gift(g)
             return
         end
-        if in_rect(mouse_x, mouse_y, 594.0, 348.0, 186.0, 46.0) then
+        if in_rect(S.mouse_x, S.mouse_y, 594.0, 348.0, 186.0, 46.0) then
             start_date(g)
             return
         end
-        if in_rect(mouse_x, mouse_y, 392.0, 406.0, 388.0, 40.0) then
-            state = ST_HUB
+        if in_rect(S.mouse_x, S.mouse_y, 392.0, 406.0, 388.0, 40.0) then
+            S.state = ST_HUB
             return
         end
     end
-    if input_key_pressed("escape") then state = ST_HUB end
+    if input_key_pressed("escape") then S.state = ST_HUB end
 end
 
 local function update_summary_input(clicked)
     if clicked then
-        if in_rect(mouse_x, mouse_y, 60.0, 460.0, 200.0, 46.0) then
+        if in_rect(S.mouse_x, S.mouse_y, 60.0, 460.0, 200.0, 46.0) then
             start_new_game()
-        elseif in_rect(mouse_x, mouse_y, 280.0, 460.0, 200.0, 46.0) then
-            state = ST_TITLE
+        elseif in_rect(S.mouse_x, S.mouse_y, 280.0, 460.0, 200.0, 46.0) then
+            S.state = ST_TITLE
         end
     end
 end
 
 local function update_dialogue_input(clicked)
-    if dlg_choice then
+    if S.dlg_choice then
         local sc = current_scene()
         local n = #sc.opts
         local i = 0
         while i < n do
-            if clicked and in_rect(mouse_x, mouse_y, 500.0, 118.0 + i * 64.0, 400.0, 52.0) then
+            if clicked and in_rect(S.mouse_x, S.mouse_y, 500.0, 118.0 + i * 64.0, 400.0, 52.0) then
                 pick_option(i + 1)
                 return
             end
@@ -1007,50 +1036,50 @@ end
 -- ---------------------------------------------------------------------------
 
 local function ai_hub()
-    if day > GAME_DAYS then
+    if S.day > GAME_DAYS then
         begin_ending()
         return
     end
-    if energy <= 0 then
+    if S.energy <= 0 then
         do_action(5)
         return
     end
     local focus = 1
-    if day % 4 == 0 and get_aff(focus) >= 30 then
+    if S.day % 4 == 0 and get_aff(focus) >= 30 then
         if start_date(focus) then return end
     end
-    if day % 2 == 0 then
+    if S.day % 2 == 0 then
         local t = 1
-        if get_aff(focus) >= 20 then t = 3 elseif day % 6 == 0 then t = 2 end
+        if get_aff(focus) >= 20 then t = 3 elseif S.day % 6 == 0 then t = 2 end
         if start_chat(focus, t) then return end
     end
     local k = 1
-    if day % 3 == 0 then k = 2
-    elseif day % 5 == 0 then k = 3 end
+    if S.day % 3 == 0 then k = 2
+    elseif S.day % 5 == 0 then k = 3 end
     do_action(k)
 end
 
 local function update_ai()
-    if state == ST_TITLE then
-        if attract then
-            auto_t = auto_t + 1
-            if auto_t >= 100 then
-                auto_t = 0
+    if S.state == ST_TITLE then
+        if S.attract then
+            S.auto_t = S.auto_t + 1
+            if S.auto_t >= 100 then
+                S.auto_t = 0
                 start_new_game()
             end
         end
         return
     end
-    if state == ST_HUB and attract then
-        auto_t = auto_t + 1
-        if auto_t >= 14 then
-            auto_t = 0
+    if S.state == ST_HUB and S.attract then
+        S.auto_t = S.auto_t + 1
+        if S.auto_t >= 14 then
+            S.auto_t = 0
             ai_hub()
         end
-    elseif state == ST_SUMMARY and attract then
-        auto_t = auto_t + 1
-        if auto_t >= 260 then
-            auto_t = 0
+    elseif S.state == ST_SUMMARY and S.attract then
+        S.auto_t = S.auto_t + 1
+        if S.auto_t >= 260 then
+            S.auto_t = 0
             start_new_game()
         end
     end
@@ -1078,7 +1107,7 @@ local function label_center(text, cx, y, s, r, g, b, a)
 end
 
 local function rounded_button(key_hover, x, y, w, h, text, s, enabled)
-    local hover = in_rect(mouse_x, mouse_y, x, y, w, h)
+    local hover = in_rect(S.mouse_x, S.mouse_y, x, y, w, h)
     local base = 0.10
     if hover and enabled then base = 0.17 end
     panel(x, y, w, h, base, base + 0.02, base + 0.04, 0.9)
@@ -1120,10 +1149,10 @@ local function draw_bust(g, expr, x, y, size)
 end
 
 local function draw_petals()
-    if state == ST_TITLE or (state == ST_DIALOGUE and (dlg_mode == DM_INTRO or dlg_mode == DM_FESTIVAL)) then
-        if frame_no % 18 == 0 then
+    if S.state == ST_TITLE or (S.state == ST_DIALOGUE and (S.dlg_mode == DM_INTRO or S.dlg_mode == DM_FESTIVAL)) then
+        if S.frame_no % 18 == 0 then
             local x = rng_float() * SW
-            part_emit(petal_fx, 2, x, -10.0)
+            part_emit(S.petal_fx, 2, x, -10.0)
         end
     end
     part_draw()
@@ -1153,7 +1182,7 @@ local function draw_title()
 
     local bx = 720.0
     rounded_button(0, bx, 190.0, 210.0, 48.0, "开 始 游 戏", 0.48, true)
-    rounded_button(0, bx, 250.0, 210.0, 48.0, "继 续 游 戏", 0.48, save_exists > 0)
+    rounded_button(0, bx, 250.0, 210.0, 48.0, "继 续 游 戏", 0.48, S.save_exists > 0)
     rounded_button(0, bx, 310.0, 210.0, 48.0, "退 出", 0.48, true)
     panel(0.0, 156.0, 360.0, 26.0, 0.04, 0.03, 0.07, 0.55)
     label("点击 / Space 确认　F5 存档　F9 读档", 22.0, 161.0, 0.30,
@@ -1164,7 +1193,7 @@ local function draw_energy_hearts()
     local i = 0
     while i < 5 do
         local x = 470.0 + i * 26.0
-        if i < energy then
+        if i < S.energy then
             draw_quad(x, 12.0, 16.0, 12.0, 1.0, 0.24, 0.42, 1.0)
             draw_quad(x + 2.0, 9.0, 12.0, 9.0, 1.0, 0.24, 0.42, 1.0)
             draw_quad(x + 2.0, 21.0, 12.0, 5.0, 1.0, 0.24, 0.42, 1.0)
@@ -1176,7 +1205,7 @@ local function draw_energy_hearts()
         i = i + 1
     end
     label("体力", 408.0, 8.0, 0.30, 0.84, 0.72, 0.78, 1.0)
-    label(string.format("%d/5", energy), 408.0, 27.0, 0.24,
+    label(string.format("%d/5", S.energy), 408.0, 27.0, 0.24,
           0.92, 0.82, 0.84, 1.0)
 end
 
@@ -1208,7 +1237,7 @@ local function draw_action_bar()
     while i < 5 do
         local x = 16.0 + i * 94.0
         local y = 452.0
-        local enabled = (energy > 0) or i == 4
+        local enabled = (S.energy > 0) or i == 4
         rounded_button(0, x, y, 90.0, 64.0, names[i + 1], 0.46, enabled)
         label(subs[i + 1], x + 8.0, y + 44.0, 0.25, 0.82, 0.88, 0.80, 0.95)
         i = i + 1
@@ -1222,7 +1251,7 @@ local function draw_girl_cards()
     while i < 4 do
         local g = i + 1
         local y = 70.0 + i * 96.0
-        local hover = in_rect(mouse_x, mouse_y, 540.0, y, 404.0, 86.0)
+        local hover = in_rect(S.mouse_x, S.mouse_y, 540.0, y, 404.0, 86.0)
         panel(540.0, y, 404.0, 86.0, 0.05, 0.03, 0.08, hover and 0.9 or 0.78)
         local gr = GIRLS[g].r
         local gg = GIRLS[g].g
@@ -1246,7 +1275,7 @@ local function draw_girl_cards()
         frame(618.0, y + 48.0, 190.0, 8.0, 0.40, 0.30, 0.34, 0.8)
         label(string.format("%d", math.floor(a)), 812.0, y + 43.0, 0.24,
               0.94, 0.74, 0.78, 1.0)
-        rounded_button(0, 826.0, y + 48.0, 104.0, 30.0, "约 会", 0.26, a >= 30 and energy > 0)
+        rounded_button(0, 826.0, y + 48.0, 104.0, 30.0, "约 会", 0.26, a >= 30 and S.energy > 0)
         label("点击卡片聊天", 646.0, y + 64.0, 0.22, 0.62, 0.58, 0.64, 0.9)
         i = i + 1
     end
@@ -1258,9 +1287,9 @@ local function draw_hub()
     panel(0.0, 0.0, SW, 52.0, 0.04, 0.03, 0.07, 0.92)
     panel(0.0, 50.0, SW, 2.0, 0.88, 0.74, 0.42, 0.8)
     label("SAKURA DAYS", 18.0, 10.0, 0.44, 0.98, 0.90, 0.72, 1.0)
-    label(string.format("第 %d 天 / %d", day, GAME_DAYS), 210.0, 10.0, 0.40,
+    label(string.format("第 %d 天 / %d", S.day, GAME_DAYS), 210.0, 10.0, 0.40,
           0.94, 0.90, 0.82, 1.0)
-    label("¥ " .. string.format("%d", math.floor(money)), 340.0, 10.0, 0.34,
+    label("¥ " .. string.format("%d", math.floor(S.money)), 340.0, 10.0, 0.34,
           0.96, 0.86, 0.48, 1.0)
     draw_energy_hearts()
     panel(282.0, 64.0, 240.0, 66.0, 0.04, 0.03, 0.07, 0.76)
@@ -1273,14 +1302,14 @@ local function draw_hub()
     draw_action_bar()
     draw_girl_cards()
 
-    if day >= 10 then
+    if S.day >= 10 then
         rounded_button(0, 744.0, 12.0, 204.0, 28.0, "毕 业 典 礼", 0.26, true)
     end
     rounded_button(0, 600.0, 12.0, 64.0, 28.0, "存 档", 0.24, true)
-    rounded_button(0, 670.0, 12.0, 64.0, 28.0, "读 档", 0.24, save_exists > 0)
+    rounded_button(0, 670.0, 12.0, 64.0, 28.0, "读 档", 0.24, S.save_exists > 0)
 
-    if hub_toast_t > 0 then
-        local text = toast_text(hub_toast)
+    if S.hub_toast_t > 0 then
+        local text = toast_text(S.hub_toast)
         local w = text_width(text, 0.42) + 32.0
         panel((SW - w) * 0.5, 188.0, w, 34.0, 0.22, 0.10, 0.16, 0.92)
         frame((SW - w) * 0.5, 188.0, w, 34.0, 0.92, 0.62, 0.72, 0.9)
@@ -1295,7 +1324,7 @@ local function draw_topics()
     panel(120.0, 62.0, 720.0, 408.0, 0.05, 0.03, 0.08, 0.95)
     frame(120.0, 62.0, 720.0, 408.0, 0.92, 0.76, 0.46, 0.85)
 
-    local g = topics_girl
+    local g = S.topics_girl
     local a = get_aff(g)
     local expr = NEUTRAL
     if a >= 60 then expr = BLUSH elseif a >= 30 then expr = SMILE end
@@ -1310,15 +1339,15 @@ local function draw_topics()
     local topics = {"兴 趣", "校 园", "心 事"}
     local i = 0
     while i < 3 do
-        local enabled = energy > 0
+        local enabled = S.energy > 0
         if i == 2 and get_aff(g) < 20 then enabled = false end
         local t = topics[i + 1]
         if i == 2 and get_aff(g) < 20 then t = "心 事（好感 20 解锁）" end
         rounded_button(0, 392.0, 116.0 + i * 74.0, 388.0, 60.0, t, 0.38, enabled)
         i = i + 1
     end
-    rounded_button(0, 392.0, 348.0, 186.0, 46.0, "送礼物 ¥20", 0.30, money >= 20)
-    rounded_button(0, 594.0, 348.0, 186.0, 46.0, "约 会", 0.30, a >= 30 and energy > 0)
+    rounded_button(0, 392.0, 348.0, 186.0, 46.0, "送礼物 ¥20", 0.30, S.money >= 20)
+    rounded_button(0, 594.0, 348.0, 186.0, 46.0, "约 会", 0.30, a >= 30 and S.energy > 0)
     rounded_button(0, 392.0, 406.0, 388.0, 40.0, "返 回", 0.30, true)
     label("聊天/约会消耗 1 点体力并推进一天", 150.0, 438.0, 0.24,
           0.70, 0.66, 0.72, 0.9)
@@ -1333,23 +1362,23 @@ local function draw_dialogue()
     local expr = NEUTRAL
     local who = WHO_NARRATOR
     local text = ""
-    if dlg_after then
-        g = dlg_after_girl
-        expr = dlg_after_expr
+    if S.dlg_after then
+        g = S.dlg_after_girl
+        expr = S.dlg_after_expr
         who = g
-        text = after_text(dlg_after_gain)
+        text = after_text(S.dlg_after_gain)
     else
-        who = sc.who[dlg_line + 1]
+        who = sc.who[S.dlg_line + 1]
         if who == nil then who = WHO_NARRATOR end
-        expr = sc.expr[dlg_line + 1]
+        expr = sc.expr[S.dlg_line + 1]
         if expr == nil then expr = NEUTRAL end
-        text = sc.lines[dlg_line + 1]
+        text = sc.lines[S.dlg_line + 1]
         if text == nil then text = "" end
     end
 
     if g >= 1 then
-        local bob = math.sin(frame_no * 0.02) * 3.0
-        draw_portrait(g, expr, 24.0 + dlg_portrait_x, 34.0 + bob, 1.0)
+        local bob = math.sin(S.frame_no * 0.02) * 3.0
+        draw_portrait(g, expr, 24.0 + S.dlg_portrait_x, 34.0 + bob, 1.0)
     end
 
     local name = "旁白"
@@ -1372,17 +1401,17 @@ local function draw_dialogue()
     end
 
     local total = utf8_len(text)
-    local shown = math.floor(dlg_char)
+    local shown = math.floor(S.dlg_char)
     if shown > total then shown = total end
     local visible = utf8_prefix(text, shown)
     draw_text_ex(visible, 56.0, 382.0, 0.78, 0.96, 0.94, 0.90, 1.0, 0, 856.0)
 
-    if dlg_choice then
+    if S.dlg_choice then
         local opts = sc.opts
         local i = 0
         while i < #opts do
             local y = 118.0 + i * 64.0
-            local hover = in_rect(mouse_x, mouse_y, 500.0, y, 400.0, 52.0)
+            local hover = in_rect(S.mouse_x, S.mouse_y, 500.0, y, 400.0, 52.0)
             panel(500.0, y, 400.0, 52.0, hover and 0.24 or 0.10, 0.08, 0.14, 0.94)
             frame(500.0, y, 400.0, 52.0, 0.94, 0.78, 0.48, hover and 1.0 or 0.7)
             label(string.format("%d. ", i + 1), 514.0, y + 14.0, 0.34,
@@ -1393,37 +1422,37 @@ local function draw_dialogue()
     else
         local complete = shown >= total
         if complete then
-            if math.floor(frame_no / 30) % 2 == 0 then
+            if math.floor(S.frame_no / 30) % 2 == 0 then
                 label("▼ 点击继续", 828.0, 496.0, 0.28, 0.92, 0.84, 0.66, 0.95)
             end
         end
     end
 
-    if aff_toast_t > 0 then
-        local text2 = string.format("好感 %+d", aff_toast_gain)
+    if S.aff_toast_t > 0 then
+        local text2 = string.format("好感 %+d", S.aff_toast_gain)
         local w = text_width(text2, 0.44) + 28.0
         panel(330.0 - w * 0.5, 306.0, w, 32.0, 0.30, 0.08, 0.16, 0.92)
         frame(330.0 - w * 0.5, 306.0, w, 32.0, 1.0, 0.62, 0.76, 0.9)
         label_center(text2, 330.0, 314.0, 0.44, 1.0, 0.82, 0.88, 1.0)
     end
 
-    if dlg_fade > 0.0 then
-        panel(0.0, 0.0, SW, SH, 0.0, 0.0, 0.0, dlg_fade * 0.65)
+    if S.dlg_fade > 0.0 then
+        panel(0.0, 0.0, SW, SH, 0.0, 0.0, 0.0, S.dlg_fade * 0.65)
     end
 end
 
 local function draw_summary()
     draw_background(6)
     panel(0.0, 0.0, SW, SH, 0.04, 0.03, 0.07, 0.72)
-    local g = ending_girl
+    local g = S.ending_girl
     if g < 1 then g = 1 end
     local expr = SAD
-    if ending_success then expr = SMILE end
+    if S.ending_success then expr = SMILE end
     draw_bust(g, expr, 540.0, 150.0, 380.0)
     panel(40.0, 48.0, 500.0, 392.0, 0.04, 0.03, 0.07, 0.9)
     frame(40.0, 48.0, 500.0, 392.0, 0.94, 0.78, 0.48, 0.85)
 
-    if ending_success then
+    if S.ending_success then
         label("GOOD END", 64.0, 68.0, 0.62, 1.0, 0.86, 0.52, 1.0)
         label("春天最后的告白，成功了。", 64.0, 120.0, 0.42, 0.96, 0.90, 0.84, 1.0)
         draw_text_ex("毕业典礼结束后，天台上只剩我们两个人。樱花落在她的肩上，她没有躲开。",
@@ -1436,9 +1465,9 @@ local function draw_summary()
     end
 
     label("能力", 64.0, 236.0, 0.34, 0.94, 0.86, 0.62, 1.0)
-    label("学力 " .. string.format("%d", math.floor(study)) ..
-          "   体能 " .. string.format("%d", math.floor(sport)) ..
-          "   魅力 " .. string.format("%d", math.floor(charm)), 64.0, 264.0, 0.30,
+    label("学力 " .. string.format("%d", math.floor(S.study)) ..
+          "   体能 " .. string.format("%d", math.floor(S.sport)) ..
+          "   魅力 " .. string.format("%d", math.floor(S.charm)), 64.0, 264.0, 0.30,
           0.82, 0.84, 0.88, 1.0)
     label("好感度", 64.0, 296.0, 0.34, 0.94, 0.86, 0.62, 1.0)
     local i = 0
@@ -1463,57 +1492,57 @@ end
 -- ---------------------------------------------------------------------------
 
 local function setup_scene()
-    bg_gate = sprite_load("assets/vn/bg/gate.png")
-    bg_classroom = sprite_load("assets/vn/bg/classroom.png")
-    bg_library = sprite_load("assets/vn/bg/library.png")
-    bg_gym = sprite_load("assets/vn/bg/gym.png")
-    bg_park = sprite_load("assets/vn/bg/park.png")
-    bg_cafe = sprite_load("assets/vn/bg/cafe.png")
-    bg_rooftop = sprite_load("assets/vn/bg/rooftop.png")
-    bg_festival = sprite_load("assets/vn/bg/festival.png")
+    S.bg_gate = sprite_load("assets/vn/bg/gate.png")
+    S.bg_classroom = sprite_load("assets/vn/bg/classroom.png")
+    S.bg_library = sprite_load("assets/vn/bg/library.png")
+    S.bg_gym = sprite_load("assets/vn/bg/gym.png")
+    S.bg_park = sprite_load("assets/vn/bg/park.png")
+    S.bg_cafe = sprite_load("assets/vn/bg/cafe.png")
+    S.bg_rooftop = sprite_load("assets/vn/bg/rooftop.png")
+    S.bg_festival = sprite_load("assets/vn/bg/festival.png")
 
-    p_linxia_n = sprite_load("assets/vn/portraits/linxia_neutral.png")
-    p_linxia_s = sprite_load("assets/vn/portraits/linxia_smile.png")
-    p_linxia_b = sprite_load("assets/vn/portraits/linxia_blush.png")
-    p_linxia_d = sprite_load("assets/vn/portraits/linxia_sad.png")
-    p_suqing_n = sprite_load("assets/vn/portraits/suqing_neutral.png")
-    p_suqing_s = sprite_load("assets/vn/portraits/suqing_smile.png")
-    p_suqing_b = sprite_load("assets/vn/portraits/suqing_blush.png")
-    p_suqing_d = sprite_load("assets/vn/portraits/suqing_sad.png")
-    p_guyu_n = sprite_load("assets/vn/portraits/guyu_neutral.png")
-    p_guyu_s = sprite_load("assets/vn/portraits/guyu_smile.png")
-    p_guyu_b = sprite_load("assets/vn/portraits/guyu_blush.png")
-    p_guyu_d = sprite_load("assets/vn/portraits/guyu_sad.png")
-    p_tangxin_n = sprite_load("assets/vn/portraits/tangxin_neutral.png")
-    p_tangxin_s = sprite_load("assets/vn/portraits/tangxin_smile.png")
-    p_tangxin_b = sprite_load("assets/vn/portraits/tangxin_blush.png")
-    p_tangxin_d = sprite_load("assets/vn/portraits/tangxin_sad.png")
+    S.p_linxia_n = sprite_load("assets/vn/portraits/linxia_neutral.png")
+    S.p_linxia_s = sprite_load("assets/vn/portraits/linxia_smile.png")
+    S.p_linxia_b = sprite_load("assets/vn/portraits/linxia_blush.png")
+    S.p_linxia_d = sprite_load("assets/vn/portraits/linxia_sad.png")
+    S.p_suqing_n = sprite_load("assets/vn/portraits/suqing_neutral.png")
+    S.p_suqing_s = sprite_load("assets/vn/portraits/suqing_smile.png")
+    S.p_suqing_b = sprite_load("assets/vn/portraits/suqing_blush.png")
+    S.p_suqing_d = sprite_load("assets/vn/portraits/suqing_sad.png")
+    S.p_guyu_n = sprite_load("assets/vn/portraits/guyu_neutral.png")
+    S.p_guyu_s = sprite_load("assets/vn/portraits/guyu_smile.png")
+    S.p_guyu_b = sprite_load("assets/vn/portraits/guyu_blush.png")
+    S.p_guyu_d = sprite_load("assets/vn/portraits/guyu_sad.png")
+    S.p_tangxin_n = sprite_load("assets/vn/portraits/tangxin_neutral.png")
+    S.p_tangxin_s = sprite_load("assets/vn/portraits/tangxin_smile.png")
+    S.p_tangxin_b = sprite_load("assets/vn/portraits/tangxin_blush.png")
+    S.p_tangxin_d = sprite_load("assets/vn/portraits/tangxin_sad.png")
 
-    petal_fx = part_create()
-    part_set_lifetime(petal_fx, 3.5, 6.5)
-    part_set_speed(petal_fx, 16, 46)
-    part_set_direction(petal_fx, 1.2616, 0.5)
-    part_set_size(petal_fx, 4, 8)
-    part_set_gravity(petal_fx, 0, 10)
-    part_set_drag(petal_fx, 0.3)
-    part_set_spin(petal_fx, 4)
-    part_set_color(petal_fx, 1.0, 0.72, 0.82, 1.0, 0.0)
+    S.petal_fx = part_create()
+    part_set_lifetime(S.petal_fx, 3.5, 6.5)
+    part_set_speed(S.petal_fx, 16, 46)
+    part_set_direction(S.petal_fx, 1.2616, 0.5)
+    part_set_size(S.petal_fx, 4, 8)
+    part_set_gravity(S.petal_fx, 0, 10)
+    part_set_drag(S.petal_fx, 0.3)
+    part_set_spin(S.petal_fx, 4)
+    part_set_color(S.petal_fx, 1.0, 0.72, 0.82, 1.0, 0.0)
 
     local i2 = 1
     while i2 <= 7 do
         if font_load(FONTS[i2].path, 30.0) then
-            font_ok = 1
+            S.font_ok = 1
             log_info("vn: font " .. FONTS[i2].name)
             i2 = 99
         else
             i2 = i2 + 1
         end
     end
-    if font_ok == 0 then log_info("vn: font fallback (ASCII only)") end
+    if S.font_ok == 0 then log_info("vn: font fallback (ASCII only)") end
 
     storage_load("vn_quick")
-    save_exists = 0
-    if storage_has("vn_day") then save_exists = 1 end
+    S.save_exists = 0
+    if storage_has("vn_day") then S.save_exists = 1 end
 
     audio_loop("vn_theme", 0.16, 1.0)
     camera_set_position(0.0, 0.0)
@@ -1523,32 +1552,37 @@ end
 
 local function update_input()
     local clicked = input_mouse_pressed(0)
-    if state == ST_TITLE then
+    if S.state == ST_TITLE then
         update_title_input(clicked)
-    elseif state == ST_HUB then
+    elseif S.state == ST_HUB then
         update_hub_input(clicked)
-    elseif state == ST_TOPICS then
+    elseif S.state == ST_TOPICS then
         update_topics_input(clicked)
-    elseif state == ST_DIALOGUE then
+    elseif S.state == ST_DIALOGUE then
         update_dialogue_input(clicked)
-    elseif state == ST_SUMMARY then
+    elseif S.state == ST_SUMMARY then
         update_summary_input(clicked)
     end
 end
 
 local function assets_ready()
-    return bg_gate ~= 0 and p_linxia_n ~= 0
+    return S.bg_gate ~= 0 and S.p_linxia_n ~= 0
 end
 
 function update(dt)
-    frame_no = frame_no + 1
-    if not inited then
-        inited = true
+    if S.seeded == nil then
+        S.seeded = true
+        reset_state()
+    end
+
+    S.frame_no = S.frame_no + 1
+    if not S.inited then
+        S.inited = true
         setup_scene()
     end
 
-    mouse_x = input_mouse_x()
-    mouse_y = input_mouse_y()
+    S.mouse_x = input_mouse_x()
+    S.mouse_y = input_mouse_y()
 
     if not assets_ready() then
         draw_text("VN ASSETS FAILED TO LOAD", 40.0, 60.0, 0.7, 1.0, 0.4, 0.4, 1.0)
@@ -1556,32 +1590,32 @@ function update(dt)
     end
 
     if any_activity() then
-        idle_frames = 0
-        if attract then attract = false end
+        S.idle_frames = 0
+        if S.attract then S.attract = false end
     else
-        idle_frames = idle_frames + 1
-        if idle_frames > 80 then attract = true end
+        S.idle_frames = S.idle_frames + 1
+        if S.idle_frames > 80 then S.attract = true end
     end
 
-    if state == ST_HUB then
+    if S.state == ST_HUB then
         if input_key_pressed("f5") then save_game() end
         if input_key_pressed("f9") then load_game() end
     end
 
     update_input()
-    if state == ST_DIALOGUE then
+    if S.state == ST_DIALOGUE then
         update_dialogue()
     end
     update_ai()
-    if hub_toast_t > 0 then hub_toast_t = hub_toast_t - 1 end
+    if S.hub_toast_t > 0 then S.hub_toast_t = S.hub_toast_t - 1 end
 
-    if state == ST_TITLE then
+    if S.state == ST_TITLE then
         draw_title()
-    elseif state == ST_HUB then
+    elseif S.state == ST_HUB then
         draw_hub()
-    elseif state == ST_TOPICS then
+    elseif S.state == ST_TOPICS then
         draw_topics()
-    elseif state == ST_DIALOGUE then
+    elseif S.state == ST_DIALOGUE then
         draw_dialogue()
     else
         draw_summary()

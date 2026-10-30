@@ -31,23 +31,31 @@ local SCREEN_H = 540 + 0
 local WIN_W = 360 + 0
 local WIN_H = 330 + 0
 
-local wx = 300.0 + 0.0
-local wy = 90.0 + 0.0
 
-local tab = 0 + 0
-local master = 0.80 + 0.0
-local music = 0.55 + 0.0
-local sfx = 0.70 + 0.0
-local muted = false
-local bright = 0.50 + 0.0
-local gamma = 0.45 + 0.0
-local bloom = true
-local fog = true
-local open_display = true
-local open_effects = false
-local scheme = 0 + 0
-local scheme_open = false
-local control = 0 + 0
+
+-- FakeLua binds file-level locals as const, so everything that changes
+-- across frames lives in a host-side NativeObject instead (see
+-- docs/SCRIPTING.md rule 3). Fields read and write like a plain table.
+local S = new_global_obj("ui3_demo", "state")
+
+local function reset_state()
+    S.wx = 300.0 + 0.0
+    S.wy = 90.0 + 0.0
+    S.tab = 0 + 0
+    S.master = 0.80 + 0.0
+    S.music = 0.55 + 0.0
+    S.sfx = 0.70 + 0.0
+    S.muted = false
+    S.bright = 0.50 + 0.0
+    S.gamma = 0.45 + 0.0
+    S.bloom = true
+    S.fog = true
+    S.open_display = true
+    S.open_effects = false
+    S.scheme = 0 + 0
+    S.scheme_open = false
+    S.control = 0 + 0
+end
 
 local function istr(n)
     return string.format("%d", n)
@@ -110,45 +118,45 @@ end
 
 local function draw_audio(bx, by)
     draw_text("MIXER", bx, by, 0.7, 0.55, 0.92, 0.94, 1.0)
-    master = ui_slider("master", 0, bx, by + 26, 280, 22, master, 0.0, 1.0)
-    music = ui_slider("music", 0, bx, by + 66, 280, 22, music, 0.0, 1.0)
-    sfx = ui_slider("sfx", 0, bx, by + 106, 280, 22, sfx, 0.0, 1.0)
-    draw_text("master " .. pct(master), bx + 292, by + 30, 0.55,
+    S.master = ui_slider("master", 0, bx, by + 26, 280, 22, S.master, 0.0, 1.0)
+    S.music = ui_slider("music", 0, bx, by + 66, 280, 22, S.music, 0.0, 1.0)
+    S.sfx = ui_slider("sfx", 0, bx, by + 106, 280, 22, S.sfx, 0.0, 1.0)
+    draw_text("master " .. pct(S.master), bx + 292, by + 30, 0.55,
               0.75, 0.85, 0.95, 1.0)
-    draw_text("music  " .. pct(music), bx + 292, by + 70, 0.55,
+    draw_text("music  " .. pct(S.music), bx + 292, by + 70, 0.55,
               0.75, 0.85, 0.95, 1.0)
-    draw_text("sfx    " .. pct(sfx), bx + 292, by + 110, 0.55,
+    draw_text("sfx    " .. pct(S.sfx), bx + 292, by + 110, 0.55,
               0.75, 0.85, 0.95, 1.0)
-    if ui_checkbox("mute", 0, bx, by + 146, 18, muted, "mute everything", 0.6) then
-        muted = not muted
+    if ui_checkbox("mute", 0, bx, by + 146, 18, S.muted, "mute everything", 0.6) then
+        S.muted = not S.muted
     end
     return 0
 end
 
 local function draw_video(bx, by)
-    if ui_tree("grp_display", 0, bx, by, 280, 22, "display", open_display, 0.65) then
-        open_display = not open_display
+    if ui_tree("grp_display", 0, bx, by, 280, 22, "display", S.open_display, 0.65) then
+        S.open_display = not S.open_display
     end
-    if open_display then
+    if S.open_display then
         draw_text("brightness", bx + 18, by + 32, 0.6, 0.72, 0.78, 0.86, 1.0)
-        bright = ui_slider("bright", 0, bx + 18, by + 50, 262, 20, bright, 0.0, 1.0)
+        S.bright = ui_slider("bright", 0, bx + 18, by + 50, 262, 20, S.bright, 0.0, 1.0)
         draw_text("gamma", bx + 18, by + 84, 0.6, 0.72, 0.78, 0.86, 1.0)
-        gamma = ui_slider("gamma", 0, bx + 18, by + 102, 262, 20, gamma, 0.0, 1.0)
+        S.gamma = ui_slider("gamma", 0, bx + 18, by + 102, 262, 20, S.gamma, 0.0, 1.0)
     end
 
     local ey = by + 40
-    if open_display then
+    if S.open_display then
         ey = by + 140
     end
-    if ui_tree("grp_effects", 0, bx, ey, 280, 22, "effects", open_effects, 0.65) then
-        open_effects = not open_effects
+    if ui_tree("grp_effects", 0, bx, ey, 280, 22, "effects", S.open_effects, 0.65) then
+        S.open_effects = not S.open_effects
     end
-    if open_effects then
-        if ui_checkbox("bloom", 0, bx + 18, ey + 30, 18, bloom, "bloom", 0.6) then
-            bloom = not bloom
+    if S.open_effects then
+        if ui_checkbox("bloom", 0, bx + 18, ey + 30, 18, S.bloom, "bloom", 0.6) then
+            S.bloom = not S.bloom
         end
-        if ui_checkbox("fog", 0, bx + 18, ey + 58, 18, fog, "fog of war", 0.6) then
-            fog = not fog
+        if ui_checkbox("fog", 0, bx + 18, ey + 58, 18, S.fog, "fog of war", 0.6) then
+            S.fog = not S.fog
         end
     end
     return 0
@@ -156,27 +164,27 @@ end
 
 local function draw_controls(bx, by)
     draw_text("INPUT", bx, by, 0.7, 0.75, 0.65, 0.95, 1.0)
-    if ui_radio("ctl0", 0, bx, by + 26, 18, control == 0, control_name(0), 0.6) then
-        control = 0
+    if ui_radio("ctl0", 0, bx, by + 26, 18, S.control == 0, control_name(0), 0.6) then
+        S.control = 0
     end
-    if ui_radio("ctl1", 0, bx, by + 54, 18, control == 1, control_name(1), 0.6) then
-        control = 1
+    if ui_radio("ctl1", 0, bx, by + 54, 18, S.control == 1, control_name(1), 0.6) then
+        S.control = 1
     end
 
     draw_text("SCHEME", bx, by + 92, 0.7, 0.75, 0.65, 0.95, 1.0)
-    if ui_combo("scheme", 0, bx, by + 112, 200, 26, scheme_name(scheme),
-                scheme_open, 0.6) then
-        scheme_open = not scheme_open
+    if ui_combo("scheme", 0, bx, by + 112, 200, 26, scheme_name(S.scheme),
+                S.scheme_open, 0.6) then
+        S.scheme_open = not S.scheme_open
     end
-    if scheme_open then
+    if S.scheme_open then
         draw_quad(bx - 2.0, by + 142, 204, 84, 0.08, 0.10, 0.15, 1.0)
         local k = 0 + 0
         while k < 3 do
             local ry = by + 144 + k * 26
             if ui_combo_item("sc" .. istr(k), 0, bx, ry, 200, 24,
-                             scheme_name(k), scheme == k, 0.6) then
-                scheme = k
-                scheme_open = false
+                             scheme_name(k), S.scheme == k, 0.6) then
+                S.scheme = k
+                S.scheme_open = false
             end
             k = k + 1
         end
@@ -185,56 +193,61 @@ local function draw_controls(bx, by)
 end
 
 function update(dt)
+    if S.seeded == nil then
+        S.seeded = true
+        reset_state()
+    end
+
     -- --- the window shell -------------------------------------------------
-    if ui_window("settings", 0, wx, wy, WIN_W, WIN_H, "SETTINGS", 0.7) then
-        wx = wx + input_mouse_dx()
-        wy = wy + input_mouse_dy()
+    if ui_window("settings", 0, S.wx, S.wy, WIN_W, WIN_H, "SETTINGS", 0.7) then
+        S.wx = S.wx + input_mouse_dx()
+        S.wy = S.wy + input_mouse_dy()
     end
     -- Keep it reachable: a panel dragged off the canvas can never be grabbed
     -- again, so the title bar always stays inside.
-    if wx < 0.0 then
-        wx = 0.0
+    if S.wx < 0.0 then
+        S.wx = 0.0
     end
-    if wy < 0.0 then
-        wy = 0.0
+    if S.wy < 0.0 then
+        S.wy = 0.0
     end
-    if wx > SCREEN_W - WIN_W then
-        wx = SCREEN_W - WIN_W
+    if S.wx > SCREEN_W - WIN_W then
+        S.wx = SCREEN_W - WIN_W
     end
-    if wy > SCREEN_H - WIN_H then
-        wy = SCREEN_H - WIN_H
+    if S.wy > SCREEN_H - WIN_H then
+        S.wy = SCREEN_H - WIN_H
     end
 
     -- --- tabs and their panels -------------------------------------------
     local i = 0 + 0
     while i < 3 do
-        if ui_tab("tab" .. istr(i), 0, wx + 10 + i * 102, wy + 36, 100, 24,
-                  tab_name(i), tab == i, 0.6) then
-            tab = i
+        if ui_tab("tab" .. istr(i), 0, S.wx + 10 + i * 102, S.wy + 36, 100, 24,
+                  tab_name(i), S.tab == i, 0.6) then
+            S.tab = i
         end
         i = i + 1
     end
 
-    local bx = wx + 20
-    local by = wy + 70
-    if tab == 0 then
+    local bx = S.wx + 20
+    local by = S.wy + 70
+    if S.tab == 0 then
         draw_audio(bx, by)
     end
-    if tab == 1 then
+    if S.tab == 1 then
         draw_video(bx, by)
     end
-    if tab == 2 then
+    if S.tab == 2 then
         draw_controls(bx, by)
     end
 
     -- --- the page frame ---------------------------------------------------
-    draw_text("drag the title bar - the position lives in the script", wx + 10,
-              wy + WIN_H - 20, 0.55, 0.5, 0.58, 0.66, 1.0)
+    draw_text("drag the title bar - the position lives in the script", S.wx + 10,
+              S.wy + WIN_H - 20, 0.55, 0.5, 0.58, 0.66, 1.0)
 
     -- --- outside: a reset and the hover hints -----------------------------
     if ui_button("reset", 0, 40, 470, 120, 26, "RECENTER", 0.6) then
-        wx = 300.0
-        wy = 90.0
+        S.wx = 300.0
+        S.wy = 90.0
     end
 
     draw_text("UI WIDGETS ROUND 3", 40, 24, 1.2, 0.94, 0.96, 1.0, 1.0)

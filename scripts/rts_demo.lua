@@ -53,64 +53,81 @@ local WAVE_INTERVAL_E = 900
 local UNIT_CAP = 56
 local POWER_GEN = 160
 
-local map_id = 0 + 0
-local inited = false
 
-local tex_inf, tex_rocket, tex_tank, tex_harv = 0 + 0, 0 + 0, 0 + 0, 0 + 0
-local tex_cy, tex_power, tex_barracks, tex_factory = 0 + 0, 0 + 0, 0 + 0, 0 + 0
-local tex_refinery, tex_turret = 0 + 0, 0 + 0
-local tex_tracers = 0 + 0  -- 3-cell sheet: rifle tracer, rocket, cannon shell
-local boom_fx = 0 + 0
 
-local credits_p = 3500.0 + 0.0
-local credits_e = 3500.0 + 0.0
-local power_gen_p, power_use_p = 0.0 + 0.0, 0.0 + 0.0
-local power_gen_e, power_use_e = 0.0 + 0.0, 0.0 + 0.0
-local power_ratio_p = 1.0 + 0.0
-local power_ratio_e = 1.0 + 0.0
 
-local prod_p_type = -1 + 0
-local prod_p_timer = 0.0 + 0.0
-local prod_p_total = 1.0 + 0.0
-local prod_e_type = -1 + 0
-local prod_e_timer = 0.0 + 0.0
-local prod_e_total = 1.0 + 0.0
 
-local wave_p_timer = 0 + 0
-local wave_e_timer = 0 + 0
-local wave_p_count = 0 + 0
-local wave_e_count = 0 + 0
 
-local placing_type = -1 + 0
-local drag_active = false
-local drag_sx = 0.0 + 0.0
-local drag_sy = 0.0 + 0.0
-local drag_wx = 0.0 + 0.0
-local drag_wy = 0.0 + 0.0
-local minimap_on = true
-local game_over = 0 + 0
-local alert_code = 0 + 0
-local alert_timer = 0 + 0
 
-local first_contact = false
-local first_blood = false
-local first_structure = false
-local first_damage = false
-local attract = false
-local idle_frames = 0 + 0
 
-local frame_no = 0 + 0
-local match_frames = 0 + 0
-local cam_left = 0.0 + 0.0
-local cam_top = 0.0 + 0.0
-local inv_zoom = 1.0 + 0.0
-local vw = VIEW_W + 0.0
-local vh = VIEW_H + 0.0
-local mouse_x = 0.0 + 0.0
-local mouse_y = 0.0 + 0.0
-local hover_c = -1.0 + 0.0
-local hover_r = -1.0 + 0.0
-local over_hud = false
+
+-- FakeLua binds file-level locals as const, so everything that changes
+-- across frames lives in a host-side NativeObject instead (see
+-- docs/SCRIPTING.md rule 3). Fields read and write like a plain table.
+local S = new_global_obj("rts_demo", "state")
+
+local function reset_state()
+    S.map_id = 0 + 0
+    S.inited = false
+    S.tex_inf = 0 + 0
+    S.tex_rocket = 0 + 0
+    S.tex_tank = 0 + 0
+    S.tex_harv = 0 + 0
+    S.tex_cy = 0 + 0
+    S.tex_power = 0 + 0
+    S.tex_barracks = 0 + 0
+    S.tex_factory = 0 + 0
+    S.tex_refinery = 0 + 0
+    S.tex_turret = 0 + 0
+    S.tex_tracers = 0 + 0  -- 3-cell sheet: rifle tracer
+    S.boom_fx = 0 + 0
+    S.credits_p = 3500.0 + 0.0
+    S.credits_e = 3500.0 + 0.0
+    S.power_gen_p = 0.0 + 0.0
+    S.power_use_p = 0.0 + 0.0
+    S.power_gen_e = 0.0 + 0.0
+    S.power_use_e = 0.0 + 0.0
+    S.power_ratio_p = 1.0 + 0.0
+    S.power_ratio_e = 1.0 + 0.0
+    S.prod_p_type = -1 + 0
+    S.prod_p_timer = 0.0 + 0.0
+    S.prod_p_total = 1.0 + 0.0
+    S.prod_e_type = -1 + 0
+    S.prod_e_timer = 0.0 + 0.0
+    S.prod_e_total = 1.0 + 0.0
+    S.wave_p_timer = 0 + 0
+    S.wave_e_timer = 0 + 0
+    S.wave_p_count = 0 + 0
+    S.wave_e_count = 0 + 0
+    S.placing_type = -1 + 0
+    S.drag_active = false
+    S.drag_sx = 0.0 + 0.0
+    S.drag_sy = 0.0 + 0.0
+    S.drag_wx = 0.0 + 0.0
+    S.drag_wy = 0.0 + 0.0
+    S.minimap_on = true
+    S.game_over = 0 + 0
+    S.alert_code = 0 + 0
+    S.alert_timer = 0 + 0
+    S.first_contact = false
+    S.first_blood = false
+    S.first_structure = false
+    S.first_damage = false
+    S.attract = false
+    S.idle_frames = 0 + 0
+    S.frame_no = 0 + 0
+    S.match_frames = 0 + 0
+    S.cam_left = 0.0 + 0.0
+    S.cam_top = 0.0 + 0.0
+    S.inv_zoom = 1.0 + 0.0
+    S.vw = VIEW_W + 0.0
+    S.vh = VIEW_H + 0.0
+    S.mouse_x = 0.0 + 0.0
+    S.mouse_y = 0.0 + 0.0
+    S.hover_c = -1.0 + 0.0
+    S.hover_r = -1.0 + 0.0
+    S.over_hud = false
+end
 
 local function clampf(v, lo, hi)
     if v < lo then return lo end
@@ -123,7 +140,7 @@ local function idx(c, r)
 end
 
 local function tile_at(c, r)
-    return map_tile(map_id, c, r)
+    return map_tile(S.map_id, c, r)
 end
 
 local function terrain_blocked(g)
@@ -139,8 +156,8 @@ local function in_rect(mx, my, x, y, w, h)
 end
 
 local function hrect(x, y, w, h, r, g, b, a)
-    draw_rect_outline(cam_left + x * inv_zoom, cam_top + y * inv_zoom,
-                      w * inv_zoom, h * inv_zoom, r, g, b, a)
+    draw_rect_outline(S.cam_left + x * S.inv_zoom, S.cam_top + y * S.inv_zoom,
+                      w * S.inv_zoom, h * S.inv_zoom, r, g, b, a)
 end
 
 local function team_r(owner)
@@ -219,10 +236,10 @@ local function unit_name(t)
 end
 
 local function unit_tex(t)
-    if t == U_INF then return tex_inf end
-    if t == U_ROCKET then return tex_rocket end
-    if t == U_TANK then return tex_tank end
-    return tex_harv
+    if t == U_INF then return S.tex_inf end
+    if t == U_ROCKET then return S.tex_rocket end
+    if t == U_TANK then return S.tex_tank end
+    return S.tex_harv
 end
 
 local function bld_hp(t)
@@ -270,12 +287,12 @@ local function bld_name(t)
 end
 
 local function bld_tex(t)
-    if t == B_CY then return tex_cy end
-    if t == B_POWER then return tex_power end
-    if t == B_BARRACKS then return tex_barracks end
-    if t == B_FACTORY then return tex_factory end
-    if t == B_REFINERY then return tex_refinery end
-    return tex_turret
+    if t == B_CY then return S.tex_cy end
+    if t == B_POWER then return S.tex_power end
+    if t == B_BARRACKS then return S.tex_barracks end
+    if t == B_FACTORY then return S.tex_factory end
+    if t == B_REFINERY then return S.tex_refinery end
+    return S.tex_turret
 end
 
 local function alert_text(code)
@@ -291,8 +308,8 @@ local function alert_text(code)
     end
 
 local function notify(code)
-    alert_code = code
-    alert_timer = 150
+    S.alert_code = code
+    S.alert_timer = 150
 end
 
 -- ---------------------------------------------------------------------------
@@ -560,7 +577,7 @@ end
 -- ---------------------------------------------------------------------------
 
 local function boom(x, y, size)
-    part_emit(boom_fx, math.floor(6 + size * 6), x, y)
+    part_emit(S.boom_fx, math.floor(6 + size * 6), x, y)
 end
 
 local function spawn_unit(owner, utype, x, y)
@@ -615,12 +632,12 @@ local function spawn_building(owner, btype, col, row, complete)
 end
 
 local function finish_match(who)
-    if game_over ~= 0 then return end
-    game_over = who
+    if S.game_over ~= 0 then return end
+    S.game_over = who
     if who == 1 then
-        log_info(string.format("rts: player victory - enemy construction yard destroyed (frame %d)", frame_no))
+        log_info(string.format("rts: player victory - enemy construction yard destroyed (frame %d)", S.frame_no))
     else
-        log_info(string.format("rts: defeat - construction yard destroyed (frame %d)", frame_no))
+        log_info(string.format("rts: defeat - construction yard destroyed (frame %d)", S.frame_no))
     end
 end
 
@@ -633,13 +650,13 @@ local function destroy_building(id)
     local cy = ent_num(id, S_Y) + 32.0
     boom(cx, cy, 1.6)
     audio_play("rts_boom", 0.5)
-    map_set_tile(map_id, c, r, G_CRATER)
-    map_set_tile(map_id, c + 1, r, G_CRATER)
-    map_set_tile(map_id, c, r + 1, G_CRATER)
-    map_set_tile(map_id, c + 1, r + 1, G_CRATER)
+    map_set_tile(S.map_id, c, r, G_CRATER)
+    map_set_tile(S.map_id, c + 1, r, G_CRATER)
+    map_set_tile(S.map_id, c, r + 1, G_CRATER)
+    map_set_tile(S.map_id, c + 1, r + 1, G_CRATER)
     ent_destroy(id)
-    if not first_structure then
-        first_structure = true
+    if not S.first_structure then
+        S.first_structure = true
         log_info("rts: structure destroyed")
     end
     if btype == B_CY then
@@ -654,8 +671,8 @@ local function damage(id, amount)
     ent_set_num(e, S_FLASH, 6.0)
     if hp > 0.0 then
         ent_set_num(e, S_HP, hp)
-        if ent_tag(e) == TAG_BLD and not first_damage then
-            first_damage = true
+        if ent_tag(e) == TAG_BLD and not S.first_damage then
+            S.first_damage = true
             log_info("rts: structure damaged")
         end
         return
@@ -663,8 +680,8 @@ local function damage(id, amount)
     if ent_tag(e) == TAG_UNIT then
         boom(ent_num(e, S_X), ent_num(e, S_Y), 1.0)
         ent_destroy(e)
-        if not first_blood then
-            first_blood = true
+        if not S.first_blood then
+            S.first_blood = true
             log_info("rts: first blood")
         end
     else
@@ -686,8 +703,8 @@ local function spawn_projectile(owner, kind, x, y, target, dmg, speed)
     ent_set_num(id, S_DMG, dmg)
     ent_set_num(id, S_AUX, speed)
     ent_set_num(id, S_FLASH, 0.0)
-    if not first_contact then
-        first_contact = true
+    if not S.first_contact then
+        S.first_contact = true
         log_info("rts: first contact")
     end
 end
@@ -845,7 +862,7 @@ local function update_combat_unit(id, occ)
             target = 0.0
             ent_set_num(id, S_TARGET, 0.0)
         end
-        if (frame_no + math.floor(id % 24)) % 24 == 0 then
+        if (S.frame_no + math.floor(id % 24)) % 24 == 0 then
             local tid = find_enemy(x, y, owner, range)
             target = tid
             ent_set_num(id, S_TARGET, tid)
@@ -874,7 +891,7 @@ local function update_combat_unit(id, occ)
             end
         end
     elseif state == ST_ATTACK then
-        if target == 0 and (frame_no + math.floor(id % 24)) % 24 == 0 then
+        if target == 0 and (S.frame_no + math.floor(id % 24)) % 24 == 0 then
             target = find_enemy(x, y, owner, range + 40.0)
             if target ~= 0 then ent_set_num(id, S_TARGET, target) end
         end
@@ -899,7 +916,7 @@ local function update_combat_unit(id, occ)
         end
     else
         -- Idle guard: acquire a nearby enemy every half second.
-        if (frame_no + math.floor(id % 30)) % 30 == 0 then
+        if (S.frame_no + math.floor(id % 30)) % 30 == 0 then
             local tid = find_enemy(x, y, owner, range + 30.0)
             if tid ~= 0 then
                 ent_set_num(id, S_STATE, ST_ATTACK)
@@ -944,9 +961,9 @@ local function update_harvester(id, occ)
             local r = math.floor(ent_num(id, S_GY) / TILE)
             local g = tile_at(c, r)
             if g == G_ORE then
-                map_set_tile(map_id, c, r, G_ORE_POOR)
+                map_set_tile(S.map_id, c, r, G_ORE_POOR)
             elseif g == G_ORE_POOR then
-                map_set_tile(map_id, c, r, G_DIRT)
+                map_set_tile(S.map_id, c, r, G_DIRT)
             end
             cargo = cargo + 100.0
             ent_set_num(id, S_AUX, cargo)
@@ -987,10 +1004,10 @@ local function update_harvester(id, occ)
         ent_set_num(id, S_TIMER, ent_num(id, S_TIMER) + 1.0)
         if ent_num(id, S_TIMER) >= 90.0 then
             if owner == P then
-                credits_p = credits_p + cargo
+                S.credits_p = S.credits_p + cargo
                 audio_play("rts_cash", 0.3)
             else
-                credits_e = credits_e + cargo
+                S.credits_e = S.credits_e + cargo
             end
             ent_set_num(id, S_AUX, 0.0)
             ent_set_num(id, S_STATE, ST_IDLE)
@@ -1033,8 +1050,8 @@ local function update_buildings()
         if flash > 0.0 then ent_set_num(id, S_FLASH, flash - 1.0) end
         if cd > 0.0 then ent_set_num(id, S_CD, cd - 1.0) end
         if ent_num(id, S_STATE) == BST_BUILDING then
-            local ratio = power_ratio_p
-            if owner == E then ratio = power_ratio_e end
+            local ratio = S.power_ratio_p
+            if owner == E then ratio = S.power_ratio_e end
             if ratio < 1.0 then ratio = 0.65 end
             ent_set_num(id, S_TIMER, ent_num(id, S_TIMER) + ratio)
             local need = bld_build_frames(btype)
@@ -1052,7 +1069,7 @@ local function update_buildings()
                 target = 0.0
                 ent_set_num(id, S_TARGET, 0.0)
             end
-            if target == 0.0 and (frame_no + math.floor(id % 30)) % 30 == 0 then
+            if target == 0.0 and (S.frame_no + math.floor(id % 30)) % 30 == 0 then
                 target = find_enemy(ent_num(id, S_X) + 32.0,
                                     ent_num(id, S_Y) + 32.0,
                                     owner, ent_num(id, S_RANGE))
@@ -1074,10 +1091,10 @@ local function update_buildings()
 end
 
 local function update_power()
-    power_gen_p = 0.0
-    power_use_p = 0.0
-    power_gen_e = 0.0
-    power_use_e = 0.0
+    S.power_gen_p = 0.0
+    S.power_use_p = 0.0
+    S.power_gen_e = 0.0
+    S.power_use_e = 0.0
     local n = ent_count(TAG_BLD)
     local i = 0
     while i < n do
@@ -1086,58 +1103,58 @@ local function update_power()
             local owner = ent_num(id, S_OWNER)
             local btype = ent_num(id, S_TYPE)
             if btype == B_POWER then
-                if owner == P then power_gen_p = power_gen_p + POWER_GEN
-                else power_gen_e = power_gen_e + POWER_GEN end
+                if owner == P then S.power_gen_p = S.power_gen_p + POWER_GEN
+                else S.power_gen_e = S.power_gen_e + POWER_GEN end
             else
-                if owner == P then power_use_p = power_use_p + bld_use(btype)
-                else power_use_e = power_use_e + bld_use(btype) end
+                if owner == P then S.power_use_p = S.power_use_p + bld_use(btype)
+                else S.power_use_e = S.power_use_e + bld_use(btype) end
             end
         end
         i = i + 1
     end
-    if power_use_p <= 0.0 then
-        power_ratio_p = 1.0
+    if S.power_use_p <= 0.0 then
+        S.power_ratio_p = 1.0
     else
-        power_ratio_p = power_gen_p / power_use_p
-        if power_ratio_p > 1.0 then power_ratio_p = 1.0 end
+        S.power_ratio_p = S.power_gen_p / S.power_use_p
+        if S.power_ratio_p > 1.0 then S.power_ratio_p = 1.0 end
     end
-    if power_use_e <= 0.0 then
-        power_ratio_e = 1.0
+    if S.power_use_e <= 0.0 then
+        S.power_ratio_e = 1.0
     else
-        power_ratio_e = power_gen_e / power_use_e
-        if power_ratio_e > 1.0 then power_ratio_e = 1.0 end
+        S.power_ratio_e = S.power_gen_e / S.power_use_e
+        if S.power_ratio_e > 1.0 then S.power_ratio_e = 1.0 end
     end
 end
 
 local function production_start(owner, utype)
     if owner == P then
-        if prod_p_type >= 0 then notify(1); return false end
-        if credits_p < unit_cost(utype) then notify(1); return false end
+        if S.prod_p_type >= 0 then notify(1); return false end
+        if S.credits_p < unit_cost(utype) then notify(1); return false end
         if utype == U_INF or utype == U_ROCKET then
             if not has_active(P, B_BARRACKS) then notify(2); return false end
         else
             if not has_active(P, B_FACTORY) then notify(2); return false end
             if utype == U_HARV and not has_active(P, B_REFINERY) then notify(2); return false end
         end
-        credits_p = credits_p - unit_cost(utype)
-        prod_p_type = utype
-        prod_p_timer = 0.0
-        prod_p_total = unit_build(utype)
+        S.credits_p = S.credits_p - unit_cost(utype)
+        S.prod_p_type = utype
+        S.prod_p_timer = 0.0
+        S.prod_p_total = unit_build(utype)
         audio_play("rts_build", 0.25)
         return true
     end
-    if prod_e_type >= 0 then return false end
-    if credits_e < unit_cost(utype) then return false end
+    if S.prod_e_type >= 0 then return false end
+    if S.credits_e < unit_cost(utype) then return false end
     if utype == U_INF or utype == U_ROCKET then
         if not has_active(E, B_BARRACKS) then return false end
     else
         if not has_active(E, B_FACTORY) then return false end
         if utype == U_HARV and not has_active(E, B_REFINERY) then return false end
     end
-    credits_e = credits_e - unit_cost(utype)
-    prod_e_type = utype
-    prod_e_timer = 0.0
-    prod_e_total = unit_build(utype)
+    S.credits_e = S.credits_e - unit_cost(utype)
+    S.prod_e_type = utype
+    S.prod_e_timer = 0.0
+    S.prod_e_total = unit_build(utype)
     return true
 end
 
@@ -1160,24 +1177,24 @@ local function spawn_production_unit(owner, utype)
 end
 
 local function update_production()
-    if prod_p_type >= 0 then
-        local ratio = power_ratio_p
+    if S.prod_p_type >= 0 then
+        local ratio = S.power_ratio_p
         if ratio < 1.0 then ratio = 0.65 end
-        prod_p_timer = prod_p_timer + ratio * 1.2
-        if prod_p_timer >= prod_p_total then
-            spawn_production_unit(P, prod_p_type)
-            prod_p_type = -1
+        S.prod_p_timer = S.prod_p_timer + ratio * 1.2
+        if S.prod_p_timer >= S.prod_p_total then
+            spawn_production_unit(P, S.prod_p_type)
+            S.prod_p_type = -1
             audio_play("rts_ready", 0.35)
             notify(7)
         end
     end
-    if prod_e_type >= 0 then
-        local ratio = power_ratio_e
+    if S.prod_e_type >= 0 then
+        local ratio = S.power_ratio_e
         if ratio < 1.0 then ratio = 0.65 end
-        prod_e_timer = prod_e_timer + ratio
-        if prod_e_timer >= prod_e_total then
-            spawn_production_unit(E, prod_e_type)
-            prod_e_type = -1
+        S.prod_e_timer = S.prod_e_timer + ratio
+        if S.prod_e_timer >= S.prod_e_total then
+            spawn_production_unit(E, S.prod_e_type)
+            S.prod_e_type = -1
         end
     end
 end
@@ -1246,8 +1263,8 @@ end
 
 local function ai_place(owner, btype, occ)
     local cost = bld_cost(btype)
-    if owner == P and credits_p < cost then return false end
-    if owner == E and credits_e < cost then return false end
+    if owner == P and S.credits_p < cost then return false end
+    if owner == E and S.credits_e < cost then return false end
     local k = 0
     local col = 0
     local row = 0
@@ -1260,8 +1277,8 @@ local function ai_place(owner, btype, occ)
             row = math.floor(rng_float() * 6.0) + 5
         end
         if can_build_at(col, row, occ) then
-            if owner == P then credits_p = credits_p - cost
-            else credits_e = credits_e - cost end
+            if owner == P then S.credits_p = S.credits_p - cost
+            else S.credits_e = S.credits_e - cost end
             spawn_building(owner, btype, col, row, false)
             if owner == P then audio_play("rts_build", 0.3) end
             return true
@@ -1272,7 +1289,7 @@ local function ai_place(owner, btype, occ)
 end
 
 local function ai_owner(owner)
-    if game_over ~= 0 then return end
+    if S.game_over ~= 0 then return end
     local occ = make_occupancy()
     local counts = {}
     local i = 0
@@ -1288,8 +1305,8 @@ local function ai_owner(owner)
         i = i + 1
     end
 
-    local ratio = power_ratio_p
-    if owner == E then ratio = power_ratio_e end
+    local ratio = S.power_ratio_p
+    if owner == E then ratio = S.power_ratio_e end
     if counts[B_POWER] == 0 then
         ai_place(owner, B_POWER, occ)
     elseif counts[B_REFINERY] == 0 then
@@ -1300,7 +1317,7 @@ local function ai_owner(owner)
         ai_place(owner, B_FACTORY, occ)
     elseif ratio < 1.0 and counts[B_POWER] < 3 then
         ai_place(owner, B_POWER, occ)
-    elseif frame_no > 600 then
+    elseif S.frame_no > 600 then
         if owner == P and counts[B_TURRET] < 3 then
             ai_place(owner, B_TURRET, occ)
         elseif owner == E and counts[B_TURRET] < 1 then
@@ -1309,7 +1326,7 @@ local function ai_owner(owner)
     end
 
     if owner == P then
-        if prod_p_type < 0 and own_count(P, false) < MAX_ARMY then
+        if S.prod_p_type < 0 and own_count(P, false) < MAX_ARMY then
             local pick = U_INF
             if own_count(P, true) < 4 then
                 pick = U_TANK
@@ -1322,7 +1339,7 @@ local function ai_owner(owner)
             production_start(P, pick)
         end
     else
-        if prod_e_type < 0 and own_count(E, false) < MAX_ARMY_E then
+        if S.prod_e_type < 0 and own_count(E, false) < MAX_ARMY_E then
             local pick = U_INF
             if own_count(E, true) < 4 then
                 pick = U_TANK
@@ -1392,26 +1409,26 @@ local function order_army(owner)
 end
 
 local function update_ai()
-    if game_over ~= 0 then return end
-    wave_p_timer = wave_p_timer + 1
-    wave_e_timer = wave_e_timer + 1
-    if attract and wave_p_timer >= WAVE_INTERVAL and own_count(P, true) >= 4 then
+    if S.game_over ~= 0 then return end
+    S.wave_p_timer = S.wave_p_timer + 1
+    S.wave_e_timer = S.wave_e_timer + 1
+    if S.attract and S.wave_p_timer >= WAVE_INTERVAL and own_count(P, true) >= 4 then
         if order_army(P) then
-            wave_p_count = wave_p_count + 1
-            wave_p_timer = 0
-            log_info(string.format("rts: player attack wave %d", wave_p_count))
+            S.wave_p_count = S.wave_p_count + 1
+            S.wave_p_timer = 0
+            log_info(string.format("rts: player attack wave %d", S.wave_p_count))
         end
     end
-    if wave_e_timer >= WAVE_INTERVAL_E and own_count(E, true) >= 4 then
+    if S.wave_e_timer >= WAVE_INTERVAL_E and own_count(E, true) >= 4 then
         if order_army(E) then
-            wave_e_count = wave_e_count + 1
-            wave_e_timer = 0
-            log_info(string.format("rts: enemy attack wave %d", wave_e_count))
-            if wave_e_count <= 3 then notify(5) end
+            S.wave_e_count = S.wave_e_count + 1
+            S.wave_e_timer = 0
+            log_info(string.format("rts: enemy attack wave %d", S.wave_e_count))
+            if S.wave_e_count <= 3 then notify(5) end
         end
     end
-    if frame_no % 30 == 0 then
-        if attract then ai_owner(P) end
+    if S.frame_no % 30 == 0 then
+        if S.attract then ai_owner(P) end
         ai_owner(E)
     end
 end
@@ -1446,14 +1463,14 @@ local function try_place_building(col, row)
         audio_play("rts_alarm", 0.2)
         return false
     end
-    local cost = bld_cost(placing_type)
-    if credits_p < cost then
+    local cost = bld_cost(S.placing_type)
+    if S.credits_p < cost then
         notify(1)
         audio_play("rts_alarm", 0.2)
         return false
     end
-    credits_p = credits_p - cost
-    spawn_building(P, placing_type, col, row, false)
+    S.credits_p = S.credits_p - cost
+    spawn_building(P, S.placing_type, col, row, false)
     audio_play("rts_build", 0.4)
     notify(8)
     return true
@@ -1540,8 +1557,8 @@ local function issue_order(wx, wy)
 end
 
 local function finish_selection(wx, wy)
-    local x0 = drag_wx
-    local y0 = drag_wy
+    local x0 = S.drag_wx
+    local y0 = S.drag_wy
     local x1 = wx
     local y1 = wy
     if x0 > x1 then local t = x0; x0 = x1; x1 = t end
@@ -1565,16 +1582,16 @@ end
 local function handle_command_press()
     local pressed = input_mouse_pressed(0)
     if not pressed then return false end
-    local by = vh - 132.0
+    local by = S.vh - 132.0
     local i = 0
     while i < 5 do
         local x = 8.0 + i * 94.0
-        if in_rect(mouse_x, mouse_y, x, by + 8.0, 86.0, 54.0) then
+        if in_rect(S.mouse_x, S.mouse_y, x, by + 8.0, 86.0, 54.0) then
             local t = i + 1
-            if placing_type == t then
-                placing_type = -1
+            if S.placing_type == t then
+                S.placing_type = -1
             else
-                placing_type = t
+                S.placing_type = t
                 notify(8)
             end
             return true
@@ -1584,7 +1601,7 @@ local function handle_command_press()
     i = 0
     while i < 4 do
         local x = 8.0 + i * 94.0
-        if in_rect(mouse_x, mouse_y, x, by + 70.0, 86.0, 54.0) then
+        if in_rect(S.mouse_x, S.mouse_y, x, by + 70.0, 86.0, 54.0) then
             production_start(P, i)
             return true
         end
@@ -1607,18 +1624,18 @@ local function update_keys()
     end
     if input_key_pressed("m") or input_key_pressed("escape") then activity = true end
     if activity then
-        idle_frames = 0
-        if attract then attract = false end
+        S.idle_frames = 0
+        if S.attract then S.attract = false end
     else
-        idle_frames = idle_frames + 1
-        if idle_frames > 120 then attract = true end
+        S.idle_frames = S.idle_frames + 1
+        if S.idle_frames > 120 then S.attract = true end
     end
 
-    if input_key_pressed("m") then minimap_on = not minimap_on end
+    if input_key_pressed("m") then S.minimap_on = not S.minimap_on end
     if input_key_pressed("escape") then
-        placing_type = -1
+        S.placing_type = -1
         clear_selection()
-        drag_active = false
+        S.drag_active = false
     end
     local shortcut = 0
     if input_key_pressed("1") then shortcut = 1 end
@@ -1626,7 +1643,7 @@ local function update_keys()
     if input_key_pressed("3") then shortcut = 3 end
     if input_key_pressed("4") then shortcut = 4 end
     if input_key_pressed("5") then shortcut = 5 end
-    if shortcut > 0 then placing_type = shortcut; notify(8) end
+    if shortcut > 0 then S.placing_type = shortcut; notify(8) end
     if input_key_pressed("6") then production_start(P, U_INF) end
     if input_key_pressed("7") then production_start(P, U_ROCKET) end
     if input_key_pressed("8") then production_start(P, U_TANK) end
@@ -1646,15 +1663,15 @@ local function update_camera()
         camera_set_position(camera_x(), camera_y())
     end
     zoom = camera_zoom()
-    cam_left = camera_screen_to_world_x(0.0, 0.0)
-    cam_top = camera_screen_to_world_y(0.0, 0.0)
-    inv_zoom = 1.0 / zoom
+    S.cam_left = camera_screen_to_world_x(0.0, 0.0)
+    S.cam_top = camera_screen_to_world_y(0.0, 0.0)
+    S.inv_zoom = 1.0 / zoom
 end
 
 local function auto_camera()
-    if not attract then return end
-    if not first_contact then return end
-    if frame_no % 24 ~= 0 then return end
+    if not S.attract then return end
+    if not S.first_contact then return end
+    if S.frame_no % 24 ~= 0 then return end
     local n = ent_count(TAG_UNIT)
     local i = 0
 
@@ -1704,59 +1721,59 @@ local function auto_camera()
         focus_y = sy / count
     end
 
-    local want_x = focus_x - vw * inv_zoom * 0.5
-    local want_y = focus_y - vh * inv_zoom * 0.5
+    local want_x = focus_x - S.vw * S.inv_zoom * 0.5
+    local want_y = focus_y - S.vh * S.inv_zoom * 0.5
     camera_set_position(camera_x() + (want_x - camera_x()) * 0.5,
                         camera_y() + (want_y - camera_y()) * 0.5)
 end
 
 local function update_pointer()
-    local wx = camera_screen_to_world_x(mouse_x, mouse_y)
-    local wy = camera_screen_to_world_y(mouse_x, mouse_y)
-    hover_c = math.floor(wx / TILE)
-    hover_r = math.floor(wy / TILE)
+    local wx = camera_screen_to_world_x(S.mouse_x, S.mouse_y)
+    local wy = camera_screen_to_world_y(S.mouse_x, S.mouse_y)
+    S.hover_c = math.floor(wx / TILE)
+    S.hover_r = math.floor(wy / TILE)
 
-    over_hud = false
-    if in_rect(mouse_x, mouse_y, 0, 0, vw, 42.0) then over_hud = true end
-    if in_rect(mouse_x, mouse_y, 0, vh - 132.0, vw, 132.0) then over_hud = true end
-    if minimap_on and in_rect(mouse_x, mouse_y, vw - 196.0, vh - 286.0, 190.0, 150.0) then over_hud = true end
+    S.over_hud = false
+    if in_rect(S.mouse_x, S.mouse_y, 0, 0, S.vw, 42.0) then S.over_hud = true end
+    if in_rect(S.mouse_x, S.mouse_y, 0, S.vh - 132.0, S.vw, 132.0) then S.over_hud = true end
+    if S.minimap_on and in_rect(S.mouse_x, S.mouse_y, S.vw - 196.0, S.vh - 286.0, 190.0, 150.0) then S.over_hud = true end
     if (selected_count() > 0 or first_selected_bld() ~= 0) and
-       in_rect(mouse_x, mouse_y, 8.0, vh - 216.0, 344.0, 80.0) then
-        over_hud = true
+       in_rect(S.mouse_x, S.mouse_y, 8.0, S.vh - 216.0, 344.0, 80.0) then
+        S.over_hud = true
     end
 
-    if game_over == 0 and input_mouse_pressed(0) then
+    if S.game_over == 0 and input_mouse_pressed(0) then
         if handle_command_press() then
             -- handled by the command panel
-        elseif minimap_on and in_rect(mouse_x, mouse_y, vw - 196.0, vh - 286.0, 190.0, 150.0) then
-            local fx = clampf((mouse_x - (vw - 190.0)) / 128.0, 0.0, 1.0)
-            local fy = clampf((mouse_y - (vh - 280.0)) / 96.0, 0.0, 1.0)
-            camera_set_position(fx * COLS * TILE - vw * inv_zoom * 0.5,
-                                fy * ROWS * TILE - vh * inv_zoom * 0.5)
-        elseif not over_hud then
-            if placing_type >= 0 then
-                if try_place_building(hover_c, hover_r) then placing_type = -1 end
+        elseif S.minimap_on and in_rect(S.mouse_x, S.mouse_y, S.vw - 196.0, S.vh - 286.0, 190.0, 150.0) then
+            local fx = clampf((S.mouse_x - (S.vw - 190.0)) / 128.0, 0.0, 1.0)
+            local fy = clampf((S.mouse_y - (S.vh - 280.0)) / 96.0, 0.0, 1.0)
+            camera_set_position(fx * COLS * TILE - S.vw * S.inv_zoom * 0.5,
+                                fy * ROWS * TILE - S.vh * S.inv_zoom * 0.5)
+        elseif not S.over_hud then
+            if S.placing_type >= 0 then
+                if try_place_building(S.hover_c, S.hover_r) then S.placing_type = -1 end
             else
                 clear_selection()
-                drag_active = true
-                drag_sx = mouse_x
-                drag_sy = mouse_y
-                drag_wx = wx
-                drag_wy = wy
+                S.drag_active = true
+                S.drag_sx = S.mouse_x
+                S.drag_sy = S.mouse_y
+                S.drag_wx = wx
+                S.drag_wy = wy
             end
         end
     end
 
-    if game_over == 0 and input_mouse_pressed(2) then
-        if placing_type >= 0 then
-            placing_type = -1
-        elseif not over_hud then
+    if S.game_over == 0 and input_mouse_pressed(2) then
+        if S.placing_type >= 0 then
+            S.placing_type = -1
+        elseif not S.over_hud then
             issue_order(wx, wy)
         end
     end
 
-    if drag_active and not input_mouse_down(0) then
-        drag_active = false
+    if S.drag_active and not input_mouse_down(0) then
+        S.drag_active = false
         finish_selection(wx, wy)
     end
 end
@@ -1803,27 +1820,27 @@ local function add_initial_units(owner)
 end
 
 local function setup_scene()
-    map_id = map_load("assets/rts/map.json")
-    tex_inf = sprite_load_nearest("assets/rts/units/infantry.png")
-    tex_tracers = sprite_load_nearest("assets/rts/tracers.png")
-    tex_rocket = sprite_load_nearest("assets/rts/units/rocket.png")
-    tex_tank = sprite_load_nearest("assets/rts/units/tank.png")
-    tex_harv = sprite_load_nearest("assets/rts/units/harvester.png")
-    tex_cy = sprite_load_nearest("assets/rts/buildings/cy.png")
-    tex_power = sprite_load_nearest("assets/rts/buildings/power.png")
-    tex_barracks = sprite_load_nearest("assets/rts/buildings/barracks.png")
-    tex_factory = sprite_load_nearest("assets/rts/buildings/factory.png")
-    tex_refinery = sprite_load_nearest("assets/rts/buildings/refinery.png")
-    tex_turret = sprite_load_nearest("assets/rts/buildings/turret.png")
-    boom_fx = part_create()
-    part_set_lifetime(boom_fx, 0.35, 0.9)
-    part_set_speed(boom_fx, 40, 210)
-    part_set_direction(boom_fx, -1.5708, 3.1416)
-    part_set_size(boom_fx, 3, 9)
-    part_set_gravity(boom_fx, 0, 30)
-    part_set_drag(boom_fx, 1.2)
-    part_set_spin(boom_fx, 6)
-    part_set_color(boom_fx, 1.0, 0.72, 0.32, 1.0, 0.0)
+    S.map_id = map_load("assets/rts/map.json")
+    S.tex_inf = sprite_load_nearest("assets/rts/units/infantry.png")
+    S.tex_tracers = sprite_load_nearest("assets/rts/tracers.png")
+    S.tex_rocket = sprite_load_nearest("assets/rts/units/rocket.png")
+    S.tex_tank = sprite_load_nearest("assets/rts/units/tank.png")
+    S.tex_harv = sprite_load_nearest("assets/rts/units/harvester.png")
+    S.tex_cy = sprite_load_nearest("assets/rts/buildings/cy.png")
+    S.tex_power = sprite_load_nearest("assets/rts/buildings/power.png")
+    S.tex_barracks = sprite_load_nearest("assets/rts/buildings/barracks.png")
+    S.tex_factory = sprite_load_nearest("assets/rts/buildings/factory.png")
+    S.tex_refinery = sprite_load_nearest("assets/rts/buildings/refinery.png")
+    S.tex_turret = sprite_load_nearest("assets/rts/buildings/turret.png")
+    S.boom_fx = part_create()
+    part_set_lifetime(S.boom_fx, 0.35, 0.9)
+    part_set_speed(S.boom_fx, 40, 210)
+    part_set_direction(S.boom_fx, -1.5708, 3.1416)
+    part_set_size(S.boom_fx, 3, 9)
+    part_set_gravity(S.boom_fx, 0, 30)
+    part_set_drag(S.boom_fx, 1.2)
+    part_set_spin(S.boom_fx, 6)
+    part_set_color(S.boom_fx, 1.0, 0.72, 0.32, 1.0, 0.0)
     camera_set_bounds(0.0, 0.0, COLS * TILE, ROWS * TILE)
     camera_set_zoom(1.0)
     camera_set_position(14.0 * TILE - VIEW_W * 0.5, 38.0 * TILE - VIEW_H * 0.5)
@@ -1840,13 +1857,13 @@ end
 -- ---------------------------------------------------------------------------
 
 local function hquad(x, y, w, h, r, g, b, a)
-    draw_quad(cam_left + x * inv_zoom, cam_top + y * inv_zoom,
-              w * inv_zoom, h * inv_zoom, r, g, b, a)
+    draw_quad(S.cam_left + x * S.inv_zoom, S.cam_top + y * S.inv_zoom,
+              w * S.inv_zoom, h * S.inv_zoom, r, g, b, a)
 end
 
 local function htext(text, x, y, s, r, g, b, a)
-    draw_text(text, cam_left + x * inv_zoom, cam_top + y * inv_zoom,
-              s * inv_zoom, r, g, b, a)
+    draw_text(text, S.cam_left + x * S.inv_zoom, S.cam_top + y * S.inv_zoom,
+              s * S.inv_zoom, r, g, b, a)
 end
 
 local function draw_building_sprites()
@@ -2003,24 +2020,24 @@ local function draw_projectiles()
         local y = ent_num(id, S_Y)
         local kind = ent_num(id, S_TYPE)
         if kind == 0 then
-            if tex_tracers ~= 0 then
-                sprite_draw_region(tex_tracers, 0.0, 0.0, 24.0, 12.0,
+            if S.tex_tracers ~= 0 then
+                sprite_draw_region(S.tex_tracers, 0.0, 0.0, 24.0, 12.0,
                                    x - 8.0, y - 4.0, 16.0, 8.0)
             else
                 draw_line(x, y, x - 8.0, y, 1.0, 0.95, 0.55, 0.9)
                 draw_quad(x - 2.0, y - 1.0, 4.0, 2.0, 1.0, 0.92, 0.55, 1.0)
             end
         elseif kind == 1 then
-            if tex_tracers ~= 0 then
-                sprite_draw_region(tex_tracers, 24.0, 0.0, 24.0, 12.0,
+            if S.tex_tracers ~= 0 then
+                sprite_draw_region(S.tex_tracers, 24.0, 0.0, 24.0, 12.0,
                                    x - 7.0, y - 5.0, 14.0, 10.0)
             else
                 draw_quad(x - 3.0, y - 3.0, 6.0, 6.0, 1.0, 0.65, 0.30, 1.0)
                 draw_quad(x - 1.0, y - 1.0, 2.0, 2.0, 1.0, 0.95, 0.70, 1.0)
             end
         else
-            if tex_tracers ~= 0 then
-                sprite_draw_region(tex_tracers, 48.0, 0.0, 24.0, 12.0,
+            if S.tex_tracers ~= 0 then
+                sprite_draw_region(S.tex_tracers, 48.0, 0.0, 24.0, 12.0,
                                    x - 5.0, y - 5.0, 10.0, 10.0)
             else
                 draw_quad(x - 3.0, y - 3.0, 6.0, 6.0, 0.95, 0.82, 0.42, 1.0)
@@ -2031,18 +2048,18 @@ local function draw_projectiles()
 end
 
 local function draw_world()
-    map_draw(map_id)
+    map_draw(S.map_id)
     draw_building_sprites()
     draw_unit_sprites()
     draw_projectiles()
     part_draw()
 
-    if placing_type >= 0 and hover_c >= 0.0 and hover_r >= 0.0 and
-       hover_c < COLS and hover_r < ROWS then
+    if S.placing_type >= 0 and S.hover_c >= 0.0 and S.hover_r >= 0.0 and
+       S.hover_c < COLS and S.hover_r < ROWS then
         local occ = make_occupancy()
-        local ok = can_build_at(hover_c, hover_r, occ)
-        local col = hover_c
-        local row = hover_r
+        local ok = can_build_at(S.hover_c, S.hover_r, occ)
+        local col = S.hover_c
+        local row = S.hover_r
         local alpha = 0.16
         local cr, cg, cb = 0.35, 0.85, 0.45
         if not ok then
@@ -2065,11 +2082,11 @@ local function draw_world()
                           ok and 0.5 or 1.0, ok and 1.0 or 0.4, 0.4, 1.0)
     end
 
-    if drag_active then
-        local x0 = drag_wx
-        local y0 = drag_wy
-        local x1 = camera_screen_to_world_x(mouse_x, mouse_y)
-        local y1 = camera_screen_to_world_y(mouse_x, mouse_y)
+    if S.drag_active then
+        local x0 = S.drag_wx
+        local y0 = S.drag_wy
+        local x1 = camera_screen_to_world_x(S.mouse_x, S.mouse_y)
+        local y1 = camera_screen_to_world_y(S.mouse_x, S.mouse_y)
         if x0 > x1 then local tx = x0; x0 = x1; x1 = tx end
         if y0 > y1 then local ty = y0; y0 = y1; y1 = ty end
         draw_quad(x0, y0, x1 - x0, y1 - y0, 0.4, 0.85, 1.0, 0.12)
@@ -2078,8 +2095,8 @@ local function draw_world()
 end
 
 local function draw_minimap()
-    local mx = vw - 190.0
-    local my = vh - 280.0
+    local mx = S.vw - 190.0
+    local my = S.vh - 280.0
     hquad(mx - 5.0, my - 20.0, 184.0, 146.0, 0.04, 0.06, 0.08, 0.92)
     hrect(mx - 5.0, my - 20.0, 184.0, 146.0, 0.28, 0.38, 0.32, 0.9)
     htext("TACTICAL MAP", mx, my - 16.0, 0.34, 0.72, 0.86, 0.64, 1.0)
@@ -2126,24 +2143,24 @@ local function draw_minimap()
         i = i + 1
     end
 
-    local vx = mx + cam_left / (COLS * TILE) * 128.0
-    local vy = my + cam_top / (ROWS * TILE) * 96.0
-    local vw2 = (vw * inv_zoom) / (COLS * TILE) * 128.0
-    local vh2 = (vh * inv_zoom) / (ROWS * TILE) * 96.0
+    local vx = mx + S.cam_left / (COLS * TILE) * 128.0
+    local vy = my + S.cam_top / (ROWS * TILE) * 96.0
+    local vw2 = (S.vw * S.inv_zoom) / (COLS * TILE) * 128.0
+    local vh2 = (S.vh * S.inv_zoom) / (ROWS * TILE) * 96.0
     hrect(vx, vy, vw2, vh2, 0.94, 0.94, 0.80, 0.9)
 end
 
 local function draw_topbar()
-    hquad(0.0, 0.0, vw, 42.0, 0.05, 0.07, 0.06, 0.95)
-    hquad(0.0, 40.0, vw, 2.0, 0.32, 0.48, 0.28, 0.95)
+    hquad(0.0, 0.0, S.vw, 42.0, 0.05, 0.07, 0.06, 0.95)
+    hquad(0.0, 40.0, S.vw, 2.0, 0.32, 0.48, 0.28, 0.95)
     htext("RED ALERT // FAKE2D", 10.0, 8.0, 0.46, 0.92, 0.86, 0.52, 1.0)
     htext("COMMAND", 10.0, 28.0, 0.30, 0.50, 0.62, 0.42, 0.9)
 
     htext("CREDITS", 180.0, 8.0, 0.30, 0.56, 0.68, 0.58, 1.0)
-    htext("$" .. fmt_int(credits_p), 180.0, 22.0, 0.48, 1.0, 0.88, 0.40, 1.0)
+    htext("$" .. fmt_int(S.credits_p), 180.0, 22.0, 0.48, 1.0, 0.88, 0.40, 1.0)
 
     htext("POWER", 300.0, 8.0, 0.30, 0.56, 0.68, 0.58, 1.0)
-    local ratio = power_ratio_p
+    local ratio = S.power_ratio_p
     local pr, pg, pb = 0.30, 0.82, 0.40
     if ratio < 1.0 then pr, pg, pb = 0.92, 0.45, 0.24 end
     hquad(300.0, 27.0, 110.0, 9.0, 0.10, 0.14, 0.10, 1.0)
@@ -2159,16 +2176,16 @@ local function draw_topbar()
 
     htext("DESTROY ENEMY COMMAND YARD", 610.0, 10.0, 0.30,
           0.70, 0.78, 0.64, 0.9)
-    local secs = math.floor(match_frames / 60.0)
+    local secs = math.floor(S.match_frames / 60.0)
     local mm = math.floor(secs / 60.0)
     local ss = secs % 60
-    htext(string.format("%02d:%02d", mm, ss), vw - 66.0, 22.0, 0.40,
+    htext(string.format("%02d:%02d", mm, ss), S.vw - 66.0, 22.0, 0.40,
           0.80, 0.88, 0.78, 1.0)
 end
 
 local function draw_selection_panel()
     local x = 8.0
-    local y = vh - 216.0
+    local y = S.vh - 216.0
     local uid = first_selected_unit()
     local bid = first_selected_bld()
     if uid == 0 and bid == 0 then return end
@@ -2215,9 +2232,9 @@ local function draw_selection_panel()
 end
 
 local function draw_command_panel()
-    local by = vh - 132.0
-    hquad(0.0, by, vw, 132.0, 0.05, 0.07, 0.06, 0.95)
-    hquad(0.0, by, vw, 2.0, 0.32, 0.48, 0.28, 0.95)
+    local by = S.vh - 132.0
+    hquad(0.0, by, S.vw, 132.0, 0.05, 0.07, 0.06, 0.95)
+    hquad(0.0, by, S.vw, 2.0, 0.32, 0.48, 0.28, 0.95)
     local i = 0
     while i < 5 do
         local x = 8.0 + i * 94.0
@@ -2225,10 +2242,10 @@ local function draw_command_panel()
         local btype = i + 1
         local cost = bld_cost(btype)
         local hot = string.format("%d", i + 1)
-        local active = placing_type == btype
+        local active = S.placing_type == btype
         local bg = 0.10
         if active then bg = 0.20 end
-        if in_rect(mouse_x, mouse_y, x, y, 86.0, 54.0) then bg = bg + 0.08 end
+        if in_rect(S.mouse_x, S.mouse_y, x, y, 86.0, 54.0) then bg = bg + 0.08 end
         hquad(x, y, 86.0, 54.0, bg, bg + 0.02, bg, 0.95)
         local br, bgc, bb = 0.72, 0.72, 0.62
         if btype == B_POWER then br, bgc, bb = 0.94, 0.78, 0.28 end
@@ -2251,7 +2268,7 @@ local function draw_command_panel()
         local cost = unit_cost(utype)
         local hot = string.format("%d", i + 6)
         local bg = 0.10
-        if in_rect(mouse_x, mouse_y, x, y, 86.0, 54.0) then bg = bg + 0.08 end
+        if in_rect(S.mouse_x, S.mouse_y, x, y, 86.0, 54.0) then bg = bg + 0.08 end
         hquad(x, y, 86.0, 54.0, bg, bg + 0.02, bg, 0.95)
         local br, bgc, bb = 0.52, 0.68, 0.52
         if utype == U_ROCKET then br, bgc, bb = 0.90, 0.58, 0.26 end
@@ -2268,14 +2285,14 @@ local function draw_command_panel()
 
     local px = 486.0
     local py = by + 8.0
-    local pw = vw - 494.0
+    local pw = S.vw - 494.0
     hquad(px, py, pw, 116.0, 0.04, 0.06, 0.05, 0.9)
     hrect(px, py, pw, 116.0, 0.24, 0.34, 0.24, 0.9)
     htext("PRODUCTION", px + 10.0, py + 8.0, 0.34, 0.78, 0.86, 0.62, 1.0)
-    if prod_p_type >= 0 then
-        htext(unit_name(prod_p_type), px + 10.0, py + 28.0, 0.36,
+    if S.prod_p_type >= 0 then
+        htext(unit_name(S.prod_p_type), px + 10.0, py + 28.0, 0.36,
               0.92, 0.94, 0.86, 1.0)
-        local p = prod_p_timer / prod_p_total
+        local p = S.prod_p_timer / S.prod_p_total
         if p > 1.0 then p = 1.0 end
         hquad(px + 10.0, py + 50.0, pw - 20.0, 9.0, 0.10, 0.13, 0.10, 1.0)
         hquad(px + 10.0, py + 50.0, (pw - 20.0) * p, 9.0, 0.36, 0.82, 0.42, 1.0)
@@ -2290,11 +2307,11 @@ local function draw_command_panel()
         htext("RIGHT-CLICK CANCELS PLACEMENT", px + 10.0, py + 64.0, 0.30,
               0.62, 0.70, 0.60, 1.0)
     end
-    if placing_type >= 0 then
-        htext("PLACING " .. bld_name(placing_type) .. "  $" ..
-              fmt_int(bld_cost(placing_type)), px + 10.0, py + 92.0, 0.32,
+    if S.placing_type >= 0 then
+        htext("PLACING " .. bld_name(S.placing_type) .. "  $" ..
+              fmt_int(bld_cost(S.placing_type)), px + 10.0, py + 92.0, 0.32,
               0.96, 0.88, 0.48, 1.0)
-    elseif power_ratio_p < 1.0 then
+    elseif S.power_ratio_p < 1.0 then
         htext("LOW POWER", px + 10.0, py + 92.0, 0.34, 0.96, 0.52, 0.36, 1.0)
     else
         htext("WASD PAN  WHEEL ZOOM  M MAP", px + 10.0, py + 92.0, 0.30,
@@ -2303,36 +2320,36 @@ local function draw_command_panel()
 end
 
 local function draw_alert()
-    if alert_timer > 0 and alert_code ~= 0 then
-        local text = alert_text(alert_code)
+    if S.alert_timer > 0 and S.alert_code ~= 0 then
+        local text = alert_text(S.alert_code)
         local w = text_width(text, 0.42) + 36.0
-        local x = (vw - w) * 0.5
+        local x = (S.vw - w) * 0.5
         hquad(x, 48.0, w, 28.0, 0.28, 0.09, 0.06, 0.94)
         hrect(x, 48.0, w, 28.0, 0.95, 0.48, 0.32, 0.95)
         local tw = text_width(text, 0.42)
-        htext(text, (vw - tw) * 0.5, 55.0, 0.42, 1.0, 0.88, 0.78, 1.0)
+        htext(text, (S.vw - tw) * 0.5, 55.0, 0.42, 1.0, 0.88, 0.78, 1.0)
     end
 end
 
 local function draw_gameover()
-    if game_over == 0 then return end
-    hquad(0.0, 200.0, vw, 120.0, 0.03, 0.04, 0.03, 0.92)
-    hquad(0.0, 198.0, vw, 2.0, 0.90, 0.76, 0.36, 0.95)
+    if S.game_over == 0 then return end
+    hquad(0.0, 200.0, S.vw, 120.0, 0.03, 0.04, 0.03, 0.92)
+    hquad(0.0, 198.0, S.vw, 2.0, 0.90, 0.76, 0.36, 0.95)
     local title = "MISSION COMPLETE"
     local sub = "THE ENEMY COMMAND YARD HAS BEEN DESTROYED"
-    if game_over == 2 then
+    if S.game_over == 2 then
         title = "BASE DESTROYED"
         sub = "THE COMMAND YARD HAS FALLEN - THE BATTLE IS OVER"
     end
     local tw = text_width(title, 0.80)
-    htext(title, (vw - tw) * 0.5, 224.0, 0.80, 0.96, 0.86, 0.46, 1.0)
+    htext(title, (S.vw - tw) * 0.5, 224.0, 0.80, 0.96, 0.86, 0.46, 1.0)
     local sw = text_width(sub, 0.34)
-    htext(sub, (vw - sw) * 0.5, 276.0, 0.34, 0.78, 0.84, 0.72, 1.0)
+    htext(sub, (S.vw - sw) * 0.5, 276.0, 0.34, 0.78, 0.84, 0.72, 1.0)
 end
 
 local function draw_hud()
     draw_topbar()
-    if minimap_on then draw_minimap() end
+    if S.minimap_on then draw_minimap() end
     draw_selection_panel()
     draw_command_panel()
     draw_alert()
@@ -2340,19 +2357,24 @@ local function draw_hud()
 end
 
 function update(dt)
-    frame_no = frame_no + 1
-    match_frames = match_frames + 1
-    if not inited then
-        inited = true
+    if S.seeded == nil then
+        S.seeded = true
+        reset_state()
+    end
+
+    S.frame_no = S.frame_no + 1
+    S.match_frames = S.match_frames + 1
+    if not S.inited then
+        S.inited = true
         setup_scene()
     end
 
-    vw = camera_viewport_w()
-    vh = camera_viewport_h()
-    mouse_x = input_mouse_x()
-    mouse_y = input_mouse_y()
+    S.vw = camera_viewport_w()
+    S.vh = camera_viewport_h()
+    S.mouse_x = input_mouse_x()
+    S.mouse_y = input_mouse_y()
 
-    if map_id == 0 or tex_inf == 0 or tex_cy == 0 then
+    if S.map_id == 0 or S.tex_inf == 0 or S.tex_cy == 0 then
         draw_text("RTS ASSETS FAILED TO LOAD", 40.0, 60.0, 0.7, 1.0, 0.4, 0.4, 1.0)
         return 0
     end
@@ -2369,9 +2391,9 @@ function update(dt)
     update_pointer()
     auto_camera()
 
-    if alert_timer > 0 then alert_timer = alert_timer - 1 end
-    if alert_timer == 0 then alert_code = 0 end
-    if power_ratio_p < 1.0 and frame_no % 240 == 0 then notify(4) end
+    if S.alert_timer > 0 then S.alert_timer = S.alert_timer - 1 end
+    if S.alert_timer == 0 then S.alert_code = 0 end
+    if S.power_ratio_p < 1.0 and S.frame_no % 240 == 0 then notify(4) end
 
     draw_world()
     draw_hud()

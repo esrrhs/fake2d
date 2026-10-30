@@ -19,7 +19,15 @@
 local WATER = 1 + 0 -- gid 1: the animated water tile
 local TORCH = 4 + 0 -- gid 4: the animated torch tile
 
-local map_id = 0 + 0
+
+-- FakeLua binds file-level locals as const, so everything that changes
+-- across frames lives in a host-side NativeObject instead (see
+-- docs/SCRIPTING.md rule 3). Fields read and write like a plain table.
+local S = new_global_obj("tile_demo", "state")
+
+local function reset_state()
+    S.map_id = 0 + 0
+end
 
 local function istr(n)
     return string.format("%d", n)
@@ -44,25 +52,30 @@ local function yesno(v)
 end
 
 function update(dt)
-    if map_id == 0 then
-        map_id = map_load("assets/ta_level.json")
-        if map_id == 0 then
+    if S.seeded == nil then
+        S.seeded = true
+        reset_state()
+    end
+
+    if S.map_id == 0 then
+        S.map_id = map_load("assets/ta_level.json")
+        if S.map_id == 0 then
             draw_text("failed to load assets/ta_level.json", 40, 40, 1.0,
                       1.0, 0.4, 0.4, 1.0)
             return 0
         end
     end
 
-    map_draw(map_id)
+    map_draw(S.map_id)
 
     -- The clock, straight from the engine's per-frame tick.
-    local t = map_anim_time(map_id)
-    local wi = map_anim_index(map_id, WATER)
-    local ti = map_anim_index(map_id, TORCH)
-    local wc = map_anim_count(map_id, WATER)
-    local tc = map_anim_count(map_id, TORCH)
-    local wcycle = map_anim_cycle(map_id, WATER)
-    local tcycle = map_anim_cycle(map_id, TORCH)
+    local t = map_anim_time(S.map_id)
+    local wi = map_anim_index(S.map_id, WATER)
+    local ti = map_anim_index(S.map_id, TORCH)
+    local wc = map_anim_count(S.map_id, WATER)
+    local tc = map_anim_count(S.map_id, TORCH)
+    local wcycle = map_anim_cycle(S.map_id, WATER)
+    local tcycle = map_anim_cycle(S.map_id, TORCH)
 
     -- HUD panel. The map is 30x12 tiles of 32 px = 960x384, so the panel
     -- starts below it and stays inside the 960x540 canvas.
@@ -93,13 +106,13 @@ function update(dt)
     end
 
     draw_text("clock " .. two_dp(t) .. "s", 480, 448, 0.6, 0.72, 0.82, 0.92, 1.0)
-    draw_text("pond tile shows gid " .. istr(map_anim_gid(map_id, WATER)),
+    draw_text("pond tile shows gid " .. istr(map_anim_gid(S.map_id, WATER)),
               480, 470, 0.6, 0.72, 0.82, 0.92, 1.0)
 
     -- Collisions are read from the base gid: the grass line stays solid while
     -- the water under it cycles, and the pond cell itself never turns solid.
-    draw_text("solid grid: grass " .. yesno(map_solid(map_id, 2, 7)) ..
-                  ", pond " .. yesno(map_solid(map_id, 5, 8)) ..
+    draw_text("solid grid: grass " .. yesno(map_solid(S.map_id, 2, 7)) ..
+                  ", pond " .. yesno(map_solid(S.map_id, 5, 8)) ..
                   " - unchanged by the cycle", 40, 500, 0.6,
               0.55, 0.62, 0.7, 1.0)
     draw_text("every water cell shares one clock, so the whole pond moves",
@@ -107,7 +120,7 @@ function update(dt)
 
     -- A click rewinds the clock: the pond jumps back to frame 1.
     if ui_button("ta_reset", 0, 800, 436, 120, 28, "RESET CLOCK", 0.55) then
-        map_anim_reset(map_id)
+        map_anim_reset(S.map_id)
     end
 
     return 0
