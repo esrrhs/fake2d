@@ -30,29 +30,37 @@
 
 -- Streamed vs decoded: registered on the first frame (the engine has no init
 -- hook here), and the readouts are what the panel is about.
-local stream_ready = false
-local stream_ok = false
-local decode_ok = false
 -- Note the `+ 0.0`: a file-level local initialised from a bare literal is a
 -- constant in FakeLua, and these are written every frame.
-local stream_len = 0.0 + 0.0
-local cached_frames = 0.0 + 0.0
 
 local SEGMENTS = 24 + 0
 local SEG_W = 11 + 0
 local SEG_GAP = 1 + 0
 local STEP = SEG_W + SEG_GAP
 
-local master = 0.80 + 0.0
-local sfx_bus = 0.70 + 0.0
-local music_bus = 0.60 + 0.0
 
-local track = "theme_a"
-local crossfade = 1.20 + 0.0
-local level = 0.60 + 0.0
-local last_level = -1.0 + 0.0
-local paused = false
-local inited = false
+
+-- FakeLua binds file-level locals as const, so everything that changes
+-- across frames lives in a host-side NativeObject instead (see
+-- docs/SCRIPTING.md rule 3). Fields read and write like a plain table.
+local S = new_global_obj("audio_demo", "state")
+
+local function reset_state()
+    S.stream_ready = false
+    S.stream_ok = false
+    S.decode_ok = false
+    S.stream_len = 0.0 + 0.0
+    S.cached_frames = 0.0 + 0.0
+    S.master = 0.80 + 0.0
+    S.sfx_bus = 0.70 + 0.0
+    S.music_bus = 0.60 + 0.0
+    S.track = "theme_a"
+    S.crossfade = 1.20 + 0.0
+    S.level = 0.60 + 0.0
+    S.last_level = -1.0 + 0.0
+    S.paused = false
+    S.inited = false
+end
 
 local function istr(n)
     return string.format("%d", n)
@@ -72,22 +80,27 @@ end
 -- Switch themes through the cross-fade; the slider is read at call time, so
 -- dragging it to 0 turns every subsequent switch into a hard cut.
 local function play_track(name)
-    track = name
-    audio_music(name, level, crossfade)
+    S.track = name
+    audio_music(name, S.level, S.crossfade)
 end
 
 local function set_paused(next_value)
-    paused = next_value
-    audio_pause(paused)
+    S.paused = next_value
+    audio_pause(S.paused)
 end
 
 function update(dt)
-    if not inited then
-        inited = true
-        audio_bus_set(0, master)
-        audio_bus_set(1, sfx_bus)
-        audio_bus_set(2, music_bus)
-        play_track(track)
+    if S.seeded == nil then
+        S.seeded = true
+        reset_state()
+    end
+
+    if not S.inited then
+        S.inited = true
+        audio_bus_set(0, S.master)
+        audio_bus_set(1, S.sfx_bus)
+        audio_bus_set(2, S.music_bus)
+        play_track(S.track)
     end
 
     draw_text("AUDIO MIXER", 40, 24, 1.2, 0.94, 0.96, 1.0, 1.0)
@@ -96,17 +109,17 @@ function update(dt)
 
     -- --- buses: voice x bus x master -------------------------------------
     draw_text("BUSES", 40, 84, 0.75, 0.55, 0.92, 0.94, 1.0)
-    master = ui_slider("bus_master", 0, 40, 104, 220, 24, master, 0.0, 1.0)
-    sfx_bus = ui_slider("bus_sfx", 0, 40, 144, 220, 24, sfx_bus, 0.0, 1.0)
-    music_bus = ui_slider("bus_music", 0, 40, 184, 220, 24, music_bus, 0.0, 1.0)
-    audio_bus_set(0, master)
-    audio_bus_set(1, sfx_bus)
-    audio_bus_set(2, music_bus)
-    draw_text("master " .. pct(master) .. "%", 268, 110, 0.6,
+    S.master = ui_slider("bus_master", 0, 40, 104, 220, 24, S.master, 0.0, 1.0)
+    S.sfx_bus = ui_slider("bus_sfx", 0, 40, 144, 220, 24, S.sfx_bus, 0.0, 1.0)
+    S.music_bus = ui_slider("bus_music", 0, 40, 184, 220, 24, S.music_bus, 0.0, 1.0)
+    audio_bus_set(0, S.master)
+    audio_bus_set(1, S.sfx_bus)
+    audio_bus_set(2, S.music_bus)
+    draw_text("master " .. pct(S.master) .. "%", 268, 110, 0.6,
               0.75, 0.85, 0.95, 1.0)
-    draw_text("sfx    " .. pct(sfx_bus) .. "%", 268, 150, 0.6,
+    draw_text("sfx    " .. pct(S.sfx_bus) .. "%", 268, 150, 0.6,
               0.75, 0.85, 0.95, 1.0)
-    draw_text("music  " .. pct(music_bus) .. "%", 268, 190, 0.6,
+    draw_text("music  " .. pct(S.music_bus) .. "%", 268, 190, 0.6,
               0.75, 0.85, 0.95, 1.0)
     draw_text("effective gain = voice x bus x master", 40, 220, 0.55,
               0.5, 0.58, 0.66, 1.0)
@@ -149,21 +162,21 @@ function update(dt)
         play_track("theme_b")
     end
     if ui_button("trk_stop", 0, 360, 142, 120, 28, "STOP", 0.6) then
-        audio_music_stop(crossfade)
+        audio_music_stop(S.crossfade)
     end
     if ui_button("trk_out", 0, 490, 142, 120, 28, "FADE OUT", 0.5) then
         audio_music_stop(1.5)
     end
 
-    crossfade = ui_slider("xfade", 0, 360, 184, 200, 24, crossfade, 0.0, 3.0)
-    level = ui_slider("level", 0, 360, 224, 200, 24, level, 0.0, 1.0)
-    draw_text(one_dp(crossfade) .. "s", 568, 190, 0.55, 0.75, 0.85, 0.95, 1.0)
-    draw_text(pct(level) .. "%", 568, 230, 0.55, 0.75, 0.85, 0.95, 1.0)
+    S.crossfade = ui_slider("xfade", 0, 360, 184, 200, 24, S.crossfade, 0.0, 3.0)
+    S.level = ui_slider("level", 0, 360, 224, 200, 24, S.level, 0.0, 1.0)
+    draw_text(one_dp(S.crossfade) .. "s", 568, 190, 0.55, 0.75, 0.85, 0.95, 1.0)
+    draw_text(pct(S.level) .. "%", 568, 230, 0.55, 0.75, 0.85, 0.95, 1.0)
     -- Only push when the value actually moved, or this would cancel the
     -- fade-out the STOP button just started.
-    if level ~= last_level then
-        last_level = level
-        audio_music_fade(level, 0.0)
+    if S.level ~= S.last_level then
+        S.last_level = S.level
+        audio_music_fade(S.level, 0.0)
     end
     draw_text("cross-fade / level", 360, 262, 0.6, 0.5, 0.58, 0.66, 1.0)
     draw_text("keys: 1 track A, 2 track B, S stop, P pause", 360, 286, 0.55,
@@ -175,10 +188,10 @@ function update(dt)
         play_track("theme_b")
     end
     if input_key_pressed("s") then
-        audio_music_stop(crossfade)
+        audio_music_stop(S.crossfade)
     end
     if input_key_pressed("p") then
-        set_paused(not paused)
+        set_paused(not S.paused)
     end
 
     -- --- status + VU ------------------------------------------------------
@@ -196,8 +209,8 @@ function update(dt)
     end
     draw_text("music: " .. state, 640, 126, 0.65, 0.94, 0.96, 1.0, 1.0)
 
-    if ui_checkbox("pause", 0, 640, 152, 20, paused, "pause the mix", 0.6) then
-        set_paused(not paused)
+    if ui_checkbox("pause", 0, 640, 152, 20, S.paused, "pause the mix", 0.6) then
+        set_paused(not S.paused)
     end
 
     local peak = audio_peak()
@@ -226,40 +239,40 @@ function update(dt)
         i = i + 1
     end
     draw_text("peak " .. pct(peak) .. "%", 640, 234, 0.6, 0.75, 0.85, 0.95, 1.0)
-    draw_text("playing: " .. track, 640, 258, 0.6, 0.5, 0.58, 0.66, 1.0)
+    draw_text("playing: " .. S.track, 640, 258, 0.6, 0.5, 0.58, 0.66, 1.0)
 
     -- --- decoded file vs streamed track (Phase 29) ------------------------
-    if not stream_ready then
-        stream_ready = true
-        decode_ok = audio_load_file("decoded", "assets/music.wav")
-        stream_ok = audio_stream("streamed", "assets/music.wav")
-        stream_len = audio_clip_len("streamed")
+    if not S.stream_ready then
+        S.stream_ready = true
+        S.decode_ok = audio_load_file("decoded", "assets/music.wav")
+        S.stream_ok = audio_stream("streamed", "assets/music.wav")
+        S.stream_len = audio_clip_len("streamed")
     end
 
     draw_text("FILE PLAYBACK", 640, 300, 0.75, 0.62, 0.86, 0.98, 1.0)
     if ui_button("play_dec", 0, 640, 320, 128, 28, "DECODED", 0.6) then
-        audio_music("decoded", level, crossfade)
+        audio_music("decoded", S.level, S.crossfade)
     end
     if ui_button("play_str", 0, 776, 320, 128, 28, "STREAMED", 0.6) then
-        audio_music("streamed", level, crossfade)
+        audio_music("streamed", S.level, S.crossfade)
     end
-    draw_text("assets/music.wav  " .. one_dp(stream_len) .. "s", 640, 358, 0.55,
+    draw_text("assets/music.wav  " .. one_dp(S.stream_len) .. "s", 640, 358, 0.55,
               0.5, 0.58, 0.66, 1.0)
-    if not decode_ok or not stream_ok then
+    if not S.decode_ok or not S.stream_ok then
         draw_text("file not found - run from the project root", 640, 378, 0.55,
                   0.75, 0.55, 0.55, 1.0)
     else
-        cached_frames = audio_clip_cached("streamed")
+        S.cached_frames = audio_clip_cached("streamed")
         local dec_frames = audio_clip_cached("decoded")
-        draw_text("buffered " .. pct(dec_frames / (stream_len * 44100.0))
-                  .. " vs " .. pct(cached_frames / (stream_len * 44100.0)),
+        draw_text("buffered " .. pct(dec_frames / (S.stream_len * 44100.0))
+                  .. " vs " .. pct(S.cached_frames / (S.stream_len * 44100.0)),
                   640, 378, 0.55, 0.75, 0.85, 0.95, 1.0)
         -- The bar is the whole point: one window wide for a stream, full for
         -- a decoded file.
-        local total = stream_len * 44100.0
+        local total = S.stream_len * 44100.0
         if total > 0.0 then
             draw_quad(640, 396, 260, 10, 0.13, 0.16, 0.24, 1.0)
-            draw_quad(640, 396, 260 * (cached_frames / total), 10,
+            draw_quad(640, 396, 260 * (S.cached_frames / total), 10,
                       0.45, 0.86, 0.58, 1.0)
             draw_quad(640, 412, 260, 10, 0.13, 0.16, 0.24, 1.0)
             draw_quad(640, 412, 260 * (dec_frames / total), 10,

@@ -12,15 +12,6 @@
 -- Controls: L or the button switches language, SAVE writes a container
 -- under the per-user saves directory, R resets the saved slot.
 
-local loaded = 0 + 0
-local font_ok = 0 + 0
-local font_index = 0 + 0
-local lang_index = 0 + 0
-local save_bytes = 0 + 0
-local save_ver = 0 + 0
-local slot_count = 0 + 0
-local header_len = 0 + 0
-local cloud = 0 + 0
 
 -- Runtime-constant candidate table; the first loadable font wins.
 local fonts = {
@@ -33,9 +24,26 @@ local fonts = {
     {path = "C:\\Windows\\Fonts\\simhei.ttf", name = "SimHei"}
 }
 
+-- FakeLua binds file-level locals as const, so everything that changes
+-- across frames lives in a host-side NativeObject instead (see
+-- docs/SCRIPTING.md rule 3). Fields read and write like a plain table.
+local S = new_global_obj("text_demo", "state")
+
+local function reset_state()
+    S.loaded = 0 + 0
+    S.font_ok = 0 + 0
+    S.font_index = 0 + 0
+    S.lang_index = 0 + 0
+    S.save_bytes = 0 + 0
+    S.save_ver = 0 + 0
+    S.slot_count = 0 + 0
+    S.header_len = 0 + 0
+    S.cloud = 0 + 0
+end
+
 local function font_name()
-    if font_ok == 1 and font_index >= 1 and font_index <= 7 then
-        return fonts[font_index].name
+    if S.font_ok == 1 and S.font_index >= 1 and S.font_index <= 7 then
+        return fonts[S.font_index].name
     end
     return i18n_t("Fallback ASCII only")
 end
@@ -56,8 +64,8 @@ local function switch_language()
     if n <= 1 then
         return
     end
-    lang_index = (lang_index + 1) % n
-    i18n_set_language(i18n_language_code(lang_index))
+    S.lang_index = (S.lang_index + 1) % n
+    i18n_set_language(i18n_language_code(S.lang_index))
 end
 
 local function save_demo_slot()
@@ -67,10 +75,10 @@ local function save_demo_slot()
     local payload = "FAKE2D-TEXT-DEMO|" .. lang .. "|payload"
     storage_blob_write("text_demo", dir, payload,
                         "name=demo;lang=" .. lang, 3)
-    save_bytes = storage_blob_size("text_demo", dir)
-    save_ver = storage_blob_version("text_demo", dir)
-    slot_count = storage_slot_count(dir)
-    header_len = string.len(storage_blob_header("text_demo", dir))
+    S.save_bytes = storage_blob_size("text_demo", dir)
+    S.save_ver = storage_blob_version("text_demo", dir)
+    S.slot_count = storage_slot_count(dir)
+    S.header_len = string.len(storage_blob_header("text_demo", dir))
 end
 
 local function draw_background()
@@ -90,7 +98,7 @@ local function draw_text_page()
     local y = 126.0
     local step = 26.0
     draw_text(i18n_t("Language") .. ": " .. i18n_language()
-                  .. "  [" .. i18n_language_name(lang_index) .. "]",
+                  .. "  [" .. i18n_language_name(S.lang_index) .. "]",
               tx, y, 0.66, 0.12, 0.14, 0.18, 1.0)
     y = y + step
     draw_text(i18n_t("Font") .. ": " .. font_name(), tx, y, 0.6,
@@ -119,11 +127,11 @@ local function draw_text_page()
     draw_text(steam_line .. "  [" .. steam_backend() .. "]  ACH " .. ach_count(),
               tx, y, 0.56, 0.20, 0.22, 0.26, 1.0)
     y = y + step
-    draw_text(i18n_t("Save slot") .. ": " .. string.format("%d", save_bytes)
+    draw_text(i18n_t("Save slot") .. ": " .. string.format("%d", S.save_bytes)
                   .. " " .. i18n_t("Saved bytes") .. "  "
-                  .. i18n_t("Version") .. " " .. string.format("%d", save_ver)
-                  .. "  header " .. string.format("%d", header_len) .. "  "
-                  .. i18n_t("Slot list") .. " " .. string.format("%d", slot_count),
+                  .. i18n_t("Version") .. " " .. string.format("%d", S.save_ver)
+                  .. "  header " .. string.format("%d", S.header_len) .. "  "
+                  .. i18n_t("Slot list") .. " " .. string.format("%d", S.slot_count),
               tx, y, 0.52, 0.20, 0.22, 0.26, 1.0)
 
     -- Wrapped paragraph: CJK breaks anywhere, Latin words stay intact.
@@ -171,22 +179,27 @@ local function draw_footer()
 end
 
 function update(dt)
-    if loaded == 0 then
-        loaded = 1
+    if S.seeded == nil then
+        S.seeded = true
+        reset_state()
+    end
+
+    if S.loaded == 0 then
+        S.loaded = 1
         for i = 1, 7 do
-            if font_ok == 0 and font_load(fonts[i].path, 30.0) then
-                font_ok = 1
-                font_index = i
+            if S.font_ok == 0 and font_load(fonts[i].path, 30.0) then
+                S.font_ok = 1
+                S.font_index = i
             end
         end
         -- A fontless (ASCII-only) host starts in English so the demo stays
         -- readable; CJK hosts start in Chinese.
         local start = "en"
-        if font_ok == 1 then
+        if S.font_ok == 1 then
             start = "zh"
         end
         i18n_load(paths_resolve("assets/lang"), start)
-        lang_index = current_language_index()
+        S.lang_index = current_language_index()
 
         -- Keep demo saves out of the real profile.
         local tmp = os.getenv("TMPDIR")
@@ -205,9 +218,9 @@ function update(dt)
         window_set_resizable(true)
         input_bind("jump", "space")
         save_demo_slot()
-        cloud = 0
+        S.cloud = 0
         if steam_cloud_enabled() then
-            cloud = 1
+            S.cloud = 1
         end
     end
 
@@ -219,17 +232,17 @@ function update(dt)
     end
     if input_key_pressed("r") then
         storage_slot_delete("text_demo", paths_saves_dir())
-        save_bytes = 0
-        save_ver = 0
-        slot_count = storage_slot_count(paths_saves_dir())
+        S.save_bytes = 0
+        S.save_ver = 0
+        S.slot_count = storage_slot_count(paths_saves_dir())
     end
     if input_key_pressed("c") then
-        if cloud == 1 then
-            cloud = 0
+        if S.cloud == 1 then
+            S.cloud = 0
         else
-            cloud = 1
+            S.cloud = 1
         end
-        steam_set_cloud(cloud == 1)
+        steam_set_cloud(S.cloud == 1)
     end
 
     draw_background()

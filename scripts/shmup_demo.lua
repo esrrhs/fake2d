@@ -34,50 +34,58 @@ local BG_SPEED = 145.0
 local CLOUD_SPEED = 52.0
 local BOSS_WAVE = 8
 
-local inited = false
 
 -- Textures.
-local tex_ship = 0 + 0
-local tex_es = 0 + 0
-local tex_em = 0 + 0
-local tex_eb = 0 + 0
-local tex_expl = 0 + 0
-local tex_bolts = 0 + 0
-local tex_orb = 0 + 0
-local tex_power = 0 + 0
-local tex_bg = 0 + 0
-local tex_clouds = 0 + 0
 
 -- Player / run state.
-local player_id = 0 + 0
-local player_dead = false
-local lives = 3 + 0
-local bombs = 3 + 0
-local weapon = 0 + 0
-local power = 1 + 0
-local invuln = 0.0 + 0.0
-local respawn_t = 0.0 + 0.0
-local fire_t = 0.0 + 0.0
-local score = 0.0 + 0.0
-local stage = 1 + 0
-local difficulty = 1.0 + 0.0
-local game_over = false
-local end_t = 0.0 + 0.0
-local ready_t = 0.0 + 0.0
-local clear_t = 0.0 + 0.0
-local warn_t = 0.0 + 0.0
-local wave = 0 + 0
-local director_t = 0.0 + 0.0
-local boss_id = 0 + 0
-local boss_active = false
-local boss_max_hp = 240.0 + 0.0
-local flash_t = 0.0 + 0.0
-local bg_scroll = 0.0 + 0.0
-local cloud_scroll = 0.0 + 0.0
-local idle_frames = 0 + 0
-local ai_bomb_t = 0.0 + 0.0
-local vw = 960.0 + 0.0
-local vh = 540.0 + 0.0
+
+-- FakeLua binds file-level locals as const, so everything that changes
+-- across frames lives in a host-side NativeObject instead (see
+-- docs/SCRIPTING.md rule 3). Fields read and write like a plain table.
+local S = new_global_obj("shmup_demo", "state")
+
+local function reset_state()
+    S.inited = false
+    S.tex_ship = 0 + 0
+    S.tex_es = 0 + 0
+    S.tex_em = 0 + 0
+    S.tex_eb = 0 + 0
+    S.tex_expl = 0 + 0
+    S.tex_bolts = 0 + 0
+    S.tex_orb = 0 + 0
+    S.tex_power = 0 + 0
+    S.tex_bg = 0 + 0
+    S.tex_clouds = 0 + 0
+    S.player_id = 0 + 0
+    S.player_dead = false
+    S.lives = 3 + 0
+    S.bombs = 3 + 0
+    S.weapon = 0 + 0
+    S.power = 1 + 0
+    S.invuln = 0.0 + 0.0
+    S.respawn_t = 0.0 + 0.0
+    S.fire_t = 0.0 + 0.0
+    S.score = 0.0 + 0.0
+    S.stage = 1 + 0
+    S.difficulty = 1.0 + 0.0
+    S.game_over = false
+    S.end_t = 0.0 + 0.0
+    S.ready_t = 0.0 + 0.0
+    S.clear_t = 0.0 + 0.0
+    S.warn_t = 0.0 + 0.0
+    S.wave = 0 + 0
+    S.director_t = 0.0 + 0.0
+    S.boss_id = 0 + 0
+    S.boss_active = false
+    S.boss_max_hp = 240.0 + 0.0
+    S.flash_t = 0.0 + 0.0
+    S.bg_scroll = 0.0 + 0.0
+    S.cloud_scroll = 0.0 + 0.0
+    S.idle_frames = 0 + 0
+    S.ai_bomb_t = 0.0 + 0.0
+    S.vw = 960.0 + 0.0
+    S.vh = 540.0 + 0.0
+end
 
 local function clampf(v, lo, hi)
     if v < lo then return lo end
@@ -95,10 +103,10 @@ end
 -- ---------------------------------------------------------------------------
 
 local function enemy_hp(ty)
-    if ty == E_SMALL then return 2.0 * difficulty end
-    if ty == E_MEDIUM then return 7.0 * difficulty end
-    if ty == E_BIG then return 24.0 * difficulty end
-    return 240.0 * difficulty
+    if ty == E_SMALL then return 2.0 * S.difficulty end
+    if ty == E_MEDIUM then return 7.0 * S.difficulty end
+    if ty == E_BIG then return 24.0 * S.difficulty end
+    return 240.0 * S.difficulty
 end
 
 local function enemy_score(ty)
@@ -194,21 +202,21 @@ end
 -- ---------------------------------------------------------------------------
 
 local function spawn_player()
-    player_id = ent_create(1)
-    if player_id == 0 then return end
-    ent_set_num(player_id, X, vw * 0.5)
-    ent_set_num(player_id, Y, vh * 0.84)
-    ent_set_num(player_id, VX, 0.0)
-    ent_set_num(player_id, VY, 0.0)
-    ent_set_num(player_id, HP, 1.0)
-    ent_set_num(player_id, RAD, PLAYER_RADIUS)
-    ent_set_num(player_id, TYPE, 0.0)
+    S.player_id = ent_create(1)
+    if S.player_id == 0 then return end
+    ent_set_num(S.player_id, X, S.vw * 0.5)
+    ent_set_num(S.player_id, Y, S.vh * 0.84)
+    ent_set_num(S.player_id, VX, 0.0)
+    ent_set_num(S.player_id, VY, 0.0)
+    ent_set_num(S.player_id, HP, 1.0)
+    ent_set_num(S.player_id, RAD, PLAYER_RADIUS)
+    ent_set_num(S.player_id, TYPE, 0.0)
 end
 
 local function player_pos()
-    if player_id == 0 then return vw * 0.5, vh * 0.84, false end
-    if player_dead then return vw * 0.5, vh * 0.84, false end
-    return ent_num(player_id, X), ent_num(player_id, Y), true
+    if S.player_id == 0 then return S.vw * 0.5, S.vh * 0.84, false end
+    if S.player_dead then return S.vw * 0.5, S.vh * 0.84, false end
+    return ent_num(S.player_id, X), ent_num(S.player_id, Y), true
 end
 
 local function shot_angle(vx, vy, speed, angle)
@@ -218,14 +226,14 @@ local function shot_angle(vx, vy, speed, angle)
 end
 
 local function fire_weapon(px, py)
-    if weapon == W_VULCAN then
-        local dmg = 4.0 + power * 0.6
-        if power <= 1 then
+    if S.weapon == W_VULCAN then
+        local dmg = 4.0 + S.power * 0.6
+        if S.power <= 1 then
             spawn_pbullet(px, py - 30.0, 0.0, -640.0, dmg, 0.0, 0.0)
-        elseif power == 2 then
+        elseif S.power == 2 then
             spawn_pbullet(px - 8.0, py - 28.0, 0.0, -640.0, dmg, 0.0, 0.0)
             spawn_pbullet(px + 8.0, py - 28.0, 0.0, -640.0, dmg, 0.0, 0.0)
-        elseif power == 3 then
+        elseif S.power == 3 then
             spawn_pbullet(px, py - 30.0, 0.0, -660.0, dmg, 0.0, 0.0)
             spawn_pbullet(px - 12.0, py - 24.0, -110.0, -620.0, dmg, 0.0, 0.0)
             spawn_pbullet(px + 12.0, py - 24.0, 110.0, -620.0, dmg, 0.0, 0.0)
@@ -238,17 +246,17 @@ local function fire_weapon(px, py)
         end
         audio_play("shoot", 0.07)
         return 0.10
-    elseif weapon == W_LASER then
-        local dmg = 6.0 + power * 1.5
-        local beams = power + 1
+    elseif S.weapon == W_LASER then
+        local dmg = 6.0 + S.power * 1.5
+        local beams = S.power + 1
         for i = 0, beams - 1 do
             local ox = (i - (beams - 1) * 0.5) * 12.0
-            spawn_pbullet(px + ox, py - 34.0, 0.0, -900.0, dmg, 1.0, 2.0 + power)
+            spawn_pbullet(px + ox, py - 34.0, 0.0, -900.0, dmg, 1.0, 2.0 + S.power)
         end
         audio_play("laser", 0.08)
         return 0.16
     else
-        local count = power
+        local count = S.power
         for i = 0, count - 1 do
             local ox = (i - (count - 1) * 0.5) * 18.0
             spawn_pbullet(px + ox, py - 24.0, ox * 2.0, -320.0, 9.0, 2.0, 0.0)
@@ -260,36 +268,36 @@ end
 
 local function apply_powerup(kind)
     if kind == 3.0 then
-        bombs = minf(bombs + 1, 5)
+        S.bombs = minf(S.bombs + 1, 5)
     else
-        local old = weapon
-        weapon = kind
+        local old = S.weapon
+        S.weapon = kind
         if old == kind then
-            power = minf(power + 1, 4)
+            S.power = minf(S.power + 1, 4)
         else
-            power = 1
+            S.power = 1
         end
     end
     audio_play("power", 0.3)
 end
 
 local function player_hit()
-    if player_dead or invuln > 0.0 then return end
+    if S.player_dead or S.invuln > 0.0 then return end
     local px, py = player_pos()
-    player_dead = true
-    respawn_t = 1.4
-    lives = lives - 1
-    invuln = 0.0
-    if power > 1 then power = power - 1 end
+    S.player_dead = true
+    S.respawn_t = 1.4
+    S.lives = S.lives - 1
+    S.invuln = 0.0
+    if S.power > 1 then S.power = S.power - 1 end
     spawn_explosion(px, py, 2.0)
     spawn_explosion(px - 12.0, py + 10.0, 1.0)
     spawn_explosion(px + 12.0, py + 6.0, 1.0)
     camera_shake(0.75)
     time_hitstop(0.12)
     audio_play("boom", 0.5)
-    if lives <= 0 then
-        game_over = true
-        end_t = 4.0
+    if S.lives <= 0 then
+        S.game_over = true
+        S.end_t = 4.0
         audio_play("lose", 0.5)
         log_info("shmup: game over")
     end
@@ -300,12 +308,12 @@ local function kill_enemy(e)
     if ty < 0.0 then return end
     local x = ent_num(e, X)
     local y = ent_num(e, Y)
-    score = score + ent_num(e, SCORE)
+    S.score = S.score + ent_num(e, SCORE)
     ent_set_num(e, TYPE, -1.0)
     if ty == E_BOSS then
-        boss_active = false
-        boss_id = 0
-        clear_t = 3.6
+        S.boss_active = false
+        S.boss_id = 0
+        S.clear_t = 3.6
         while ent_count(TAG_EBULLET) > 0 do
             ent_destroy(ent_at(0, TAG_EBULLET))
         end
@@ -330,10 +338,10 @@ local function kill_enemy(e)
 end
 
 local function use_bomb()
-    if bombs <= 0 or player_dead then return end
-    bombs = bombs - 1
-    flash_t = 0.55
-    invuln = 2.0
+    if S.bombs <= 0 or S.player_dead then return end
+    S.bombs = S.bombs - 1
+    S.flash_t = 0.55
+    S.invuln = 2.0
     time_hitstop(0.10)
     camera_shake(0.6)
     audio_play("bomb", 0.6)
@@ -362,7 +370,7 @@ local function enemy_aim(e, speed, count, spread)
     local px, py, alive = player_pos()
     if not alive then
         px = ex
-        py = vh + 200.0
+        py = S.vh + 200.0
     end
     local dx = px - ex
     local dy = py - ey
@@ -384,7 +392,7 @@ end
 local function boss_fire(b)
     local pattern = math.floor(ent_num(b, SUB))
     ent_set_num(b, SUB, ent_num(b, SUB) + 1.0)
-    local speed = 195.0 * difficulty
+    local speed = 195.0 * S.difficulty
     if pattern % 3 == 0 then
         enemy_aim(b, speed, 7, 0.14)
     elseif pattern % 3 == 1 then
@@ -415,20 +423,20 @@ local function update_enemy(e, dt)
     if aux > 0.0 then ent_set_num(e, AUX, aux - dt) end
 
     if ty == E_SMALL then
-        y = y + (150.0 + stage * 8.0) * dt
+        y = y + (150.0 + S.stage * 8.0) * dt
         x = ent_num(e, OWNER) + math.sin(phase * 2.4) * 46.0
         ent_set_num(e, T, ent_num(e, T) - dt)
         if ent_num(e, T) <= 0.0 then
-            enemy_aim(e, 200.0 * difficulty, 1, 0.0)
+            enemy_aim(e, 200.0 * S.difficulty, 1, 0.0)
             ent_set_num(e, T, 1.8)
             audio_play("enemy_shot", 0.1)
         end
     elseif ty == E_MEDIUM then
-        y = y + (95.0 + stage * 6.0) * dt
+        y = y + (95.0 + S.stage * 6.0) * dt
         x = x + math.sin(phase * 2.0) * 110.0 * dt
         ent_set_num(e, T, ent_num(e, T) - dt)
         if ent_num(e, T) <= 0.0 and y > 0.0 then
-            enemy_aim(e, 185.0 * difficulty, 3, 0.16)
+            enemy_aim(e, 185.0 * S.difficulty, 3, 0.16)
             ent_set_num(e, T, 2.3)
             audio_play("enemy_shot", 0.12)
         end
@@ -440,7 +448,7 @@ local function update_enemy(e, dt)
             y = 140.0 + math.sin(phase * 0.9) * 12.0
             ent_set_num(e, T, ent_num(e, T) - dt)
             if ent_num(e, T) <= 0.0 then
-                enemy_aim(e, 175.0 * difficulty, 5, 0.18)
+                enemy_aim(e, 175.0 * S.difficulty, 5, 0.18)
                 ent_set_num(e, T, 1.6)
                 audio_play("enemy_shot", 0.16)
             end
@@ -451,7 +459,7 @@ local function update_enemy(e, dt)
         if y < 118.0 then
             y = y + 65.0 * dt
         else
-            x = vw * 0.5 + math.sin(t * 1.05) * vw * 0.30
+            x = S.vw * 0.5 + math.sin(t * 1.05) * S.vw * 0.30
             y = 118.0 + math.sin(t * 0.7) * 14.0
             ent_set_num(e, T, ent_num(e, T) - dt)
             if ent_num(e, T) <= 0.0 then
@@ -462,7 +470,7 @@ local function update_enemy(e, dt)
     end
 
     if x < -80.0 then x = -80.0 end
-    if x > vw + 80.0 then x = vw + 80.0 end
+    if x > S.vw + 80.0 then x = S.vw + 80.0 end
     ent_set_num(e, X, x)
     ent_set_num(e, Y, y)
 end
@@ -515,10 +523,10 @@ local function collide_player_bullets()
 end
 
 local function collide_ebullets()
-    if player_dead or invuln > 0.0 then return end
-    local px = ent_num(player_id, X)
-    local py = ent_num(player_id, Y)
-    local pr = ent_num(player_id, RAD)
+    if S.player_dead or S.invuln > 0.0 then return end
+    local px = ent_num(S.player_id, X)
+    local py = ent_num(S.player_id, Y)
+    local pr = ent_num(S.player_id, RAD)
     local i = 0
     while i < ent_count(TAG_EBULLET) do
         local b = ent_at(i, TAG_EBULLET)
@@ -539,9 +547,9 @@ local function collide_ebullets()
 end
 
 local function collide_powerups()
-    if player_dead then return end
-    local px = ent_num(player_id, X)
-    local py = ent_num(player_id, Y)
+    if S.player_dead then return end
+    local px = ent_num(S.player_id, X)
+    local py = ent_num(S.player_id, Y)
     local i = 0
     while i < ent_count(TAG_POWERUP) do
         local p = ent_at(i, TAG_POWERUP)
@@ -570,7 +578,7 @@ local function cull_tag(tag)
         if e == 0 then break end
         local x = ent_num(e, X)
         local y = ent_num(e, Y)
-        if x < -120.0 or x > vw + 120.0 or y < -160.0 or y > vh + 120.0 then
+        if x < -120.0 or x > S.vw + 120.0 or y < -160.0 or y > S.vh + 120.0 then
             ent_destroy(e)
         else
             i = i + 1
@@ -640,31 +648,31 @@ local function ai_input()
     if threat > 0.0 then
         if far > 0.0 then ix = -1.0 elseif far < 0.0 then ix = 1.0 end
     end
-    if threat >= 5.0 and ai_bomb_t <= 0.0 and bombs > 0 then
+    if threat >= 5.0 and S.ai_bomb_t <= 0.0 and S.bombs > 0 then
         use_bomb()
-        ai_bomb_t = 2.5
+        S.ai_bomb_t = 2.5
     end
     iy = 0.0
-    if py < vh * 0.72 then iy = 1.0 elseif py > vh * 0.88 then iy = -1.0 end
+    if py < S.vh * 0.72 then iy = 1.0 elseif py > S.vh * 0.88 then iy = -1.0 end
     return ix, iy, true, false
 end
 
 local function update_player(dt)
-    if player_id == 0 then return end
-    if player_dead then
-        respawn_t = respawn_t - dt
-        if respawn_t <= 0.0 and not game_over then
-            player_dead = false
-            invuln = 2.6
-            ent_set_num(player_id, X, vw * 0.5)
-            ent_set_num(player_id, Y, vh * 0.84)
-            ent_set_num(player_id, VX, 0.0)
-            ent_set_num(player_id, VY, 0.0)
+    if S.player_id == 0 then return end
+    if S.player_dead then
+        S.respawn_t = S.respawn_t - dt
+        if S.respawn_t <= 0.0 and not S.game_over then
+            S.player_dead = false
+            S.invuln = 2.6
+            ent_set_num(S.player_id, X, S.vw * 0.5)
+            ent_set_num(S.player_id, Y, S.vh * 0.84)
+            ent_set_num(S.player_id, VX, 0.0)
+            ent_set_num(S.player_id, VY, 0.0)
         end
         return
     end
 
-    if invuln > 0.0 then invuln = invuln - dt end
+    if S.invuln > 0.0 then S.invuln = S.invuln - dt end
 
     local ix = 0.0
     local iy = 0.0
@@ -687,36 +695,36 @@ local function update_player(dt)
     end
 
     if ix == 0.0 and iy == 0.0 and not fire and not bomb then
-        idle_frames = idle_frames + 1
+        S.idle_frames = S.idle_frames + 1
     else
-        idle_frames = 0
+        S.idle_frames = 0
     end
-    if idle_frames > 150 then
+    if S.idle_frames > 150 then
         ix, iy, fire, bomb = ai_input()
     end
 
-    ai_bomb_t = ai_bomb_t - dt
+    S.ai_bomb_t = S.ai_bomb_t - dt
 
     if bomb then use_bomb() end
 
     local speed = PLAYER_SPEED
     if ix ~= 0.0 and iy ~= 0.0 then speed = PLAYER_SPEED * 0.72 end
-    local nx = ent_num(player_id, X) + ix * speed * dt
-    local ny = ent_num(player_id, Y) + iy * speed * dt
-    nx = clampf(nx, 24.0, vw - 24.0)
-    ny = clampf(ny, vh * 0.42, vh - 26.0)
-    ent_set_num(player_id, X, nx)
-    ent_set_num(player_id, Y, ny)
-    ent_set_num(player_id, VX, ix * speed)
-    ent_set_num(player_id, VY, iy * speed)
+    local nx = ent_num(S.player_id, X) + ix * speed * dt
+    local ny = ent_num(S.player_id, Y) + iy * speed * dt
+    nx = clampf(nx, 24.0, S.vw - 24.0)
+    ny = clampf(ny, S.vh * 0.42, S.vh - 26.0)
+    ent_set_num(S.player_id, X, nx)
+    ent_set_num(S.player_id, Y, ny)
+    ent_set_num(S.player_id, VX, ix * speed)
+    ent_set_num(S.player_id, VY, iy * speed)
 
     if fire then
-        fire_t = fire_t - dt
-        if fire_t <= 0.0 then
-            fire_t = fire_weapon(nx, ny)
+        S.fire_t = S.fire_t - dt
+        if S.fire_t <= 0.0 then
+            S.fire_t = fire_weapon(nx, ny)
         end
     else
-        fire_t = 0.0
+        S.fire_t = 0.0
     end
 end
 
@@ -728,52 +736,52 @@ local function spawn_wave(w)
     local k = (w - 1) % 4
     if k == 0 then
         for i = 0, 4 do
-            local x = vw * 0.5 + (i - 2) * 96.0
+            local x = S.vw * 0.5 + (i - 2) * 96.0
             spawn_enemy(E_SMALL, x, -40.0 - i * 18.0)
         end
     elseif k == 1 then
-        spawn_enemy(E_MEDIUM, vw * 0.5 - 110.0, -50.0)
-        spawn_enemy(E_MEDIUM, vw * 0.5, -90.0)
-        spawn_enemy(E_MEDIUM, vw * 0.5 + 110.0, -50.0)
+        spawn_enemy(E_MEDIUM, S.vw * 0.5 - 110.0, -50.0)
+        spawn_enemy(E_MEDIUM, S.vw * 0.5, -90.0)
+        spawn_enemy(E_MEDIUM, S.vw * 0.5 + 110.0, -50.0)
     elseif k == 2 then
         spawn_enemy(E_SMALL, 70.0, -40.0)
-        spawn_enemy(E_SMALL, vw - 70.0, -40.0)
-        spawn_enemy(E_BIG, vw * 0.5, -70.0)
+        spawn_enemy(E_SMALL, S.vw - 70.0, -40.0)
+        spawn_enemy(E_BIG, S.vw * 0.5, -70.0)
         for i = 0, 2 do
-            spawn_enemy(E_SMALL, vw * 0.5 + (i - 1) * 70.0, -140.0)
+            spawn_enemy(E_SMALL, S.vw * 0.5 + (i - 1) * 70.0, -140.0)
         end
     else
         for i = 0, 5 do
-            local x = 90.0 + (vw - 180.0) * i / 5.0
+            local x = 90.0 + (S.vw - 180.0) * i / 5.0
             spawn_enemy(E_SMALL, x, -40.0 - (i % 2) * 40.0)
         end
-        spawn_enemy(E_MEDIUM, vw * 0.5, -120.0)
+        spawn_enemy(E_MEDIUM, S.vw * 0.5, -120.0)
     end
 end
 
 local function spawn_boss()
-    boss_id = spawn_enemy(E_BOSS, vw * 0.5, -90.0)
-    if boss_id == 0 then return end
-    boss_active = true
-    warn_t = 2.4
-    boss_max_hp = enemy_hp(E_BOSS)
-    ent_set_num(boss_id, HP, boss_max_hp)
-    ent_set_num(boss_id, T, 2.0)
-    ent_set_num(boss_id, SUB, 0.0)
+    S.boss_id = spawn_enemy(E_BOSS, S.vw * 0.5, -90.0)
+    if S.boss_id == 0 then return end
+    S.boss_active = true
+    S.warn_t = 2.4
+    S.boss_max_hp = enemy_hp(E_BOSS)
+    ent_set_num(S.boss_id, HP, S.boss_max_hp)
+    ent_set_num(S.boss_id, T, 2.0)
+    ent_set_num(S.boss_id, SUB, 0.0)
     audio_play("boss", 0.5)
     log_info("shmup: boss incoming")
 end
 
 local function update_director(dt)
-    if boss_active or game_over or ready_t > 0.0 or clear_t > 0.0 then return end
-    director_t = director_t - dt
-    if director_t <= 0.0 then
-        wave = wave + 1
-        if wave >= BOSS_WAVE then
+    if S.boss_active or S.game_over or S.ready_t > 0.0 or S.clear_t > 0.0 then return end
+    S.director_t = S.director_t - dt
+    if S.director_t <= 0.0 then
+        S.wave = S.wave + 1
+        if S.wave >= BOSS_WAVE then
             spawn_boss()
         else
-            spawn_wave(wave)
-            director_t = 3.0
+            spawn_wave(S.wave)
+            S.director_t = 3.0
         end
     end
 end
@@ -781,30 +789,30 @@ end
 local function reset_stage(full)
     ent_clear()
     if full then
-        lives = 3
-        bombs = 3
-        weapon = W_VULCAN
-        power = 1
-        score = 0.0
-        stage = 1
-        game_over = false
+        S.lives = 3
+        S.bombs = 3
+        S.weapon = W_VULCAN
+        S.power = 1
+        S.score = 0.0
+        S.stage = 1
+        S.game_over = false
     end
-    difficulty = 1.0 + (stage - 1) * 0.22
-    player_dead = false
-    respawn_t = 0.0
-    invuln = 2.8
-    fire_t = 0.0
-    ready_t = 2.2
-    clear_t = 0.0
-    warn_t = 0.0
-    wave = 0
-    director_t = 3.0
-    boss_active = false
-    boss_id = 0
-    flash_t = 0.0
-    idle_frames = 0
-    ai_bomb_t = 0.0
-    end_t = 0.0
+    S.difficulty = 1.0 + (S.stage - 1) * 0.22
+    S.player_dead = false
+    S.respawn_t = 0.0
+    S.invuln = 2.8
+    S.fire_t = 0.0
+    S.ready_t = 2.2
+    S.clear_t = 0.0
+    S.warn_t = 0.0
+    S.wave = 0
+    S.director_t = 3.0
+    S.boss_active = false
+    S.boss_id = 0
+    S.flash_t = 0.0
+    S.idle_frames = 0
+    S.ai_bomb_t = 0.0
+    S.end_t = 0.0
     spawn_player()
     -- The camera position is the top-left of the view; (0,0) makes world
     -- coordinates identical to screen coordinates for the fixed shooter view.
@@ -824,18 +832,18 @@ end
 local function draw_background()
     local bw = 1024.0
     local bh = 608.0 * 4.0
-    local bx = (vw - bw) * 0.5
-    local off = bg_scroll % bh
-    blit(tex_bg, 0.0, 0.0, 256.0, 608.0, bx, off - bh, bw, bh,
+    local bx = (S.vw - bw) * 0.5
+    local off = S.bg_scroll % bh
+    blit(S.tex_bg, 0.0, 0.0, 256.0, 608.0, bx, off - bh, bw, bh,
          1.0, 1.0, 1.0, 1.0)
-    blit(tex_bg, 0.0, 0.0, 256.0, 608.0, bx, off, bw, bh,
+    blit(S.tex_bg, 0.0, 0.0, 256.0, 608.0, bx, off, bw, bh,
          1.0, 1.0, 1.0, 1.0)
 
     local ch = 103.0 * 4.0
-    local coff = cloud_scroll % ch
-    blit(tex_clouds, 0.0, 0.0, 256.0, 103.0, bx, coff - ch, bw, ch,
+    local coff = S.cloud_scroll % ch
+    blit(S.tex_clouds, 0.0, 0.0, 256.0, 103.0, bx, coff - ch, bw, ch,
          1.0, 1.0, 1.0, 0.75)
-    blit(tex_clouds, 0.0, 0.0, 256.0, 103.0, bx, coff, bw, ch,
+    blit(S.tex_clouds, 0.0, 0.0, 256.0, 103.0, bx, coff, bw, ch,
          1.0, 1.0, 1.0, 0.75)
 end
 
@@ -853,7 +861,7 @@ local function draw_powerups()
             if kind == 1.0 then sx = 16.0
             elseif kind == 2.0 then sy = 16.0
             elseif kind == 3.0 then sx = 16.0; sy = 16.0 end
-            blit(tex_power, sx, sy, 16.0, 16.0, x - 24.0, y - 24.0 + bob,
+            blit(S.tex_power, sx, sy, 16.0, 16.0, x - 24.0, y - 24.0 + bob,
                  48.0, 48.0, 1.0, 1.0, 1.0, 1.0)
             draw_set_blend(1)
             draw_quad(x - 26.0, y - 26.0 + bob, 52.0, 52.0,
@@ -884,21 +892,21 @@ local function draw_enemies()
                 local x = ent_num(e, X)
                 local y = ent_num(e, Y)
                 local anim = ent_num(e, ANIMT)
-                local tex = tex_es
+                local tex = S.tex_es
                 local fw = 16.0
                 local fh = 16.0
                 local frames = 2.0
                 local scale = 4.0
                 if ty == E_MEDIUM then
-                    tex = tex_em
+                    tex = S.tex_em
                     frames = 4.0
                 elseif ty == E_BIG then
-                    tex = tex_eb
+                    tex = S.tex_eb
                     fw = 32.0
                     fh = 32.0
                     scale = 5.0
                 elseif ty == E_BOSS then
-                    tex = tex_eb
+                    tex = S.tex_eb
                     fw = 32.0
                     fh = 32.0
                     frames = 1.0
@@ -923,10 +931,10 @@ local function draw_enemies()
 end
 
 local function draw_player_ship()
-    if player_id == 0 or player_dead then return end
-    local x = ent_num(player_id, X)
-    local y = ent_num(player_id, Y)
-    local vx = ent_num(player_id, VX)
+    if S.player_id == 0 or S.player_dead then return end
+    local x = ent_num(S.player_id, X)
+    local y = ent_num(S.player_id, Y)
+    local vx = ent_num(S.player_id, VX)
     local frame = 2.0
     if vx < -140.0 then frame = 0.0
     elseif vx < -40.0 then frame = 1.0
@@ -936,12 +944,12 @@ local function draw_player_ship()
     local row = 0.0
     if math.floor(time_elapsed() * 14.0) % 2 == 1 then row = 1.0 end
     local a = 1.0
-    if invuln > 0.0 and math.floor(time_elapsed() * 14.0) % 2 == 0 then a = 0.35 end
+    if S.invuln > 0.0 and math.floor(time_elapsed() * 14.0) % 2 == 0 then a = 0.35 end
     local dw = 64.0
     local dh = 96.0
     local dx = x - dw * 0.5
     local dy = y - dh * 0.5
-    blit(tex_ship, frame * 16.0, row * 24.0, 16.0, 24.0,
+    blit(S.tex_ship, frame * 16.0, row * 24.0, 16.0, 24.0,
          dx, dy, dw, dh, 1.0, 1.0, 1.0, a)
 
     -- Thruster glow behind the ship.
@@ -960,17 +968,17 @@ local function draw_player_bullets()
             local x = ent_num(b, X)
             local y = ent_num(b, Y)
             if kind == 1.0 then
-                blit(tex_bolts, 0.0, 16.0, 16.0, 16.0, x - 20.0, y - 24.0,
+                blit(S.tex_bolts, 0.0, 16.0, 16.0, 16.0, x - 20.0, y - 24.0,
                      40.0, 48.0, 0.55, 0.85, 1.0, 1.0)
             elseif kind == 2.0 then
                 draw_set_blend(1)
                 draw_quad(x - 8.0, y - 8.0, 16.0, 16.0, 1.0, 0.65, 0.25, 0.35)
                 draw_quad(x - 3.0, y - 3.0, 6.0, 6.0, 1.0, 0.95, 0.7, 0.9)
                 draw_set_blend(0)
-                blit(tex_bolts, 16.0, 0.0, 16.0, 16.0, x - 12.0, y - 16.0,
+                blit(S.tex_bolts, 16.0, 0.0, 16.0, 16.0, x - 12.0, y - 16.0,
                      24.0, 32.0, 1.0, 0.85, 0.55, 1.0)
             else
-                blit(tex_bolts, 0.0, 0.0, 16.0, 16.0, x - 12.0, y - 16.0,
+                blit(S.tex_bolts, 0.0, 0.0, 16.0, 16.0, x - 12.0, y - 16.0,
                      24.0, 32.0, 0.6, 1.0, 1.0, 1.0)
             end
         end
@@ -986,10 +994,10 @@ local function draw_enemy_bullets()
             local y = ent_num(b, Y)
             local r = ent_num(b, RAD) * 2.0
             draw_set_blend(1)
-            if tex_orb ~= 0 then
+            if S.tex_orb ~= 0 then
                 -- Tinted to the enemy palette so hostile fire never reads like
                 -- the player's own cyan bolts.
-                sprite_draw_tinted(tex_orb, x - r, y - r, r * 2.0, r * 2.0,
+                sprite_draw_tinted(S.tex_orb, x - r, y - r, r * 2.0, r * 2.0,
                                    1.0, 0.42, 0.20, 1.0)
             else
                 draw_quad(x - r, y - r, r * 2.0, r * 2.0, 1.0, 0.30, 0.12, 0.55)
@@ -1016,7 +1024,7 @@ local function draw_effects()
             local dw = 16.0 * 5.0 * scale
             local dh = 16.0 * 5.0 * scale
             draw_set_blend(1)
-            blit(tex_expl, frame * 16.0, 0.0, 16.0, 16.0,
+            blit(S.tex_expl, frame * 16.0, 0.0, 16.0, 16.0,
                  x - dw * 0.5, y - dh * 0.5, dw, dh, 1.0, 0.85, 0.55, 1.0)
             draw_set_blend(0)
         end
@@ -1024,16 +1032,16 @@ local function draw_effects()
 end
 
 local function draw_bomb_flash()
-    if flash_t <= 0.0 then return end
-    local a = flash_t / 0.55
+    if S.flash_t <= 0.0 then return end
+    local a = S.flash_t / 0.55
     draw_set_blend(1)
-    draw_quad(0.0, 0.0, vw, vh, 0.7, 0.9, 1.0, a * 0.65)
+    draw_quad(0.0, 0.0, S.vw, S.vh, 0.7, 0.9, 1.0, a * 0.65)
     draw_set_blend(0)
 end
 
 local function weapon_name()
-    if weapon == W_VULCAN then return "VULCAN" end
-    if weapon == W_LASER then return "LASER" end
+    if S.weapon == W_VULCAN then return "VULCAN" end
+    if S.weapon == W_LASER then return "LASER" end
     return "MISSILE"
 end
 
@@ -1043,22 +1051,22 @@ local function draw_hud()
 
     draw_quad(10.0, 8.0, 300.0, 62.0, 0.02, 0.02, 0.05, 0.62)
     ui_label(0, 20.0, 14.0,
-             "SCORE " .. string.format("%d", math.floor(score)),
+             "SCORE " .. string.format("%d", math.floor(S.score)),
              0.5, 0.98, 0.92, 0.55, 1.0)
     ui_label(0, 20.0, 40.0,
-             "STAGE " .. string.format("%d", stage)
-             .. "   WEAPON " .. weapon_name() .. " Lv" .. string.format("%d", math.floor(power)),
+             "STAGE " .. string.format("%d", S.stage)
+             .. "   WEAPON " .. weapon_name() .. " Lv" .. string.format("%d", math.floor(S.power)),
              0.4, 0.80, 0.90, 1.0, 1.0)
 
     -- Lives (ship icons) and bombs at the bottom-left.
     local sx = 20.0
-    local sy = vh - 54.0
+    local sy = S.vh - 54.0
     draw_quad(10.0, sy - 8.0, 230.0, 58.0, 0.02, 0.02, 0.05, 0.55)
-    for i = 0, lives - 1 do
-        blit(tex_ship, 2.0 * 16.0, 0.0, 16.0, 16.0,
+    for i = 0, S.lives - 1 do
+        blit(S.tex_ship, 2.0 * 16.0, 0.0, 16.0, 16.0,
              sx + i * 24.0, sy, 22.0, 22.0, 1.0, 1.0, 1.0, 1.0)
     end
-    for i = 0, bombs - 1 do
+    for i = 0, S.bombs - 1 do
         local bx = sx + i * 22.0
         draw_set_blend(1)
         draw_quad(bx + 2.0, sy + 26.0, 16.0, 16.0, 1.0, 0.7, 0.3, 0.5)
@@ -1067,52 +1075,52 @@ local function draw_hud()
     end
 
     -- Boss health bar below the top panels.
-    if boss_active and boss_id ~= 0 and ent_active(boss_id) then
-        local hp = ent_num(boss_id, HP)
-        local ratio = clampf(hp / boss_max_hp, 0.0, 1.0)
-        local bw = vw * 0.5
-        local bx = (vw - bw) * 0.5
+    if S.boss_active and S.boss_id ~= 0 and ent_active(S.boss_id) then
+        local hp = ent_num(S.boss_id, HP)
+        local ratio = clampf(hp / S.boss_max_hp, 0.0, 1.0)
+        local bw = S.vw * 0.5
+        local bx = (S.vw - bw) * 0.5
         draw_quad(bx, 78.0, bw, 12.0, 0.05, 0.02, 0.04, 0.85)
         draw_quad(bx + 2.0, 80.0, (bw - 4.0) * ratio, 8.0, 0.90, 0.22, 0.18, 1.0)
         draw_rect_outline(bx, 78.0, bw, 12.0, 0.95, 0.85, 0.75, 0.9)
         ui_label(0, bx, 94.0, "BOSS", 0.4, 1.0, 0.65, 0.35, 1.0)
     end
 
-    ui_label(0, vw - 330.0, vh - 28.0,
+    ui_label(0, S.vw - 330.0, S.vh - 28.0,
              "WASD FLY   SPACE/J FIRE   K BOMB   R RESTART",
              0.33, 0.78, 0.82, 0.92, 0.9)
 
-    if ui_button("shmup_restart", 0, vw - 138.0, 12.0, 126.0, 30.0,
+    if ui_button("shmup_restart", 0, S.vw - 138.0, 12.0, 126.0, 30.0,
                  "RESTART", 0.4) then
         reset_stage(true)
     end
 
-    if ready_t > 0.0 then
+    if S.ready_t > 0.0 then
         local m = "READY"
         local tw = text_width(m, 1.3)
         draw_set_blend(1)
-        draw_text(m, vw * 0.5 - tw * 0.5, vh * 0.38, 1.3, 0.55, 1.0, 0.85, 1.0)
+        draw_text(m, S.vw * 0.5 - tw * 0.5, S.vh * 0.38, 1.3, 0.55, 1.0, 0.85, 1.0)
         draw_set_blend(0)
     end
-    if warn_t > 0.0 and math.floor(time_elapsed() * 8.0) % 2 == 0 then
+    if S.warn_t > 0.0 and math.floor(time_elapsed() * 8.0) % 2 == 0 then
         local m = "WARNING"
         local tw = text_width(m, 1.1)
         draw_set_blend(1)
-        draw_text(m, vw * 0.5 - tw * 0.5, vh * 0.32, 1.1, 1.0, 0.22, 0.18, 1.0)
+        draw_text(m, S.vw * 0.5 - tw * 0.5, S.vh * 0.32, 1.1, 1.0, 0.22, 0.18, 1.0)
         draw_set_blend(0)
     end
-    if clear_t > 0.0 and not game_over then
+    if S.clear_t > 0.0 and not S.game_over then
         local m = "STAGE CLEAR"
         local tw = text_width(m, 1.2)
         draw_set_blend(1)
-        draw_text(m, vw * 0.5 - tw * 0.5, vh * 0.38, 1.2, 0.55, 1.0, 0.6, 1.0)
+        draw_text(m, S.vw * 0.5 - tw * 0.5, S.vh * 0.38, 1.2, 0.55, 1.0, 0.6, 1.0)
         draw_set_blend(0)
     end
-    if game_over then
+    if S.game_over then
         local m = "GAME OVER"
         local tw = text_width(m, 1.4)
         draw_set_blend(1)
-        draw_text(m, vw * 0.5 - tw * 0.5, vh * 0.4, 1.4, 1.0, 0.3, 0.3, 1.0)
+        draw_text(m, S.vw * 0.5 - tw * 0.5, S.vh * 0.4, 1.4, 1.0, 0.3, 0.3, 1.0)
         draw_set_blend(0)
     end
 end
@@ -1122,18 +1130,18 @@ end
 -- ---------------------------------------------------------------------------
 
 local function init()
-    vw = camera_viewport_w()
-    vh = camera_viewport_h()
-    tex_ship = sprite_load_nearest("assets/shmup/ship.png")
-    tex_es = sprite_load_nearest("assets/shmup/enemy-small.png")
-    tex_em = sprite_load_nearest("assets/shmup/enemy-medium.png")
-    tex_eb = sprite_load_nearest("assets/shmup/enemy-big.png")
-    tex_expl = sprite_load_nearest("assets/shmup/explosion.png")
-    tex_bolts = sprite_load_nearest("assets/shmup/laser-bolts.png")
-    tex_orb = sprite_load_nearest("assets/shmup/enemy-orb.png")
-    tex_power = sprite_load_nearest("assets/shmup/power-up.png")
-    tex_bg = sprite_load_nearest("assets/shmup/bg/desert.png")
-    tex_clouds = sprite_load_nearest("assets/shmup/bg/clouds.png")
+    S.vw = camera_viewport_w()
+    S.vh = camera_viewport_h()
+    S.tex_ship = sprite_load_nearest("assets/shmup/ship.png")
+    S.tex_es = sprite_load_nearest("assets/shmup/enemy-small.png")
+    S.tex_em = sprite_load_nearest("assets/shmup/enemy-medium.png")
+    S.tex_eb = sprite_load_nearest("assets/shmup/enemy-big.png")
+    S.tex_expl = sprite_load_nearest("assets/shmup/explosion.png")
+    S.tex_bolts = sprite_load_nearest("assets/shmup/laser-bolts.png")
+    S.tex_orb = sprite_load_nearest("assets/shmup/enemy-orb.png")
+    S.tex_power = sprite_load_nearest("assets/shmup/power-up.png")
+    S.tex_bg = sprite_load_nearest("assets/shmup/bg/desert.png")
+    S.tex_clouds = sprite_load_nearest("assets/shmup/bg/clouds.png")
     rng_seed(20261030)
     camera_snap(0.0, 0.0)
     camera_clear_bounds()
@@ -1141,31 +1149,36 @@ local function init()
     camera_smoothing(1.0)
     audio_loop("shmup_theme", 0.16, 1.0)
     reset_stage(true)
-    if tex_ship == 0 or tex_bg == 0 then
+    if S.tex_ship == 0 or S.tex_bg == 0 then
         log_warn("shmup: art missing, the demo will look empty")
     else
         log_info("shmup: CC0 pixel art loaded")
     end
-    inited = true
+    S.inited = true
 end
 
 function update(dt)
-    if not inited then init() end
+    if S.seeded == nil then
+        S.seeded = true
+        reset_state()
+    end
 
-    bg_scroll = bg_scroll + BG_SPEED * dt
-    cloud_scroll = cloud_scroll + CLOUD_SPEED * dt
-    if flash_t > 0.0 then flash_t = flash_t - dt end
+    if not S.inited then init() end
 
-    if ready_t > 0.0 then ready_t = ready_t - dt end
-    if warn_t > 0.0 then warn_t = warn_t - dt end
+    S.bg_scroll = S.bg_scroll + BG_SPEED * dt
+    S.cloud_scroll = S.cloud_scroll + CLOUD_SPEED * dt
+    if S.flash_t > 0.0 then S.flash_t = S.flash_t - dt end
 
-    if game_over then
-        end_t = end_t - dt
-        if end_t <= 0.0 then reset_stage(true) end
-    elseif clear_t > 0.0 then
-        clear_t = clear_t - dt
-        if clear_t <= 0.0 then
-            stage = stage + 1
+    if S.ready_t > 0.0 then S.ready_t = S.ready_t - dt end
+    if S.warn_t > 0.0 then S.warn_t = S.warn_t - dt end
+
+    if S.game_over then
+        S.end_t = S.end_t - dt
+        if S.end_t <= 0.0 then reset_stage(true) end
+    elseif S.clear_t > 0.0 then
+        S.clear_t = S.clear_t - dt
+        if S.clear_t <= 0.0 then
+            S.stage = S.stage + 1
             reset_stage(false)
             log_info("shmup: stage advanced")
         end

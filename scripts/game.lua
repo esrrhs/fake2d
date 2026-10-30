@@ -331,6 +331,11 @@ local function draw(pow)
 end
 
 function update(dt)
+    if S.seeded == nil then
+        S.seeded = true
+        reset_state()
+    end
+
     -- FakeLua only allows definitions at file level, so one-time
     -- initialization happens on the first update instead.
     if not S.inited then

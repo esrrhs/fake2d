@@ -55,20 +55,28 @@ local VIEW_H = 68 + 0
 
 local SPEED = 190 + 0
 
-local px = 512.0 + 0.0
-local py = 384.0 + 0.0
-local camx = 0.0 + 0.0
-local camy = 0.0 + 0.0
-local fog_on = true
-local baked = false
-local frame = 0 + 0
-local explored = 0.0 + 0.0
 
-local mask_rt = 0 + 0
-local scene_rt = 0 + 0
-local mini_base = 0 + 0
-local mini_rt = 0 + 0
-local has_rt = false
+
+-- FakeLua binds file-level locals as const, so everything that changes
+-- across frames lives in a host-side NativeObject instead (see
+-- docs/SCRIPTING.md rule 3). Fields read and write like a plain table.
+local S = new_global_obj("fog_demo", "state")
+
+local function reset_state()
+    S.px = 512.0 + 0.0
+    S.py = 384.0 + 0.0
+    S.camx = 0.0 + 0.0
+    S.camy = 0.0 + 0.0
+    S.fog_on = true
+    S.baked = false
+    S.frame = 0 + 0
+    S.explored = 0.0 + 0.0
+    S.mask_rt = 0 + 0
+    S.scene_rt = 0 + 0
+    S.mini_base = 0 + 0
+    S.mini_rt = 0 + 0
+    S.has_rt = false
+end
 
 local function fract(v)
     return v - math.floor(v)
@@ -148,10 +156,10 @@ end
 -- serve the target (0, 0 — the camera does the shifting) and the no-framebuffer
 -- fallback (-camx, -camy — the script does it).
 local function draw_world(ox, oy, size)
-    local cx0 = math.floor(camx / 32.0) - 1
-    local cy0 = math.floor(camy / 32.0) - 1
-    local cx1 = math.floor((camx + SCREEN_W) / 32.0) + 2
-    local cy1 = math.floor((camy + SCREEN_H) / 32.0) + 2
+    local cx0 = math.floor(S.camx / 32.0) - 1
+    local cy0 = math.floor(S.camy / 32.0) - 1
+    local cx1 = math.floor((S.camx + SCREEN_W) / 32.0) + 2
+    local cy1 = math.floor((S.camy + SCREEN_H) / 32.0) + 2
     if cx0 < 0 then
         cx0 = 0
     end
@@ -169,24 +177,24 @@ local function draw_world(ox, oy, size)
 end
 
 local function clamp_view()
-    if camx < 0.0 then
-        camx = 0.0
+    if S.camx < 0.0 then
+        S.camx = 0.0
     end
-    if camy < 0.0 then
-        camy = 0.0
+    if S.camy < 0.0 then
+        S.camy = 0.0
     end
-    if camx > WORLD_W - SCREEN_W then
-        camx = WORLD_W - SCREEN_W
+    if S.camx > WORLD_W - SCREEN_W then
+        S.camx = WORLD_W - SCREEN_W
     end
-    if camy > WORLD_H - SCREEN_H then
-        camy = WORLD_H - SCREEN_H
+    if S.camy > WORLD_H - SCREEN_H then
+        S.camy = WORLD_H - SCREEN_H
     end
     return 0
 end
 
 local function center_view()
-    camx = px - SCREEN_W * 0.5
-    camy = py - SCREEN_H * 0.5
+    S.camx = S.px - SCREEN_W * 0.5
+    S.camy = S.py - SCREEN_H * 0.5
     clamp_view()
     return 0
 end
@@ -199,23 +207,23 @@ local function measure_explored()
     while i < 8 do
         local j = 0 + 0
         while j < 6 do
-            if rt_sample(mask_rt, i * 16 + 8, j * 16 + 8) > 0.1 then
+            if rt_sample(S.mask_rt, i * 16 + 8, j * 16 + 8) > 0.1 then
                 hits = hits + 1
             end
             j = j + 1
         end
         i = i + 1
     end
-    explored = hits / 48.0
+    S.explored = hits / 48.0
     return 0
 end
 
 local function bake_minimap()
-    rt_begin(mini_base)
+    rt_begin(S.mini_base)
     rt_clear(0.04, 0.05, 0.08, 1.0)
     draw_range(0, 0, COLS, ROWS, 4.0, 0.0, 0.0)
     rt_end()
-    baked = true
+    S.baked = true
     return 0
 end
 
@@ -239,11 +247,11 @@ local function move_viewer(dt)
         my = my * 0.7071
     end
     local step = SPEED * dt
-    if mx ~= 0.0 and not blocked(px + mx * step, py) then
-        px = px + mx * step
+    if mx ~= 0.0 and not blocked(S.px + mx * step, S.py) then
+        S.px = S.px + mx * step
     end
-    if my ~= 0.0 and not blocked(px, py + my * step) then
-        py = py + my * step
+    if my ~= 0.0 and not blocked(S.px, S.py + my * step) then
+        S.py = S.py + my * step
     end
     center_view()
     return 0
@@ -260,8 +268,8 @@ local function jump_from_click()
                 local wx = (cx - PANEL_X) * 8.0
                 local wy = (cy - PANEL_Y) * 8.0
                 if not blocked(wx, wy) then
-                    px = wx
-                    py = wy
+                    S.px = wx
+                    S.py = wy
                     center_view()
                 end
             end
@@ -274,29 +282,34 @@ local function draw_hud()
     draw_text("FOG OF WAR", 40, 24, 1.2, 0.94, 0.96, 1.0, 1.0)
     draw_text("accumulating coverage mask, multiplied over the scene", 40, 52,
               0.7, 0.55, 0.66, 0.75, 1.0)
-    draw_text("pos " .. istr(math.floor(px)) .. "," .. istr(math.floor(py)),
+    draw_text("pos " .. istr(math.floor(S.px)) .. "," .. istr(math.floor(S.py)),
               40, 80, 0.62, 0.62, 0.70, 0.80, 1.0)
-    if not fog_on then
+    if not S.fog_on then
         draw_text("fog OFF", 40, 100, 0.62, 0.95, 0.70, 0.45, 1.0)
     end
     draw_text("WASD move   F fog   R forget   click the minimap to jump",
               40, 470, 0.7, 0.5, 0.6, 0.7, 1.0)
-    draw_text("explored " .. istr(math.floor(explored * 100.0)) .. "%",
+    draw_text("explored " .. istr(math.floor(S.explored * 100.0)) .. "%",
               792, 356, 0.62, 0.80, 0.86, 0.95, 1.0)
     return 0
 end
 
 function update(dt)
-    frame = frame + 1
+    if S.seeded == nil then
+        S.seeded = true
+        reset_state()
+    end
 
-    if not has_rt then
-        mask_rt = rt_create(MASK_W, MASK_H)
-        scene_rt = rt_create(SCREEN_W, SCREEN_H)
-        mini_base = rt_create(MASK_W, MASK_H)
-        mini_rt = rt_create(MASK_W, MASK_H)
-        has_rt = mask_rt > 0 and scene_rt > 0 and mini_base > 0 and mini_rt > 0
-        if has_rt then
-            rt_begin(mask_rt)
+    S.frame = S.frame + 1
+
+    if not S.has_rt then
+        S.mask_rt = rt_create(MASK_W, MASK_H)
+        S.scene_rt = rt_create(SCREEN_W, SCREEN_H)
+        S.mini_base = rt_create(MASK_W, MASK_H)
+        S.mini_rt = rt_create(MASK_W, MASK_H)
+        S.has_rt = S.mask_rt > 0 and S.scene_rt > 0 and S.mini_base > 0 and S.mini_rt > 0
+        if S.has_rt then
+            rt_begin(S.mask_rt)
             rt_clear(0.0, 0.0, 0.0, 1.0)
             rt_end()
         end
@@ -304,20 +317,20 @@ function update(dt)
 
     move_viewer(dt)
     if input_key_pressed("f") then
-        fog_on = not fog_on
+        S.fog_on = not S.fog_on
     end
-    if has_rt and input_key_pressed("r") then
-        rt_begin(mask_rt)
+    if S.has_rt and input_key_pressed("r") then
+        rt_begin(S.mask_rt)
         rt_clear(0.0, 0.0, 0.0, 1.0)
         rt_end()
     end
     jump_from_click()
 
-    if not has_rt then
+    if not S.has_rt then
         -- No framebuffers on this host: explore the world with no fog, so the
         -- demo is still playable and the failure is visible rather than silent.
-        draw_world(-camx, -camy, 32.0)
-        draw_quad(px - 8.0 - camx, py - 8.0 - camy, 16.0, 16.0,
+        draw_world(-S.camx, -S.camy, 32.0)
+        draw_quad(S.px - 8.0 - S.camx, S.py - 8.0 - S.camy, 16.0, 16.0,
                   0.95, 0.85, 0.35, 1.0)
         draw_hud()
         draw_text("no render targets here - running without fog", 40, 496, 0.62,
@@ -328,57 +341,57 @@ function update(dt)
     -- --- 1. reveal into the accumulating mask ----------------------------
     -- Additive, never cleared: three visits saturate a cell to full white.
     -- The stamp is the viewer's footprint in mask pixels (world / 8).
-    rt_begin(mask_rt)
+    rt_begin(S.mask_rt)
     draw_set_blend(1)
-    draw_quad(px / 8.0 - 13.0, py / 8.0 - 13.0, 26.0, 26.0, 0.35, 0.35, 0.35, 1.0)
+    draw_quad(S.px / 8.0 - 13.0, S.py / 8.0 - 13.0, 26.0, 26.0, 0.35, 0.35, 0.35, 1.0)
     draw_set_blend(0)
     rt_end()
 
     -- --- 2 & 3. the scene, then the mask over it -------------------------
-    rt_begin(scene_rt)
+    rt_begin(S.scene_rt)
     rt_clear(0.02, 0.03, 0.05, 1.0)
-    rt_camera(camx, camy)
+    rt_camera(S.camx, S.camy)
     draw_world(0.0, 0.0, 32.0)
-    draw_quad(px - 8.0, py - 8.0, 16.0, 16.0, 0.95, 0.85, 0.35, 1.0)
-    if fog_on then
+    draw_quad(S.px - 8.0, S.py - 8.0, 16.0, 16.0, 0.95, 0.85, 0.35, 1.0)
+    if S.fog_on then
         -- Same camera transform as the tiles above, so this blit is aligned
         -- with them by construction: one draw covers the whole world.
         draw_set_blend(2)
-        rt_draw(mask_rt, 0.0, 0.0, WORLD_W, WORLD_H)
+        rt_draw(S.mask_rt, 0.0, 0.0, WORLD_W, WORLD_H)
         draw_set_blend(0)
     end
     rt_end()
 
-    if frame % 12 == 0 then
+    if S.frame % 12 == 0 then
         measure_explored()
     end
-    if not baked then
+    if not S.baked then
         bake_minimap()
     end
 
     -- --- the minimap: baked art multiplied by the same mask --------------
-    rt_begin(mini_rt)
+    rt_begin(S.mini_rt)
     rt_clear(0.0, 0.0, 0.0, 1.0)
     draw_set_blend(0)
-    rt_draw(mini_base, 0.0, 0.0, MASK_W, MASK_H)
+    rt_draw(S.mini_base, 0.0, 0.0, MASK_W, MASK_H)
     draw_set_blend(2)
-    rt_draw(mask_rt, 0.0, 0.0, MASK_W, MASK_H)
+    rt_draw(S.mask_rt, 0.0, 0.0, MASK_W, MASK_H)
     draw_set_blend(0)
     rt_end()
 
     -- --- 4. present, then the HUD ----------------------------------------
-    rt_present(scene_rt, 0)
+    rt_present(S.scene_rt, 0)
 
     draw_set_blend(0)
     draw_quad(PANEL_X - 2.0, PANEL_Y - 2.0, MASK_W + 4.0, MASK_H + 4.0,
               0.10, 0.12, 0.18, 1.0)
-    rt_draw(mini_rt, PANEL_X, PANEL_Y, MASK_W, MASK_H)
+    rt_draw(S.mini_rt, PANEL_X, PANEL_Y, MASK_W, MASK_H)
     draw_rect_outline(PANEL_X - 2.0, PANEL_Y - 2.0, MASK_W + 4.0, MASK_H + 4.0,
                       0.45, 0.55, 0.70, 1.0)
     -- Where the camera is looking, in panel pixels.
-    draw_rect_outline(PANEL_X + camx * 0.125, PANEL_Y + camy * 0.125,
+    draw_rect_outline(PANEL_X + S.camx * 0.125, PANEL_Y + S.camy * 0.125,
                       VIEW_W, VIEW_H, 0.95, 0.90, 0.55, 1.0)
-    draw_quad(PANEL_X + px * 0.125 - 2.0, PANEL_Y + py * 0.125 - 2.0, 4.0, 4.0,
+    draw_quad(PANEL_X + S.px * 0.125 - 2.0, PANEL_Y + S.py * 0.125 - 2.0, 4.0, 4.0,
               0.98, 0.95, 0.70, 1.0)
     draw_hud()
     return 0

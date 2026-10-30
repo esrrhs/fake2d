@@ -44,54 +44,62 @@ local MAX_WAVE = 2
 local D_EPS = 0.00002
 
 -- Persistent scalars (FakeLua file-level locals are the only cross-frame state).
-local inited = false
-local white = 0 + 0
 -- CC0 sprite art (assets/brawler, Chasersgaming): one texture per pose/strip.
-local tex_hero_idle = 0 + 0
-local tex_hero_walk = 0 + 0
-local tex_hero_punch1 = 0 + 0
-local tex_hero_punch2 = 0 + 0
-local tex_hero_kick1 = 0 + 0
-local tex_hero_kick2 = 0 + 0
-local tex_hero_hurt = 0 + 0
-local tex_hero_down = 0 + 0
-local tex_hero_getup = 0 + 0
-local tex_hero_butt = 0 + 0
-local tex_foe_idle = 0 + 0
-local tex_foe_walk = 0 + 0
-local tex_foe_punch = 0 + 0
-local tex_foe_kick = 0 + 0
-local tex_foe_hurt = 0 + 0
-local tex_foe_down = 0 + 0
 -- CC0 night-city parallax layers (FisherG, see assets/brawler/LICENSE.txt).
-local tex_bg_sky = 0 + 0
-local tex_bg_far = 0 + 0
-local tex_bg_mid = 0 + 0
-local tex_bg_close = 0 + 0
-local tex_ground = 0 + 0
-local sprites_ready = false
-local hero_id = 0 + 0
-local vw = 960.0 + 0.0
-local vh = 540.0 + 0.0
-local arena_x = 0.0 + 0.0
-local wave = 0 + 0
-local wave_state = 0 + 0
-local clear_t = 0.0 + 0.0
-local end_t = 0.0 + 0.0
-local score = 0.0 + 0.0
-local lives = 3 + 0
-local serial = 0 + 0
-local combo = 0 + 0
-local combo_t = 0.0 + 0.0
-local idle_frames = 0 + 0
-local ai_attack_t = 0.0 + 0.0
-local enemy_atk_cd = 0.0 + 0.0
-local stage_done = false
-local game_over = false
 
 -- ---------------------------------------------------------------------------
 -- ground-plane projection
 -- ---------------------------------------------------------------------------
+
+-- FakeLua binds file-level locals as const, so everything that changes
+-- across frames lives in a host-side NativeObject instead (see
+-- docs/SCRIPTING.md rule 3). Fields read and write like a plain table.
+local S = new_global_obj("beat_em_up_demo", "state")
+
+local function reset_state()
+    S.inited = false
+    S.white = 0 + 0
+    S.tex_hero_idle = 0 + 0
+    S.tex_hero_walk = 0 + 0
+    S.tex_hero_punch1 = 0 + 0
+    S.tex_hero_punch2 = 0 + 0
+    S.tex_hero_kick1 = 0 + 0
+    S.tex_hero_kick2 = 0 + 0
+    S.tex_hero_hurt = 0 + 0
+    S.tex_hero_down = 0 + 0
+    S.tex_hero_getup = 0 + 0
+    S.tex_hero_butt = 0 + 0
+    S.tex_foe_idle = 0 + 0
+    S.tex_foe_walk = 0 + 0
+    S.tex_foe_punch = 0 + 0
+    S.tex_foe_kick = 0 + 0
+    S.tex_foe_hurt = 0 + 0
+    S.tex_foe_down = 0 + 0
+    S.tex_bg_sky = 0 + 0
+    S.tex_bg_far = 0 + 0
+    S.tex_bg_mid = 0 + 0
+    S.tex_bg_close = 0 + 0
+    S.tex_ground = 0 + 0
+    S.sprites_ready = false
+    S.hero_id = 0 + 0
+    S.vw = 960.0 + 0.0
+    S.vh = 540.0 + 0.0
+    S.arena_x = 0.0 + 0.0
+    S.wave = 0 + 0
+    S.wave_state = 0 + 0
+    S.clear_t = 0.0 + 0.0
+    S.end_t = 0.0 + 0.0
+    S.score = 0.0 + 0.0
+    S.lives = 3 + 0
+    S.serial = 0 + 0
+    S.combo = 0 + 0
+    S.combo_t = 0.0 + 0.0
+    S.idle_frames = 0 + 0
+    S.ai_attack_t = 0.0 + 0.0
+    S.enemy_atk_cd = 0.0 + 0.0
+    S.stage_done = false
+    S.game_over = false
+end
 
 local function pscale(depth)
     return SCALE_MIN + (depth / DEPTH_MAX) * (SCALE_MAX - SCALE_MIN)
@@ -120,7 +128,7 @@ end
 -- ---------------------------------------------------------------------------
 
 local function cap(cx, cy, len, thick, ang, r, g, b, a)
-    sprite_draw_rotated_tinted(white, 0.0, 0.0, 1.0, 1.0,
+    sprite_draw_rotated_tinted(S.white, 0.0, 0.0, 1.0, 1.0,
                                cx - len * 0.5, cy - thick * 0.5, len, thick,
                                ang, len * 0.5, thick * 0.5, r, g, b, a)
 end
@@ -275,27 +283,27 @@ end
 -- are 16x32; extended punch/kick/knockdown poses are 24x32.
 local function actor_sprite(ty, st, stt)
     if ty == T_HERO then
-        if st == IDLE then return tex_hero_idle, math.floor(stt * 6.0) % 4, 16.0 end
-        if st == WALK then return tex_hero_walk, math.floor(stt * 10.0) % 4, 16.0 end
+        if st == IDLE then return S.tex_hero_idle, math.floor(stt * 6.0) % 4, 16.0 end
+        if st == WALK then return S.tex_hero_walk, math.floor(stt * 10.0) % 4, 16.0 end
         if st == PUNCH then
-            if stt < PUNCH_TIME * 0.45 then return tex_hero_punch1, 0, 24.0 end
-            return tex_hero_punch2, 0, 24.0
+            if stt < PUNCH_TIME * 0.45 then return S.tex_hero_punch1, 0, 24.0 end
+            return S.tex_hero_punch2, 0, 24.0
         end
         if st == KICK then
-            if stt < KICK_TIME * 0.45 then return tex_hero_kick1, 0, 24.0 end
-            return tex_hero_kick2, 0, 24.0
+            if stt < KICK_TIME * 0.45 then return S.tex_hero_kick1, 0, 24.0 end
+            return S.tex_hero_kick2, 0, 24.0
         end
-        if st == SPIN then return tex_hero_butt, math.floor(stt * 12.0) % 2, 24.0 end
-        if st == HURT then return tex_hero_hurt, 0, 16.0 end
-        if st == GETUP then return tex_hero_getup, 0, 16.0 end
-        return tex_hero_down, 0, 24.0
+        if st == SPIN then return S.tex_hero_butt, math.floor(stt * 12.0) % 2, 24.0 end
+        if st == HURT then return S.tex_hero_hurt, 0, 16.0 end
+        if st == GETUP then return S.tex_hero_getup, 0, 16.0 end
+        return S.tex_hero_down, 0, 24.0
     end
-    if st == IDLE then return tex_foe_idle, math.floor(stt * 6.0) % 4, 16.0 end
-    if st == WALK then return tex_foe_walk, math.floor(stt * 10.0) % 4, 16.0 end
-    if st == PUNCH then return tex_foe_punch, 0, 24.0 end
-    if st == KICK then return tex_foe_kick, 0, 24.0 end
-    if st == HURT or st == GETUP then return tex_foe_hurt, 0, 16.0 end
-    return tex_foe_down, 0, 24.0
+    if st == IDLE then return S.tex_foe_idle, math.floor(stt * 6.0) % 4, 16.0 end
+    if st == WALK then return S.tex_foe_walk, math.floor(stt * 10.0) % 4, 16.0 end
+    if st == PUNCH then return S.tex_foe_punch, 0, 24.0 end
+    if st == KICK then return S.tex_foe_kick, 0, 24.0 end
+    if st == HURT or st == GETUP then return S.tex_foe_hurt, 0, 16.0 end
+    return S.tex_foe_down, 0, 24.0
 end
 
 -- CC0 pixel-art character: one texture per pose, nearest-filtered and scaled
@@ -368,7 +376,7 @@ local function draw_actor_sprite(id)
 end
 
 local function draw_actor(id)
-    if sprites_ready and draw_actor_sprite(id) then return end
+    if S.sprites_ready and draw_actor_sprite(id) then return end
     draw_actor_primitives(id)
 end
 
@@ -380,7 +388,7 @@ local function draw_tiled_bg(tex, parallax, scale, cam_x)
     local th = sprite_height(tex) * scale
     local shift = cam_x * parallax
     local k0 = math.floor(shift / tw) - 1
-    local count = math.ceil(vw / tw) + 2
+    local count = math.ceil(S.vw / tw) + 2
     for k = k0, k0 + count do
         sprite_draw(tex, cam_x + k * tw - shift, GROUND_Y - th, tw, th)
     end
@@ -389,23 +397,23 @@ end
 
 local function draw_background(cam_x, cam_y)
     draw_set_layer(0)
-    if tex_bg_sky ~= 0 then
+    if S.tex_bg_sky ~= 0 then
         -- CC0 night-city parallax (FisherG): sky, far, mid, close.
         draw_set_z(-2400.0)
-        draw_tiled_bg(tex_bg_sky, 0.05, 2.0, cam_x)
+        draw_tiled_bg(S.tex_bg_sky, 0.05, 2.0, cam_x)
         draw_set_z(-2300.0)
-        draw_tiled_bg(tex_bg_far, 0.18, 2.0, cam_x)
+        draw_tiled_bg(S.tex_bg_far, 0.18, 2.0, cam_x)
         draw_set_z(-2200.0)
-        draw_tiled_bg(tex_bg_mid, 0.38, 2.0, cam_x)
+        draw_tiled_bg(S.tex_bg_mid, 0.38, 2.0, cam_x)
         draw_set_z(-2100.0)
-        draw_tiled_bg(tex_bg_close, 0.62, 2.0, cam_x)
+        draw_tiled_bg(S.tex_bg_close, 0.62, 2.0, cam_x)
     else
         -- Fallback: gradient sky plus procedural silhouettes.
         draw_set_z(-2400.0)
         local bands = 6
         for i = 0, bands - 1 do
             local t = i / bands
-            draw_quad(cam_x, cam_y + vh * t, vw, vh / bands + 1.0,
+            draw_quad(cam_x, cam_y + S.vh * t, S.vw, S.vh / bands + 1.0,
                       0.06 + t * 0.30, 0.08 + t * 0.16, 0.16 + t * 0.10, 1.0)
         end
         draw_set_z(-2150.0)
@@ -434,31 +442,31 @@ local function draw_background(cam_x, cam_y)
 
     -- Street: a tiled 64x64 asphalt texture (nearest, 3x).
     draw_set_z(-1200.0)
-    if tex_ground ~= 0 then
+    if S.tex_ground ~= 0 then
         local gw = 64.0 * 3.0
         local gh = 64.0 * 3.0
         local k0 = math.floor(cam_x / gw) - 1
-        local count = math.ceil(vw / gw) + 2
-        local rows = math.ceil((vh - GROUND_Y) / gh) + 1
+        local count = math.ceil(S.vw / gw) + 2
+        local rows = math.ceil((S.vh - GROUND_Y) / gh) + 1
         for k = k0, k0 + count do
             for row = 0, rows - 1 do
-                sprite_draw(tex_ground, k * gw, GROUND_Y + row * gh, gw, gh)
+                sprite_draw(S.tex_ground, k * gw, GROUND_Y + row * gh, gw, gh)
             end
         end
     else
-        draw_quad(cam_x, cam_y + GROUND_Y, vw, vh - GROUND_Y + 4.0,
+        draw_quad(cam_x, cam_y + GROUND_Y, S.vw, S.vh - GROUND_Y + 4.0,
                   0.16, 0.14, 0.12, 1.0)
     end
     draw_set_z(-1180.0)
-    draw_quad(cam_x, cam_y + GROUND_Y, vw, 5.0, 0.30, 0.22, 0.36, 1.0)
+    draw_quad(cam_x, cam_y + GROUND_Y, S.vw, 5.0, 0.30, 0.22, 0.36, 1.0)
     draw_set_z(-1190.0)
     for i = 0, DEPTH_STEPS do
         local d = i * (DEPTH_MAX / DEPTH_STEPS)
-        draw_line(cam_x, py(d, 0.0), cam_x + vw, py(d, 0.0),
+        draw_line(cam_x, py(d, 0.0), cam_x + S.vw, py(d, 0.0),
                   0.72, 0.60, 0.82, 0.10)
     end
     -- arena boundary marker
-    draw_line(arena_x, cam_y + 150.0, arena_x,
+    draw_line(S.arena_x, cam_y + 150.0, S.arena_x,
               cam_y + GROUND_Y + DEPTH_MAX * DEPTH_SLOPE, 1.0, 0.82, 0.30, 0.22)
 end
 
@@ -492,7 +500,7 @@ local function attack_damage(ty, st)
     if ty == T_HERO then
         if st == KICK then return 16.0 end
         if st == SPIN then return 13.0 end
-        if combo <= 1 then return 8.0 elseif combo == 2 then return 11.0 end
+        if S.combo <= 1 then return 8.0 elseif S.combo == 2 then return 11.0 end
         return 14.0
     end
     if st == KICK then return 12.0 end
@@ -503,10 +511,10 @@ local function attack_damage(ty, st)
 end
 
 local function start_attack(id, st)
-    serial = serial + 1
+    S.serial = S.serial + 1
     ent_set_num(id, ST, st)
     ent_set_num(id, STT, 0.0)
-    ent_set_num(id, SERIAL, serial)
+    ent_set_num(id, SERIAL, S.serial)
 end
 
 local function apply_hit(attacker, target, st)
@@ -522,7 +530,7 @@ local function apply_hit(attacker, target, st)
     audio_play("brick", 0.22)
 
     local heavy = (st == KICK) or (st == SPIN)
-        or (st == PUNCH and aty == T_HERO and combo >= 3)
+        or (st == PUNCH and aty == T_HERO and S.combo >= 3)
     if hp <= 0.0 then
         ent_set_num(target, ST, DOWN)
         ent_set_num(target, STT, 0.0)
@@ -534,7 +542,7 @@ local function apply_hit(attacker, target, st)
             camera_shake(0.55)
             time_hitstop(0.16)
         else
-            score = score + score_for(tty)
+            S.score = S.score + score_for(tty)
         end
     elseif heavy then
         ent_set_num(target, ST, DOWN)
@@ -628,7 +636,7 @@ end
 
 local function spawn_enemy(ty, x, d)
     local face = 1.0
-    if hero_id ~= 0 and ent_active(hero_id) and ent_num(hero_id, X) < x then
+    if S.hero_id ~= 0 and ent_active(S.hero_id) and ent_num(S.hero_id, X) < x then
         face = -1.0
     end
     spawn_actor(ty, x, d, face)
@@ -636,19 +644,19 @@ end
 
 local function spawn_wave(w)
     if w == 0 then
-        spawn_enemy(T_GRUNT, arena_x + vw + 40.0, 30.0)
-        spawn_enemy(T_GRUNT, arena_x + vw + 70.0, 60.0)
-        spawn_enemy(T_GRUNT, arena_x + vw + 100.0, 82.0)
+        spawn_enemy(T_GRUNT, S.arena_x + S.vw + 40.0, 30.0)
+        spawn_enemy(T_GRUNT, S.arena_x + S.vw + 70.0, 60.0)
+        spawn_enemy(T_GRUNT, S.arena_x + S.vw + 100.0, 82.0)
     elseif w == 1 then
-        spawn_enemy(T_GRUNT, arena_x - 40.0, 26.0)
-        spawn_enemy(T_GRUNT, arena_x - 70.0, 58.0)
-        spawn_enemy(T_GRUNT, arena_x + vw + 40.0, 34.0)
-        spawn_enemy(T_GRUNT, arena_x + vw + 70.0, 76.0)
-        spawn_enemy(T_BRUTE, arena_x + vw + 110.0, 52.0)
+        spawn_enemy(T_GRUNT, S.arena_x - 40.0, 26.0)
+        spawn_enemy(T_GRUNT, S.arena_x - 70.0, 58.0)
+        spawn_enemy(T_GRUNT, S.arena_x + S.vw + 40.0, 34.0)
+        spawn_enemy(T_GRUNT, S.arena_x + S.vw + 70.0, 76.0)
+        spawn_enemy(T_BRUTE, S.arena_x + S.vw + 110.0, 52.0)
     else
-        spawn_enemy(T_BOSS, arena_x + vw + 60.0, 50.0)
-        spawn_enemy(T_GRUNT, arena_x - 40.0, 24.0)
-        spawn_enemy(T_GRUNT, arena_x - 70.0, 80.0)
+        spawn_enemy(T_BOSS, S.arena_x + S.vw + 60.0, 50.0)
+        spawn_enemy(T_GRUNT, S.arena_x - 40.0, 24.0)
+        spawn_enemy(T_GRUNT, S.arena_x - 70.0, 80.0)
     end
 end
 
@@ -657,7 +665,7 @@ local function enemies_alive()
     local c = 0
     for i = 0, n - 1 do
         local e = ent_at(i, TAG_ACTOR)
-        if e ~= 0 and e ~= hero_id and ent_active(e) then
+        if e ~= 0 and e ~= S.hero_id and ent_active(e) then
             if ent_num(e, TYPE) ~= T_HERO then
                 local st = ent_num(e, ST)
                 if st ~= DEAD then c = c + 1 end
@@ -668,11 +676,11 @@ local function enemies_alive()
 end
 
 local function hero_target()
-    if hero_id == 0 then return 0.0, 0.0, false end
-    if not ent_active(hero_id) then return 0.0, 0.0, false end
-    local st = ent_num(hero_id, ST)
+    if S.hero_id == 0 then return 0.0, 0.0, false end
+    if not ent_active(S.hero_id) then return 0.0, 0.0, false end
+    local st = ent_num(S.hero_id, ST)
     if st == DEAD or st == DOWN then return 0.0, 0.0, false end
-    return ent_num(hero_id, X), ent_num(hero_id, DP), true
+    return ent_num(S.hero_id, X), ent_num(S.hero_id, DP), true
 end
 
 -- Attract AI: nearest standing enemy.
@@ -781,11 +789,11 @@ local function update_hero(id, dt)
 
     -- attract AI takes over after a second without human input
     if ix == 0.0 and iy == 0.0 and not atk and not kick and not spin then
-        idle_frames = idle_frames + 1
+        S.idle_frames = S.idle_frames + 1
     else
-        idle_frames = 0
+        S.idle_frames = 0
     end
-    if idle_frames > 45 then
+    if S.idle_frames > 45 then
         local tx, td, found = nearest_foe(id)
         if found then
             local hx = ent_num(id, X)
@@ -797,38 +805,38 @@ local function update_hero(id, dt)
                 if td > hd then iy = 1.0 else iy = -1.0 end
             end
             if math.abs(tx - hx) < 54.0 and math.abs(td - hd) < 18.0
-                and ai_attack_t <= 0.0 then
+                and S.ai_attack_t <= 0.0 then
                 -- Finish every second combo with a knockdown kick so the
                 -- attract run makes progress instead of trading punches.
-                if combo >= 2 then
+                if S.combo >= 2 then
                     kick = true
-                    combo = 0
+                    S.combo = 0
                 else
                     atk = true
                 end
-                ai_attack_t = 0.45
+                S.ai_attack_t = 0.45
             end
         end
     end
 
     if atk then
-        combo = combo + 1
-        if combo > 3 then combo = 1 end
-        combo_t = 0.55
+        S.combo = S.combo + 1
+        if S.combo > 3 then S.combo = 1 end
+        S.combo_t = 0.55
         start_attack(id, PUNCH)
     elseif kick then
-        combo = 0
+        S.combo = 0
         start_attack(id, KICK)
     elseif spin then
-        combo = 0
+        S.combo = 0
         start_attack(id, SPIN)
     else
         if ix ~= 0.0 or iy ~= 0.0 then
             local step = 150.0 * dt
             local nx = ent_num(id, X) + ix * step
             local nd = ent_num(id, DP) + iy * step * 0.55
-            local lo = arena_x + 24.0
-            local hi = arena_x + vw - 24.0
+            local lo = S.arena_x + 24.0
+            local hi = S.arena_x + S.vw - 24.0
             if nx < lo then nx = lo elseif nx > hi then nx = hi end
             if nd < 6.0 then nd = 6.0 elseif nd > DEPTH_MAX - 6.0 then nd = DEPTH_MAX - 6.0 end
             ent_set_num(id, X, nx)
@@ -864,9 +872,9 @@ local function update_enemy(id, dt)
 
     local reach, dr = attack_reach(ty, PUNCH)
     if math.abs(dx) <= reach - 8.0 and math.abs(dd) <= dr + 2.0
-        and enemy_atk_cd <= 0.0 then
+        and S.enemy_atk_cd <= 0.0 then
         start_attack(id, PUNCH)
-        enemy_atk_cd = 0.75
+        S.enemy_atk_cd = 0.75
         return
     end
 
@@ -885,8 +893,8 @@ local function update_enemy(id, dt)
     if math.abs(dd) > 6.0 then
         if dd > 0.0 then nd = d + step * 0.55 else nd = d - step * 0.55 end
     end
-    local lo = arena_x - 60.0
-    local hi = arena_x + vw + 60.0
+    local lo = S.arena_x - 60.0
+    local hi = S.arena_x + S.vw + 60.0
     if nx < lo then nx = lo elseif nx > hi then nx = hi end
     if nd < 4.0 then nd = 4.0 elseif nd > DEPTH_MAX - 4.0 then nd = DEPTH_MAX - 4.0 end
     if nx ~= x or nd ~= d then
@@ -899,56 +907,56 @@ local function update_enemy(id, dt)
 end
 
 local function on_hero_dead()
-    lives = lives - 1
-    combo = 0
-    if lives <= 0 then
-        game_over = true
-        end_t = 3.2
+    S.lives = S.lives - 1
+    S.combo = 0
+    if S.lives <= 0 then
+        S.game_over = true
+        S.end_t = 3.2
         audio_play("lose", 0.4)
         log_info("beat-em-up: game over")
     else
-        ent_set_num(hero_id, X, arena_x + 90.0)
-        ent_set_num(hero_id, DP, 50.0)
-        ent_set_num(hero_id, HP, HERO_HP)
-        ent_set_num(hero_id, ST, IDLE)
-        ent_set_num(hero_id, STT, 0.0)
-        ent_set_num(hero_id, INVULN, 2.0)
-        ent_set_num(hero_id, FLAGS, 1.2)
-        camera_snap(arena_x + vw * 0.5, vh * 0.5)
+        ent_set_num(S.hero_id, X, S.arena_x + 90.0)
+        ent_set_num(S.hero_id, DP, 50.0)
+        ent_set_num(S.hero_id, HP, HERO_HP)
+        ent_set_num(S.hero_id, ST, IDLE)
+        ent_set_num(S.hero_id, STT, 0.0)
+        ent_set_num(S.hero_id, INVULN, 2.0)
+        ent_set_num(S.hero_id, FLAGS, 1.2)
+        camera_snap(S.arena_x + S.vw * 0.5, S.vh * 0.5)
     end
 end
 
 local function wave_logic(dt)
-    if wave_state == 0 then
+    if S.wave_state == 0 then
         if enemies_alive() == 0 then
-            wave_state = 1
-            clear_t = 1.5
+            S.wave_state = 1
+            S.clear_t = 1.5
             audio_play("win", 0.25)
             -- Food drop between waves keeps the single-life run viable.
-            if hero_id ~= 0 and ent_active(hero_id) then
-                local hp = ent_num(hero_id, HP) + 45.0
+            if S.hero_id ~= 0 and ent_active(S.hero_id) then
+                local hp = ent_num(S.hero_id, HP) + 45.0
                 if hp > HERO_HP then hp = HERO_HP end
-                ent_set_num(hero_id, HP, hp)
+                ent_set_num(S.hero_id, HP, hp)
             end
         end
     else
-        clear_t = clear_t - dt
-        if clear_t <= 0.0 then
-            if wave >= MAX_WAVE then
-                stage_done = true
-                end_t = 3.0
+        S.clear_t = S.clear_t - dt
+        if S.clear_t <= 0.0 then
+            if S.wave >= MAX_WAVE then
+                S.stage_done = true
+                S.end_t = 3.0
                 audio_play("win", 0.4)
                 log_info("beat-em-up: stage clear")
             else
-                wave = wave + 1
-                arena_x = arena_x + vw
-                if hero_id ~= 0 and ent_active(hero_id) then
-                    ent_set_num(hero_id, X, arena_x + 80.0)
-                    ent_set_num(hero_id, DP, 50.0)
+                S.wave = S.wave + 1
+                S.arena_x = S.arena_x + S.vw
+                if S.hero_id ~= 0 and ent_active(S.hero_id) then
+                    ent_set_num(S.hero_id, X, S.arena_x + 80.0)
+                    ent_set_num(S.hero_id, DP, 50.0)
                 end
-                camera_snap(arena_x + vw * 0.5, vh * 0.5)
-                spawn_wave(wave)
-                wave_state = 0
+                camera_snap(S.arena_x + S.vw * 0.5, S.vh * 0.5)
+                spawn_wave(S.wave)
+                S.wave_state = 0
             end
         end
     end
@@ -956,42 +964,42 @@ end
 
 local function reset_game()
     ent_clear()
-    score = 0.0
-    lives = 3
-    combo = 0
-    combo_t = 0.0
-    serial = 0
-    idle_frames = 0
-    ai_attack_t = 0.0
-    enemy_atk_cd = 0.0
-    game_over = false
-    stage_done = false
-    end_t = 0.0
-    wave = 0
-    wave_state = 0
-    clear_t = 0.0
-    arena_x = 0.0
-    camera_snap(vw * 0.5, vh * 0.5)
-    hero_id = spawn_actor(T_HERO, 120.0, 50.0, 1.0)
+    S.score = 0.0
+    S.lives = 3
+    S.combo = 0
+    S.combo_t = 0.0
+    S.serial = 0
+    S.idle_frames = 0
+    S.ai_attack_t = 0.0
+    S.enemy_atk_cd = 0.0
+    S.game_over = false
+    S.stage_done = false
+    S.end_t = 0.0
+    S.wave = 0
+    S.wave_state = 0
+    S.clear_t = 0.0
+    S.arena_x = 0.0
+    camera_snap(S.vw * 0.5, S.vh * 0.5)
+    S.hero_id = spawn_actor(T_HERO, 120.0, 50.0, 1.0)
     spawn_wave(0)
 end
 
 local function update_sim(dt)
-    combo_t = combo_t - dt
-    if combo_t <= 0.0 then combo = 0 end
-    enemy_atk_cd = enemy_atk_cd - dt
-    ai_attack_t = ai_attack_t - dt
+    S.combo_t = S.combo_t - dt
+    if S.combo_t <= 0.0 then S.combo = 0 end
+    S.enemy_atk_cd = S.enemy_atk_cd - dt
+    S.ai_attack_t = S.ai_attack_t - dt
 
-    if game_over or stage_done then
-        end_t = end_t - dt
-        if end_t <= 0.0 then reset_game() end
+    if S.game_over or S.stage_done then
+        S.end_t = S.end_t - dt
+        if S.end_t <= 0.0 then reset_game() end
     else
         wave_logic(dt)
-        update_hero(hero_id, dt)
+        update_hero(S.hero_id, dt)
         local n = ent_count(TAG_ACTOR)
         for i = 0, n - 1 do
             local a = ent_at(i, TAG_ACTOR)
-            if a ~= 0 and a ~= hero_id and ent_active(a) then
+            if a ~= 0 and a ~= S.hero_id and ent_active(a) then
                 update_enemy(a, dt)
             end
         end
@@ -1002,14 +1010,14 @@ local function update_sim(dt)
             end
         end
         resolve_attacks()
-        if hero_id ~= 0 and ent_active(hero_id)
-            and ent_num(hero_id, ST) == DEAD then
+        if S.hero_id ~= 0 and ent_active(S.hero_id)
+            and ent_num(S.hero_id, ST) == DEAD then
             on_hero_dead()
         end
     end
 
-    camera_set_bounds(arena_x, 0.0, vw, vh)
-    camera_follow(arena_x + vw * 0.5, vh * 0.5)
+    camera_set_bounds(S.arena_x, 0.0, S.vw, S.vh)
+    camera_follow(S.arena_x + S.vw * 0.5, S.vh * 0.5)
 end
 
 -- ---------------------------------------------------------------------------
@@ -1027,48 +1035,48 @@ local function draw_hud(cam_x, cam_y)
     draw_quad(cam_x + 10.0, cam_y + 8.0, 330.0, 64.0, 0.02, 0.02, 0.05, 0.58)
     draw_quad(hx, hy, 240.0, 20.0, 0.04, 0.05, 0.08, 0.9)
     local hp = 0.0
-    if hero_id ~= 0 and ent_active(hero_id) then hp = ent_num(hero_id, HP) end
+    if S.hero_id ~= 0 and ent_active(S.hero_id) then hp = ent_num(S.hero_id, HP) end
     local ratio = hp / HERO_HP
     if ratio < 0.0 then ratio = 0.0 elseif ratio > 1.0 then ratio = 1.0 end
     draw_quad(hx + 2.0, hy + 2.0, 236.0 * ratio, 16.0, 0.92, 0.26, 0.22, 1.0)
     draw_rect_outline(hx, hy, 240.0, 20.0, 0.85, 0.85, 0.88, 0.9)
 
     ui_label(0, hx, hy + 26.0,
-             "MESS  LIVES " .. string.format("%d", math.floor(lives))
-             .. "   SCORE " .. string.format("%d", math.floor(score)),
+             "MESS  LIVES " .. string.format("%d", math.floor(S.lives))
+             .. "   SCORE " .. string.format("%d", math.floor(S.score)),
              0.42, 0.95, 0.92, 0.72, 1.0)
-    draw_quad(cam_x + vw - 168.0, cam_y + 8.0, 158.0, 32.0,
+    draw_quad(cam_x + S.vw - 168.0, cam_y + 8.0, 158.0, 32.0,
               0.02, 0.02, 0.05, 0.58)
-    ui_label(0, cam_x + vw - 160.0, cam_y + 16.0,
-             "WAVE " .. string.format("%d", wave + 1) .. " / " .. string.format("%d", MAX_WAVE + 1),
+    ui_label(0, cam_x + S.vw - 160.0, cam_y + 16.0,
+             "WAVE " .. string.format("%d", S.wave + 1) .. " / " .. string.format("%d", MAX_WAVE + 1),
              0.45, 0.95, 0.90, 0.55, 1.0)
-    draw_quad(hx - 6.0, cam_y + vh - 38.0, 372.0, 28.0,
+    draw_quad(hx - 6.0, cam_y + S.vh - 38.0, 372.0, 28.0,
               0.02, 0.02, 0.05, 0.52)
-    ui_label(0, hx, cam_y + vh - 30.0,
+    ui_label(0, hx, cam_y + S.vh - 30.0,
              "WASD MOVE   SPACE/J PUNCH   K KICK   L SPIN",
              0.36, 0.75, 0.80, 0.88, 1.0)
 
-    if ui_button("restart", 0, cam_x + vw - 132.0, cam_y + 52.0,
+    if ui_button("restart", 0, cam_x + S.vw - 132.0, cam_y + 52.0,
                  114.0, 30.0, "RESTART", 0.42) then
         reset_game()
     end
 
-    if wave_state == 1 and not stage_done then
+    if S.wave_state == 1 and not S.stage_done then
         local m = "WAVE CLEAR"
         local tw = text_width(m, 1.1)
-        draw_text(m, cam_x + vw * 0.5 - tw * 0.5, cam_y + 130.0,
+        draw_text(m, cam_x + S.vw * 0.5 - tw * 0.5, cam_y + 130.0,
                   1.1, 1.0, 0.9, 0.35, 1.0)
     end
-    if stage_done then
+    if S.stage_done then
         local m = "STAGE CLEAR!"
         local tw = text_width(m, 1.3)
-        draw_text(m, cam_x + vw * 0.5 - tw * 0.5, cam_y + 130.0,
+        draw_text(m, cam_x + S.vw * 0.5 - tw * 0.5, cam_y + 130.0,
                   1.3, 0.55, 1.0, 0.55, 1.0)
     end
-    if game_over then
+    if S.game_over then
         local m = "GAME OVER"
         local tw = text_width(m, 1.3)
-        draw_text(m, cam_x + vw * 0.5 - tw * 0.5, cam_y + 130.0,
+        draw_text(m, cam_x + S.vw * 0.5 - tw * 0.5, cam_y + 130.0,
                   1.3, 1.0, 0.30, 0.26, 1.0)
     end
 end
@@ -1078,49 +1086,54 @@ end
 -- ---------------------------------------------------------------------------
 
 local function init()
-    white = sprite_load("assets/white.png")
+    S.white = sprite_load("assets/white.png")
     -- CC0 sprite art (see assets/brawler/LICENSE.txt). Nearest filtering keeps
     -- the 16x32 pixels crisp at the 3x brawler scale.
-    tex_hero_idle = sprite_load_nearest("assets/brawler/Renegade_Idle_1_strip4.png")
-    tex_hero_walk = sprite_load_nearest("assets/brawler/Renegade_Walk_1_strip4.png")
-    tex_hero_punch1 = sprite_load_nearest("assets/brawler/Renegade_Punch_1.png")
-    tex_hero_punch2 = sprite_load_nearest("assets/brawler/Renegade_Punch_2.png")
-    tex_hero_kick1 = sprite_load_nearest("assets/brawler/Renegade_Kick_1.png")
-    tex_hero_kick2 = sprite_load_nearest("assets/brawler/Renegade_Kick_2.png")
-    tex_hero_hurt = sprite_load_nearest("assets/brawler/Renegade_Hurt.png")
-    tex_hero_down = sprite_load_nearest("assets/brawler/Renegade_Knock_Out.png")
-    tex_hero_getup = sprite_load_nearest("assets/brawler/Renegade_Get_up.png")
-    tex_hero_butt = sprite_load_nearest("assets/brawler/Renegade_Head_Butt_strip2.png")
-    tex_foe_idle = sprite_load_nearest("assets/brawler/NES_Soldier_Idle_1_strip4.png")
-    tex_foe_walk = sprite_load_nearest("assets/brawler/NES_Soldier_Walk_1_strip4.png")
-    tex_foe_punch = sprite_load_nearest("assets/brawler/NES_Soldier_Punch_1.png")
-    tex_foe_kick = sprite_load_nearest("assets/brawler/NES_Soldier_Kick_1.png")
-    tex_foe_hurt = sprite_load_nearest("assets/brawler/NES_Soldier_Hurt.png")
-    tex_foe_down = sprite_load_nearest("assets/brawler/NES_Soldier_Knock_Down.png")
-    tex_bg_sky = sprite_load_nearest("assets/brawler/bg/city_scitysky.png")
-    tex_bg_far = sprite_load_nearest("assets/brawler/bg/city_scityfar.png")
-    tex_bg_mid = sprite_load_nearest("assets/brawler/bg/city_scitymid.png")
-    tex_bg_close = sprite_load_nearest("assets/brawler/bg/city_scityclose.png")
-    tex_ground = sprite_load_nearest("assets/brawler/asphalt.png")
-    sprites_ready = tex_hero_idle ~= 0 and tex_foe_idle ~= 0
-    if sprites_ready then
+    S.tex_hero_idle = sprite_load_nearest("assets/brawler/Renegade_Idle_1_strip4.png")
+    S.tex_hero_walk = sprite_load_nearest("assets/brawler/Renegade_Walk_1_strip4.png")
+    S.tex_hero_punch1 = sprite_load_nearest("assets/brawler/Renegade_Punch_1.png")
+    S.tex_hero_punch2 = sprite_load_nearest("assets/brawler/Renegade_Punch_2.png")
+    S.tex_hero_kick1 = sprite_load_nearest("assets/brawler/Renegade_Kick_1.png")
+    S.tex_hero_kick2 = sprite_load_nearest("assets/brawler/Renegade_Kick_2.png")
+    S.tex_hero_hurt = sprite_load_nearest("assets/brawler/Renegade_Hurt.png")
+    S.tex_hero_down = sprite_load_nearest("assets/brawler/Renegade_Knock_Out.png")
+    S.tex_hero_getup = sprite_load_nearest("assets/brawler/Renegade_Get_up.png")
+    S.tex_hero_butt = sprite_load_nearest("assets/brawler/Renegade_Head_Butt_strip2.png")
+    S.tex_foe_idle = sprite_load_nearest("assets/brawler/NES_Soldier_Idle_1_strip4.png")
+    S.tex_foe_walk = sprite_load_nearest("assets/brawler/NES_Soldier_Walk_1_strip4.png")
+    S.tex_foe_punch = sprite_load_nearest("assets/brawler/NES_Soldier_Punch_1.png")
+    S.tex_foe_kick = sprite_load_nearest("assets/brawler/NES_Soldier_Kick_1.png")
+    S.tex_foe_hurt = sprite_load_nearest("assets/brawler/NES_Soldier_Hurt.png")
+    S.tex_foe_down = sprite_load_nearest("assets/brawler/NES_Soldier_Knock_Down.png")
+    S.tex_bg_sky = sprite_load_nearest("assets/brawler/bg/city_scitysky.png")
+    S.tex_bg_far = sprite_load_nearest("assets/brawler/bg/city_scityfar.png")
+    S.tex_bg_mid = sprite_load_nearest("assets/brawler/bg/city_scitymid.png")
+    S.tex_bg_close = sprite_load_nearest("assets/brawler/bg/city_scityclose.png")
+    S.tex_ground = sprite_load_nearest("assets/brawler/asphalt.png")
+    S.sprites_ready = S.tex_hero_idle ~= 0 and S.tex_foe_idle ~= 0
+    if S.sprites_ready then
         log_info("beat-em-up: CC0 sprite art loaded")
     else
         log_warn("beat-em-up: sprite art missing, falling back to primitives")
     end
     rng_seed(20261029)
-    vw = camera_viewport_w()
-    vh = camera_viewport_h()
+    S.vw = camera_viewport_w()
+    S.vh = camera_viewport_h()
     camera_forward_only(false)
     camera_deadzone(0.0, 0.0)
     camera_smoothing(8.0)
     audio_loop("brawler_theme", 0.16, 1.0)
     reset_game()
-    inited = true
+    S.inited = true
 end
 
 function update(dt)
-    if not inited then init() end
+    if S.seeded == nil then
+        S.seeded = true
+        reset_state()
+    end
+
+    if not S.inited then init() end
 
     update_sim(dt)
 

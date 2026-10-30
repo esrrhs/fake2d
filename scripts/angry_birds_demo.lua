@@ -35,41 +35,9 @@ local BLOCK_BASE = 5       -- block slots 5..10
 -- Resting view centre: wide enough to show the sling and both towers.
 local REST_CENTER_X = 560.0
 
-local brick_tex = 0 + 0
 local ball_tex = 0 + 0
-local sky_tex = 0 + 0
-local bird_tex = 0 + 0
-local pig_tex = 0 + 0
-local sling_tex = 0 + 0
-local ground_tex = 0 + 0
-local band_tex = 0 + 0  -- AI-illustrated rubber band, stretched between fork and pouch
-local puff_fx = 0 + 0
-local inited = false
-local ground = 0 + 0
 
-local b1 = 0 + 0
-local b2 = 0 + 0
-local b3 = 0 + 0
-local b4 = 0 + 0
-local b5 = 0 + 0
-local b6 = 0 + 0
-local b7 = 0 + 0
-local b8 = 0 + 0
-local b9 = 0 + 0
-local b10 = 0 + 0
 
-local state = 0 + 0        -- 0 aiming, 1 flying, 2 win, 3 out of birds
-local aiming = 0 + 0
-local drag_x = SLING_X + 0.0
-local drag_y = SLING_Y + 0.0
-local birds_left = 3 + 0
-local pigs_left = 3 + 0
-local score = 0 + 0
-local flight_t = 0.0 + 0.0
-local calm_t = 0.0 + 0.0
-local hit_sound_cd = 0.0 + 0.0
-local auto = 0 + 0
-local frame = 0 + 0
 
 -- Layout is runtime-constant: read in loops, never mutated.
 local pigs = {
@@ -91,42 +59,82 @@ local clouds = {
     {x = 690.0, y = 112.0, s = 96.0}
 }
 
+-- FakeLua binds file-level locals as const, so everything that changes
+-- across frames lives in a host-side NativeObject instead (see
+-- docs/SCRIPTING.md rule 3). Fields read and write like a plain table.
+local S = new_global_obj("angry_birds_demo", "state")
+
+local function reset_state()
+    S.brick_tex = 0 + 0
+    S.sky_tex = 0 + 0
+    S.bird_tex = 0 + 0
+    S.pig_tex = 0 + 0
+    S.sling_tex = 0 + 0
+    S.ground_tex = 0 + 0
+    S.band_tex = 0 + 0  -- AI-illustrated rubber band
+    S.puff_fx = 0 + 0
+    S.inited = false
+    S.ground = 0 + 0
+    S.b1 = 0 + 0
+    S.b2 = 0 + 0
+    S.b3 = 0 + 0
+    S.b4 = 0 + 0
+    S.b5 = 0 + 0
+    S.b6 = 0 + 0
+    S.b7 = 0 + 0
+    S.b8 = 0 + 0
+    S.b9 = 0 + 0
+    S.b10 = 0 + 0
+    S.state = 0 + 0        -- 0 aiming
+    S.aiming = 0 + 0
+    S.drag_x = SLING_X + 0.0
+    S.drag_y = SLING_Y + 0.0
+    S.birds_left = 3 + 0
+    S.pigs_left = 3 + 0
+    S.score = 0 + 0
+    S.flight_t = 0.0 + 0.0
+    S.calm_t = 0.0 + 0.0
+    S.hit_sound_cd = 0.0 + 0.0
+    S.auto = 0 + 0
+    S.frame = 0 + 0
+end
+
 local function get_id(slot)
-    if slot == 1 then return b1 elseif slot == 2 then return b2
-    elseif slot == 3 then return b3 elseif slot == 4 then return b4
-    elseif slot == 5 then return b5 elseif slot == 6 then return b6
-    elseif slot == 7 then return b7 elseif slot == 8 then return b8
-    elseif slot == 9 then return b9 end
-    return b10
+    if slot == 1 then return S.b1 elseif slot == 2 then return S.b2
+    elseif slot == 3 then return S.b3 elseif slot == 4 then return S.b4
+    elseif slot == 5 then return S.b5 elseif slot == 6 then return S.b6
+    elseif slot == 7 then return S.b7 elseif slot == 8 then return S.b8
+    elseif slot == 9 then return S.b9 end
+    return S.b10
 end
 
 local function set_id(slot, value)
-    if slot == 1 then b1 = value elseif slot == 2 then b2 = value
-    elseif slot == 3 then b3 = value elseif slot == 4 then b4 = value
-    elseif slot == 5 then b5 = value elseif slot == 6 then b6 = value
-    elseif slot == 7 then b7 = value elseif slot == 8 then b8 = value
-    elseif slot == 9 then b9 = value
-    else b10 = value end
+    if slot == 1 then S.b1 = value elseif slot == 2 then S.b2 = value
+    elseif slot == 3 then S.b3 = value elseif slot == 4 then S.b4 = value
+    elseif slot == 5 then S.b5 = value elseif slot == 6 then S.b6 = value
+    elseif slot == 7 then S.b7 = value elseif slot == 8 then S.b8 = value
+    elseif slot == 9 then S.b9 = value
+    else S.b10 = value end
 end
 
 local function init_assets()
-    brick_tex = sprite_load("assets/art/wood_plank.png")
-    sky_tex = sprite_load("assets/art/ab_sky.png")
-    bird_tex = sprite_load("assets/art/ab_bird.png")
-    pig_tex = sprite_load("assets/art/ab_pig.png")
-    sling_tex = sprite_load("assets/art/ab_sling.png")
-    ground_tex = sprite_load("assets/art/ab_ground.png")
-    band_tex = sprite_load("assets/art/ab_band.png")
+    S.brick_tex = sprite_load("assets/art/wood_plank.png")
+    S.sky_tex = sprite_load("assets/art/ab_sky.png")
+    S.bird_tex = sprite_load("assets/art/ab_bird.png")
+    S.pig_tex = sprite_load("assets/art/ab_pig.png")
+    S.sling_tex = sprite_load("assets/art/ab_sling.png")
+    S.ground_tex = sprite_load("assets/art/ab_ground.png")
+    S.band_tex = sprite_load("assets/art/ab_band.png")
 
-    puff_fx = part_create()
-    part_set_lifetime(puff_fx, 0.35, 0.7)
-    part_set_speed(puff_fx, 30, 120)
-    part_set_direction(puff_fx, 0.0, 6.28)
-    part_set_gravity(puff_fx, 0.0, 260.0)
-    part_set_drag(puff_fx, 0.8)
-    part_set_size(puff_fx, 5.0, 1.0)
-    part_set_spin(puff_fx, 5.0)
-    part_set_color(puff_fx, 0.55, 0.9, 0.4, 1.0, 0.0)
+    S.puff_fx = part_create()
+    part_set_lifetime(S.puff_fx, 0.35, 0.7)
+    part_set_speed(S.puff_fx, 30, 120)
+    part_set_direction(S.puff_fx, 0.0, 6.28)
+    part_set_gravity(S.puff_fx, 0.0, 260.0)
+    part_set_drag(S.puff_fx, 0.8)
+    part_set_size(S.puff_fx, 5.0, 1.0)
+    part_set_spin(S.puff_fx, 5.0)
+    part_set_color(S.puff_fx, 0.55, 0.9, 0.4, 1.0, 0.0)
 end
 
 local function build_scene()
@@ -138,12 +146,12 @@ local function build_scene()
         end
     end
 
-    if ground == 0 then
-        ground = phys_create_box(WORLD_W * 0.5, GROUND_Y + 20.0,
+    if S.ground == 0 then
+        S.ground = phys_create_box(WORLD_W * 0.5, GROUND_Y + 20.0,
                                  WORLD_W * 0.5 + 40.0, 20.0)
-        phys_set_static(ground, true)
-        phys_set_friction(ground, 0.8)
-        phys_set_restitution(ground, 0.0)
+        phys_set_static(S.ground, true)
+        phys_set_friction(S.ground, 0.8)
+        phys_set_restitution(S.ground, 0.0)
     end
 
     -- The bird waits on the sling, weightless until launched.
@@ -175,16 +183,16 @@ local function build_scene()
         set_id(BLOCK_BASE + i - 1, block)
     end
 
-    state = 0
-    aiming = 0
-    drag_x = SLING_X
-    drag_y = SLING_Y
-    birds_left = 3
-    pigs_left = 3
-    score = 0
-    flight_t = 0.0
-    calm_t = 0.0
-    hit_sound_cd = 0.0
+    S.state = 0
+    S.aiming = 0
+    S.drag_x = SLING_X
+    S.drag_y = SLING_Y
+    S.birds_left = 3
+    S.pigs_left = 3
+    S.score = 0
+    S.flight_t = 0.0
+    S.calm_t = 0.0
+    S.hit_sound_cd = 0.0
 
     -- Camera: pan with the bird, never leave the level, ease back on reset.
     camera_set_bounds(0.0, 0.0, WORLD_W, SCREEN_H)
@@ -202,9 +210,9 @@ local function pop_pig(slot)
     local y = phys_y(id)
     phys_destroy(id)
     set_id(slot, 0)
-    pigs_left = pigs_left - 1
-    score = score + 100
-    part_emit(puff_fx, 16, x, y)
+    S.pigs_left = S.pigs_left - 1
+    S.score = S.score + 100
+    part_emit(S.puff_fx, 16, x, y)
     camera_shake(0.35)
     audio_play("coin", 0.9)
     log_number(900 + slot)
@@ -215,34 +223,34 @@ local function launch(vx, vy)
     if bird == 0 then
         return
     end
-    aiming = 0
-    state = 1
-    flight_t = 0.0
-    calm_t = 0.0
-    birds_left = birds_left - 1
+    S.aiming = 0
+    S.state = 1
+    S.flight_t = 0.0
+    S.calm_t = 0.0
+    S.birds_left = S.birds_left - 1
     phys_set_gravity_scale(bird, 1.0)
     phys_set_vel(bird, vx, vy)
     phys_set_ang_vel(bird, -vx * 0.015)
     audio_play("launch", 0.75)
-    log_number(880 + birds_left)
+    log_number(880 + S.birds_left)
 end
 
 local function finish_flight()
-    if pigs_left <= 0 then
-        state = 2
+    if S.pigs_left <= 0 then
+        S.state = 2
         audio_play("win", 0.85)
         log_number(950)
-    elseif birds_left > 0 then
+    elseif S.birds_left > 0 then
         local bird = get_id(1)
         phys_set_pos(bird, SLING_X, SLING_Y)
         phys_set_vel(bird, 0.0, 0.0)
         phys_set_ang_vel(bird, 0.0)
         phys_set_gravity_scale(bird, 0.0)
-        drag_x = SLING_X
-        drag_y = SLING_Y
-        state = 0
+        S.drag_x = SLING_X
+        S.drag_y = SLING_Y
+        S.state = 0
     else
-        state = 3
+        S.state = 3
         audio_play("lose", 0.7)
         log_number(951)
     end
@@ -266,10 +274,10 @@ local function score_contacts()
             pop_pig(pig_user)
         elseif other >= 11 and other <= 16 then
             -- bird hit a plank/roof: thud + a little shake, rate limited.
-            if hit_sound_cd <= 0.0 then
+            if S.hit_sound_cd <= 0.0 then
                 audio_play("brick", 0.55)
                 camera_shake(0.18)
-                hit_sound_cd = 0.07
+                S.hit_sound_cd = 0.07
             end
         end
     end
@@ -293,14 +301,14 @@ local function draw_sky()
     local cam_x = camera_x()
     draw_set_layer(0)
     -- AI key art fills the whole viewport; the camera pans it horizontally.
-    sprite_draw(sky_tex, cam_x, 0.0, SCREEN_W, SCREEN_H)
+    sprite_draw(S.sky_tex, cam_x, 0.0, SCREEN_W, SCREEN_H)
 end
 
 local function draw_ground()
     draw_set_layer(1)
     local gx = 0.0
     while gx < WORLD_W do
-        sprite_draw(ground_tex, gx, GROUND_Y, 256.0, SCREEN_H - GROUND_Y)
+        sprite_draw(S.ground_tex, gx, GROUND_Y, 256.0, SCREEN_H - GROUND_Y)
         gx = gx + 256.0
     end
 end
@@ -316,8 +324,8 @@ local function draw_band(x0, y0, x1, y1, thick)
     end
     local mx = (x0 + x1) * 0.5
     local my = (y0 + y1) * 0.5
-    sprite_draw_rotated_tinted(band_tex, 0.0, 0.0,
-                               sprite_width(band_tex), sprite_height(band_tex),
+    sprite_draw_rotated_tinted(S.band_tex, 0.0, 0.0,
+                               sprite_width(S.band_tex), sprite_height(S.band_tex),
                                mx - len * 0.5, my - thick * 0.5, len, thick,
                                math.atan2(dy, dx), len * 0.5, thick * 0.5,
                                1.0, 1.0, 1.0, 1.0)
@@ -325,15 +333,15 @@ end
 
 local function draw_sling()
     draw_set_layer(2)
-    sprite_draw(sling_tex, SLING_X - 48.0, GROUND_Y - 130.0, 96.0, 130.0)
+    sprite_draw(S.sling_tex, SLING_X - 48.0, GROUND_Y - 130.0, 96.0, 130.0)
 
     local bx = SLING_X
     local by = SLING_Y
-    if state == 0 then
-        bx = drag_x
-        by = drag_y
+    if S.state == 0 then
+        bx = S.drag_x
+        by = S.drag_y
     end
-    if band_tex ~= 0 then
+    if S.band_tex ~= 0 then
         draw_band(SLING_X - 14.0, 402.0, bx, by, 8.0)
         draw_band(SLING_X + 14.0, 402.0, bx, by, 8.0)
     else
@@ -363,7 +371,7 @@ local function draw_block(slot, def)
         g = 0.66
         b = 0.58
     end
-    sprite_draw_rotated_tinted(brick_tex, 0.0, 0.0, 256.0, 64.0,
+    sprite_draw_rotated_tinted(S.brick_tex, 0.0, 0.0, 256.0, 64.0,
                                x - w * 0.5, y - h * 0.5, w, h,
                                rot, w * 0.5, h * 0.5, r, g, b, 1.0)
 end
@@ -377,7 +385,7 @@ local function draw_pig(slot, def)
     local y = phys_smooth_y(id)
     local rot = phys_smooth_rot(id)
     local s = PIG_R * 4.0
-    sprite_draw_rotated_tinted(pig_tex, 0.0, 0.0, 256.0, 256.0,
+    sprite_draw_rotated_tinted(S.pig_tex, 0.0, 0.0, 256.0, 256.0,
                                x - s * 0.5, y - s * 0.5, s, s,
                                rot, s * 0.5, s * 0.5, 1.0, 1.0, 1.0, 1.0)
 end
@@ -391,23 +399,23 @@ local function draw_bird()
     local y = phys_smooth_y(id)
     local rot = phys_smooth_rot(id)
     local s = BIRD_R * 4.4
-    sprite_draw_rotated_tinted(bird_tex, 0.0, 0.0, 256.0, 256.0,
+    sprite_draw_rotated_tinted(S.bird_tex, 0.0, 0.0, 256.0, 256.0,
                                x - s * 0.5, y - s * 0.5, s, s,
                                rot, s * 0.5, s * 0.5, 1.0, 1.0, 1.0, 1.0)
 end
 
 local function draw_trajectory()
-    if aiming == 0 or state ~= 0 then
+    if S.aiming == 0 or S.state ~= 0 then
         return
     end
-    local pdx = SLING_X - drag_x
-    local pdy = SLING_Y - drag_y
+    local pdx = SLING_X - S.drag_x
+    local pdy = SLING_Y - S.drag_y
     local vx = pdx * LAUNCH_SCALE
     local vy = pdy * LAUNCH_SCALE
     for i = 1, 22 do
         local t = i * 0.05
-        local px = drag_x + vx * t
-        local py = drag_y + vy * t + 450.0 * t * t
+        local px = S.drag_x + vx * t
+        local py = S.drag_y + vy * t + 450.0 * t * t
         if py < GROUND_Y then
             draw_quad(px - 2.0, py - 2.0, 4.0, 4.0, 1.0, 1.0, 1.0, 0.18)
         end
@@ -420,26 +428,26 @@ local function draw_hud()
     draw_set_z(0.0)
     draw_text("ANGRY BIRDS - RIGID BODY TEST", cam_x + 24.0, 16.0, 0.85,
               0.96, 0.98, 1.0, 1.0)
-    draw_text("SCORE " .. score, cam_x + 24.0, 44.0, 0.75, 1.0, 0.9, 0.55, 1.0)
-    draw_text("BIRDS " .. birds_left, cam_x + 24.0, 68.0, 0.7,
+    draw_text("SCORE " .. S.score, cam_x + 24.0, 44.0, 0.75, 1.0, 0.9, 0.55, 1.0)
+    draw_text("BIRDS " .. S.birds_left, cam_x + 24.0, 68.0, 0.7,
               0.9, 0.95, 1.0, 1.0)
-    draw_text("PIGS " .. pigs_left, cam_x + 24.0, 90.0, 0.7,
+    draw_text("PIGS " .. S.pigs_left, cam_x + 24.0, 90.0, 0.7,
               0.65, 0.95, 0.6, 1.0)
 
-    if state == 0 then
+    if S.state == 0 then
         draw_text("drag the bird back and release", cam_x + 300.0, 500.0, 0.62,
                   1.0, 1.0, 1.0, 0.85)
     end
-    if aiming == 1 then
-        local pdx = SLING_X - drag_x
-        local pdy = SLING_Y - drag_y
+    if S.aiming == 1 then
+        local pdx = SLING_X - S.drag_x
+        local pdy = SLING_Y - S.drag_y
         local pull = math.sqrt(pdx * pdx + pdy * pdy)
         draw_text("PULL " .. math.floor(pull), cam_x + 660.0, 500.0, 0.62,
                   1.0, 0.95, 0.6, 0.9)
     end
     draw_text("R restart", cam_x + 830.0, 500.0, 0.6, 1.0, 1.0, 1.0, 0.6)
 
-    if state == 2 then
+    if S.state == 2 then
         draw_quad(cam_x, 200.0, SCREEN_W, 120.0, 0.05, 0.12, 0.08, 0.72)
         draw_set_z(1.0)
         draw_text("ALL PIGS DOWN!", cam_x + 330.0, 226.0, 1.4,
@@ -447,7 +455,7 @@ local function draw_hud()
         draw_text("press R to play again", cam_x + 360.0, 276.0, 0.75,
                   1.0, 1.0, 1.0, 1.0)
         draw_set_z(0.0)
-    elseif state == 3 then
+    elseif S.state == 3 then
         draw_quad(cam_x, 200.0, SCREEN_W, 120.0, 0.16, 0.06, 0.06, 0.72)
         draw_set_z(1.0)
         draw_text("OUT OF BIRDS", cam_x + 350.0, 226.0, 1.3,
@@ -464,17 +472,17 @@ local function update_input(dt)
         return
     end
 
-    if state == 0 then
+    if S.state == 0 then
         local sx = input_mouse_x()
         local sy = input_mouse_y()
         local mx = camera_screen_to_world_x(sx, sy)
         local my = camera_screen_to_world_y(sx, sy)
-        if aiming == 0 then
+        if S.aiming == 0 then
             if input_mouse_pressed(0) then
                 local dx = mx - SLING_X
                 local dy = my - SLING_Y
                 if dx * dx + dy * dy <= 90.0 * 90.0 then
-                    aiming = 1
+                    S.aiming = 1
                 end
             end
         else
@@ -486,30 +494,30 @@ local function update_input(dt)
                 pdy = pdy * (MAX_PULL / len)
                 len = MAX_PULL
             end
-            drag_x = SLING_X - pdx
-            drag_y = SLING_Y - pdy
+            S.drag_x = SLING_X - pdx
+            S.drag_y = SLING_Y - pdy
             if not input_mouse_down(0) then
                 if len > 10.0 then
                     local bird = get_id(1)
                     if bird ~= 0 then
-                        phys_set_pos(bird, drag_x, drag_y)
+                        phys_set_pos(bird, S.drag_x, S.drag_y)
                     end
                     launch(pdx * LAUNCH_SCALE, pdy * LAUNCH_SCALE)
                 else
-                    aiming = 0
-                    drag_x = SLING_X
-                    drag_y = SLING_Y
+                    S.aiming = 0
+                    S.drag_x = SLING_X
+                    S.drag_y = SLING_Y
                 end
             end
         end
-        if state == 0 then
+        if S.state == 0 then
             local bird = get_id(1)
             if bird ~= 0 then
-                phys_set_pos(bird, drag_x, drag_y)
+                phys_set_pos(bird, S.drag_x, S.drag_y)
             end
         end
-    elseif state == 1 then
-        flight_t = flight_t + dt
+    elseif S.state == 1 then
+        S.flight_t = S.flight_t + dt
         local id = get_id(1)
         if id == 0 then
             finish_flight()
@@ -519,11 +527,11 @@ local function update_input(dt)
             local x = phys_x(id)
             local y = phys_y(id)
             if vx * vx + vy * vy < 40.0 * 40.0 then
-                calm_t = calm_t + dt
+                S.calm_t = S.calm_t + dt
             else
-                calm_t = 0.0
+                S.calm_t = 0.0
             end
-            if calm_t > 0.6 or flight_t > 6.0 or
+            if S.calm_t > 0.6 or S.flight_t > 6.0 or
                 x > WORLD_W + 40.0 or y > 580.0 or x < -80.0 then
                 finish_flight()
             end
@@ -550,23 +558,28 @@ local function draw_all()
 end
 
 function update(dt)
-    if not inited then
-        inited = true
+    if S.seeded == nil then
+        S.seeded = true
+        reset_state()
+    end
+
+    if not S.inited then
+        S.inited = true
         init_assets()
         phys_gravity(0.0, 900.0)
         phys_set_sleep(true)
         if os.getenv("ANGRY_TEST") ~= nil then
-            auto = 1
+            S.auto = 1
         end
         build_scene()
     end
 
-    frame = frame + 1
-    if hit_sound_cd > 0.0 then
-        hit_sound_cd = hit_sound_cd - dt
+    S.frame = S.frame + 1
+    if S.hit_sound_cd > 0.0 then
+        S.hit_sound_cd = S.hit_sound_cd - dt
     end
 
-    if auto == 1 and state == 0 and frame > 24 then
+    if S.auto == 1 and S.state == 0 and S.frame > 24 then
         -- Aimed shot at the left tower: vx=600, vy=-384.
         launch(600.0, -384.0)
     end
@@ -578,7 +591,7 @@ function update(dt)
     -- Camera: follow the bird in flight, ease back to the rest framing.
     local follow_x = REST_CENTER_X
     local bird = get_id(1)
-    if state == 1 and bird ~= 0 then
+    if S.state == 1 and bird ~= 0 then
         follow_x = phys_x(bird)
     end
     camera_follow(follow_x, SCREEN_H * 0.5)

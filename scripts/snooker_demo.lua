@@ -61,60 +61,68 @@ local PHASE_SEQ = 2
 -- persistent state (file-level scalars only: FakeLua rules)
 -- ---------------------------------------------------------------------------
 
-local inited = false
-local tex_ball = 0 + 0
-local tex_white = 0 + 0
-local tex_table = 0 + 0
-local tex_cue = 0 + 0  -- AI-illustrated cue stick
-local vw = 960.0 + 0.0
-local vh = 540.0 + 0.0
 
-local cue_id = 0 + 0
-local p1 = 0 + 0
-local p2 = 0 + 0
-local f1 = 0 + 0
-local f2 = 0 + 0
-local turn = 0 + 0
-local phase = 0 + 0
-local colour_seq = 1 + 0
-local break_score = 0 + 0
-local frame_no = 1 + 0
-local frame_winner = 0 + 0
 
-local shot_active = false
-local shot_first = 0 - 1
-local shot_reds = 0 + 0
-local shot_cols = 0 + 0
-local shot_col_value = 0 - 1
-local shot_col_bad = false
-local shot_cue_potted = false
-local settle_t = 0.0 + 0.0
-local shot_total = 0 + 0
 
-local aim_angle = 0.0 + 0.0
-local charge = 0.0 + 0.0
-local charging = false
-local last_power = 0.0 + 0.0
-local spin_side = 0.0 + 0.0
-local spin_top = 0.0 + 0.0
 
-local ai_timer = 0.0 + 0.0
-local ai_delay = 0.0 + 0.0
-local ai_planned = false
-local ai_target_power = 0.0 + 0.0
-local ai_active = false
 
-local match_over = false
-local over_t = 0.0 + 0.0
-local event_code = 0 + 0
-local event_val = 0 + 0
-local event_player = 0 + 0
-local event_t = 0.0 + 0.0
-local sfx_cd = 0.0 + 0.0
 
 -- ---------------------------------------------------------------------------
 -- small helpers
 -- ---------------------------------------------------------------------------
+
+-- FakeLua binds file-level locals as const, so everything that changes
+-- across frames lives in a host-side NativeObject instead (see
+-- docs/SCRIPTING.md rule 3). Fields read and write like a plain table.
+local S = new_global_obj("snooker_demo", "state")
+
+local function reset_state()
+    S.inited = false
+    S.tex_ball = 0 + 0
+    S.tex_white = 0 + 0
+    S.tex_table = 0 + 0
+    S.tex_cue = 0 + 0  -- AI-illustrated cue stick
+    S.vw = 960.0 + 0.0
+    S.vh = 540.0 + 0.0
+    S.cue_id = 0 + 0
+    S.p1 = 0 + 0
+    S.p2 = 0 + 0
+    S.f1 = 0 + 0
+    S.f2 = 0 + 0
+    S.turn = 0 + 0
+    S.phase = 0 + 0
+    S.colour_seq = 1 + 0
+    S.break_score = 0 + 0
+    S.frame_no = 1 + 0
+    S.frame_winner = 0 + 0
+    S.shot_active = false
+    S.shot_first = 0 - 1
+    S.shot_reds = 0 + 0
+    S.shot_cols = 0 + 0
+    S.shot_col_value = 0 - 1
+    S.shot_col_bad = false
+    S.shot_cue_potted = false
+    S.settle_t = 0.0 + 0.0
+    S.shot_total = 0 + 0
+    S.aim_angle = 0.0 + 0.0
+    S.charge = 0.0 + 0.0
+    S.charging = false
+    S.last_power = 0.0 + 0.0
+    S.spin_side = 0.0 + 0.0
+    S.spin_top = 0.0 + 0.0
+    S.ai_timer = 0.0 + 0.0
+    S.ai_delay = 0.0 + 0.0
+    S.ai_planned = false
+    S.ai_target_power = 0.0 + 0.0
+    S.ai_active = false
+    S.match_over = false
+    S.over_t = 0.0 + 0.0
+    S.event_code = 0 + 0
+    S.event_val = 0 + 0
+    S.event_player = 0 + 0
+    S.event_t = 0.0 + 0.0
+    S.sfx_cd = 0.0 + 0.0
+end
 
 local function clampf(v, lo, hi)
     if v < lo then return lo end
@@ -182,16 +190,16 @@ local function ball_speed2(id)
 end
 
 local function cue_xy()
-    if cue_id == 0 or not ent_active(cue_id) then return 0.0, 0.0, false end
-    if ent_num(cue_id, POT) ~= 0.0 then return 0.0, 0.0, false end
-    return ent_num(cue_id, X), ent_num(cue_id, Y), true
+    if S.cue_id == 0 or not ent_active(S.cue_id) then return 0.0, 0.0, false end
+    if ent_num(S.cue_id, POT) ~= 0.0 then return 0.0, 0.0, false end
+    return ent_num(S.cue_id, X), ent_num(S.cue_id, Y), true
 end
 
 local function can_aim()
-    if match_over or shot_active then return false end
+    if S.match_over or S.shot_active then return false end
     local x, y, ok = cue_xy()
     if not ok then return false end
-    if ball_speed2(cue_id) > 2.0 then return false end
+    if ball_speed2(S.cue_id) > 2.0 then return false end
     return true
 end
 
@@ -207,7 +215,7 @@ local function cast_ray_m(cx, cy, ux, uy, margin)
     local n = ent_count(TAG_BALL)
     for i = 0, n - 1 do
         local b = ent_at(i, TAG_BALL)
-        if b ~= 0 and b ~= cue_id and ent_active(b) and ent_num(b, POT) == 0.0 then
+        if b ~= 0 and b ~= S.cue_id and ent_active(b) and ent_num(b, POT) == 0.0 then
             local ox = ent_num(b, X) - cx
             local oy = ent_num(b, Y) - cy
             local proj = ox * ux + oy * uy
@@ -233,9 +241,9 @@ end
 
 -- Is this colour a legal first contact right now?
 local function is_legal_col(c)
-    if phase == PHASE_RED then return c == 0 end
-    if phase == PHASE_COLOUR then return c > 0 and c < CUE end
-    return c == colour_seq
+    if S.phase == PHASE_RED then return c == 0 end
+    if S.phase == PHASE_COLOUR then return c > 0 and c < CUE end
+    return c == S.colour_seq
 end
 
 -- ---------------------------------------------------------------------------
@@ -296,37 +304,37 @@ local function new_frame()
         end
     end
 
-    cue_id = create_ball(CUE, BAX - D_R * 0.62, CY + D_R * 0.55, -1.0)
+    S.cue_id = create_ball(CUE, BAX - D_R * 0.62, CY + D_R * 0.55, -1.0)
 
-    p1 = 0
-    p2 = 0
-    turn = 0
-    phase = PHASE_RED
-    colour_seq = 1
-    break_score = 0
-    match_over = false
-    over_t = 0.0
-    frame_winner = 0
-    shot_active = false
-    shot_first = -1
-    shot_reds = 0
-    shot_cols = 0
-    shot_col_value = -1
-    shot_col_bad = false
-    shot_cue_potted = false
-    settle_t = 0.0
-    charging = false
-    charge = 0.0
-    last_power = 0.0
-    spin_side = 0.0
-    spin_top = 0.0
-    ai_planned = false
-    ai_delay = 0.0
-    ai_timer = 0.0
-    event_code = 0
-    event_val = 0
-    event_t = 0.0
-    aim_angle = 0.0
+    S.p1 = 0
+    S.p2 = 0
+    S.turn = 0
+    S.phase = PHASE_RED
+    S.colour_seq = 1
+    S.break_score = 0
+    S.match_over = false
+    S.over_t = 0.0
+    S.frame_winner = 0
+    S.shot_active = false
+    S.shot_first = -1
+    S.shot_reds = 0
+    S.shot_cols = 0
+    S.shot_col_value = -1
+    S.shot_col_bad = false
+    S.shot_cue_potted = false
+    S.settle_t = 0.0
+    S.charging = false
+    S.charge = 0.0
+    S.last_power = 0.0
+    S.spin_side = 0.0
+    S.spin_top = 0.0
+    S.ai_planned = false
+    S.ai_delay = 0.0
+    S.ai_timer = 0.0
+    S.event_code = 0
+    S.event_val = 0
+    S.event_t = 0.0
+    S.aim_angle = 0.0
 end
 
 -- ---------------------------------------------------------------------------
@@ -381,29 +389,29 @@ local function respot_colour(id)
 end
 
 local function respot_cue()
-    if cue_id == 0 or not ent_active(cue_id) then return end
+    if S.cue_id == 0 or not ent_active(S.cue_id) then return end
     local bestx = BAX - D_R * 0.62
     local besty = CY + D_R * 0.55
-    if not spot_free(bestx, besty, cue_id) then
+    if not spot_free(bestx, besty, S.cue_id) then
         local found = false
         for k = 0, 12 do
             local a = -math.pi * 0.5 + math.pi * k / 12.0
             local x = BAX + math.cos(a) * D_R * 0.78
             local y = CY + math.sin(a) * D_R * 0.78
-            if not found and spot_free(x, y, cue_id) then
+            if not found and spot_free(x, y, S.cue_id) then
                 bestx = x
                 besty = y
                 found = true
             end
         end
     end
-    ent_set_num(cue_id, X, bestx)
-    ent_set_num(cue_id, Y, besty)
-    ent_set_num(cue_id, VX, 0.0)
-    ent_set_num(cue_id, VY, 0.0)
-    ent_set_num(cue_id, SIDE, 0.0)
-    ent_set_num(cue_id, TOP, 0.0)
-    ent_set_num(cue_id, POT, 0.0)
+    ent_set_num(S.cue_id, X, bestx)
+    ent_set_num(S.cue_id, Y, besty)
+    ent_set_num(S.cue_id, VX, 0.0)
+    ent_set_num(S.cue_id, VY, 0.0)
+    ent_set_num(S.cue_id, SIDE, 0.0)
+    ent_set_num(S.cue_id, TOP, 0.0)
+    ent_set_num(S.cue_id, POT, 0.0)
 end
 
 -- ---------------------------------------------------------------------------
@@ -436,15 +444,15 @@ local function pot_ball(id)
     ent_set_num(id, SIDE, 0.0)
     ent_set_num(id, TOP, 0.0)
     if c == CUE then
-        shot_cue_potted = true
+        S.shot_cue_potted = true
     elseif c == 0 then
-        shot_reds = shot_reds + 1
+        S.shot_reds = S.shot_reds + 1
     else
-        shot_cols = shot_cols + 1
-        if shot_col_value < 0 then shot_col_value = c end
-        if phase == PHASE_RED then shot_col_bad = true end
-        if phase == PHASE_SEQ and c ~= colour_seq then shot_col_bad = true end
-        if phase == PHASE_COLOUR and shot_cols > 1 then shot_col_bad = true end
+        S.shot_cols = S.shot_cols + 1
+        if S.shot_col_value < 0 then S.shot_col_value = c end
+        if S.phase == PHASE_RED then S.shot_col_bad = true end
+        if S.phase == PHASE_SEQ and c ~= S.colour_seq then S.shot_col_bad = true end
+        if S.phase == PHASE_COLOUR and S.shot_cols > 1 then S.shot_col_bad = true end
     end
     spawn_fx(ent_num(id, X), ent_num(id, Y))
     audio_play("pocket", 0.34)
@@ -455,29 +463,29 @@ end
 -- ---------------------------------------------------------------------------
 
 local function strike(power)
-    if match_over or shot_active then return end
-    if cue_id == 0 or not ent_active(cue_id) then return end
-    if ent_num(cue_id, POT) ~= 0.0 then return end
-    local vx = ent_num(cue_id, VX)
-    local vy = ent_num(cue_id, VY)
+    if S.match_over or S.shot_active then return end
+    if S.cue_id == 0 or not ent_active(S.cue_id) then return end
+    if ent_num(S.cue_id, POT) ~= 0.0 then return end
+    local vx = ent_num(S.cue_id, VX)
+    local vy = ent_num(S.cue_id, VY)
     if vx * vx + vy * vy > 4.0 then return end
 
     local speed = 140.0 + clampf(power, 0.0, 1.0) * MAX_CUE_SPEED
-    ent_set_num(cue_id, VX, math.cos(aim_angle) * speed)
-    ent_set_num(cue_id, VY, math.sin(aim_angle) * speed)
-    ent_set_num(cue_id, SIDE, spin_side)
-    ent_set_num(cue_id, TOP, spin_top)
+    ent_set_num(S.cue_id, VX, math.cos(S.aim_angle) * speed)
+    ent_set_num(S.cue_id, VY, math.sin(S.aim_angle) * speed)
+    ent_set_num(S.cue_id, SIDE, S.spin_side)
+    ent_set_num(S.cue_id, TOP, S.spin_top)
 
-    shot_active = true
-    shot_first = -1
-    shot_reds = 0
-    shot_cols = 0
-    shot_col_value = -1
-    shot_col_bad = false
-    shot_cue_potted = false
-    settle_t = 0.0
-    last_power = power
-    shot_total = shot_total + 1
+    S.shot_active = true
+    S.shot_first = -1
+    S.shot_reds = 0
+    S.shot_cols = 0
+    S.shot_col_value = -1
+    S.shot_col_bad = false
+    S.shot_cue_potted = false
+    S.settle_t = 0.0
+    S.last_power = power
+    S.shot_total = S.shot_total + 1
     audio_play("cue", 0.45)
 end
 
@@ -497,16 +505,16 @@ end
 -- Foul penalty: the highest value involved, minimum four.
 local function foul_penalty()
     local p = 4
-    if phase == PHASE_SEQ then
-        local v = colour_value(colour_seq)
+    if S.phase == PHASE_SEQ then
+        local v = colour_value(S.colour_seq)
         if v > p then p = v end
     end
-    if shot_first > 0 then
-        local v = colour_value(shot_first)
+    if S.shot_first > 0 then
+        local v = colour_value(S.shot_first)
         if v > p then p = v end
     end
-    if shot_col_value > 0 then
-        local v = colour_value(shot_col_value)
+    if S.shot_col_value > 0 then
+        local v = colour_value(S.shot_col_value)
         if v > p then p = v end
     end
     return p
@@ -527,8 +535,8 @@ local function live_reds()
 end
 
 local function resolve_shot()
-    shot_active = false
-    settle_t = 0.0
+    S.shot_active = false
+    S.settle_t = 0.0
 
     -- Every red potted this shot stays down; colours are handled below.
     local n = ent_count(TAG_BALL)
@@ -546,70 +554,70 @@ local function resolve_shot()
     local legal_off = -1
     local foul = false
 
-    if shot_cue_potted then foul = true end
-    if shot_first < 0 then foul = true end
-    if shot_col_bad then foul = true end
-    if phase == PHASE_RED and shot_first ~= 0 then foul = true end
-    if phase == PHASE_COLOUR and (shot_first <= 0) then foul = true end
-    if phase == PHASE_COLOUR and shot_cols > 0 and shot_col_value ~= shot_first then
+    if S.shot_cue_potted then foul = true end
+    if S.shot_first < 0 then foul = true end
+    if S.shot_col_bad then foul = true end
+    if S.phase == PHASE_RED and S.shot_first ~= 0 then foul = true end
+    if S.phase == PHASE_COLOUR and (S.shot_first <= 0) then foul = true end
+    if S.phase == PHASE_COLOUR and S.shot_cols > 0 and S.shot_col_value ~= S.shot_first then
         foul = true
     end
-    if phase == PHASE_SEQ and shot_first ~= colour_seq then foul = true end
-    if phase ~= PHASE_RED and shot_reds > 0 then foul = true end
+    if S.phase == PHASE_SEQ and S.shot_first ~= S.colour_seq then foul = true end
+    if S.phase ~= PHASE_RED and S.shot_reds > 0 then foul = true end
 
     if not foul then
-        if phase == PHASE_RED then
-            if shot_reds > 0 then
-                scored = shot_reds
-                phase = PHASE_COLOUR
+        if S.phase == PHASE_RED then
+            if S.shot_reds > 0 then
+                scored = S.shot_reds
+                S.phase = PHASE_COLOUR
             end
-        elseif phase == PHASE_COLOUR then
-            if shot_col_value > 0 then
-                scored = colour_value(shot_col_value)
+        elseif S.phase == PHASE_COLOUR then
+            if S.shot_col_value > 0 then
+                scored = colour_value(S.shot_col_value)
                 if reds > 0 then
-                    phase = PHASE_RED
+                    S.phase = PHASE_RED
                 else
-                    phase = PHASE_SEQ
-                    colour_seq = 1
+                    S.phase = PHASE_SEQ
+                    S.colour_seq = 1
                 end
             else
                 if reds > 0 then
-                    phase = PHASE_RED
+                    S.phase = PHASE_RED
                 else
-                    phase = PHASE_SEQ
-                    colour_seq = 1
+                    S.phase = PHASE_SEQ
+                    S.colour_seq = 1
                 end
             end
-        elseif phase == PHASE_SEQ then
-            if shot_col_value > 0 then
-                scored = colour_value(shot_col_value)
-                legal_off = shot_col_value
-                colour_seq = colour_seq + 1
-                if colour_seq > 6 then
+        elseif S.phase == PHASE_SEQ then
+            if S.shot_col_value > 0 then
+                scored = colour_value(S.shot_col_value)
+                legal_off = S.shot_col_value
+                S.colour_seq = S.colour_seq + 1
+                if S.colour_seq > 6 then
                     -- The black closes the frame: bank its value first, then
                     -- decide the winner on the final score.
-                    if turn == 0 then
-                        p1 = p1 + scored
+                    if S.turn == 0 then
+                        S.p1 = S.p1 + scored
                     else
-                        p2 = p2 + scored
+                        S.p2 = S.p2 + scored
                     end
-                    break_score = break_score + scored
-                    match_over = true
-                    over_t = 4.0
-                    if p1 > p2 then
-                        frame_winner = 1
-                        f1 = f1 + 1
-                    elseif p2 > p1 then
-                        frame_winner = 2
-                        f2 = f2 + 1
+                    S.break_score = S.break_score + scored
+                    S.match_over = true
+                    S.over_t = 4.0
+                    if S.p1 > S.p2 then
+                        S.frame_winner = 1
+                        S.f1 = S.f1 + 1
+                    elseif S.p2 > S.p1 then
+                        S.frame_winner = 2
+                        S.f2 = S.f2 + 1
                     else
-                        frame_winner = 0
+                        S.frame_winner = 0
                     end
-                    event_code = 3
-                    event_val = 0
-                    event_t = 3.5
+                    S.event_code = 3
+                    S.event_val = 0
+                    S.event_t = 3.5
                     audio_play("frame", 0.5)
-                    log_info(string.format("snooker: frame over, P1 %d - %d P2", p1, p2))
+                    log_info(string.format("snooker: frame over, P1 %d - %d P2", S.p1, S.p2))
                 end
             end
         end
@@ -630,59 +638,59 @@ local function resolve_shot()
             end
         end
     end
-    if shot_cue_potted then
+    if S.shot_cue_potted then
         respot_cue()
     end
 
-    if not match_over then
+    if not S.match_over then
         if foul then
             local penalty = foul_penalty()
-            if turn == 0 then
-                p2 = p2 + penalty
-                event_player = 1
+            if S.turn == 0 then
+                S.p2 = S.p2 + penalty
+                S.event_player = 1
             else
-                p1 = p1 + penalty
-                event_player = 0
+                S.p1 = S.p1 + penalty
+                S.event_player = 0
             end
-            break_score = 0
+            S.break_score = 0
             if reds > 0 then
-                phase = PHASE_RED
+                S.phase = PHASE_RED
             else
-                phase = PHASE_SEQ
-                if colour_seq < 1 then colour_seq = 1 end
+                S.phase = PHASE_SEQ
+                if S.colour_seq < 1 then S.colour_seq = 1 end
             end
-            event_code = 2
-            event_val = penalty
-            turn = 1 - turn
+            S.event_code = 2
+            S.event_val = penalty
+            S.turn = 1 - S.turn
             audio_play("foul", 0.5)
         elseif scored > 0 then
-            break_score = break_score + scored
-            if turn == 0 then
-                p1 = p1 + scored
+            S.break_score = S.break_score + scored
+            if S.turn == 0 then
+                S.p1 = S.p1 + scored
             else
-                p2 = p2 + scored
+                S.p2 = S.p2 + scored
             end
-            event_code = 1
-            event_val = scored
-            event_player = turn
+            S.event_code = 1
+            S.event_val = scored
+            S.event_player = S.turn
             audio_play("pot", 0.42)
         else
-            break_score = 0
-            if phase == PHASE_COLOUR then
+            S.break_score = 0
+            if S.phase == PHASE_COLOUR then
                 if reds > 0 then
-                    phase = PHASE_RED
+                    S.phase = PHASE_RED
                 else
-                    phase = PHASE_SEQ
-                    colour_seq = 1
+                    S.phase = PHASE_SEQ
+                    S.colour_seq = 1
                 end
             end
-            turn = 1 - turn
+            S.turn = 1 - S.turn
         end
-        event_t = 1.9
+        S.event_t = 1.9
     end
 
     log_info(string.format("snooker: shot %d resolved: P1 %d - %d P2, reds %d, %s",
-                           shot_total, p1, p2, reds,
+                           S.shot_total, S.p1, S.p2, reds,
                            foul and "foul" or "legal"))
 end
 
@@ -854,16 +862,16 @@ local function collide_balls(h)
                                 ent_set_num(b, SIDE, side * 0.50)
                             end
 
-                            if sfx_cd <= 0.0 and vn > 55.0 then
+                            if S.sfx_cd <= 0.0 and vn > 55.0 then
                                 audio_play("click", 0.16)
-                                sfx_cd = 0.035
+                                S.sfx_cd = 0.035
                             end
 
-                            if shot_active and shot_first < 0 then
+                            if S.shot_active and S.shot_first < 0 then
                                 if acol == CUE then
-                                    shot_first = bcol
+                                    S.shot_first = bcol
                                 elseif bcol == CUE then
-                                    shot_first = acol
+                                    S.shot_first = acol
                                 end
                             end
                         end
@@ -938,9 +946,9 @@ local function collide_cushions()
 
             if hit then
                 ent_set_num(b, SIDE, side * 0.62)
-                if sfx_cd <= 0.0 then
+                if S.sfx_cd <= 0.0 then
                     audio_play("cushion", 0.20)
-                    sfx_cd = 0.05
+                    S.sfx_cd = 0.05
                 end
             end
             ent_set_num(b, X, x)
@@ -1077,11 +1085,11 @@ local function ai_plan()
         -- Pots need a very fine contact: a 0.02 rad cue error becomes a huge
         -- object-ball angle error at the pocket, so keep the aim tight.
         local err = (rng_float() - 0.5) * 0.004
-        aim_angle = pot_angle + err
-        ai_target_power = pot_power
-        spin_side = (rng_float() - 0.5) * 0.40
-        spin_top = rng_float() * 0.30
-        ai_planned = true
+        S.aim_angle = pot_angle + err
+        S.ai_target_power = pot_power
+        S.spin_side = (rng_float() - 0.5) * 0.40
+        S.spin_top = rng_float() * 0.30
+        S.ai_planned = true
         return
     end
 
@@ -1141,11 +1149,11 @@ local function ai_plan()
     end
 
     local err = (rng_float() - 0.5) * 0.042
-    aim_angle = best_angle + err
-    ai_target_power = clampf(0.34 + best_t / 760.0, 0.34, 0.92)
-    spin_side = (rng_float() - 0.5) * 0.55
-    spin_top = rng_float() * 0.40
-    ai_planned = true
+    S.aim_angle = best_angle + err
+    S.ai_target_power = clampf(0.34 + best_t / 760.0, 0.34, 0.92)
+    S.spin_side = (rng_float() - 0.5) * 0.55
+    S.spin_top = rng_float() * 0.40
+    S.ai_planned = true
 end
 
 -- ---------------------------------------------------------------------------
@@ -1176,48 +1184,48 @@ local function update_input(dt)
 
     -- Spin pad: click inside the cue-ball disc to place the tip.
     if input_mouse_pressed(0) and spin_pad_hit(mx, my) then
-        spin_side = clampf((mx - 106.0) / 13.0, -1.0, 1.0)
-        spin_top = clampf(-(my - 518.0) / 13.0, -1.0, 1.0)
+        S.spin_side = clampf((mx - 106.0) / 13.0, -1.0, 1.0)
+        S.spin_top = clampf(-(my - 518.0) / 13.0, -1.0, 1.0)
     end
-    if input_key_down("left") then spin_side = clampf(spin_side - dt * 1.8, -1.0, 1.0) end
-    if input_key_down("right") then spin_side = clampf(spin_side + dt * 1.8, -1.0, 1.0) end
-    if input_key_down("up") then spin_top = clampf(spin_top + dt * 1.8, -1.0, 1.0) end
-    if input_key_down("down") then spin_top = clampf(spin_top - dt * 1.8, -1.0, 1.0) end
+    if input_key_down("left") then S.spin_side = clampf(S.spin_side - dt * 1.8, -1.0, 1.0) end
+    if input_key_down("right") then S.spin_side = clampf(S.spin_side + dt * 1.8, -1.0, 1.0) end
+    if input_key_down("up") then S.spin_top = clampf(S.spin_top + dt * 1.8, -1.0, 1.0) end
+    if input_key_down("down") then S.spin_top = clampf(S.spin_top - dt * 1.8, -1.0, 1.0) end
 
     local human = mouse_activity()
     if human then
-        ai_timer = 0.0
+        S.ai_timer = 0.0
     else
-        ai_timer = ai_timer + dt
+        S.ai_timer = S.ai_timer + dt
     end
-    ai_active = ai_timer > 2.0
+    S.ai_active = S.ai_timer > 2.0
 
-    if match_over then return end
+    if S.match_over then return end
 
-    if ai_active then
-        if charging then
-            charging = false
-            charge = 0.0
+    if S.ai_active then
+        if S.charging then
+            S.charging = false
+            S.charge = 0.0
         end
-        if shot_active or not can_aim() then
-            ai_planned = false
-            ai_delay = 0.0
+        if S.shot_active or not can_aim() then
+            S.ai_planned = false
+            S.ai_delay = 0.0
             return
         end
-        if not ai_planned then
-            ai_delay = ai_delay + dt
-            if ai_delay > 0.55 then
+        if not S.ai_planned then
+            S.ai_delay = S.ai_delay + dt
+            if S.ai_delay > 0.55 then
                 ai_plan()
-                ai_delay = 0.0
-                charge = 0.0
+                S.ai_delay = 0.0
+                S.charge = 0.0
             end
         else
-            charge = charge + dt * 0.85
-            if charge >= ai_target_power then
-                local p = ai_target_power
-                charge = 0.0
-                ai_planned = false
-                ai_delay = 0.0
+            S.charge = S.charge + dt * 0.85
+            if S.charge >= S.ai_target_power then
+                local p = S.ai_target_power
+                S.charge = 0.0
+                S.ai_planned = false
+                S.ai_delay = 0.0
                 strike(p)
             end
         end
@@ -1228,27 +1236,27 @@ local function update_input(dt)
     local cx, cy, ok = cue_xy()
     if ok then
         if mx >= TX and mx <= TX + TW and my >= TY and my <= TY + TH then
-            aim_angle = math.atan2(my - cy, mx - cx)
+            S.aim_angle = math.atan2(my - cy, mx - cx)
         end
         if can_aim() then
             local over_table = mx >= TX and mx <= TX + TW and my >= TY and my <= TY + TH
             local want = false
             -- Once the charge has started, keep it while the button is held
             -- even if the pointer drifts off the cloth; release to strike.
-            if input_mouse_down(0) and (charging or over_table) then want = true end
+            if input_mouse_down(0) and (S.charging or over_table) then want = true end
             if input_key_down("space") or input_key_down("j") then want = true end
-            if not charging and want then
-                charging = true
-                charge = 0.0
+            if not S.charging and want then
+                S.charging = true
+                S.charge = 0.0
             end
-            if charging then
+            if S.charging then
                 if want then
-                    charge = charge + dt * 0.95
-                    if charge > 1.0 then charge = 1.0 end
+                    S.charge = S.charge + dt * 0.95
+                    if S.charge > 1.0 then S.charge = 1.0 end
                 else
-                    local p = charge
-                    charging = false
-                    charge = 0.0
+                    local p = S.charge
+                    S.charging = false
+                    S.charge = 0.0
                     if p > 0.04 then strike(p) end
                 end
             end
@@ -1266,7 +1274,7 @@ local function blit(tex, sx, sy, sw, sh, dx, dy, dw, dh, r, g, b, a)
 end
 
 local function ball_disc(x, y, r, cr, cg, cb, ca)
-    blit(tex_ball, 0.0, 0.0, 64.0, 64.0, x - r, y - r, r * 2.0, r * 2.0,
+    blit(S.tex_ball, 0.0, 0.0, 64.0, 64.0, x - r, y - r, r * 2.0, r * 2.0,
          cr, cg, cb, ca)
 end
 
@@ -1281,8 +1289,8 @@ local function draw_pocket(px, py)
 end
 
 local function draw_table()
-    draw_quad(0.0, 0.0, vw, vh, 0.040, 0.043, 0.055, 1.0)
-    draw_quad(0.0, 0.0, vw, vh * 0.42, 0.075, 0.078, 0.095, 0.40)
+    draw_quad(0.0, 0.0, S.vw, S.vh, 0.040, 0.043, 0.055, 1.0)
+    draw_quad(0.0, 0.0, S.vw, S.vh * 0.42, 0.075, 0.078, 0.095, 0.40)
 
     local ox = TX - RAIL
     local oy = TY - RAIL
@@ -1290,7 +1298,7 @@ local function draw_table()
     local oh = TH + RAIL * 2.0
 
     -- AI key art: full table (rails, baize, pockets) in one photographed sheet.
-    sprite_draw(tex_table, ox, oy, ow, oh)
+    sprite_draw(S.tex_table, ox, oy, ow, oh)
 
     -- Baulk line, D and the colour spots drawn over the photographed cloth.
     draw_quad(BAX - 0.6, TY + 3.0, 1.2, TH - 6.0, 0.72, 0.88, 0.74, 0.18)
@@ -1323,8 +1331,8 @@ end
 local function aim_probe()
     local cx, cy, ok = cue_xy()
     if not ok then return 0.0, 0.0, false end
-    local ux = math.cos(aim_angle)
-    local uy = math.sin(aim_angle)
+    local ux = math.cos(S.aim_angle)
+    local uy = math.sin(S.aim_angle)
     local best, bcol, bid = cast_ray(cx, cy, ux, uy)
     local hit = bcol >= 0.0
 
@@ -1356,8 +1364,8 @@ local function draw_aim()
     if not can_aim() then return end
     local cx, cy, ok = cue_xy()
     if not ok then return end
-    local ux = math.cos(aim_angle)
-    local uy = math.sin(aim_angle)
+    local ux = math.cos(S.aim_angle)
+    local uy = math.sin(S.aim_angle)
     local gx, gy, hit = aim_probe()
     local dist = (gx - cx) * ux + (gy - cy) * uy
     if dist < 0.0 then dist = 0.0 end
@@ -1383,7 +1391,7 @@ local function stick_seg(x1, y1, x2, y2, thick, r, g, b, a)
     local dy = y2 - y1
     local len = math.sqrt(dx * dx + dy * dy)
     if len < 0.1 then return end
-    sprite_draw_rotated_tinted(tex_white, 0.0, 0.0, 1.0, 1.0,
+    sprite_draw_rotated_tinted(S.tex_white, 0.0, 0.0, 1.0, 1.0,
                                mx - len * 0.5, my - thick * 0.5, len, thick,
                                math.atan2(dy, dx), len * 0.5, thick * 0.5,
                                r, g, b, a)
@@ -1393,9 +1401,9 @@ local function draw_cue_stick()
     if not can_aim() then return end
     local cx, cy, ok = cue_xy()
     if not ok then return end
-    local ux = math.cos(aim_angle)
-    local uy = math.sin(aim_angle)
-    local pull = clampf(charge, 0.0, 1.0) * 26.0
+    local ux = math.cos(S.aim_angle)
+    local uy = math.sin(S.aim_angle)
+    local pull = clampf(S.charge, 0.0, 1.0) * 26.0
     local tipx = cx - ux * (BR + 6.0 + pull)
     local tipy = cy - uy * (BR + 6.0 + pull)
     local chalkx = tipx - ux * 7.0
@@ -1407,15 +1415,15 @@ local function draw_cue_stick()
 
     stick_seg(chalkx + 4.0, chalky + 5.0, butt_end_x + 4.0, butt_end_y + 5.0, 5.0,
               0.0, 0.0, 0.0, 0.38)
-    if tex_cue ~= 0 then
+    if S.tex_cue ~= 0 then
         -- One illustrated stick: its right end is the chalked tip, so the
         -- sprite's +x axis points down the aim line toward the cue ball.
         local len = 188.0
         local thick = 15.0
         local mx = tipx - ux * len * 0.5
         local my = tipy - uy * len * 0.5
-        sprite_draw_rotated_tinted(tex_cue, 0.0, 0.0,
-                                   sprite_width(tex_cue), sprite_height(tex_cue),
+        sprite_draw_rotated_tinted(S.tex_cue, 0.0, 0.0,
+                                   sprite_width(S.tex_cue), sprite_height(S.tex_cue),
                                    mx - len * 0.5, my - thick * 0.5, len, thick,
                                    math.atan2(uy, ux), len * 0.5, thick * 0.5,
                                    1.0, 1.0, 1.0, 1.0)
@@ -1438,7 +1446,7 @@ local function draw_shadows()
             local y = ent_num(b, Y)
             local sw = BR2 + 4.0
             local sh = BR2 * 0.62
-            blit(tex_ball, 0.0, 0.0, 64.0, 64.0,
+            blit(S.tex_ball, 0.0, 0.0, 64.0, 64.0,
                  x - sw * 0.5 + 3.0, y + BR * 0.46, sw, sh, 0.0, 0.0, 0.0, 0.34)
         end
     end
@@ -1453,14 +1461,14 @@ local function draw_balls()
             local y = ent_num(b, Y)
             local c = ent_num(b, COL)
             local r, g, bl = ball_tint(c)
-            blit(tex_ball, 0.0, 0.0, 64.0, 64.0,
+            blit(S.tex_ball, 0.0, 0.0, 64.0, 64.0,
                  x - BR - 0.6, y - BR - 0.6, BR2 + 1.2, BR2 + 1.2,
                  r, g, bl, 1.0)
             draw_quad(x - 4.3, y - 5.2, 2.6, 2.6, 1.0, 1.0, 1.0, 0.40)
             if c == CUE and can_aim() then
                 -- small chalk-contact marker showing the chosen spin
-                local mx = x + spin_side * 4.0
-                local my = y - spin_top * 4.0
+                local mx = x + S.spin_side * 4.0
+                local my = y - S.spin_top * 4.0
                 draw_quad(mx - 1.2, my - 1.2, 2.4, 2.4, 0.95, 0.80, 0.30, 0.9)
             end
         end
@@ -1488,13 +1496,13 @@ local function draw_pocket_fx(dt)
 end
 
 local function ball_on_text()
-    if phase == PHASE_RED then return "RED" end
-    if phase == PHASE_COLOUR then return "ANY COLOUR" end
-    return colour_name(colour_seq)
+    if S.phase == PHASE_RED then return "RED" end
+    if S.phase == PHASE_COLOUR then return "ANY COLOUR" end
+    return colour_name(S.colour_seq)
 end
 
 local function draw_player_panel(i, px)
-    local active = turn == i and not match_over
+    local active = S.turn == i and not S.match_over
     draw_quad(px, 5.0, 240.0, 58.0, 0.060, 0.065, 0.082, 1.0)
     if active then
         draw_quad(px, 5.0, 240.0, 2.0, 0.95, 0.75, 0.30, 1.0)
@@ -1504,17 +1512,17 @@ local function draw_player_panel(i, px)
     if i == 1 then name = "PLAYER 2" end
     ui_label(0, px + 12.0, 10.0, name, 0.34, 0.72, 0.78, 0.90, 1.0)
 
-    local score = p1
-    local frames = f1
+    local score = S.p1
+    local frames = S.f1
     if i == 1 then
-        score = p2
-        frames = f2
+        score = S.p2
+        frames = S.f2
     end
     draw_text(string.format("%d", math.floor(score)), px + 12.0, 24.0, 0.95,
               1.0, 0.95, 0.80, 1.0)
 
     local brk = 0
-    if turn == i then brk = break_score end
+    if S.turn == i then brk = S.break_score end
     ui_label(0, px + 12.0, 48.0, "BREAK " .. string.format("%d", math.floor(brk)),
              0.28, 0.60, 0.66, 0.76, 1.0)
     ui_label(0, px + 148.0, 48.0, "FRAMES " .. string.format("%d", math.floor(frames)),
@@ -1539,8 +1547,8 @@ local function draw_hud()
     draw_set_blend(0)
     ui_set_origin(0.0, 0.0)
 
-    draw_quad(0.0, 0.0, vw, 68.0, 0.025, 0.028, 0.038, 0.94)
-    draw_quad(0.0, 66.0, vw, 2.0, 0.10, 0.11, 0.14, 1.0)
+    draw_quad(0.0, 0.0, S.vw, 68.0, 0.025, 0.028, 0.038, 0.94)
+    draw_quad(0.0, 66.0, S.vw, 2.0, 0.10, 0.11, 0.14, 1.0)
     draw_player_panel(0, 76.0)
     draw_player_panel(1, 644.0)
 
@@ -1548,38 +1556,38 @@ local function draw_hud()
     draw_quad(336.0, 5.0, 288.0, 58.0, 0.050, 0.055, 0.070, 1.0)
     ui_label(0, 348.0, 10.0, "BALL ON", 0.28, 0.60, 0.66, 0.76, 1.0)
     local swatch_col = 0
-    if phase == PHASE_SEQ then swatch_col = colour_seq end
-    if phase == PHASE_COLOUR then swatch_col = CUE end
+    if S.phase == PHASE_SEQ then swatch_col = S.colour_seq end
+    if S.phase == PHASE_COLOUR then swatch_col = CUE end
     local sr, sg, sb = ball_tint(swatch_col)
     ball_disc(366.0, 40.0, 14.0, 0.90, 0.72, 0.30, 0.85)
     ball_disc(366.0, 40.0, 11.0, sr, sg, sb, 1.0)
     ui_label(0, 388.0, 26.0, ball_on_text(), 0.46, 1.0, 0.92, 0.68, 1.0)
-    if phase == PHASE_COLOUR then
+    if S.phase == PHASE_COLOUR then
         ui_label(0, 388.0, 48.0, "NOMINATE ANY", 0.24, 0.62, 0.68, 0.78, 1.0)
     end
 
     local reds = live_reds()
     ui_label(0, 516.0, 10.0, "REDS " .. string.format("%d", reds),
              0.30, 0.72, 0.78, 0.90, 1.0)
-    ui_label(0, 516.0, 32.0, "FRAME " .. string.format("%d", math.floor(frame_no)),
+    ui_label(0, 516.0, 32.0, "FRAME " .. string.format("%d", math.floor(S.frame_no)),
              0.30, 0.60, 0.66, 0.76, 1.0)
-    if ai_active and not match_over then
+    if S.ai_active and not S.match_over then
         ui_label(0, 516.0, 52.0, "AUTO PLAY", 0.24, 0.90, 0.62, 0.35, 1.0)
     end
 
     -- Bottom bar: spin pad, power gauge, hints, new-frame button.
-    draw_quad(0.0, 494.0, vw, 46.0, 0.020, 0.022, 0.030, 0.94)
+    draw_quad(0.0, 494.0, S.vw, 46.0, 0.020, 0.022, 0.030, 0.94)
 
     ball_disc(106.0, 518.0, 18.0, 0.90, 0.72, 0.30, 0.75)
     ball_disc(106.0, 518.0, 15.0, 0.97, 0.96, 0.90, 1.0)
-    local dotx = 106.0 + spin_side * 10.0
-    local doty = 518.0 - spin_top * 10.0
+    local dotx = 106.0 + S.spin_side * 10.0
+    local doty = 518.0 - S.spin_top * 10.0
     draw_quad(dotx - 2.0, doty - 2.0, 4.0, 4.0, 0.95, 0.32, 0.20, 1.0)
     ui_label(0, 86.0, 496.0, "SPIN", 0.24, 0.62, 0.68, 0.78, 1.0)
 
     ui_label(0, 170.0, 496.0, "POWER", 0.24, 0.62, 0.68, 0.78, 1.0)
-    local gaugev = last_power
-    if charging then gaugev = charge end
+    local gaugev = S.last_power
+    if S.charging then gaugev = S.charge end
     draw_gauge(170.0, 512.0, 250.0, 12.0, gaugev)
 
     ui_label(0, 440.0, 497.0, "AIM: MOUSE    CHARGE: HOLD LMB / SPACE",
@@ -1596,25 +1604,25 @@ end
 -- Dim the table for the frame-over screen. Drawn before the HUD so the
 -- scoreboard stays readable on top of it.
 local function draw_match_dim()
-    if match_over then
-        draw_quad(0.0, 68.0, vw, vh - 68.0, 0.0, 0.0, 0.0, 0.55)
+    if S.match_over then
+        draw_quad(0.0, 68.0, S.vw, S.vh - 68.0, 0.0, 0.0, 0.0, 0.55)
     end
 end
 
 local function draw_overlays()
-    if event_t > 0.0 and not match_over then
+    if S.event_t > 0.0 and not S.match_over then
         local msg = ""
         local cr = 1.0
         local cg = 0.92
         local cb = 0.68
-        if event_code == 1 then
-            msg = "POTTED  +" .. string.format("%d", event_val)
+        if S.event_code == 1 then
+            msg = "POTTED  +" .. string.format("%d", S.event_val)
             cr = 0.60
             cg = 1.0
             cb = 0.62
-        elseif event_code == 2 then
-            msg = "FOUL  +" .. string.format("%d", event_val)
-                  .. " TO PLAYER " .. string.format("%d", event_player + 1)
+        elseif S.event_code == 2 then
+            msg = "FOUL  +" .. string.format("%d", S.event_val)
+                  .. " TO PLAYER " .. string.format("%d", S.event_player + 1)
             cr = 1.0
             cg = 0.38
             cb = 0.30
@@ -1622,33 +1630,33 @@ local function draw_overlays()
         if msg ~= "" then
             local scale = 0.55
             local tw = text_width(msg, scale)
-            local bx = vw * 0.5 - tw * 0.5 - 18.0
+            local bx = S.vw * 0.5 - tw * 0.5 - 18.0
             draw_quad(bx, 76.0, tw + 36.0, 34.0, 0.01, 0.012, 0.02, 0.88)
             draw_rect_outline(bx, 76.0, tw + 36.0, 34.0, cr, cg, cb, 0.55)
-            draw_text(msg, vw * 0.5 - tw * 0.5, 84.0, scale, cr, cg, cb, 1.0)
+            draw_text(msg, S.vw * 0.5 - tw * 0.5, 84.0, scale, cr, cg, cb, 1.0)
         end
     end
 
-    if match_over then
+    if S.match_over then
         local title = "FRAME OVER"
         local tw = text_width(title, 1.1)
-        draw_text(title, vw * 0.5 - tw * 0.5, 200.0, 1.1, 1.0, 0.82, 0.35, 1.0)
+        draw_text(title, S.vw * 0.5 - tw * 0.5, 200.0, 1.1, 1.0, 0.82, 0.35, 1.0)
         local sub = ""
-        if frame_winner == 1 then
+        if S.frame_winner == 1 then
             sub = "PLAYER 1 WINS THE FRAME"
-        elseif frame_winner == 2 then
+        elseif S.frame_winner == 2 then
             sub = "PLAYER 2 WINS THE FRAME"
         else
             sub = "FRAME TIED"
         end
         local sw = text_width(sub, 0.55)
-        draw_text(sub, vw * 0.5 - sw * 0.5, 246.0, 0.55, 0.92, 0.95, 1.0, 1.0)
-        local score = string.format("P1 %d  -  %d P2", p1, p2)
+        draw_text(sub, S.vw * 0.5 - sw * 0.5, 246.0, 0.55, 0.92, 0.95, 1.0, 1.0)
+        local score = string.format("P1 %d  -  %d P2", S.p1, S.p2)
         local scw = text_width(score, 0.55)
-        draw_text(score, vw * 0.5 - scw * 0.5, 280.0, 0.55, 0.70, 0.76, 0.86, 1.0)
-        local nxt = "NEXT FRAME IN " .. string.format("%d", math.floor(over_t + 0.99))
+        draw_text(score, S.vw * 0.5 - scw * 0.5, 280.0, 0.55, 0.70, 0.76, 0.86, 1.0)
+        local nxt = "NEXT FRAME IN " .. string.format("%d", math.floor(S.over_t + 0.99))
         local nw = text_width(nxt, 0.35)
-        draw_text(nxt, vw * 0.5 - nw * 0.5, 312.0, 0.35, 0.55, 0.60, 0.70, 1.0)
+        draw_text(nxt, S.vw * 0.5 - nw * 0.5, 312.0, 0.35, 0.55, 0.60, 0.70, 1.0)
     end
 end
 
@@ -1657,46 +1665,51 @@ end
 -- ---------------------------------------------------------------------------
 
 local function init()
-    vw = camera_viewport_w()
-    vh = camera_viewport_h()
-    tex_ball = sprite_load("assets/art/snooker_ball.png")
-    tex_white = sprite_load_nearest("assets/white.png")
-    tex_table = sprite_load("assets/art/snooker_table.png")
-    tex_cue = sprite_load("assets/snooker/cue.png")
+    S.vw = camera_viewport_w()
+    S.vh = camera_viewport_h()
+    S.tex_ball = sprite_load("assets/art/snooker_ball.png")
+    S.tex_white = sprite_load_nearest("assets/white.png")
+    S.tex_table = sprite_load("assets/art/snooker_table.png")
+    S.tex_cue = sprite_load("assets/snooker/cue.png")
     rng_seed(20261030)
     camera_snap(0.0, 0.0)
     camera_clear_bounds()
     camera_deadzone(0.0, 0.0)
     camera_smoothing(1.0)
     new_frame()
-    aim_angle = 0.0
-    frame_no = 1
-    if tex_ball == 0 or tex_white == 0 then
+    S.aim_angle = 0.0
+    S.frame_no = 1
+    if S.tex_ball == 0 or S.tex_white == 0 then
         log_warn("snooker: ball sprite missing, the table will look empty")
     else
         log_info("snooker: table ready, 22 balls racked")
     end
-    inited = true
+    S.inited = true
 end
 
 function update(dt)
-    if not inited then init() end
+    if S.seeded == nil then
+        S.seeded = true
+        reset_state()
+    end
+
+    if not S.inited then init() end
 
     if dt > 0.05 then dt = 0.05 end
-    if sfx_cd > 0.0 then sfx_cd = sfx_cd - dt end
-    if event_t > 0.0 then event_t = event_t - dt end
+    if S.sfx_cd > 0.0 then S.sfx_cd = S.sfx_cd - dt end
+    if S.event_t > 0.0 then S.event_t = S.event_t - dt end
 
-    if match_over then
-        over_t = over_t - dt
+    if S.match_over then
+        S.over_t = S.over_t - dt
         update_input(dt)
-        if over_t <= 0.0 then
-            frame_no = frame_no + 1
+        if S.over_t <= 0.0 then
+            S.frame_no = S.frame_no + 1
             log_info("snooker: next frame racked")
             new_frame()
         end
     else
         update_input(dt)
-        if shot_active then
+        if S.shot_active then
             local h = dt / SUBSTEPS
             for s = 1, SUBSTEPS do
                 integrate(h)
@@ -1705,11 +1718,11 @@ function update(dt)
                 check_pockets()
             end
             if all_stopped() then
-                settle_t = settle_t + dt
+                S.settle_t = S.settle_t + dt
             else
-                settle_t = 0.0
+                S.settle_t = 0.0
             end
-            if settle_t > 0.30 then
+            if S.settle_t > 0.30 then
                 resolve_shot()
             end
         end
