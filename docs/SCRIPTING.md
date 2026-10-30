@@ -65,10 +65,10 @@ Each rule below was verified empirically against the installed FakeLua 2.0.0:
    module; the object lives on the C++ side, so it survives the arena reset.
    `scripts/launcher.lua` is the reference for this pattern, and every demo in
    `scripts/` now follows it (`tools/migrate_state.py` did the conversion).
-   ⚠️ Writing fields on a NativeObject requires a FakeLua that permits native
-   table mutation. The `FAKELUA_REF` pinned in `.github/workflows/build.yml`
-   predates that and rejects these writes with `attempt to modify a const
-   table`, so the pin has to advance before CI can run this suite.
+   ⚠️ Writing fields on a NativeObject needs a FakeLua that permits native
+   table mutation. `FAKELUA_REF` in `.github/workflows/build.yml` is pinned to
+   such a commit; an older one rejects these writes with `attempt to modify a
+   const table`.
 
 4. **File-level tables are deep-const.** A table built at file level — literal
    or returned by a function — is read-only data: writing a field throws

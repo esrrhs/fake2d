@@ -9,11 +9,14 @@ on:
 permissions:
   contents: read
 
-# Pinned fakelua commit (post-v2.0.0 master; must include fakelua #33 for `flua --once`). Heavy deps (boost, libevent,
+# Pinned fakelua commit (post-v2.0.0 master; must include fakelua #33 for `flua --once`). It must also
+# permit native table mutation: the demos keep their cross-frame state in a
+# new_global_obj NativeObject, and older FakeLua rejects those writes with
+# "attempt to modify a const table". Heavy deps (boost, libevent,
 # hiredis, mariadb connector, tinycc, ...) are fetched by CPM; only OpenSSL
 # and a C++23 compiler are expected from the runner/system packages.
 env:
-  FAKELUA_REF: e4582bd59fe530da66ece5f945e8bcb8b5928d42
+  FAKELUA_REF: 9f7216e0e9904d7cd05bbc4109fc22caf6ca57da
 
 jobs:
   # Linux owns GPU coverage (xvfb + llvmpipe) and produces the generated
