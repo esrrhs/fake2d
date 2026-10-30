@@ -143,10 +143,20 @@ local function fix_tset(tab, key, v)
     tab[key + 0.0] = v
 end
 
+-- All harness state lives on one NativeObject: file-level locals are const
+-- bindings, and a table built while the chunk initialises is deep-const, so
+-- neither a scalar slot nor a table local can be reused by the driver.
+local FS = new_global_obj("fixtures", "state")
+
+function fix_scenario_set(v)
+    FS.scenario = v
+end
+
+function fix_scenario_get()
+    return FS.scenario
+end
+
 -- ---------------------------------------------------------------- logs
-local fix_logs = fix_nilval()
-local fix_seen = fix_nilval()
-local fix_nlog = 0 + 0
 
 local function fix_rec(v)
     if fix_tget(fix_seen, v) ~= 1 then
@@ -178,17 +188,11 @@ end
 -- ---------------------------------------------------------------- map
 -- The three grids share ONE table local: the chunk's main function is near
 -- the interpreter's 255-register ceiling, so no extra top-level locals.
-local fix_grids = fix_nilval()
-local fix_cells = fix_nilval()
-local fix_cols = 0 + 0
-local fix_rows = 0 + 0
-local fix_ncell = 0 + 0
 local fix_tile = 32 + 0
 
 -- Object-layer metadata packed into one table (see build_object_loaders):
 -- key 0 holds the current map index, layer/object rows use disjoint integer
 -- bands above it.
-local fix_objdata = fix_nilval()
 
 {object_section}
 
@@ -306,11 +310,6 @@ function map_obj_y(id, li, i)
 end
 
 -- ---------------------------------------------------------------- entities
-local fix_ea = fix_nilval()
-local fix_eg = fix_nilval()
-local fix_et = fix_nilval()
-local fix_en = fix_nilval()
-local fix_elive = 0 + 0
 local fix_GENBASE = 4294967296.0
 
 local function fix_resolve(id)
@@ -428,7 +427,6 @@ function ent_at(index, tag)
 end
 
 -- ---------------------------------------------------------------- sprites
-local fix_texn = 0 + 0
 function sprite_load(path)
     fix_texn = fix_texn + 1
     return fix_texn
@@ -466,8 +464,6 @@ function time_elapsed() return 0.0 end
 function time_frame() return 0 end
 
 -- ---------------------------------------------------------------- camera
-local fix_camx = 0.0 + 0.0
-local fix_camy = 0.0 + 0.0
 function camera_set_position(x, y) fix_camx = x; fix_camy = y end
 function camera_move(x, y) end
 function camera_set_zoom(z) end
@@ -538,9 +534,6 @@ function shader_set_vec2(id, name, x, y) end
 function shader_set_vec4(id, name, x, y, z, w) end
 
 -- ---------------------------------------------------------------- storage
-local fix_have = 0 + 0
-local fix_bs = 0.0 + 0.0
-local fix_bt = 0.0 + 0.0
 function storage_load(slot)
     if fix_have == 1 then return true end
     return false
@@ -566,7 +559,6 @@ function storage_delete(k) end
 function storage_reset() end
 
 -- ---------------------------------------------------------------- window / ui
-local fix_quit = 0 + 0
 function window_quit() fix_quit = 1 end
 function window_set_title(t) end
 function window_set_fullscreen(b) end
@@ -656,14 +648,13 @@ local function fix_forbid(code, label, fails)
     return fails
 end
 
-local fix_scenario = "platformer_smoke"
-local fix_frames = 300 + 0
+local FSX = get_global_obj("fixtures")
 
 -- Split into helpers so no single function grows near the interpreter's
 -- 255-register ceiling (mario.lua's own step is already close to it).
 local function fix_run_frames()
     local i = 0
-    while i < fix_frames do
+    while i < FSX.frames do
         fix_game_step(1.0 / 60.0)
         i = i + 1
     end
@@ -671,7 +662,8 @@ local function fix_run_frames()
 end
 
 local function fix_assert()
-    local sc = fix_scenario
+    local sc = fix_scenario_get()
+    if sc == nil then sc = "platformer_smoke" end
     local fails = 0
     if sc == "mario_smoke" then
         fails = fix_expect(900112, "mario: map loads 112 cols", fails)
@@ -708,7 +700,7 @@ local function fix_assert()
         fails = fix_expect(900001, "slope: lab initializes", fails)
         fails = fix_expect_range(900000, 900099, "slope: feet trace logs", fails)
     else
-        print("PASS platformer: " .. string.format("%d", fix_frames) .. " frames ran clean")
+        print("PASS platformer: " .. string.format("%d", FSX.frames) .. " frames ran clean")
     end
 
     print("FAILURES " .. string.format("%d", fails))
@@ -718,9 +710,9 @@ end
 function init()
     fix_boot()
     local env_sc = os.getenv("FIX_SCENARIO")
-    if env_sc ~= nil then fix_scenario = env_sc end
+    if env_sc ~= nil then fix_scenario_set(env_sc) end
     local fr = os.getenv("FIX_FRAMES")
-    if fr ~= nil then fix_frames = tonumber(fr) end
+    if fr ~= nil then FSX.frames = tonumber(fr) end
     fix_run_frames()
     return fix_assert()
 end
@@ -747,6 +739,14 @@ def emit_default_stub(name, ret, arity):
     return f"function {name}({args}) return {DEFAULTS[ret]} end"
 
 
+STATE_NAME = re.compile(r"\bfix_(logs|seen|nlog|grids|cells|objdata|ea|eg|et|en|cols|rows|ncell|elive|texn|camx|camy|quit|have|bs|bt)\b")
+
+
+def to_object_state(text):
+    """Point harness state at the fixture NativeObject."""
+    return STATE_NAME.sub(lambda m: "FS." + m.group(1), text)
+
+
 def write_fixtures(repo: Path, out: Path):
     out.mkdir(parents=True, exist_ok=True)
     api = parse_native_api(repo / "src" / "script" / "script_bindings.cpp")
@@ -758,12 +758,12 @@ def write_fixtures(repo: Path, out: Path):
     ]
     object_section = build_object_loaders(map_metas)
 
-    prelude = build_prelude(
+    prelude = to_object_state(build_prelude(
         load_grid(repo, "mario.json"),
         load_grid(repo, "platformer.json"),
         load_grid(repo, "slope.json"),
         object_section,
-    )
+    ))
 
     # Every hand-written stub must match the C++ binding arity exactly.
     for m in re.finditer(r"^function (\w+)\(([^)]*)\)", prelude, re.M):
@@ -788,9 +788,11 @@ def write_fixtures(repo: Path, out: Path):
     # "main" (fakelua #33), so the assembled chunk declares the package up
     # front and every function below (stubs, game body, driver tail) lands
     # in it.
-    (out / "m_head.lua").write_text('package "main"\n\n' + prelude + "\n"
-                                    + "\n".join(auto) + "\n", newline="\n")
-    (out / "m_tail.lua").write_text(TAIL, newline="\n")
+    with open(out / "m_head.lua", "w", newline="\n") as f:
+        f.write('package "main"\n\n' + prelude + "\n"
+                + "\n".join(to_object_state(a) for a in auto) + "\n")
+    with open(out / "m_tail.lua", "w", newline="\n") as f:
+        f.write(to_object_state(TAIL))
     return len(custom), len(api) - len(custom)
 
 
