@@ -42,6 +42,7 @@ local bird_tex = 0 + 0
 local pig_tex = 0 + 0
 local sling_tex = 0 + 0
 local ground_tex = 0 + 0
+local band_tex = 0 + 0  -- AI-illustrated rubber band, stretched between fork and pouch
 local puff_fx = 0 + 0
 local inited = false
 local ground = 0 + 0
@@ -115,6 +116,7 @@ local function init_assets()
     pig_tex = sprite_load("assets/art/ab_pig.png")
     sling_tex = sprite_load("assets/art/ab_sling.png")
     ground_tex = sprite_load("assets/art/ab_ground.png")
+    band_tex = sprite_load("assets/art/ab_band.png")
 
     puff_fx = part_create()
     part_set_lifetime(puff_fx, 0.35, 0.7)
@@ -303,6 +305,24 @@ local function draw_ground()
     end
 end
 
+-- One illustrated band stretched from a fork tip to the pouch: the sprite is a
+-- straight length of band, so it is scaled to the span and rotated onto it.
+local function draw_band(x0, y0, x1, y1, thick)
+    local dx = x1 - x0
+    local dy = y1 - y0
+    local len = math.sqrt(dx * dx + dy * dy)
+    if len < 1.0 then
+        return
+    end
+    local mx = (x0 + x1) * 0.5
+    local my = (y0 + y1) * 0.5
+    sprite_draw_rotated_tinted(band_tex, 0.0, 0.0,
+                               sprite_width(band_tex), sprite_height(band_tex),
+                               mx - len * 0.5, my - thick * 0.5, len, thick,
+                               math.atan2(dy, dx), len * 0.5, thick * 0.5,
+                               1.0, 1.0, 1.0, 1.0)
+end
+
 local function draw_sling()
     draw_set_layer(2)
     sprite_draw(sling_tex, SLING_X - 48.0, GROUND_Y - 130.0, 96.0, 130.0)
@@ -313,9 +333,14 @@ local function draw_sling()
         bx = drag_x
         by = drag_y
     end
-    for i = -1, 1 do
-        draw_line(SLING_X - 14.0 + i, 402.0, bx + i, by, 0.28, 0.16, 0.09, 1.0)
-        draw_line(SLING_X + 14.0 + i, 402.0, bx + i, by, 0.28, 0.16, 0.09, 1.0)
+    if band_tex ~= 0 then
+        draw_band(SLING_X - 14.0, 402.0, bx, by, 8.0)
+        draw_band(SLING_X + 14.0, 402.0, bx, by, 8.0)
+    else
+        for i = -1, 1 do
+            draw_line(SLING_X - 14.0 + i, 402.0, bx + i, by, 0.28, 0.16, 0.09, 1.0)
+            draw_line(SLING_X + 14.0 + i, 402.0, bx + i, by, 0.28, 0.16, 0.09, 1.0)
+        end
     end
     draw_quad(bx - 7.0, by - 5.0, 14.0, 10.0, 0.22, 0.13, 0.07, 1.0)
 end

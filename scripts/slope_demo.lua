@@ -60,6 +60,7 @@ local STEP_UP = 16.0
 
 local map_id = 0 + 0
 local tex_player = 0 + 0
+local tex_sky = 0 + 0  -- AI-illustrated night sky behind the slope ridges
 local anim_player = 0 + 0
 local inited = false
 
@@ -378,6 +379,7 @@ function update(dt)
         inited = true
         map_id = map_load("assets/slope.json")
         tex_player = sprite_load("assets/s_player.png")
+        tex_sky = sprite_load("assets/art/night_sky.png")
         -- 4-frame walk strip (idle / stride A / stride B / airborne)
         anim_player = anim_create()
         anim_frame(anim_player, tex_player, 0.0, 0.0, box_w, box_h)
@@ -432,7 +434,11 @@ function update(dt)
     if imod(frame_n, 30.0) == 0.0 then
         log_number(900000 + math.floor(py + box_h))
     end
-    draw_quad(cam_x, cam_y, cam_vw, cam_vh, 0.36, 0.58, 0.95, 1.0)
+    if tex_sky ~= 0 then
+        sprite_draw(tex_sky, cam_x, cam_y, cam_vw, cam_vh)
+    else
+        draw_quad(cam_x, cam_y, cam_vw, cam_vh, 0.36, 0.58, 0.95, 1.0)
+    end
     map_draw(map_id)
     if show_surface then draw_surface() end
     -- face the direction of travel; the engine clip plays the walk strip

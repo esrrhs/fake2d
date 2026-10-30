@@ -232,6 +232,9 @@ jobs:
           # Shooter sprite sheets and nearest-filter loading.
           run_xvfb ./build/bin/fake2d_hello --shmup-test > shmup.log 2>&1
           rc_shmup=$?
+          # Shipped art tree: every committed PNG the game demos render from.
+          run_xvfb ./build/bin/fake2d_hello --art-test > art.log 2>&1
+          rc_art=$?
           # Snooker ball sprite: shading/alpha probes and loader rejection.
           run_xvfb ./build/bin/fake2d_hello --snooker-test > snooker.log 2>&1
           rc_snooker=$?
@@ -307,7 +310,7 @@ jobs:
             --entry scripts/phys_test.lua > phys_test.log 2>&1
           rc_lua=$?
           set -e
-          echo "exit codes: query=$rc_query filter=$rc_filter rigid=$rc_rigid extended=$rc_extended birds=$rc_birds limbo=$rc_limbo timestep=$rc_timestep path=$rc_path rt=$rc_rt ui=$rc_ui post=$rc_post fx=$rc_fx fog=$rc_fog audio=$rc_audio mapobj=$rc_mapobj tile=$rc_tile font=$rc_font platform=$rc_platform gameplay=$rc_gameplay combat=$rc_combat shmup=$rc_shmup snooker=$rc_snooker contra=$rc_contra city=$rc_city rts=$rc_rts vn=$rc_vn beat=$rc_beat shmupdemo=$rc_shmup_demo snookerdemo=$rc_snooker_demo contrademo=$rc_contra_demo citydemo=$rc_city_demo rtsdemo=$rc_rts_demo vndemo=$rc_vn_demo lua=$rc_lua"
+          echo "exit codes: query=$rc_query filter=$rc_filter rigid=$rc_rigid extended=$rc_extended birds=$rc_birds limbo=$rc_limbo timestep=$rc_timestep path=$rc_path rt=$rc_rt ui=$rc_ui post=$rc_post fx=$rc_fx fog=$rc_fog audio=$rc_audio mapobj=$rc_mapobj tile=$rc_tile font=$rc_font platform=$rc_platform gameplay=$rc_gameplay combat=$rc_combat shmup=$rc_shmup art=$rc_art snooker=$rc_snooker contra=$rc_contra city=$rc_city rts=$rc_rts vn=$rc_vn beat=$rc_beat shmupdemo=$rc_shmup_demo snookerdemo=$rc_snooker_demo contrademo=$rc_contra_demo citydemo=$rc_city_demo rtsdemo=$rc_rts_demo vndemo=$rc_vn_demo lua=$rc_lua"
           [ "$rc_query" -eq 0 ]
           [ "$rc_filter" -eq 0 ]
           [ "$rc_rigid" -eq 0 ]
@@ -329,6 +332,7 @@ jobs:
           [ "$rc_gameplay" -eq 0 ]
           [ "$rc_combat" -eq 0 ]
           [ "$rc_shmup" -eq 0 ]
+          [ "$rc_art" -eq 0 ]
           [ "$rc_snooker" -eq 0 ]
           [ "$rc_contra" -eq 0 ]
           [ "$rc_city" -eq 0 ]
@@ -602,6 +606,7 @@ jobs:
           ./build/bin/fake2d_hello --gameplay-test
           ./build/bin/fake2d_hello --combat-test
           ./build/bin/fake2d_hello --shmup-test
+          ./build/bin/fake2d_hello --art-test
           ./build/bin/fake2d_hello --snooker-test
           ./build/bin/fake2d_hello --contra-test
           ./build/bin/fake2d_hello --city-test

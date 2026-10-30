@@ -117,6 +117,10 @@ Fake2D 仓库自带 23 个可直接运行的高质量 Demo，涵盖平台跳跃�
 
 ---
 
+### 随包美术资源（Shipped Art）
+
+所有游戏类 Demo 的场景表现都来自随仓库提交的图片资源，而不再是首次运行时现画的图元：CC0 像素包（Chasersgaming、ansimuz、FisherG）、`assets/` 下的 AI 插画关键图，以及用 AI 材质重打光的 tile sheet。`tools/art_key.py` 负责从原始生成图烘焙出这些提交的 PNG；`--art-test` 会遍历整棵美术目录并逐张加载，因此某个文件夹一旦从 `.gitignore` 里漏掉就会直接让构建失败，而不是悄悄退回图元绘制。
+
 ## 🚀 快速上手
 
 ### 环境依赖

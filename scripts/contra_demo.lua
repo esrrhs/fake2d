@@ -59,6 +59,7 @@ local tex_walk, tex_idle, tex_hurt = 0 + 0, 0 + 0, 0 + 0
 local tex_enemy, tex_expl = 0 + 0, 0 + 0
 local tex_moon, tex_glow, tex_white = 0 + 0, 0 + 0, 0 + 0
 local tex_jungle, tex_wood, tex_stone = 0 + 0, 0 + 0, 0 + 0
+local tex_wall, tex_core, tex_turret, tex_crate = 0 + 0, 0 + 0, 0 + 0, 0 + 0
 local fx_expl = 0 + 0
 
 local px, py = 0.0 + 0.0, 0.0 + 0.0
@@ -1531,9 +1532,13 @@ local function draw_turret(e)
     local flash = ent_num(e, FLASH)
     local r, g, b = 0.24, 0.26, 0.30
     if flash > 0.0 then r, g, b = 0.85, 0.85, 0.85 end
-    draw_quad(ex - w * 0.5, ey - 14.0, w, 14.0, r, g, b, 1.0)
-    draw_quad(ex - w * 0.5 + 3.0, ey - 26.0, w - 6.0, 14.0, r * 0.8, g * 0.8, b * 0.8, 1.0)
-    draw_quad(ex - 7.0, ey - 24.0, 14.0, 10.0, 0.12, 0.13, 0.16, 1.0)
+    if tex_turret ~= 0 then
+        sprite_draw_tinted(tex_turret, ex - w * 0.5, ey - 34.0, w, 34.0, r, g, b, 1.0)
+    else
+        draw_quad(ex - w * 0.5, ey - 14.0, w, 14.0, r, g, b, 1.0)
+        draw_quad(ex - w * 0.5 + 3.0, ey - 26.0, w - 6.0, 14.0, r * 0.8, g * 0.8, b * 0.8, 1.0)
+        draw_quad(ex - 7.0, ey - 24.0, 14.0, 10.0, 0.12, 0.13, 0.16, 1.0)
+    end
     glow_at(ex, ey - 19.0, 16.0, 1.0, 0.25, 0.18, 0.55)
     local ax = ent_num(e, AIMX)
     local ay = ent_num(e, AIMY)
@@ -1550,10 +1555,14 @@ local function draw_pod(e)
     local r, g, b = 0.42, 0.46, 0.52
     if flash > 0.0 then r, g, b = 1.0, 1.0, 1.0 end
     glow_at(ex, ey - 10.0 + bob, 54.0, 0.25, 0.65, 0.75, 0.20)
-    draw_quad(ex - 18.0, ey - 18.0 + bob, 36.0, 16.0, r, g, b, 1.0)
-    draw_quad(ex - 12.0, ey - 24.0 + bob, 24.0, 8.0, r * 0.8, g * 0.8, b * 0.8, 1.0)
-    draw_quad(ex - 22.0, ey - 15.0 + bob, 5.0, 9.0, 0.20, 0.22, 0.26, 1.0)
-    draw_quad(ex + 17.0, ey - 15.0 + bob, 5.0, 9.0, 0.20, 0.22, 0.26, 1.0)
+    if tex_crate ~= 0 then
+        sprite_draw_tinted(tex_crate, ex - 22.0, ey - 26.0 + bob, 44.0, 26.0, r, g, b, 1.0)
+    else
+        draw_quad(ex - 18.0, ey - 18.0 + bob, 36.0, 16.0, r, g, b, 1.0)
+        draw_quad(ex - 12.0, ey - 24.0 + bob, 24.0, 8.0, r * 0.8, g * 0.8, b * 0.8, 1.0)
+        draw_quad(ex - 22.0, ey - 15.0 + bob, 5.0, 9.0, 0.20, 0.22, 0.26, 1.0)
+        draw_quad(ex + 17.0, ey - 15.0 + bob, 5.0, 9.0, 0.20, 0.22, 0.26, 1.0)
+    end
     local blink = 0.5 + 0.5 * math.sin(time_elapsed() * 8.0 + ex)
     draw_quad(ex - 2.0, ey - 14.0 + bob, 4.0, 4.0, 1.0, 0.35, 0.25, blink)
 end
@@ -1561,17 +1570,21 @@ end
 local function draw_boss_wall()
     if camx < 2050.0 then return end
     local x = 3240.0
-    draw_quad(x, 70.0, 160.0, 400.0, 0.105, 0.110, 0.128, 1.0)
-    draw_quad(x + 6.0, 76.0, 148.0, 388.0, 0.150, 0.158, 0.180, 1.0)
-    draw_quad(x + 12.0, 82.0, 136.0, 376.0, 0.125, 0.132, 0.152, 1.0)
+    if tex_wall ~= 0 then
+        sprite_draw(tex_wall, x, 70.0, 160.0, 400.0)
+    else
+        draw_quad(x, 70.0, 160.0, 400.0, 0.105, 0.110, 0.128, 1.0)
+        draw_quad(x + 6.0, 76.0, 148.0, 388.0, 0.150, 0.158, 0.180, 1.0)
+        draw_quad(x + 12.0, 82.0, 136.0, 376.0, 0.125, 0.132, 0.152, 1.0)
 
-    -- Panel seams and bolts.
-    local y = 100.0
-    while y < 450.0 do
-        draw_quad(x + 12.0, y, 136.0, 3.0, 0.060, 0.065, 0.080, 1.0)
-        draw_quad(x + 20.0, y + 10.0, 8.0, 8.0, 0.32, 0.30, 0.22, 0.85)
-        draw_quad(x + 132.0, y + 10.0, 8.0, 8.0, 0.32, 0.30, 0.22, 0.85)
-        y = y + 48.0
+        -- Panel seams and bolts.
+        local y = 100.0
+        while y < 450.0 do
+            draw_quad(x + 12.0, y, 136.0, 3.0, 0.060, 0.065, 0.080, 1.0)
+            draw_quad(x + 20.0, y + 10.0, 8.0, 8.0, 0.32, 0.30, 0.22, 0.85)
+            draw_quad(x + 132.0, y + 10.0, 8.0, 8.0, 0.32, 0.30, 0.22, 0.85)
+            y = y + 48.0
+        end
     end
     -- Hazard stripes along the top and bottom lip.
     local sx = x + 14.0
@@ -1583,13 +1596,17 @@ local function draw_boss_wall()
     draw_quad(x + 6.0, 72.0, 148.0, 6.0, 0.26, 0.27, 0.31, 1.0)
 
     -- Central armoured housing behind the core.
-    draw_quad(3268.0, 226.0, 124.0, 176.0, 0.120, 0.126, 0.148, 1.0)
-    draw_quad(3274.0, 232.0, 112.0, 164.0, 0.185, 0.192, 0.220, 1.0)
-    local py2 = 238.0
-    while py2 < 390.0 do
-        draw_quad(3280.0, py2, 6.0, 12.0, 0.30, 0.28, 0.20, 0.8)
-        draw_quad(3374.0, py2, 6.0, 12.0, 0.30, 0.28, 0.20, 0.8)
-        py2 = py2 + 28.0
+    if tex_wall ~= 0 then
+        sprite_draw(tex_wall, 3268.0, 226.0, 124.0, 176.0)
+    else
+        draw_quad(3268.0, 226.0, 124.0, 176.0, 0.120, 0.126, 0.148, 1.0)
+        draw_quad(3274.0, 232.0, 112.0, 164.0, 0.185, 0.192, 0.220, 1.0)
+        local py2 = 238.0
+        while py2 < 390.0 do
+            draw_quad(3280.0, py2, 6.0, 12.0, 0.30, 0.28, 0.20, 0.8)
+            draw_quad(3374.0, py2, 6.0, 12.0, 0.30, 0.28, 0.20, 0.8)
+            py2 = py2 + 28.0
+        end
     end
 end
 
@@ -1603,21 +1620,33 @@ local function draw_boss_part(e)
         local cx = ex
         local cy = ey - 38.0
         glow_at(cx, cy, 170.0, 1.0, 0.18, 0.10, 0.20 + pulse * 0.10)
-        draw_quad(cx - 32.0, ey - 78.0, 64.0, 80.0, 0.14, 0.15, 0.18, 1.0)
-        draw_quad(cx - 26.0, ey - 72.0, 52.0, 68.0, 0.23, 0.24, 0.29, 1.0)
-        draw_quad(cx - 22.0, ey - 62.0, 44.0, 10.0, 0.35, 0.30, 0.14, 0.85)
+        if tex_wall ~= 0 then
+            sprite_draw(tex_wall, cx - 32.0, ey - 78.0, 64.0, 80.0)
+        else
+            draw_quad(cx - 32.0, ey - 78.0, 64.0, 80.0, 0.14, 0.15, 0.18, 1.0)
+            draw_quad(cx - 26.0, ey - 72.0, 52.0, 68.0, 0.23, 0.24, 0.29, 1.0)
+            draw_quad(cx - 22.0, ey - 62.0, 44.0, 10.0, 0.35, 0.30, 0.14, 0.85)
+        end
         glow_at(cx, cy, 66.0, 1.0, 0.30, 0.16, 0.55 + pulse * 0.2)
         glow_at(cx, cy, 34.0, 1.0, 0.20, 0.10, 0.95)
-        draw_quad(cx - 10.0, cy - 10.0, 20.0, 20.0, 0.95, 0.28, 0.16, 1.0)
-        draw_quad(cx - 4.0, cy - 4.0, 8.0, 8.0, 1.0, 0.85, 0.55, 1.0)
+        if tex_core ~= 0 then
+            sprite_draw(tex_core, cx - 26.0, cy - 26.0, 52.0, 52.0)
+        else
+            draw_quad(cx - 10.0, cy - 10.0, 20.0, 20.0, 0.95, 0.28, 0.16, 1.0)
+            draw_quad(cx - 4.0, cy - 4.0, 8.0, 8.0, 1.0, 0.85, 0.55, 1.0)
+        end
         if flash > 0.0 then
             glow_at(cx, cy, 90.0, 1.0, 0.90, 0.60, 0.55)
         end
     else
         local r, g, b = 0.22, 0.23, 0.27
         if flash > 0.0 then r, g, b = 0.95, 0.95, 0.95 end
-        draw_quad(ex - 24.0, ey - 28.0, 48.0, 28.0, r, g, b, 1.0)
-        draw_quad(ex - 18.0, ey - 44.0, 36.0, 18.0, r * 0.8, g * 0.8, b * 0.8, 1.0)
+        if tex_turret ~= 0 then
+            sprite_draw_tinted(tex_turret, ex - 24.0, ey - 44.0, 48.0, 44.0, r, g, b, 1.0)
+        else
+            draw_quad(ex - 24.0, ey - 28.0, 48.0, 28.0, r, g, b, 1.0)
+            draw_quad(ex - 18.0, ey - 44.0, 36.0, 18.0, r * 0.8, g * 0.8, b * 0.8, 1.0)
+        end
         glow_at(ex, ey - 26.0, 22.0, 1.0, 0.45, 0.18, 0.65)
         draw_quad(ex - 5.0, ey - 31.0, 10.0, 10.0, 0.95, 0.32, 0.18, 1.0)
         local ax = ent_num(e, AIMX)
@@ -1713,8 +1742,13 @@ local function draw_pickups()
             local r, g, b = weapon_color(kind)
             local bob = math.sin(time_elapsed() * 3.0 + x) * 2.0
             glow_at(x, y - 12.0 + bob, 46.0, r, g, b, 0.30)
-            draw_quad(x - 13.0, y - 24.0 + bob, 26.0, 20.0, 0.15, 0.16, 0.20, 1.0)
-            draw_quad(x - 10.0, y - 22.0 + bob, 20.0, 16.0, r, g, b, 0.95)
+            if tex_crate ~= 0 then
+                sprite_draw_tinted(tex_crate, x - 13.0, y - 26.0 + bob, 26.0, 22.0,
+                                   r, g, b, 0.98)
+            else
+                draw_quad(x - 13.0, y - 24.0 + bob, 26.0, 20.0, 0.15, 0.16, 0.20, 1.0)
+                draw_quad(x - 10.0, y - 22.0 + bob, 20.0, 16.0, r, g, b, 0.95)
+            end
             if kind == W_SPREAD then
                 draw_quad(x - 7.0, y - 17.0 + bob, 3.0, 6.0, 0.10, 0.10, 0.12, 1.0)
                 draw_quad(x - 1.5, y - 19.0 + bob, 3.0, 8.0, 0.10, 0.10, 0.12, 1.0)
@@ -1871,6 +1905,10 @@ local function init()
     tex_jungle = sprite_load("assets/art/contra_jungle.png")
     tex_wood = sprite_load("assets/art/wood_plank.png")
     tex_stone = sprite_load("assets/art/stone_tex.png")
+    tex_wall = sprite_load("assets/contra/boss-wall.png")
+    tex_core = sprite_load("assets/contra/boss-core.png")
+    tex_turret = sprite_load("assets/contra/turret.png")
+    tex_crate = sprite_load("assets/contra/crate.png")
 
     fx_expl = part_create()
     part_set_lifetime(fx_expl, 0.44, 0.95)
