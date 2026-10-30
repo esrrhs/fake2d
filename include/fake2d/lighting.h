@@ -4,6 +4,7 @@
 #include "fake2d/texture.h"
 
 #include <cstddef>
+#include <cstdint>
 
 namespace fake2d {
 
@@ -71,7 +72,9 @@ public:
         int count = 0;
         /// When non-zero the polygon is re-read from this physics body every
         /// frame, so a crate that gets pushed keeps casting the right shadow.
-        int body = 0;
+        /// A full body handle: they are slot+generation packed into 64 bits, so
+        /// narrowing one to an int would drop the generation and stale it.
+        std::int64_t body = 0;
         bool active = false;
     };
 
@@ -110,8 +113,10 @@ public:
     /// A shadow caster from an explicit polygon (up to kMaxOccluderVerts).
     int AddOccluder(const Vec2 *points, int count);
     /// A caster that tracks a physics body; re-reads its world vertices each
-    /// frame. Returns kInvalid when the body is not a polygon.
-    int AddBodyOccluder(int body_id);
+    /// frame. Only polygons have vertices to read, so a circle-backed caster
+    /// goes inactive on the first SyncBodyOccluders() rather than casting a
+    /// shadow that does not match what is drawn.
+    int AddBodyOccluder(std::int64_t body_id);
     void RemoveOccluder(int id);
     [[nodiscard]] bool HasOccluder(int id) const;
     void SetOccluderEnabled(int id, bool active);

@@ -4053,7 +4053,7 @@ void RegisterLightingApi(fakelua::State *state, Engine *engine) {
         state, "occluder_add_body", false,
         std::function<std::int64_t(fakelua::State *, double)>(
             [lights](fakelua::State *, double body) -> std::int64_t {
-                return lights().AddBodyOccluder(static_cast<int>(body));
+                return lights().AddBodyOccluder(static_cast<std::int64_t>(body));
             }));
 
     fakelua::RegisterNativeFunction(
