@@ -515,7 +515,7 @@ them in its state object. `0` means the pool is full (256 lights, 256 casters).
 | `light_set_enabled(id, on)` | off without losing the id |
 | `occluder_add_rect(x, y, w, h)` → id | an axis-aligned caster |
 | `occluder_add_poly(x1..y4)` → id | a four-corner caster |
-| `occluder_add_body(body)` → id | a caster that tracks a physics body |
+| `occluder_add_body(body)` → id | a caster that tracks a physics body (polygons only) |
 | `occluder_set_rect(id, x, y, w, h)` | move/resize in place, id survives |
 | `occluder_set_poly(id, x1..y4)` | re-shape it, for casters that rotate |
 | `occluder_sync_bodies()` | pull fresh polygons out of the world; call once a frame |
@@ -545,9 +545,12 @@ fill light be added after the shadow pass — an opaque crate stops the lantern,
 not the ceiling lamp behind it — without a single light being able to black out
 its neighbour.
 
-`scripts/light_demo.lua` (`--light-demo`) is a cavern with a carried lantern, a
-flickering wall torch, an orbiting orb, a sliding crate and a rotating beam,
-plus a `SPACE` burst that switches on 24 more lights for 24 frames.
+`scripts/light_demo.lua` (`--light-demo`) is a cavern with a lantern a soldier
+paces about, a flickering wall torch, an orbiting orb, a shadowless fill, a
+rotating beam and crates that drag their shadows as they slide — one of them is
+a kinematic *physics* body bound with `occluder_add_body`, so its shadow comes
+out of the simulated polygon rather than a re-uploaded rect. `SPACE` bursts 24
+more lights into the same buffer for 24 frames.
 
 ### Audio
 

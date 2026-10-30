@@ -6623,6 +6623,51 @@ int RunLightTest(fake2d::Engine &engine) {
           "stats: only the light-facing edge is extruded");
     check(one.budget_clipped == 0, "stats: the budget is not in play yet");
 
+    // A caster that tracks a physics body: the whole point of `add_body` is
+    // that a crate which gets pushed keeps casting the right shadow without the
+    // script re-uploading its geometry. Probed above the light, where the box
+    // caster already checked is not in the way.
+    fake2d::PhysicsWorld world;
+    fake2d::BodyConfig push_cfg;
+    push_cfg.type = fake2d::BodyType::Static;
+    push_cfg.position = {cx, cy - 70.0f};
+    push_cfg.half_extents = {25.0f, 15.0f};
+    const fake2d::BodyId pushed = world.CreateBody(push_cfg);
+    check(pushed != fake2d::kInvalidBody, "physics: a polygon body exists to cast with");
+    const int body_occ =
+        L.AddBodyOccluder(static_cast<std::int64_t>(static_cast<std::uint64_t>(pushed)));
+    check(body_occ > 0, "a body-backed caster is accepted");
+    check(L.AddBodyOccluder(0) == 0, "a body-backed caster needs a real body");
+    fake2d::BodyConfig round_cfg;
+    round_cfg.radius = 20.0f;
+    round_cfg.half_extents = {20.0f, 20.0f};
+    round_cfg.position = {cx + 400.0f, cy + 200.0f};
+    const fake2d::BodyId round = world.CreateBody(round_cfg);
+    const int round_occ =
+        L.AddBodyOccluder(static_cast<std::int64_t>(static_cast<std::uint64_t>(round)));
+    L.SyncBodyOccluders(world);
+    check(L.HasOccluder(body_occ), "sync binds the caster to the body polygon");
+    check(!L.HasOccluder(round_occ),
+          "a circle has no polygon, so its caster goes inactive on sync");
+    render();
+    px = probe(cx, cy - 95.0f);
+    check(near(px.r, 0.0f), "the body casts where the body is");
+    check(L.GetStats().shadow_quads == 2,
+          "stats: the body adds its own silhouette, not a re-upload");
+
+    // Nudge it out of the light's reach and the shadow follows it out.
+    if (fake2d::BodyConfig *moved = world.Get(pushed); moved != nullptr) {
+        moved->position = {cx + 150.0f, cy};
+    }
+    L.SyncBodyOccluders(world);
+    render();
+    px = probe(cx, cy - 95.0f);
+    check(px.r > 0.2f, "the shadow left with the body");
+    L.RemoveOccluder(body_occ);
+    L.RemoveOccluder(round_occ);
+    world.DestroyBody(pushed);
+    world.DestroyBody(round);
+
     // A neighbour keeps its own pool: the only thing that can darken a texel is
     // a shadow cast by a light whose circle contains it.
     const int b = L.AddLight();

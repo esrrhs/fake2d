@@ -90,7 +90,7 @@ local INFO = {
      controls = "MOUSE choose   clicks advance dialogue",
      cover = "assets/vn/bg/gate.png"},
     {flag = "light", title = "2D LIGHTING", cat = CATS_ENGINE,
-     blurb = "Moving lights with projected shadows: torches, a carried lantern, an orbiting orb.",
+     blurb = "Moving lights with projected shadows: a carried lantern, torches, an orbiting orb, and a physics crate that drags its shadow.",
      controls = "LEFT/RIGHT walk   SPACE light burst   L toggle",
      cover = "assets/art/limbo_ground.png"},
     {flag = "scene", title = "SCENE GRAPH", cat = CATS_ENGINE,

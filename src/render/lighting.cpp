@@ -233,7 +233,7 @@ int LightSystem::AddOccluder(const Vec2 *points, int count) {
     return kInvalid;
 }
 
-int LightSystem::AddBodyOccluder(int body_id) {
+int LightSystem::AddBodyOccluder(std::int64_t body_id) {
     if (body_id <= 0) {
         return kInvalid;
     }
@@ -297,14 +297,15 @@ void LightSystem::SyncBodyOccluders(const PhysicsWorld &world) {
         if (!occ.active || occ.body == 0) {
             continue;
         }
-        const int n = world.WorldVertexCount(static_cast<BodyId>(occ.body));
+        const BodyId body = static_cast<BodyId>(static_cast<std::uint64_t>(occ.body));
+        const int n = world.WorldVertexCount(body);
         if (n <= 0) {
             occ.active = false;
             continue;
         }
         occ.count = std::min(n, kMaxOccluderVerts);
         for (int v = 0; v < occ.count; ++v) {
-            occ.points[v] = world.WorldVertex(static_cast<BodyId>(occ.body), v);
+            occ.points[v] = world.WorldVertex(body, v);
         }
     }
 }

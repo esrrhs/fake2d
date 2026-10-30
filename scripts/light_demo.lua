@@ -44,8 +44,12 @@ local CRATES = {
     {x = 150.0, y = 330.0, w = 62.0, h = 62.0, slide = 120.0, speed = 0.5},
     {x = 470.0, y = 210.0, w = 54.0, h = 54.0, slide = 0.0, speed = 0.0},
     {x = 700.0, y = 400.0, w = 70.0, h = 46.0, slide = -90.0, speed = 0.8},
-    {x = 520.0, y = 430.0, w = 48.0, h = 48.0, slide = 0.0, speed = 0.0},
 }
+
+-- The fifth prop is a real physics body rather than a scripted offset, so its
+-- shadow comes out of the simulated polygon. Half extents, not a corner.
+local PUSH_CRATE = {x = 520.0, y = 430.0, size = 48.0, speed = 90.0, min_x = 380.0,
+                    max_x = 620.0}
 
 --- How far crate i has slid along its track right now. Shared by the caster
 --- and the sprite so the shadow always agrees with what is drawn.
@@ -68,7 +72,8 @@ local function reset_state()
     S.beam = 0.0
     S.on = 1
     S.burst = 0
-    S.announced = 0
+    S.logged = 0
+    S.attract_dir = 1
     S.lantern = 0
     S.torch = 0
     S.orb_light = 0
@@ -132,6 +137,14 @@ local function build_scene()
         S.crate_occ[i] = occluder_add_rect(c.x, c.y, c.w, c.h)
     end
     S.beam_occ = occluder_add_poly(400.0, 300.0, 560.0, 306.0, 560.0, 322.0, 400.0, 316.0)
+
+    -- A kinematic body the integrator walks along its track. occluder_add_body
+    -- binds the caster to it, so no geometry is ever re-uploaded for the shadow.
+    S.push_body = phys_create_box(PUSH_CRATE.x, PUSH_CRATE.y, PUSH_CRATE.size * 0.5,
+                                  PUSH_CRATE.size * 0.5)
+    phys_set_kinematic(S.push_body, true)
+    phys_set_vel(S.push_body, PUSH_CRATE.speed, 0.0)
+    S.push_occ = occluder_add_body(S.push_body)
 end
 
 local function draw_room(tex_floor, tex_plank)
@@ -165,6 +178,14 @@ local function draw_crates(tex_plank)
         draw_quad(x, c.y, c.w, 3.0, 0.8, 0.76, 0.7, 1.0)
         draw_quad(x + 4.0, c.y + c.h - 6.0, c.w - 8.0, 3.0, 0.16, 0.14, 0.12, 1.0)
     end
+    local half = PUSH_CRATE.size * 0.5
+    local bx = phys_x(S.push_body) - half
+    local by = phys_y(S.push_body) - half
+    sprite_draw_region(tex_plank, 0.0, 0.0, 256.0, 64.0, bx, by, PUSH_CRATE.size,
+                       PUSH_CRATE.size)
+    draw_quad(bx, by, PUSH_CRATE.size, 3.0, 0.8, 0.76, 0.7, 1.0)
+    draw_quad(bx + 4.0, by + PUSH_CRATE.size - 6.0, PUSH_CRATE.size - 8.0, 3.0, 0.16,
+              0.14, 0.12, 1.0)
 end
 
 local function draw_beam(tex_plank)
@@ -213,6 +234,16 @@ local function update_lights(dt)
         local c = CRATES[i]
         occluder_set_rect(S.crate_occ[i], crate_x(i), c.y, c.w, c.h)
     end
+
+    -- The body crate is turned around by its own simulated position, and the
+    -- caster picks up whatever polygon the world ended up with.
+    local bx = phys_x(S.push_body)
+    if bx > PUSH_CRATE.max_x then
+        phys_set_vel(S.push_body, -PUSH_CRATE.speed, 0.0)
+    elseif bx < PUSH_CRATE.min_x then
+        phys_set_vel(S.push_body, PUSH_CRATE.speed, 0.0)
+    end
+    occluder_sync_bodies()
 end
 
 local function draw_hud()
@@ -248,12 +279,19 @@ function update(dt)
     S.beam = S.beam + dt * 0.9
     S.fps = S.fps * 0.94 + (1.0 / (dt + 0.0001)) * 0.06
 
-    -- Walk the lantern soldier, clamped inside the room.
-    if input_key_down("right") or (S.announced == 0 and S.walk_x < 700.0) then
+    -- Walk the lantern soldier, clamped inside the room. With no input the
+    -- attract march paces the length of the cavern, so the pool and every
+    -- shadow it throws keep sweeping across the scene.
+    if S.walk_x > 840.0 then
+        S.attract_dir = -1
+    elseif S.walk_x < 120.0 then
+        S.attract_dir = 1
+    end
+    if input_key_down("right") or S.attract_dir > 0 then
         S.walk_x = S.walk_x + 150.0 * dt
         S.walk_dir = 1
     end
-    if input_key_down("left") then
+    if input_key_down("left") or S.attract_dir < 0 then
         S.walk_x = S.walk_x - 150.0 * dt
         S.walk_dir = -1
     end
@@ -310,10 +348,13 @@ function update(dt)
     light_render()
     draw_hud()
 
-    if S.announced == 0 and S.frame == 60 then
-        S.announced = 1
+    if S.logged == 0 and S.frame == 60 then
+        S.logged = 1
+        -- The body column is the position read back out of the physics world, not a
+        -- scripted offset: it is what occluder_sync_bodies() turned into a shadow.
         log_info("lighting: " .. light_stat(1) .. " lights, " .. light_stat(5) ..
-                     " shadow quads, " .. light_stat(7) .. " draw calls")
+                     " shadow quads, " .. light_stat(7) .. " draw calls, body x " ..
+                     string.format("%.1f", phys_x(S.push_body)))
         log_number(90000 + light_stat(7))
     end
 
