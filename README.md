@@ -149,6 +149,16 @@ cmake --build build --parallel
 
 ## 💻 CLI Usage Guide
 
+### Shipped Art
+
+Every game demo renders its scene from committed image assets rather than
+primitives painted at first run: CC0 pixel packs (Chasersgaming, ansimuz,
+FisherG), AI-illustrated key art under `assets/`, and tile sheets relit from
+AI-generated materials. `tools/art_key.py` bakes the committed PNGs from the raw
+generations, and `--art-test` walks the whole art tree and loads every file, so
+a folder that falls out of `.gitignore` fails the build instead of silently
+dropping a demo back to its painters.
+
 ### Launching Demos
 
 ```bash

@@ -65,6 +65,7 @@ local inited = false
 local tex_ball = 0 + 0
 local tex_white = 0 + 0
 local tex_table = 0 + 0
+local tex_cue = 0 + 0  -- AI-illustrated cue stick
 local vw = 960.0 + 0.0
 local vh = 540.0 + 0.0
 
@@ -1406,6 +1407,20 @@ local function draw_cue_stick()
 
     stick_seg(chalkx + 4.0, chalky + 5.0, butt_end_x + 4.0, butt_end_y + 5.0, 5.0,
               0.0, 0.0, 0.0, 0.38)
+    if tex_cue ~= 0 then
+        -- One illustrated stick: its right end is the chalked tip, so the
+        -- sprite's +x axis points down the aim line toward the cue ball.
+        local len = 188.0
+        local thick = 15.0
+        local mx = tipx - ux * len * 0.5
+        local my = tipy - uy * len * 0.5
+        sprite_draw_rotated_tinted(tex_cue, 0.0, 0.0,
+                                   sprite_width(tex_cue), sprite_height(tex_cue),
+                                   mx - len * 0.5, my - thick * 0.5, len, thick,
+                                   math.atan2(uy, ux), len * 0.5, thick * 0.5,
+                                   1.0, 1.0, 1.0, 1.0)
+        return
+    end
     stick_seg(chalkx, chalky, shaft_end_x, shaft_end_y, 3.4,
               0.78, 0.60, 0.38, 1.0)
     stick_seg(shaft_end_x, shaft_end_y, butt_end_x, butt_end_y, 5.2,
@@ -1647,6 +1662,7 @@ local function init()
     tex_ball = sprite_load("assets/art/snooker_ball.png")
     tex_white = sprite_load_nearest("assets/white.png")
     tex_table = sprite_load("assets/art/snooker_table.png")
+    tex_cue = sprite_load("assets/snooker/cue.png")
     rng_seed(20261030)
     camera_snap(0.0, 0.0)
     camera_clear_bounds()

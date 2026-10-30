@@ -4224,6 +4224,91 @@ int RunShmupTest(fake2d::Engine &engine) {
     return failures == 0 ? 0 : 1;
 }
 
+// Shipped-art self-test (Phase 43). Every game demo now renders its scene from
+// image assets that live in the repository instead of primitives painted at
+// first run. That only holds while the art is actually tracked: if a folder
+// falls out of .gitignore again, a fresh clone silently loses it and the demo
+// drops back to the painters without failing anything. So walk the shipped art
+// tree and require every PNG to load, rather than trusting a green demo run.
+int RunArtTest(fake2d::Engine &engine) {
+    int failures = 0;
+    int checks = 0;
+    auto check = [&](bool ok, const std::string &what) {
+        ++checks;
+        if (!ok) {
+            ++failures;
+            std::printf("[art] FAIL %s\n", what.c_str());
+        }
+    };
+
+    static const char *const kFolders[] = {
+        "assets/arcade",   "assets/art",          "assets/brawler",
+        "assets/brawler/bg", "assets/city",       "assets/contra",
+        "assets/limbo",    "assets/rts",          "assets/rts/units",
+        "assets/rts/buildings", "assets/shmup",   "assets/shmup/bg",
+        "assets/snooker",  "assets/vn/bg",        "assets/vn/portraits",
+    };
+    // The map-driven sheets stay at the assets/ root because the generated
+    // Tiled JSON references them by name.
+    static const char *const kRootSheets[] = {
+        "assets/m_tiles.png",   "assets/p_tiles.png", "assets/s_tiles.png",
+        "assets/m_goomba.png",  "assets/m_mushroom.png",
+        "assets/m_player_s.png", "assets/m_player_b.png",
+        "assets/player.png",    "assets/s_player.png",
+    };
+
+    auto &resources = engine.GetResources();
+    int loaded = 0;
+    auto load_one = [&](const std::string &path) {
+        const fake2d::TextureHandle handle = resources.LoadTexture(
+            path, fake2d::TextureFilter::Linear);
+        const fake2d::Texture2D *texture = resources.GetTexture(handle);
+        const bool ok = texture != nullptr && texture->Width() > 0 &&
+                        texture->Height() > 0;
+        check(ok, "art loads: " + path);
+        if (ok) {
+            ++loaded;
+        }
+        if (handle != fake2d::kInvalidTextureHandle) {
+            resources.Release(handle);
+        }
+    };
+
+    for (const char *folder : kFolders) {
+        std::error_code ec;
+        const bool present = std::filesystem::is_directory(folder, ec);
+        check(present, std::string("art folder shipped: ") + folder);
+        if (!present) {
+            continue;
+        }
+        std::vector<std::string> names;
+        for (const auto &entry : std::filesystem::directory_iterator(folder)) {
+            if (entry.is_regular_file() && entry.path().extension() == ".png") {
+                names.push_back(entry.path().string());
+            }
+        }
+        std::sort(names.begin(), names.end());
+        check(!names.empty(), std::string("art folder not empty: ") + folder);
+        for (const auto &path : names) {
+            load_one(path);
+        }
+    }
+    for (const char *path : kRootSheets) {
+        std::error_code ec;
+        check(std::filesystem::exists(path, ec),
+              std::string("tile sheet shipped: ") + path);
+        load_one(path);
+    }
+    // Guards against a whole folder silently disappearing from the checkout:
+    // the tree is ~120 files today, so a small floor still catches a regression
+    // without pinning the count to today's exact set.
+    check(loaded >= 100, "the shipped art tree is complete");
+
+    std::printf("[art] %s: %d checks, %d failures (%d textures loaded)\n",
+                failures == 0 ? "PASS" : "FAILED", checks, failures, loaded);
+    return failures == 0 ? 0 : 1;
+}
+
 // Snooker sprite self-test (Phase 38): the generated shaded ball sprite must
 // exist at 64x64, be lit in the centre, transparent in the corners and load
 // through both filters; white.png and missing-file handling are checked too.
@@ -9202,6 +9287,7 @@ int main(int argc, char **argv) {
     bool shmup_test = false;
     bool shmup_demo = false;
     bool snooker_test = false;
+    bool art_test = false;
     bool snooker_demo = false;
     bool contra_test = false;
     bool contra_demo = false;
@@ -9475,6 +9561,12 @@ int main(int argc, char **argv) {
             cfg.headless = true;
             cfg.script_entry.clear();
             cfg.vsync = false;
+        } else if (arg == "--art-test") {
+            // Self-test of the committed art tree the game demos render from.
+            art_test = true;
+            cfg.headless = true;
+            cfg.script_entry.clear();
+            cfg.vsync = false;
         } else if (arg == "--snooker-test") {
             // Self-test of the snooker sprite pipeline: the generated shaded
             // ball at 64x64, alpha/shading probes and loader rejection.
@@ -9598,6 +9690,9 @@ int main(int argc, char **argv) {
     }
     if (shmup_test) {
         return RunShmupTest(engine);
+    }
+    if (art_test) {
+        return RunArtTest(engine);
     }
     if (snooker_test) {
         return RunSnookerTest(engine);
