@@ -262,6 +262,15 @@ jobs:
           test -s launcher.png
           grep -q "launcher: starting platformer" launcher_demo.log
           grep -q "would restart with --platformer-demo" launcher_demo.log
+          # Filtering narrows the list, and a row click commits what it covers.
+          LAUNCHER_TEST_CAT=2 LAUNCHER_TEST_PICK=0 run_xvfb ./build/bin/fake2d_hello \
+            --headless --frames 40 --launcher > launcher_filter.log 2>&1
+          grep -q "launcher: filter engine" launcher_filter.log
+          grep -q "launcher: starting scene" launcher_filter.log
+          LAUNCHER_TEST_MX=100 LAUNCHER_TEST_MY=241 LAUNCHER_TEST_CLICK=10 run_xvfb \
+            ./build/bin/fake2d_hello --headless --frames 40 --launcher \
+            > launcher_click.log 2>&1
+          grep -q "launcher: starting beat-em-up" launcher_click.log
           # Brawler demo: waves, hit detection and a full headless stage run.
           run_xvfb ./build/bin/fake2d_hello --headless --frames 240 \
             --beat-em-up-demo --screenshot beat.png --shot-min-colors 12 \

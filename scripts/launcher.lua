@@ -141,7 +141,7 @@ local INFO = {
      blurb = "Three gain buses, cross-fades, a frozen mix and a 24-segment VU.",
      controls = "MOUSE drag the faders",
      cover = "assets/art/explosion.png"},
-    {flag = "spatial", title = "3D POSITIONAL AUDIO", cat = CATS_ENGINE,
+    {flag = "spatial", title = "POSITIONAL AUDIO", cat = CATS_ENGINE,
      blurb = "Four world emitters with distance rolloff, stereo pan and range rings.",
      controls = "WASD walk the listener",
      cover = "assets/art/ab_sling.png"},
@@ -156,16 +156,21 @@ local INFO = {
 -- NativeObject whose fields read and write like an ordinary table.
 local S = new_global_obj("launcher", "state")
 
---- Which visible entry the headless trace commits; -1 disables it.
-local function env_pick()
-    local v = os.getenv("LAUNCHER_TEST_PICK")
+--- A numeric environment variable, or -1 when unset. Headless traces drive the
+--- same selection, filter and click paths a player uses with a mouse.
+local function env_num(name)
+    local v = os.getenv(name)
     if v == nil then
         return -1
     end
     return tonumber(v)
 end
 
-local PICK = env_pick()
+local PICK = env_num("LAUNCHER_TEST_PICK")
+local TEST_CAT = env_num("LAUNCHER_TEST_CAT")
+local TEST_MX = env_num("LAUNCHER_TEST_MX")
+local TEST_MY = env_num("LAUNCHER_TEST_MY")
+local TEST_CLICK = env_num("LAUNCHER_TEST_CLICK")
 
 --- The presentation record for a flag, or nil when the catalogue has an entry
 --- this file does not describe yet (it still gets listed, just plainly).
@@ -190,63 +195,54 @@ local function matches(i)
     return demo_category(i) == want
 end
 
---- First catalogue index that passes the filter, or -1.
-local function first_match()
-    local i = 0
-    while i < S.total do
+--- Catalogue indices the filter currently shows, in catalogue order. Rebuilt
+--- every frame: per-frame tables are arena memory, so this is free and there is
+--- no cache to invalidate when the filter changes. The length is published on
+--- the object because FakeLua's `#` is unreliable on a locally built table.
+local function visible()
+    local v = {}
+    local n = 0
+    for i = 0, S.total - 1 do
         if matches(i) then
-            return i
+            n = n + 1
+            v[n] = i
         end
-        i = i + 1
     end
-    return -1
+    S.nvis = n
+    return v
 end
 
---- Next catalogue index from `from` in direction `dir` that passes the filter.
-local function step(from, dir)
-    local i = from
-    local guard = 0
-    while guard < S.total do
-        i = i + dir
-        if i < 0 then
-            i = S.total - 1
-        end
-        if i >= S.total then
-            i = 0
-        end
-        guard = guard + 1
-        if matches(i) then
-            return i
-        end
+--- Move a position within the visible list, wrapping.
+local function step(pos, dir, n)
+    if n <= 0 then
+        return 0
     end
-    return from
+    local p = pos + dir
+    while p < 0 do
+        p = p + n
+    end
+    return p % n
 end
 
 --- Keep the scroll offset so the selection stays inside the visible window.
-local function clamp_scroll()
+local function clamp_scroll(n)
     if S.sel < S.top then
         S.top = S.sel
     end
     if S.sel > S.top + LIST_ROWS - 1 then
         S.top = S.sel - (LIST_ROWS - 1)
     end
-    if S.top < 0 then
-        S.top = 0
-    end
-    if S.top > S.total - LIST_ROWS then
-        S.top = S.total - LIST_ROWS
+    if S.top > n - LIST_ROWS then
+        S.top = n - LIST_ROWS
     end
     if S.top < 0 then
         S.top = 0
     end
 end
 
---- The filter changed: park the selection on something the list can show.
+--- The filter changed: the visible list is a different set, so start over.
 local function refilter()
-    local first = first_match()
-    if first >= 0 then
-        S.sel = first
-    end
+    S.sel = 0
     S.top = 0
 end
 
@@ -265,10 +261,11 @@ local function card(tex, x, y, w, h, r, g, b)
     end
 end
 
-local function draw_list()
+local function draw_list(v, n)
     for row = 0, LIST_ROWS - 1 do
-        local i = S.top + row
-        if i < S.total then
+        local pos = S.top + row
+        if pos < n then
+            local i = v[pos + 1]
             local y = LIST_TOP + row * ROW_H
             local info = info_of(demo_flag(i))
             local name = string.upper(demo_flag(i))
@@ -281,7 +278,7 @@ local function draw_list()
                     kind = "engine"
                 end
             end
-            local on = i == S.sel
+            local on = pos == S.sel
             if on then
                 draw_quad(LIST_X, y - 3.0, LIST_W, ROW_H - 2.0, 0.20, 0.42, 0.52, 1.0)
                 draw_quad(LIST_X, y - 3.0, 3.0, ROW_H - 2.0, 0.45, 0.90, 1.0, 1.0)
@@ -302,8 +299,8 @@ local function draw_list()
     end
 end
 
-local function draw_detail()
-    local flag = demo_flag(S.sel)
+local function draw_detail(v)
+    local flag = demo_flag(v[S.sel + 1])
     local info = info_of(flag)
     local title = string.upper(flag)
     local blurb = "Engine showcase."
@@ -325,7 +322,7 @@ local function draw_detail()
     label("fake2d_hello --" .. flag .. "-demo", PANEL_X + 4.0, LIST_TOP + 328.0,
           0.42, 0.78, 0.74, 0.42, 1.0)
 
-    local script = demo_script(S.sel)
+    local script = demo_script(v[S.sel + 1])
     local sw = text_width(script, 0.36)
     label(script, PANEL_X + PANEL_W - sw - 4.0, LIST_TOP + 328.0,
           0.36, 0.42, 0.48, 0.56, 1.0)
@@ -359,18 +356,18 @@ local function draw_chips()
     end
 end
 
-local function draw()
+local function draw(v, n)
     draw_quad(0, 0, W, H, 0.045, 0.055, 0.085, 1.0)
     draw_quad(0, 0, W, 56.0, 0.075, 0.10, 0.15, 1.0)
     label("FAKE2D DEMO LAUNCHER", 24.0, 16.0, 0.86, 1.0, 1.0, 1.0, 1.0)
 
-    local count = tostring(S.total) .. " DEMOS"
+    local count = tostring(n) .. " OF " .. tostring(S.total) .. " DEMOS"
     local cw = text_width(count, 0.44)
     label(count, W - cw - 24.0, 22.0, 0.44, 0.55, 0.85, 0.95, 1.0)
 
     draw_chips()
-    draw_list()
-    draw_detail()
+    draw_list(v, n)
+    draw_detail(v)
 
     draw_quad(0, H - 30.0, W, 30.0, 0.075, 0.10, 0.15, 1.0)
     label("UP/DOWN select    ENTER launch    TAB category    ESC quit",
@@ -392,7 +389,7 @@ local function chip_under()
 end
 
 --- Catalogue index under the cursor in the list column, or -1.
-local function row_under()
+local function row_under(n)
     if S.mx < LIST_X or S.mx > LIST_X + LIST_W then
         return -1
     end
@@ -403,7 +400,7 @@ local function row_under()
         return -1
     end
     local row = math.floor((S.my - (LIST_TOP - 3.0)) / ROW_H)
-    if S.top + row < S.total then
+    if S.top + row < n then
         return S.top + row
     end
     return -1
@@ -422,8 +419,26 @@ function update(dt)
     end
     S.frame = S.frame + 1
 
+    -- The list shows the filtered subset, so rebuild it before anything indexes
+    -- it and keep the selection inside it. Positions are within this view; the
+    -- catalogue index behind a position is `v[position + 1]`.
+    local v = visible()
+    local n = S.nvis
+    if S.sel > n - 1 then
+        S.sel = n - 1
+    end
+    if S.sel < 0 then
+        S.sel = 0
+    end
+
     S.mx = input_mouse_x()
     S.my = input_mouse_y()
+    if TEST_MX >= 0 then
+        S.mx = TEST_MX
+    end
+    if TEST_MY >= 0 then
+        S.my = TEST_MY
+    end
 
     local wheel = input_mouse_wheel()
     if wheel > 0.5 then
@@ -434,19 +449,19 @@ function update(dt)
     end
 
     if input_key_pressed("up") then
-        S.sel = step(S.sel, -1)
+        S.sel = step(S.sel, -1, n)
     end
     if input_key_pressed("down") then
-        S.sel = step(S.sel, 1)
+        S.sel = step(S.sel, 1, n)
     end
     if input_key_pressed("pageup") then
-        S.sel = step(S.sel, -LIST_ROWS)
+        S.sel = step(S.sel, -LIST_ROWS, n)
     end
     if input_key_pressed("pagedown") then
-        S.sel = step(S.sel, LIST_ROWS)
+        S.sel = step(S.sel, LIST_ROWS, n)
     end
     if input_key_pressed("home") then
-        S.sel = first_match()
+        S.sel = 0
     end
     if input_key_pressed("tab") then
         S.cat = S.cat + 1
@@ -456,22 +471,24 @@ function update(dt)
         refilter()
     end
 
-    local row = row_under()
-    if row >= 0 and matches(row) then
+    local row = row_under(n)
+    if row >= 0 then
         S.sel = row
     end
 
-    clamp_scroll()
+    clamp_scroll(n)
 
     if input_key_pressed("escape") then
         window_quit()
     end
 
     local commit = input_key_pressed("return") or input_key_pressed("space")
-    if input_mouse_pressed(0) then
+    local clicked = input_mouse_pressed(0) or (TEST_CLICK >= 0 and S.frame == TEST_CLICK)
+    if clicked then
         local chip = chip_under()
         if chip >= 0 then
             S.cat = chip
+            log_info("launcher: filter " .. CATS[chip + 1].id)
             refilter()
         elseif row >= 0 then
             S.sel = row
@@ -479,30 +496,30 @@ function update(dt)
         end
     end
 
+    -- The trace changes the filter on frame 15 and commits on frame 20, so the
+    -- pick sees the list as the player would after the filter has settled.
+    if TEST_CAT >= 0 and S.frame == 15 and S.cat ~= TEST_CAT then
+        S.cat = TEST_CAT
+        log_info("launcher: filter " .. CATS[TEST_CAT + 1].id)
+        refilter()
+    end
+
     -- Headless trace: LAUNCHER_TEST_PICK=<n> commits the n-th visible entry on
     -- frame 20, so CI can prove selection and the relaunch request work without
     -- a mouse or keyboard.
     if PICK >= 0 and S.frame == 20 then
-        local i = 0
-        local seen = 0
-        while i < S.total and seen < PICK do
-            if matches(i) then
-                seen = seen + 1
-            end
-            i = i + 1
-        end
-        if i < S.total then
-            S.sel = i
+        if PICK < n then
+            S.sel = PICK
             commit = true
         end
     end
 
     if commit then
-        local flag = demo_flag(S.sel)
+        local flag = demo_flag(v[S.sel + 1])
         log_info("launcher: starting " .. flag)
         app_launch(flag)
     end
 
-    draw()
+    draw(v, n)
     return 0
 end
