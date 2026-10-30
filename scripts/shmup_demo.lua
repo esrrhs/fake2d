@@ -43,6 +43,7 @@ local tex_em = 0 + 0
 local tex_eb = 0 + 0
 local tex_expl = 0 + 0
 local tex_bolts = 0 + 0
+local tex_orb = 0 + 0
 local tex_power = 0 + 0
 local tex_bg = 0 + 0
 local tex_clouds = 0 + 0
@@ -985,9 +986,16 @@ local function draw_enemy_bullets()
             local y = ent_num(b, Y)
             local r = ent_num(b, RAD) * 2.0
             draw_set_blend(1)
-            draw_quad(x - r, y - r, r * 2.0, r * 2.0, 1.0, 0.30, 0.12, 0.55)
-            draw_quad(x - 5.0, y - 5.0, 10.0, 10.0, 1.0, 0.75, 0.35, 0.95)
-            draw_quad(x - 2.0, y - 2.0, 4.0, 4.0, 1.0, 1.0, 0.9, 1.0)
+            if tex_orb ~= 0 then
+                -- Tinted to the enemy palette so hostile fire never reads like
+                -- the player's own cyan bolts.
+                sprite_draw_tinted(tex_orb, x - r, y - r, r * 2.0, r * 2.0,
+                                   1.0, 0.42, 0.20, 1.0)
+            else
+                draw_quad(x - r, y - r, r * 2.0, r * 2.0, 1.0, 0.30, 0.12, 0.55)
+                draw_quad(x - 5.0, y - 5.0, 10.0, 10.0, 1.0, 0.75, 0.35, 0.95)
+                draw_quad(x - 2.0, y - 2.0, 4.0, 4.0, 1.0, 1.0, 0.9, 1.0)
+            end
             draw_set_blend(0)
         end
     end
@@ -1122,6 +1130,7 @@ local function init()
     tex_eb = sprite_load_nearest("assets/shmup/enemy-big.png")
     tex_expl = sprite_load_nearest("assets/shmup/explosion.png")
     tex_bolts = sprite_load_nearest("assets/shmup/laser-bolts.png")
+    tex_orb = sprite_load_nearest("assets/shmup/enemy-orb.png")
     tex_power = sprite_load_nearest("assets/shmup/power-up.png")
     tex_bg = sprite_load_nearest("assets/shmup/bg/desert.png")
     tex_clouds = sprite_load_nearest("assets/shmup/bg/clouds.png")
