@@ -63,9 +63,12 @@ Each rule below was verified empirically against the installed FakeLua 2.0.0:
 
    `new_global_obj(key, type)` / `get_global_obj(key)` are FakeLua's object
    module; the object lives on the C++ side, so it survives the arena reset.
-   `scripts/launcher.lua` is the reference for this pattern.
-   ⚠️ Most older demos still use the pre-2.0 `+ 0` idiom and no longer compile
-   against a current FakeLua; they need migrating to NativeObject state.
+   `scripts/launcher.lua` is the reference for this pattern, and every demo in
+   `scripts/` now follows it (`tools/migrate_state.py` did the conversion).
+   ⚠️ Writing fields on a NativeObject requires a FakeLua that permits native
+   table mutation. The `FAKELUA_REF` pinned in `.github/workflows/build.yml`
+   predates that and rejects these writes with `attempt to modify a const
+   table`, so the pin has to advance before CI can run this suite.
 
 4. **File-level tables are deep-const.** A table built at file level — literal
    or returned by a function — is read-only data: writing a field throws
