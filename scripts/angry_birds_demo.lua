@@ -37,6 +37,11 @@ local REST_CENTER_X = 560.0
 
 local brick_tex = 0 + 0
 local ball_tex = 0 + 0
+local sky_tex = 0 + 0
+local bird_tex = 0 + 0
+local pig_tex = 0 + 0
+local sling_tex = 0 + 0
+local ground_tex = 0 + 0
 local puff_fx = 0 + 0
 local inited = false
 local ground = 0 + 0
@@ -104,8 +109,12 @@ local function set_id(slot, value)
 end
 
 local function init_assets()
-    brick_tex = sprite_load("assets/brick.png")
-    ball_tex = sprite_load("assets/ball.png")
+    brick_tex = sprite_load("assets/art/wood_plank.png")
+    sky_tex = sprite_load("assets/art/ab_sky.png")
+    bird_tex = sprite_load("assets/art/ab_bird.png")
+    pig_tex = sprite_load("assets/art/ab_pig.png")
+    sling_tex = sprite_load("assets/art/ab_sling.png")
+    ground_tex = sprite_load("assets/art/ab_ground.png")
 
     puff_fx = part_create()
     part_set_lifetime(puff_fx, 0.35, 0.7)
@@ -281,51 +290,22 @@ end
 local function draw_sky()
     local cam_x = camera_x()
     draw_set_layer(0)
-    draw_quad(cam_x, 0.0, SCREEN_W, 110.0, 0.13, 0.38, 0.68, 1.0)
-    draw_quad(cam_x, 110.0, SCREEN_W, 110.0, 0.19, 0.46, 0.74, 1.0)
-    draw_quad(cam_x, 220.0, SCREEN_W, 110.0, 0.28, 0.56, 0.78, 1.0)
-    draw_quad(cam_x, 330.0, SCREEN_W, 110.0, 0.42, 0.66, 0.82, 1.0)
-    draw_quad(cam_x, 440.0, SCREEN_W, 40.0, 0.55, 0.74, 0.84, 1.0)
-
-    -- sun + clouds stay glued to the viewport (the parallax layer is the hills)
-    sprite_draw_tinted(ball_tex, cam_x + 786.0, 40.0, 86.0, 86.0,
-                       1.0, 0.9, 0.45, 0.92)
-    for i = 1, 3 do
-        local c = clouds[i]
-        local x = cam_x + c.x
-        sprite_draw_tinted(ball_tex, x, c.y, c.s, c.s * 0.52,
-                           1.0, 1.0, 1.0, 0.55)
-        sprite_draw_tinted(ball_tex, x + c.s * 0.45, c.y + c.s * 0.08,
-                           c.s * 0.72, c.s * 0.42, 1.0, 1.0, 1.0, 0.45)
-    end
-
-    -- hills slide slower than the world: cheap parallax
-    local px = cam_x * 0.55
-    sprite_draw_tinted(ball_tex, px - 60.0, 372.0, 420.0, 300.0,
-                       0.24, 0.48, 0.30, 1.0)
-    sprite_draw_tinted(ball_tex, px + 380.0, 392.0, 470.0, 300.0,
-                       0.21, 0.43, 0.28, 1.0)
-    sprite_draw_tinted(ball_tex, px + 820.0, 376.0, 420.0, 300.0,
-                       0.24, 0.48, 0.30, 1.0)
+    -- AI key art fills the whole viewport; the camera pans it horizontally.
+    sprite_draw(sky_tex, cam_x, 0.0, SCREEN_W, SCREEN_H)
 end
 
 local function draw_ground()
     draw_set_layer(1)
-    draw_quad(0.0, GROUND_Y, WORLD_W, SCREEN_H - GROUND_Y, 0.34, 0.62, 0.26, 1.0)
-    draw_quad(0.0, GROUND_Y, WORLD_W, 10.0, 0.26, 0.52, 0.20, 1.0)
-    for i = 0, 28 do
-        draw_quad(18.0 + i * 48.0, GROUND_Y + 22.0, 26.0, 6.0,
-                  0.28, 0.54, 0.22, 1.0)
+    local gx = 0.0
+    while gx < WORLD_W do
+        sprite_draw(ground_tex, gx, GROUND_Y, 256.0, SCREEN_H - GROUND_Y)
+        gx = gx + 256.0
     end
 end
 
 local function draw_sling()
     draw_set_layer(2)
-    draw_quad(SLING_X - 12.0, GROUND_Y - 10.0, 24.0, 12.0,
-              0.36, 0.22, 0.12, 1.0)
-    draw_quad(SLING_X - 19.0, 400.0, 11.0, 82.0, 0.46, 0.29, 0.15, 1.0)
-    draw_quad(SLING_X + 8.0, 400.0, 11.0, 82.0, 0.46, 0.29, 0.15, 1.0)
-    draw_quad(SLING_X - 19.0, 396.0, 38.0, 7.0, 0.40, 0.25, 0.13, 1.0)
+    sprite_draw(sling_tex, SLING_X - 48.0, GROUND_Y - 130.0, 96.0, 130.0)
 
     local bx = SLING_X
     local by = SLING_Y
@@ -350,15 +330,15 @@ local function draw_block(slot, def)
     local rot = phys_smooth_rot(id)
     local w = def.hx * 2.0
     local h = def.hy * 2.0
-    local r = 0.74
-    local g = 0.53
-    local b = 0.28
+    local r = 1.0
+    local g = 1.0
+    local b = 1.0
     if def.kind == 1 then
-        r = 0.55
-        g = 0.37
-        b = 0.20
+        r = 0.72
+        g = 0.66
+        b = 0.58
     end
-    sprite_draw_rotated_tinted(brick_tex, 0.0, 0.0, BRICK_W, BRICK_H,
+    sprite_draw_rotated_tinted(brick_tex, 0.0, 0.0, 256.0, 64.0,
                                x - w * 0.5, y - h * 0.5, w, h,
                                rot, w * 0.5, h * 0.5, r, g, b, 1.0)
 end
@@ -371,19 +351,10 @@ local function draw_pig(slot, def)
     local x = phys_smooth_x(id)
     local y = phys_smooth_y(id)
     local rot = phys_smooth_rot(id)
-    local c = math.cos(rot)
-    local s = math.sin(rot)
-    sprite_draw_tinted(ball_tex, x - PIG_R, y - PIG_R, PIG_R * 2.0, PIG_R * 2.0,
-                       0.42, 0.78, 0.34, 1.0)
-    local sx = x + 0.0 * c - 2.0 * s
-    local sy = y + 0.0 * s + 2.0 * c
-    draw_quad(sx - 5.0, sy - 3.0, 10.0, 6.0, 0.62, 0.90, 0.50, 1.0)
-    local ex1 = x + (-5.0) * c - (-5.0) * s
-    local ey1 = y + (-5.0) * s + (-5.0) * c
-    local ex2 = x + (5.0) * c - (-5.0) * s
-    local ey2 = y + (5.0) * s + (-5.0) * c
-    draw_quad(ex1 - 2.0, ey1 - 2.0, 4.0, 4.0, 0.07, 0.10, 0.07, 1.0)
-    draw_quad(ex2 - 2.0, ey2 - 2.0, 4.0, 4.0, 0.07, 0.10, 0.07, 1.0)
+    local s = PIG_R * 4.0
+    sprite_draw_rotated_tinted(pig_tex, 0.0, 0.0, 256.0, 256.0,
+                               x - s * 0.5, y - s * 0.5, s, s,
+                               rot, s * 0.5, s * 0.5, 1.0, 1.0, 1.0, 1.0)
 end
 
 local function draw_bird()
@@ -394,17 +365,10 @@ local function draw_bird()
     local x = phys_smooth_x(id)
     local y = phys_smooth_y(id)
     local rot = phys_smooth_rot(id)
-    local c = math.cos(rot)
-    local s = math.sin(rot)
-    sprite_draw_tinted(ball_tex, x - BIRD_R, y - BIRD_R,
-                       BIRD_R * 2.0, BIRD_R * 2.0, 0.94, 0.31, 0.24, 1.0)
-    local ex = x + (-4.0) * c - (-5.0) * s
-    local ey = y + (-4.0) * s + (-5.0) * c
-    draw_quad(ex - 3.0, ey - 3.0, 6.0, 6.0, 1.0, 1.0, 1.0, 1.0)
-    draw_quad(ex - 1.2, ey - 1.2, 2.6, 2.6, 0.05, 0.05, 0.05, 1.0)
-    local bx = x + 12.0 * c - 1.0 * s
-    local by = y + 12.0 * s + 1.0 * c
-    draw_quad(bx - 4.0, by - 2.5, 8.0, 5.0, 0.98, 0.72, 0.16, 1.0)
+    local s = BIRD_R * 4.4
+    sprite_draw_rotated_tinted(bird_tex, 0.0, 0.0, 256.0, 256.0,
+                               x - s * 0.5, y - s * 0.5, s, s,
+                               rot, s * 0.5, s * 0.5, 1.0, 1.0, 1.0, 1.0)
 end
 
 local function draw_trajectory()

@@ -576,3 +576,16 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 - Exact time-of-impact continuous collision, 3D, and exotic joints (prismatic / pulley / gear) — the built-in world uses substepped anti-tunneling and the four common 2D joints; clean external Box2D bindings can still be added later
 - Complex GUI editor (lightweight data-driven scripts and tools first)
 - Matching full PUC-Rio Lua standard library (FakeLua subset optimized for game hosts)
+---
+
+## Phase 43 — Shipped art for every game demo (1.37.x)
+
+- [x] **Art is source data, not first-run output**: `.gitignore` no longer throws away `assets/art`, `assets/arcade`, `assets/city`, `assets/contra`, `assets/limbo`, `assets/rts`, `assets/snooker` and the three relit tile sheets at the `assets/` root. Until now the AI key art existed only in the author's working tree, so every CI run and fresh clone silently fell back to the primitive painters.
+- [x] **`tools/art_key.py`**: the bake pipeline the committed art is generated with, so a raw generation can be re-baked reproducibly. Magenta chroma key with un-premultiply plus a magenta-dominance term (strips the pink bloom the model paints around lit sprites without eating white, gold or cyan art); `sprite`, `grid`, `spin`, `texture` and `relight` commands.
+- [x] **Breakout (`scripts/game.lua`)**: neon-arcade brick, paddle and ball, a four-frame spinning coin derived by squashing one illustrated disc, and the arcade-hall backdrop. The score bar and life icons are drawn from the same set; the flat quads remain as the missing-art fallback.
+- [x] **Limbo**: illustrated silhouette head, torso and limbs replace the tinted plank-and-ball ragdoll, a real rope strand replaces the chain of dotted knots, and the pool is painted art that bobs instead of stacked sine quads.
+- [x] **Mario**: the sky quad is replaced by the illustrated valley backdrop, and the 16px tile sheet is relit from an AI dirt/brick material.
+- [x] **Platformer / slope lab**: tile sheets relit from AI grass and cut-stone materials.
+- [x] **City / RTS**: terrain, building and unit sheets relit from AI park-grass, stone and military-steel materials.
+- [x] **Relighting, not redrawing**: a sheet's cell layout is fixed by the Tiled maps and the `anim_frame` rects, so `relight` stretches an AI material over the sheet, desaturates it to carry detail only, and multiplies it under the painted tile colours. Tiles keep the identity the maps expect and gain real surface grain; the geometry never moves.
+- [x] Verification: 127 asset assertions across the 7 sprite suites, all 11 game demos headless at 260 frames with screenshots.
