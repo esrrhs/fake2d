@@ -163,6 +163,80 @@ actor keep submission order, while actors at different depths sort correctly.
 See `scripts/beat_em_up_demo.lua` for a full implementation (state machine,
 attack windows, hit/hurt boxes, hit-stop, waves and a boss).
 
+**Vertical shooter pattern**: leave the camera at `(0, 0)` — the camera position
+is the top-left of the view, so world coordinates then equal screen coordinates
+for a fixed shooter. Pool every entity in `EntityStore` by tag (player bullets,
+enemy bullets, enemies, pickups, effects) and advance them with `ent_at` loops;
+cull with a `while` loop that only increments the index when the entity survives.
+See `scripts/shmup_demo.lua` for scrolling backgrounds, weapons, bombs, waves and
+a multi-pattern boss.
+
+**Billiards / snooker pattern**: keep every ball in `EntityStore` with x, y,
+vx, vy, colour, pocketed flag and side/top spin, then advance the whole set in
+fixed substeps (5 per frame here) rather than per frame. For ball-ball
+contacts, rewind the overlapping pair to the exact contact instant by solving
+the quadratic `|Δp + Δv·t|² = (2r)²` — the normal at that instant (not the
+overlapped one) decides where the object ball travels, which is what makes
+pots repeatable. Cushions reflect the normal velocity component, pockets test a
+radius, and rolling friction is a constant deceleration; a shot is resolved only
+once every ball is at rest. See `scripts/snooker_demo.lua` for the solver, the
+ghost-ball aim line and a full snooker frame.
+
+**Run-and-gun pattern**: build the stage from persistent platform rows (solid
+ground segments and one-way beams) and resolve actors with two swept helpers:
+`move_x_for` pushes out of solid columns, `move_y_for` lands on tops and stops
+head bumps. Keep player state in file-level scalars (position, velocity,
+coyote/jump buffers, crouch height, aim vector) and enemies/bullets in
+`EntityStore` tags; update bullets with `while` loops so destroying one does not
+skip the next. A quantized aim vector gives the 8-way feel for the player while
+the attract AI may use a free vector so it can hit turrets above the ground line.
+See `scripts/contra_demo.lua` for the full jungle stage, weapon capsules and the
+fortress boss.
+
+**City-simulation pattern**: keep the mutable world in a Tiled tilemap —
+roads, zone plots, parks and power pads are gids changed with `map_set_tile` —
+and keep only the buildings in `EntityStore` (col, row, type, level, pop, jobs,
+powered, connected, growth counters). Once per month, flood-fill the road
+network from the map entrance into a per-frame table (numeric `t[r * cols + c]`
+writes only), bake power coverage into another table, then run three small
+passes: buildings (growth/abandonment + totals), budget/demand, and empty-plot
+development. A frame-driven clock (`month_frames += speed` every frame) keeps
+headless runs deterministic even though `dt` is wall-clock. HUD panels are
+screen-space: read `camera_screen_to_world_x/y(0, 0)` as the view origin and
+draw at `origin + px / zoom` with `px / zoom` sizes and text scales, because the
+renderer and UI both transform through the camera. See
+`scripts/city_demo.lua` for the full budget, RCI, power and attract-mayor loop.
+
+**RTS pattern**: keep units, structures and projectiles in `EntityStore` by
+tag; store the selected flag, target id, destination and cooldown in numeric
+slots. Rebuild a 2x2 building-occupancy table once per frame and steer units
+with a center-cell test plus x/y slide and tangent fallback — testing a sprite
+radius against tile corners traps units on the edge of a single tree. Seed a
+selection with a drag box, issue right-click orders by target priority
+(enemy unit → enemy building → ore → own refinery → terrain), and implement
+attack-move as "always advance toward the destination, fire at what is in
+range, and switch to a focused attack at the destination building" so waves do
+not stall chasing individual defenders. All ids read back from entity slots are
+floats: pass them through `to_int` before `ent_active`, `ent_tag`, `ent_num`,
+`ent_destroy` or any id-taking helper. See `scripts/rts_demo.lua` for the
+harvester economy, power-gated production, enemy commander and victory loop.
+
+**Visual-novel pattern**: keep scene data in file-level functions that return a
+small table (`{bg, girl, who, expr, lines, opts, gains}`) — one branch per
+scene — and let the dialogue runner own only scalars (line index, typewriter
+counter, choice flag). Typewriter output needs UTF-8-aware slicing: count code
+points with `string.byte` (4/3/2/1-byte lead bytes) and use `string.sub` on the
+byte boundary, never on raw character counts. Load a CJK font from the usual
+platform candidates with `font_load(path, 30)` before drawing Chinese dialogue.
+The title, calendar and dialogue box are plain screen-space quads (camera at
+`0, 0`), with `sprite_draw_region` cropping the portrait head for the small
+character cards. Quick save/load uses `storage_reset`, `storage_set_num` per
+stat and `storage_save("vn_quick")`. The shipped VN art is AI-illustrated and
+tracked under `assets/vn/`; `EnsureVnAssets` still contains the procedural
+painters as a fallback if those files are absent. See
+`scripts/vn_demo.lua` for the full four-heroine schedule, chat/date/festival
+branches, affection and ending.
+
 ### Debug lines
 
 Thin 1px outlines, accumulated in a separate line stream and drawn after
@@ -1521,6 +1595,26 @@ their own heading. **All verified against `a55a4bf` on 2026-10-04 — do not
   style, not a workaround.
 - **The `+ 0` idiom is not needed for bools** — `local done = false` and
   then `done = true` works.
+- **Very large functions can fail the interpreter fallback.** The interpreter
+  codegen has narrow instruction operands: a monolithic `update(dt)` with a
+  thousand statements can compile under GCC JIT and still throw
+  `interpreter: instruction operand out of range` during `CompileFile`, which
+  aborts the script. Split rendering, input and simulation into file-level
+  helper functions (the city demo keeps `update` down to ~20 statements) and
+  keep per-function local counts modest. Re-declaring the same local name twice
+  in one function body is another GCC codegen error (`redefinition of 'sbx'`) —
+  use distinct names or separate helper functions.
+- **Ids read from numeric slots are floats.** `ent_set_num(id, SLOT, target)`
+  round-trips a 64-bit handle as a double; passing that value straight back to
+  `ent_active(target)` throws `FakeluaToNativeLonglong failed, type is Float`.
+  Convert with `local e = to_int(target)` before every id-taking native call,
+  and make small helpers (`entity_x`, `entity_y`) do it internally.
+- **Do not fill a file-level `{}` table from `update` for resource handles.**
+  A `local textures = {}` populated inside the setup function with
+  `textures[i] = sprite_load(...)` can read back `nil` in later frames, which
+  surfaces as `FakeluaToNativeLonglong failed, type is Nil` on `sprite_draw`.
+  Persistent handles belong in file-level scalars (the VN demo keeps 8
+  background and 16 portrait handles and looks them up with if-chains).
 
 ### Reverted (were bug workarounds, no longer needed)
 

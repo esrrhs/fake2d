@@ -1,0 +1,16 @@
+Shmup demo sprite art — CC0 1.0 Universal (public domain).
+
+Pixel art by Luis Zuno (@ansimuz), released under CC0.
+Source: https://opengameart.org/content/space-ship-shooter-pixel-art-assets
+License: https://creativecommons.org/publicdomain/zero/1.0/
+
+Included files:
+  ship.png            player ship, 5 columns x 2 rows of 16x24 frames
+  enemy-small.png     2 frames of 16x16
+  enemy-medium.png    4 frames of 16x16
+  enemy-big.png       2 frames of 32x32
+  explosion.png       5 frames of 16x16
+  laser-bolts.png     2x2 cells of 16x16 (bolts / lasers)
+  power-up.png        2x2 cells of 16x16 (power-up icons)
+  bg/desert.png       256x608 vertically looping desert background
+  bg/clouds.png       256x103 transparent cloud layer

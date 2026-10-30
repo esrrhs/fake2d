@@ -7,7 +7,7 @@
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-brightgreen.svg)](https://en.cppreference.com/w/cpp/23)
 [![OpenGL](https://img.shields.io/badge/OpenGL-3.3%20Core%20%7C%202.1-orange.svg)](https://www.opengl.org/)
 [![FakeLua](https://img.shields.io/badge/Script-FakeLua-red.svg)](https://github.com/esrrhs/fakelua)
-[![Version](https://img.shields.io/badge/version-1.30.1-informational.svg)](include/fake2d/version.h)
+[![Version](https://img.shields.io/badge/version-1.36.0-informational.svg)](include/fake2d/version.h)
 
 **Fake2D** 是基于 [FakeLua](https://github.com/esrrhs/fakelua) 驱动的现代化、轻量级、高性能 2D 游戏引擎：
 - **C++23 宿主引擎**：掌管窗口管理、GPU 渲染管线、空间物理、音频混音与底层资源生命周期；
@@ -49,7 +49,7 @@ Fake2D 不仅是渲染器，更是一套自洽完备的 2D 游戏开发平台：
 ### 5. 现代化工程化与极佳开发者体验
 - **JIT 脚本热重载**：支持 GCC JIT 与解释器双模式，在运行中修改 Lua 脚本保存即刻生效，无需重启进程；
 - **无头测试与 CI/CD**：内置原生 `--headless`、`--frames N` 与 `--screenshot` 参数，可在无物理显示器的虚拟机、Docker 容器中运行自动化回归验证与帧缓冲像素级比对；
-- **18 项内置自测试套件**：800+ 断言，涵盖刚体动力学、关节、休眠、防穿透、物理查询、碰撞过滤、时间步长、地图对象、A\* 寻路、离屏 FBO、即时 UI、后处理链、战争迷雾、音频混音、动画瓦片、UTF-8/CJK 文本与字体回退、平台能力层、确定性随机、缓动、实体快照、输入动作、窗口控制、游戏时间缩放/命中停顿、16 槽实体角色与 128 剪辑动画池等，所有测试用例均经过变异测试（Mutation-tested）验证；
+- **24 项内置自测试套件**：914 断言，涵盖刚体动力学、关节、休眠、防穿透、物理查询、碰撞过滤、时间步长、地图对象、A\* 寻路、离屏 FBO、即时 UI、后处理链、战争迷雾、音频混音、动画瓦片、UTF-8/CJK 文本与字体回退、平台能力层、确定性随机、缓动、实体快照、输入动作、窗口控制、游戏时间缩放/命中停顿、16 槽实体角色、128 剪辑动画池、飞机大战素材管线、城市建造地形/建筑图集/基础地图、RTS 地形/单位/建筑/地图管线与视觉小说背景/立绘素材等，所有测试用例均经过变异测试（Mutation-tested）验证；
 - **开箱即用独立打包**：提供自动化打包脚本，一键生成包含依赖库的独立二进制压缩包，分发给玩家免安装环境。
 
 ---
@@ -87,7 +87,7 @@ Fake2D 不仅是渲染器，更是一套自洽完备的 2D 游戏开发平台：
 
 ## 🎮 精彩内置 Demo 矩阵
 
-Fake2D 仓库自带 17 个可直接运行的高质量 Demo，涵盖平台跳跃、经典街机、清版动作、迷宫寻路、即时 UI、战争迷雾、多趟后处理与空间音频等各个维度：
+Fake2D 仓库自带 23 个可直接运行的高质量 Demo，涵盖平台跳跃、经典街机、清版动作、纵版弹幕射击、斯诺克台球物理、魂斗罗式横版射击、城市模拟经营、红警式即时战略、心跳回忆式视觉小说、迷宫寻路、即时 UI、战争迷雾、多趟后处理与空间音频等各个维度：
 
 | Demo 启动参数 | 演示主题 | 核心特性亮点 |
 |---|---|---|
@@ -97,6 +97,12 @@ Fake2D 仓库自带 17 个可直接运行的高质量 Demo，涵盖平台跳跃�
 | `--limbo-demo` | **LIMBO 多关节沙盒** | 6 段铰链布娃娃、9 节绳索与铰链吊桥、浮力水体、死亡断肢后仍互相牵引 |
 | `--platformer-demo` | **平台跳跃与手柄控制器** | 瓦片跳跃控制：土狼时间（Coyote Time）、跳跃预输入缓冲、单向板平台穿越、金币收集、平滑跟随相机 |
 | `--beat-em-up-demo` | **2.5D 清版动作（Dino Brawl）** | CC0 像素角色（Chasersgaming 的 Renegade/Soldier）与 CC0 夜景城市视差背景（FisherG），最近邻采样与调色板换色；地面平面 x/纵深/高度移动与 y 排序角色；三段连击、踢击、旋转、命中停顿、无敌帧、击倒/起身、锁镜头刷怪波次、敌人 AI 与 Boss，无头模式自带吸引式 AI |
+| `--shmup-demo` | **纵版射击（雷电风格）** | ansimuz CC0 像素素材：纵版滚动沙漠+云层、八方向移动与自动射击、三种可升级武器（Vulcan / Laser / Missiles）、清屏炸弹、敌机波次（瞄准弹/散射弹）、带血条的多阶段 Boss、命数/分数/关卡循环，无头模式自带吸引式 AI |
+| `--snooker-demo` | **斯诺克台球（完整物理）** | Lua 自研台球求解器：固定子步 + 接触时刻回退修正、等质量弹性碰撞与重叠分离、库边法向反弹与侧旋变线、六个袋口、台呢滚动摩擦、跟进/回旋。球杆瞄准线、幽灵球与旋转垫；完整规则（红球 → 指定彩球 → 黄到黑）、犯规罚分、彩球复位、双人计分，以及自动找袋的幽灵球 AI |
+| `--contra-demo` | **魂斗罗式横版射击** | 多层棕榈/山体视差丛林关；跑动、可变高度跳跃、蹲伏与八方向射击；武器胶囊（步枪/机枪/散弹/激光）、推进士兵、壁挂炮塔、飞行补给舱、深坑、可摧毁炮塔与反应堆核心的堡垒 Boss；命数、重生、关卡循环、合成进行曲主题，以及无头模式跑通关卡的吸引式 AI |
+| `--city-demo` | **城市模拟经营（模拟城市风格）** | 生成的 56x42 地块：自己修路、划区（住宅/商业/工业）、建公园与发电厂。月度模拟驱动道路连通性、电力覆盖、RCI 需求、建筑三级成长、废弃重建、污染与税收/维护预算。像素级准确的屏幕空间 HUD、可点击小地图、拖拽铺设、地块信息浮窗、合成城市主题，以及无头模式自动建城的“市长”AI |
+| `--rts-demo` | **即时战略（红警风格）** | 64x48 战场与镜像双基地：矿车自动采矿并往返精炼厂，建造电厂/兵营/战车工厂/精炼厂/炮塔，训练步兵、火箭兵、坦克与矿车；框选单位、右键移动/攻击/采矿。制导步枪/火箭/炮弹、按阵营着色的生成素材、电力限制生产、小地图、任务 HUD、敌方指挥官多波进攻，以及无头模式自动打完一局的吸引式指挥官 |
+| `--vn-demo` | **视觉小说 / 恋爱模拟（心跳回忆风格）** | 四位女主与 AI 绘制的表情立绘、八张绘制背景与中文分支剧情。14 天日程包含学习/锻炼/打扮/打工/休息、体力与金钱；每位女孩三种话题（好感 20 解锁心事）、礼物、好感 30 解锁约会、夏日祭典与告白结局。打字机对话、点击选项、好感浮字、快速存读档，以及无头模式自动读完整段剧情的吸引式玩家 |
 | `--slope-demo` | **斜坡地形控制器** | Tiled 斜坡解析（`map_slope_dir`/`map_ground_y`），角色沿倾斜地面平滑贴合走动与实时地表高度计算 |
 | `--path-demo` | **迷宫追逐与 A\* 寻路** | 迷宫地图，错峰重寻路的追踪 AI，玩家自动航路演示模式，实时 A\* 路径折线显示（防切角与视线拉直） |
 | `--tile-demo` | **Tiled 动画瓦片** | 引擎统一时钟推进 tileset 动画；池塘水面波光涟漪与跳动火把循环播放，碰撞网格与显示画面解耦 |
@@ -184,6 +190,24 @@ cmake --build build --parallel
 
 # 2.5D 清版动作（WASD 移动，SPACE/J 出拳，K 踢击，L 旋转）
 ./build/bin/fake2d_hello --beat-em-up-demo
+
+# 纵版射击（WASD 飞行，SPACE/J 射击，K 炸弹）
+./build/bin/fake2d_hello --shmup-demo
+
+# 斯诺克台球（鼠标瞄准，按住左键蓄力，方向键/旋转垫加塞，R 重开一局）
+./build/bin/fake2d_hello --snooker-demo
+
+# 魂斗罗式横版射击（A/D 移动，W 抬枪，S 蹲伏，Space 跳跃，J/X 射击）
+./build/bin/fake2d_hello --contra-demo
+
+# 城市模拟经营（1-7 选择工具，拖拽修路/划区，WASD 平移，滚轮缩放，空格暂停）
+./build/bin/fake2d_hello --city-demo
+
+# 即时战略（左键点选/框选，右键移动/攻击，1-5 建造，6-9 训练，WASD 平移）
+./build/bin/fake2d_hello --rts-demo
+
+# 视觉小说 / 恋爱模拟（点击或空格推进，1-4 选择选项，F5/F9 存读档）
+./build/bin/fake2d_hello --vn-demo
 ```
 
 ### 生产力与调试选项
@@ -220,7 +244,7 @@ xvfb-run ./build/bin/fake2d_hello --headless --mario-demo --shot-frame 60 --scre
 # 拒绝“保存成功但画面空白”的截图（退出码 2）：颜色数量下限探测
 xvfb-run ./build/bin/fake2d_hello --headless --text-demo --screenshot text.png --shot-min-colors 12
 
-# 运行 18 组内置无头自测试套件（通过退出码断言执行结果）
+# 运行 24 组内置无头自测试套件（通过退出码断言执行结果）
 xvfb-run ./build/bin/fake2d_hello --phys-query-test    # 射线检测、形状重叠、接触生命周期
 xvfb-run ./build/bin/fake2d_hello --phys-filter-test   # 16位 Category/Mask 碰撞过滤
 xvfb-run ./build/bin/fake2d_hello --phys-rigid-test    # 转动惯量、摩擦与堆叠稳定性
@@ -239,6 +263,12 @@ xvfb-run ./build/bin/fake2d_hello --font-test          # UTF-8/CJK 字形图集�
 xvfb-run ./build/bin/fake2d_hello --platform-test      # 语言包、用户目录、存档 v2、Steam stub、UI 文本
 xvfb-run ./build/bin/fake2d_hello --gameplay-test      # 随机数、缓动、实体快照、输入动作、窗口
 xvfb-run ./build/bin/fake2d_hello --combat-test        # 时间缩放、命中停顿、16 槽角色、动画池
+xvfb-run ./build/bin/fake2d_hello --shmup-test         # 射击素材图集、最近邻采样、缺失文件
+xvfb-run ./build/bin/fake2d_hello --snooker-test       # 球体阴影贴图、透明度/光照采样、加载器拒绝
+xvfb-run ./build/bin/fake2d_hello --contra-test         # 士兵图集、爆炸序列、月亮/辉光采样、加载器拒绝
+xvfb-run ./build/bin/fake2d_hello --city-test           # 城市地形/建筑图集、基础地图道路与湖泊、加载器拒绝
+xvfb-run ./build/bin/fake2d_hello --rts-test            # RTS 地形/单位/建筑素材、战场混凝土/矿脉/水体
+xvfb-run ./build/bin/fake2d_hello --vn-test             # VN 背景/立绘、透明度采样、加载器拒绝
 ```
 
 ---
@@ -352,6 +382,11 @@ fake2d/
 │   ├── audio_demo.lua       # 混音器调音台
 │   ├── spatial_demo.lua     # 3D 空间音频
 │   ├── text_demo.lua        # UTF-8/CJK、本地化、路径、存档 v2 与 Steam
+│   ├── snooker_demo.lua     # 子步台球物理与完整斯诺克规则
+│   ├── contra_demo.lua      # 魂斗罗式横版射击与丛林关卡
+│   ├── city_demo.lua        # 模拟城市式划区、经济与成长模拟
+│   ├── rts_demo.lua         # 红警式基地、矿车、单位与战斗
+│   ├── vn_demo.lua          # 心跳回忆式视觉小说与恋爱模拟
 │   └── ui_demo*.lua         # 即时模式 UI 集合
 ├── tools/                   # Linux / macOS / Windows 自包含打包脚本
 ├── docs/                    # 详尽文档手册

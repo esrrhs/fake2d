@@ -229,12 +229,77 @@ jobs:
           # Time scale/hit-stop, 16-slot actors and the 128-clip pool.
           run_xvfb ./build/bin/fake2d_hello --combat-test > combat.log 2>&1
           rc_combat=$?
+          # Shooter sprite sheets and nearest-filter loading.
+          run_xvfb ./build/bin/fake2d_hello --shmup-test > shmup.log 2>&1
+          rc_shmup=$?
+          # Snooker ball sprite: shading/alpha probes and loader rejection.
+          run_xvfb ./build/bin/fake2d_hello --snooker-test > snooker.log 2>&1
+          rc_snooker=$?
+          # Run-and-gun art: soldier strips, blast sheet, moon/glow probes.
+          run_xvfb ./build/bin/fake2d_hello --contra-test > contra.log 2>&1
+          rc_contra=$?
+          # City builder scaffolding: tileset/building atlas and base map.
+          run_xvfb ./build/bin/fake2d_hello --city-test > city.log 2>&1
+          rc_city=$?
+          # RTS scaffolding: terrain/unit/building sprites and battle map.
+          run_xvfb ./build/bin/fake2d_hello --rts-test > rts.log 2>&1
+          rc_rts=$?
+          # Visual-novel art: backgrounds, portraits, alpha probes.
+          run_xvfb ./build/bin/fake2d_hello --vn-test > vn.log 2>&1
+          rc_vn=$?
           # Brawler demo: waves, hit detection and a full headless stage run.
           run_xvfb ./build/bin/fake2d_hello --headless --frames 240 \
             --beat-em-up-demo --screenshot beat.png --shot-min-colors 12 \
             > beat.log 2>&1
           rc_beat=$?
           test -s beat.png
+          # Vertical shooter: scrolling stage, waves and bullet patterns.
+          run_xvfb ./build/bin/fake2d_hello --headless --frames 240 \
+            --shmup-demo --screenshot shmup.png --shot-min-colors 12 \
+            > shmup_demo.log 2>&1
+          rc_shmup_demo=$?
+          test -s shmup.png
+          # Snooker: a full rack, cue strike, cushions, pockets and the AI.
+          run_xvfb ./build/bin/fake2d_hello --headless --frames 900 \
+            --snooker-demo --screenshot snooker.png --shot-frame 500 \
+            --shot-min-colors 12 > snooker_demo.log 2>&1
+          rc_snooker_demo=$?
+          test -s snooker.png
+          # Run-and-gun: the attract AI crosses the jungle, clears the boss and
+          # loops the stage; the log proves the whole stage flow ran.
+          run_xvfb ./build/bin/fake2d_hello --headless --frames 2500 \
+            --contra-demo --screenshot contra.png --shot-frame 1800 \
+            --shot-min-colors 12 > contra_demo.log 2>&1
+          rc_contra_demo=$?
+          test -s contra.png
+          grep -F "contra: fortress core destroyed" contra_demo.log
+          grep -F "snooker: shot 1 resolved" snooker_demo.log
+          # City builder: the attract mayor paves, zones and powers a town; a
+          # population milestone proves the monthly simulation is developing it.
+          run_xvfb ./build/bin/fake2d_hello --headless --frames 1800 \
+            --city-demo --screenshot city.png --shot-frame 1600 \
+            --shot-min-colors 12 > city_demo.log 2>&1
+          rc_city_demo=$?
+          test -s city.png
+          grep -F "city: population milestone 250" city_demo.log
+          # RTS: the attract commander and enemy AI fight a full match; the
+          # logs prove combat, losses and a decisive command-yard kill.
+          run_xvfb ./build/bin/fake2d_hello --headless --frames 2400 \
+            --rts-demo --screenshot rts.png --shot-frame 1950 \
+            --shot-min-colors 12 > rts_demo.log 2>&1
+          rc_rts_demo=$?
+          test -s rts.png
+          grep -F "rts: first blood" rts_demo.log
+          grep -F "rts: player victory" rts_demo.log
+          # Visual novel: the attract player advances the calendar, chats,
+          # reaches the festival and finishes a confession ending.
+          run_xvfb ./build/bin/fake2d_hello --headless --frames 2400 \
+            --vn-demo --screenshot vn.png --shot-frame 1200 \
+            --shot-min-colors 12 > vn_demo.log 2>&1
+          rc_vn_demo=$?
+          test -s vn.png
+          grep -F "vn: day 7" vn_demo.log
+          grep -F "vn: ending" vn_demo.log
           # Same surface through the Lua bindings; PASS is the [script] 0 line.
           # Capture BOTH streams: under xvfb-run the child's stderr is not
           # reliably caught by a bare `2>` redirection.
@@ -242,7 +307,7 @@ jobs:
             --entry scripts/phys_test.lua > phys_test.log 2>&1
           rc_lua=$?
           set -e
-          echo "exit codes: query=$rc_query filter=$rc_filter rigid=$rc_rigid extended=$rc_extended birds=$rc_birds limbo=$rc_limbo timestep=$rc_timestep path=$rc_path rt=$rc_rt ui=$rc_ui post=$rc_post fx=$rc_fx fog=$rc_fog audio=$rc_audio mapobj=$rc_mapobj tile=$rc_tile font=$rc_font platform=$rc_platform gameplay=$rc_gameplay combat=$rc_combat beat=$rc_beat lua=$rc_lua"
+          echo "exit codes: query=$rc_query filter=$rc_filter rigid=$rc_rigid extended=$rc_extended birds=$rc_birds limbo=$rc_limbo timestep=$rc_timestep path=$rc_path rt=$rc_rt ui=$rc_ui post=$rc_post fx=$rc_fx fog=$rc_fog audio=$rc_audio mapobj=$rc_mapobj tile=$rc_tile font=$rc_font platform=$rc_platform gameplay=$rc_gameplay combat=$rc_combat shmup=$rc_shmup snooker=$rc_snooker contra=$rc_contra city=$rc_city rts=$rc_rts vn=$rc_vn beat=$rc_beat shmupdemo=$rc_shmup_demo snookerdemo=$rc_snooker_demo contrademo=$rc_contra_demo citydemo=$rc_city_demo rtsdemo=$rc_rts_demo vndemo=$rc_vn_demo lua=$rc_lua"
           [ "$rc_query" -eq 0 ]
           [ "$rc_filter" -eq 0 ]
           [ "$rc_rigid" -eq 0 ]
@@ -263,7 +328,19 @@ jobs:
           [ "$rc_platform" -eq 0 ]
           [ "$rc_gameplay" -eq 0 ]
           [ "$rc_combat" -eq 0 ]
+          [ "$rc_shmup" -eq 0 ]
+          [ "$rc_snooker" -eq 0 ]
+          [ "$rc_contra" -eq 0 ]
+          [ "$rc_city" -eq 0 ]
+          [ "$rc_rts" -eq 0 ]
+          [ "$rc_vn" -eq 0 ]
           [ "$rc_beat" -eq 0 ]
+          [ "$rc_shmup_demo" -eq 0 ]
+          [ "$rc_snooker_demo" -eq 0 ]
+          [ "$rc_contra_demo" -eq 0 ]
+          [ "$rc_city_demo" -eq 0 ]
+          [ "$rc_rts_demo" -eq 0 ]
+          [ "$rc_vn_demo" -eq 0 ]
           [ "$rc_lua" -eq 0 ]
           grep -F "[phys-filter] PASS" phys_filter.log
           grep -F "[phys-rigid] PASS" phys_rigid.log
@@ -282,6 +359,12 @@ jobs:
           grep -F "[platform] PASS" platform.log
           grep -F "[gameplay] PASS" gameplay.log
           grep -F "[combat] PASS" combat.log
+          grep -F "[shmup] PASS" shmup.log
+          grep -F "[snooker] PASS" snooker.log
+          grep -F "[contra] PASS" contra.log
+          grep -F "[city] PASS" city.log
+          grep -F "[rts] PASS" rts.log
+          grep -F "[vn] PASS" vn.log
           ! grep -F "beat-em-up: game over" beat.log
           grep -F "[script] 0" phys_test.log
           ! grep -E "\[script] (10[0-9][0-9]|200[0-9])" phys_test.log
@@ -518,7 +601,19 @@ jobs:
           ./build/bin/fake2d_hello --platform-test
           ./build/bin/fake2d_hello --gameplay-test
           ./build/bin/fake2d_hello --combat-test
+          ./build/bin/fake2d_hello --shmup-test
+          ./build/bin/fake2d_hello --snooker-test
+          ./build/bin/fake2d_hello --contra-test
+          ./build/bin/fake2d_hello --city-test
+          ./build/bin/fake2d_hello --rts-test
+          ./build/bin/fake2d_hello --vn-test
           ./build/bin/fake2d_hello --headless --frames 180 --beat-em-up-demo
+          ./build/bin/fake2d_hello --headless --frames 180 --shmup-demo
+          ./build/bin/fake2d_hello --headless --frames 180 --snooker-demo
+          ./build/bin/fake2d_hello --headless --frames 180 --contra-demo
+          ./build/bin/fake2d_hello --headless --frames 600 --city-demo
+          ./build/bin/fake2d_hello --headless --frames 600 --rts-demo
+          ./build/bin/fake2d_hello --headless --frames 600 --vn-demo
           ./build/bin/fake2d_hello --headless --phys-bench
           ./build/bin/fake2d_hello --headless --frames 200 \
             --entry scripts/phys_test.lua > phys_test.log 2>&1
@@ -607,7 +702,19 @@ jobs:
           ./build/bin/fake2d_hello.exe --platform-test
           ./build/bin/fake2d_hello.exe --gameplay-test
           ./build/bin/fake2d_hello.exe --combat-test
+          ./build/bin/fake2d_hello.exe --shmup-test
+          ./build/bin/fake2d_hello.exe --snooker-test
+          ./build/bin/fake2d_hello.exe --contra-test
+          ./build/bin/fake2d_hello.exe --city-test
+          ./build/bin/fake2d_hello.exe --rts-test
+          ./build/bin/fake2d_hello.exe --vn-test
           ./build/bin/fake2d_hello.exe --headless --frames 180 --beat-em-up-demo
+          ./build/bin/fake2d_hello.exe --headless --frames 180 --shmup-demo
+          ./build/bin/fake2d_hello.exe --headless --frames 180 --snooker-demo
+          ./build/bin/fake2d_hello.exe --headless --frames 180 --contra-demo
+          ./build/bin/fake2d_hello.exe --headless --frames 600 --city-demo
+          ./build/bin/fake2d_hello.exe --headless --frames 600 --rts-demo
+          ./build/bin/fake2d_hello.exe --headless --frames 600 --vn-demo
           ./build/bin/fake2d_hello.exe --headless --frames 200 \
             --entry scripts/phys_test.lua > phys_test.log 2>&1
           grep -F "[script] 0" phys_test.log

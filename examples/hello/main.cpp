@@ -27,6 +27,7 @@
 
 // stb_image_write implementation lives in the fake2d library
 // (src/render/image_write.cpp); here we only need the declarations.
+#include <stb_image.h>
 #include <stb_image_write.h>
 
 namespace {
@@ -102,6 +103,118 @@ void PaintCircle(std::uint8_t *pixels, int w, int h) {
     }
 }
 
+/// 64x64 shaded sphere used (tinted) for every snooker ball: warm light from
+/// the upper left, Lambert falloff towards the rim and a tight specular dot.
+/// The tint comes from Lua, so one white sprite draws the whole set.
+void PaintSnookerBall(std::uint8_t *pixels, int w, int h) {
+    const float cx = static_cast<float>(w) * 0.5f - 0.5f;
+    const float cy = static_cast<float>(h) * 0.5f - 0.5f;
+    const float radius = static_cast<float>(w) * 0.5f - 0.5f;
+    const float lx = -0.48f;
+    const float ly = -0.56f;
+    const float lz = 0.68f;
+    const float hlen = std::sqrt(lx * lx + ly * ly + (lz + 1.0f) * (lz + 1.0f));
+    const float hx = lx / hlen;
+    const float hy = ly / hlen;
+    const float hz = (lz + 1.0f) / hlen;
+
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            std::uint8_t *px = pixels + (static_cast<size_t>(y) * w + x) * 4;
+            const float dx = static_cast<float>(x) - cx;
+            const float dy = static_cast<float>(y) - cy;
+            const float d = std::sqrt(dx * dx + dy * dy);
+            const float a = std::clamp(radius - d + 0.5f, 0.0f, 1.0f);
+            if (a <= 0.0f) {
+                px[0] = px[1] = px[2] = px[3] = 0;
+                continue;
+            }
+            const float nx = dx / radius;
+            const float ny = dy / radius;
+            const float nz2 = 1.0f - nx * nx - ny * ny;
+            const float nz = nz2 > 0.0f ? std::sqrt(nz2) : 0.0f;
+            const float lambert = std::max(0.0f, nx * lx + ny * ly + nz * lz);
+            const float spec = std::pow(std::max(0.0f, nx * hx + ny * hy + nz * hz), 22.0f);
+            const float shade = std::clamp(0.28f + 0.64f * lambert + 0.55f * spec, 0.0f, 1.0f);
+            const std::uint8_t v = static_cast<std::uint8_t>(shade * 255.0f);
+            px[0] = v;
+            px[1] = v;
+            px[2] = v;
+            px[3] = static_cast<std::uint8_t>(a * 255.0f);
+        }
+    }
+}
+
+/// 80x16 five-frame blast strip: a hot core grows and fades frame by frame.
+void PaintExplosionSheet(std::uint8_t *pixels) {
+    constexpr int kFrame = 16;
+    constexpr int kFrames = 5;
+    for (int f = 0; f < kFrames; ++f) {
+        const float r = 3.0f + static_cast<float>(f) * 1.45f;
+        const float fade = 1.0f - static_cast<float>(f) * 0.11f;
+        for (int y = 0; y < kFrame; ++y) {
+            for (int x = 0; x < kFrame; ++x) {
+                const float dx = static_cast<float>(x) - 7.5f;
+                const float dy = static_cast<float>(y) - 7.5f;
+                const float d = std::sqrt(dx * dx + dy * dy);
+                float a = std::clamp((r - d + 0.6f) * 0.8f, 0.0f, 1.0f) * fade;
+                std::uint8_t *px = pixels +
+                    (static_cast<size_t>(y) * (kFrame * kFrames) +
+                     f * kFrame + x) * 4;
+                if (a <= 0.0f) {
+                    px[0] = px[1] = px[2] = px[3] = 0;
+                    continue;
+                }
+                if (d < r * 0.45f) {
+                    px[0] = 255;
+                    px[1] = 242;
+                    px[2] = 190;
+                } else {
+                    px[0] = 255;
+                    px[1] = 140;
+                    px[2] = 46;
+                }
+                px[3] = static_cast<std::uint8_t>(a * 255.0f);
+            }
+        }
+    }
+}
+
+/// Soft radial sprite: a moon disc (opaque core) or an additive glow (alpha
+/// falls off to the rim). Tinted from Lua for muzzle flashes and pickups.
+void PaintSoftDisc(std::uint8_t *pixels, int w, int h, bool moon) {
+    const float cx = static_cast<float>(w) * 0.5f - 0.5f;
+    const float cy = static_cast<float>(h) * 0.5f - 0.5f;
+    const float radius = static_cast<float>(w) * 0.5f - 0.5f;
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            std::uint8_t *px = pixels + (static_cast<size_t>(y) * w + x) * 4;
+            const float dx = static_cast<float>(x) - cx;
+            const float dy = static_cast<float>(y) - cy;
+            const float d = std::sqrt(dx * dx + dy * dy);
+            const float t = std::clamp(1.0f - d / radius, 0.0f, 1.0f);
+            float a = 0.0f;
+            if (moon) {
+                a = std::clamp((radius - d + 0.8f) * 0.9f, 0.0f, 1.0f);
+            } else {
+                a = t * t * t * 0.85f;
+            }
+            // A few darker craters on the moon face.
+            float shade = 1.0f;
+            if (moon) {
+                const float c1 = (dx + 7.0f) * (dx + 7.0f) + (dy - 5.0f) * (dy - 5.0f);
+                const float c2 = (dx - 9.0f) * (dx - 9.0f) + (dy + 8.0f) * (dy + 8.0f);
+                const float c3 = (dx + 2.0f) * (dx + 2.0f) + (dy + 14.0f) * (dy + 14.0f);
+                if (c1 < 34.0f || c2 < 44.0f || c3 < 22.0f) shade = 0.80f;
+            }
+            px[0] = static_cast<std::uint8_t>(std::clamp(0.88f * shade, 0.0f, 1.0f) * 255.0f);
+            px[1] = static_cast<std::uint8_t>(std::clamp(0.92f * shade, 0.0f, 1.0f) * 255.0f);
+            px[2] = static_cast<std::uint8_t>(std::clamp(1.00f * shade, 0.0f, 1.0f) * 255.0f);
+            px[3] = static_cast<std::uint8_t>(a * 255.0f);
+        }
+    }
+}
+
 /// Write the sample's PNG assets unless they already exist next to the binary.
 void EnsureGameAssets() {
     const std::filesystem::path dir = "assets";
@@ -147,6 +260,1672 @@ void EnsureBeatEmUpAssets() {
     }
     const std::uint8_t white[4] = {255, 255, 255, 255};
     stbi_write_png(path.string().c_str(), 1, 1, 4, white, 4);
+}
+
+/// Snooker needs one shaded ball sprite (tinted per colour from Lua) and the
+/// same one-texel white used by the other demos for sticks and aim guides.
+void EnsureSnookerAssets() {
+    const std::filesystem::path dir = "assets";
+    std::error_code ec;
+    std::filesystem::create_directory(dir, ec);
+
+    const std::filesystem::path white_path = dir / "white.png";
+    if (!std::filesystem::exists(white_path)) {
+        const std::uint8_t white[4] = {255, 255, 255, 255};
+        stbi_write_png(white_path.string().c_str(), 1, 1, 4, white, 4);
+    }
+
+    const std::filesystem::path dir_ball = dir / "snooker";
+    std::filesystem::create_directories(dir_ball, ec);
+    const std::filesystem::path ball_path = dir_ball / "ball.png";
+    if (std::filesystem::exists(ball_path)) {
+        return;
+    }
+    std::vector<std::uint8_t> pixels(64 * 64 * 4);
+    PaintSnookerBall(pixels.data(), 64, 64);
+    if (!stbi_write_png(ball_path.string().c_str(), 64, 64, 4, pixels.data(), 64 * 4)) {
+        std::fprintf(stderr, "fake2d_hello: failed to write %s\n",
+                     ball_path.string().c_str());
+    }
+}
+
+/// Run-and-gun demo: a moon disc for the jungle sky, an additive glow for
+/// muzzle flashes / pickups, and the shared white texel for rotated quads.
+void EnsureContraAssets() {
+    const std::filesystem::path dir = "assets";
+    std::error_code ec;
+    std::filesystem::create_directory(dir, ec);
+
+    const std::filesystem::path white_path = dir / "white.png";
+    if (!std::filesystem::exists(white_path)) {
+        const std::uint8_t white[4] = {255, 255, 255, 255};
+        stbi_write_png(white_path.string().c_str(), 1, 1, 4, white, 4);
+    }
+
+    const std::filesystem::path cdir = dir / "contra";
+    std::filesystem::create_directories(cdir, ec);
+    const auto write = [&cdir](const char *name, bool moon) {
+        const std::filesystem::path path = cdir / name;
+        if (std::filesystem::exists(path)) {
+            return;
+        }
+        std::vector<std::uint8_t> pixels(64 * 64 * 4);
+        PaintSoftDisc(pixels.data(), 64, 64, moon);
+        if (!stbi_write_png(path.string().c_str(), 64, 64, 4, pixels.data(), 64 * 4)) {
+            std::fprintf(stderr, "fake2d_hello: failed to write %s\n",
+                         path.string().c_str());
+        }
+    };
+    write("moon.png", true);
+    write("glow.png", false);
+
+    const std::filesystem::path expl_path = cdir / "explosion.png";
+    if (!std::filesystem::exists(expl_path)) {
+        std::vector<std::uint8_t> pixels(80 * 16 * 4);
+        PaintExplosionSheet(pixels.data());
+        if (!stbi_write_png(expl_path.string().c_str(), 80, 16, 4,
+                            pixels.data(), 80 * 4)) {
+            std::fprintf(stderr, "fake2d_hello: failed to write %s\n",
+                         expl_path.string().c_str());
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// City-simulation assets (Phase 40): a terrain tileset, a building atlas and a
+// generated base map (grass, lake, forests and an entrance road grid). The Lua
+// city demo mutates the map in place with map_set_tile, so only the base
+// terrain ships here.
+// ---------------------------------------------------------------------------
+
+constexpr int kCityTile = 32;
+constexpr int kCitySheetCols = 6;
+constexpr int kCityMapCols = 56;
+constexpr int kCityMapRows = 42;
+constexpr int kCityBuildFrameW = 32;
+constexpr int kCityBuildFrameH = 64;
+constexpr int kCityBuildLevels = 4;
+constexpr int kCityBuildRows = 6;
+
+std::uint32_t CityHash(int x, int y, int salt) {
+    std::uint32_t h = static_cast<std::uint32_t>(x) * 374761393u +
+                      static_cast<std::uint32_t>(y) * 668265263u +
+                      static_cast<std::uint32_t>(salt) * 2246822519u;
+    h = (h ^ (h >> 13)) * 1274126177u;
+    h ^= h >> 16;
+    return h;
+}
+
+void PaintCityTileset(std::uint8_t *img) {
+    const int sheet_w = kCitySheetCols * kCityTile;
+    auto put = [&](int id, int x, int y, std::uint8_t r, std::uint8_t g,
+                   std::uint8_t b, std::uint8_t a = 255) {
+        if (x < 0 || y < 0 || x >= kCityTile || y >= kCityTile) {
+            return;
+        }
+        const int ox = (id % kCitySheetCols) * kCityTile;
+        const int oy = (id / kCitySheetCols) * kCityTile;
+        std::uint8_t *px = img + (static_cast<size_t>(oy + y) * sheet_w + ox + x) * 4;
+        px[0] = r;
+        px[1] = g;
+        px[2] = b;
+        px[3] = a;
+    };
+    auto fill = [&](int id, int r, int g, int b, int vary, int salt) {
+        for (int y = 0; y < kCityTile; ++y) {
+            for (int x = 0; x < kCityTile; ++x) {
+                const int n = static_cast<int>(CityHash(x, y, salt) % (vary * 2 + 1)) - vary;
+                put(id, x, y,
+                    static_cast<std::uint8_t>(std::clamp(r + n, 0, 255)),
+                    static_cast<std::uint8_t>(std::clamp(g + n, 0, 255)),
+                    static_cast<std::uint8_t>(std::clamp(b + n, 0, 255)));
+            }
+        }
+    };
+    auto box = [&](int id, int x0, int y0, int x1, int y1, std::uint8_t r,
+                   std::uint8_t g, std::uint8_t b, std::uint8_t a = 255) {
+        for (int y = y0; y <= y1; ++y) {
+            for (int x = x0; x <= x1; ++x) {
+                put(id, x, y, r, g, b, a);
+            }
+        }
+    };
+    auto tree = [&](int id, int cx, int cy, int radius) {
+        for (int y = -radius; y <= radius; ++y) {
+            for (int x = -radius; x <= radius; ++x) {
+                const int d2 = x * x + y * y;
+                if (d2 <= radius * radius) {
+                    const bool lit = d2 <= (radius - 2) * (radius - 2) && x + y < 0;
+                    put(id, cx + x, cy + y, lit ? 92 : 42, lit ? 148 : 92,
+                        lit ? 62 : 46);
+                }
+            }
+        }
+        box(id, cx - 1, cy + radius - 1, cx + 1, cy + radius + 2, 92, 66, 42);
+    };
+
+    // 0/1 grass and flowering grass.
+    fill(0, 88, 150, 74, 10, 7);
+    fill(1, 88, 150, 74, 10, 8);
+    for (int i = 0; i < 22; ++i) {
+        const int x = static_cast<int>(CityHash(i, 0, 21) % kCityTile);
+        const int y = static_cast<int>(CityHash(i, 1, 21) % kCityTile);
+        put(0, x, y, 66, 124, 56);
+        put(0, x + 1, y - 2, 104, 168, 82);
+    }
+    for (int i = 0; i < 12; ++i) {
+        const int x = static_cast<int>(CityHash(i, 2, 22) % kCityTile);
+        const int y = static_cast<int>(CityHash(i, 3, 22) % kCityTile);
+        const bool white = (i % 3) == 0;
+        put(1, x, y, white ? 244 : 246, white ? 240 : 214, white ? 214 : 92);
+        put(1, x + 1, y, white ? 232 : 232, white ? 232 : 196, white ? 210 : 84);
+    }
+
+    // 2 water with light wave crests.
+    fill(2, 46, 112, 178, 6, 3);
+    for (int y = 5; y < kCityTile; y += 9) {
+        for (int x = 2; x < kCityTile - 2; ++x) {
+            const int wobble = static_cast<int>(CityHash(x, y, 31) % 5) - 2;
+            if ((x + y) % 7 < 4) {
+                put(2, x, y + wobble, 92, 164, 214);
+                put(2, x, y + wobble + 1, 70, 140, 196);
+            }
+        }
+    }
+
+    // 3 sand with pebbles.
+    fill(3, 202, 184, 132, 8, 5);
+    for (int i = 0; i < 26; ++i) {
+        const int x = static_cast<int>(CityHash(i, 4, 33) % kCityTile);
+        const int y = static_cast<int>(CityHash(i, 5, 33) % kCityTile);
+        put(3, x, y, 172, 152, 104);
+    }
+
+    // 4 asphalt with curbs and gravel.
+    fill(4, 72, 76, 84, 5, 9);
+    box(4, 0, 0, kCityTile - 1, 1, 54, 58, 66);
+    box(4, 0, kCityTile - 2, kCityTile - 1, kCityTile - 1, 54, 58, 66);
+    box(4, 0, 0, 1, kCityTile - 1, 54, 58, 66);
+    box(4, kCityTile - 2, 0, kCityTile - 1, kCityTile - 1, 54, 58, 66);
+    for (int i = 0; i < 30; ++i) {
+        const int x = static_cast<int>(CityHash(i, 6, 34) % kCityTile);
+        const int y = static_cast<int>(CityHash(i, 7, 34) % kCityTile);
+        put(4, x, y, 98, 102, 110);
+    }
+
+    // 5/6/7 zoned plots: grass tinted by zone with a coloured survey border.
+    fill(5, 108, 166, 90, 9, 12);
+    box(5, 3, 3, kCityTile - 4, 3, 214, 198, 152);
+    box(5, 3, kCityTile - 4, kCityTile - 4, kCityTile - 4, 214, 198, 152);
+    box(5, 3, 3, 3, kCityTile - 4, 214, 198, 152);
+    box(5, kCityTile - 4, 3, kCityTile - 4, kCityTile - 4, 214, 198, 152);
+    fill(6, 76, 148, 150, 9, 13);
+    box(6, 3, 3, kCityTile - 4, 3, 136, 184, 232);
+    box(6, 3, kCityTile - 4, kCityTile - 4, kCityTile - 4, 136, 184, 232);
+    box(6, 3, 3, 3, kCityTile - 4, 136, 184, 232);
+    box(6, kCityTile - 4, 3, kCityTile - 4, kCityTile - 4, 136, 184, 232);
+    fill(7, 142, 150, 78, 9, 14);
+    box(7, 3, 3, kCityTile - 4, 3, 222, 178, 96);
+    box(7, 3, kCityTile - 4, kCityTile - 4, kCityTile - 4, 222, 178, 96);
+    box(7, 3, 3, 3, kCityTile - 4, 222, 178, 96);
+    box(7, kCityTile - 4, 3, kCityTile - 4, kCityTile - 4, 222, 178, 96);
+
+    // 8 park plot: mown grass with a white fence line.
+    fill(8, 74, 140, 70, 8, 15);
+    box(8, 0, 0, kCityTile - 1, 1, 226, 232, 214);
+    box(8, 0, kCityTile - 2, kCityTile - 1, kCityTile - 1, 226, 232, 214);
+    for (int i = 0; i < 14; ++i) {
+        const int x = static_cast<int>(CityHash(i, 8, 35) % kCityTile);
+        const int y = static_cast<int>(CityHash(i, 9, 35) % kCityTile);
+        put(8, x, y, 244, 232, 176);
+    }
+
+    // 9 rubble.
+    fill(9, 116, 96, 74, 9, 16);
+    for (int i = 0; i < 24; ++i) {
+        const int x = static_cast<int>(CityHash(i, 10, 36) % kCityTile);
+        const int y = static_cast<int>(CityHash(i, 11, 36) % kCityTile);
+        put(9, x, y, 78, 68, 58);
+        put(9, x + 1, y, 142, 124, 96);
+    }
+
+    // 10 forest.
+    fill(10, 76, 132, 64, 8, 17);
+    tree(10, 9, 17, 6);
+    tree(10, 22, 19, 5);
+    for (int i = 0; i < 10; ++i) {
+        const int x = static_cast<int>(CityHash(i, 12, 37) % kCityTile);
+        const int y = static_cast<int>(CityHash(i, 13, 37) % kCityTile);
+        put(10, x, y, 58, 112, 52);
+    }
+
+    // 11 power-plant pad: concrete grid with a hatching corner.
+    fill(11, 132, 132, 128, 5, 18);
+    for (int i = 0; i < kCityTile; i += 8) {
+        box(11, i, 0, i, kCityTile - 1, 116, 116, 112);
+        box(11, 0, i, kCityTile - 1, i, 116, 116, 112);
+    }
+    for (int i = 0; i < 7; ++i) {
+        put(11, i, 0, 226, 196, 72);
+        put(11, 0, i, 226, 196, 72);
+        put(11, kCityTile - 1 - i, kCityTile - 1, 226, 196, 72);
+    }
+}
+
+void PaintCityBuilding(std::uint8_t *img, int type, int level) {
+    const int sheet_w = kCityBuildLevels * kCityBuildFrameW;
+    const int ox = level * kCityBuildFrameW;
+    const int oy = type * kCityBuildFrameH;
+    auto put = [&](int x, int y, std::uint8_t r, std::uint8_t g, std::uint8_t b,
+                   std::uint8_t a = 255) {
+        if (x < 0 || y < 0 || x >= kCityBuildFrameW || y >= kCityBuildFrameH) {
+            return;
+        }
+        std::uint8_t *px = img + (static_cast<size_t>(oy + y) * sheet_w + ox + x) * 4;
+        px[0] = r;
+        px[1] = g;
+        px[2] = b;
+        px[3] = a;
+    };
+    auto rect = [&](int x0, int y0, int x1, int y1, std::uint8_t r,
+                    std::uint8_t g, std::uint8_t b, std::uint8_t a = 255) {
+        for (int y = y0; y <= y1; ++y) {
+            for (int x = x0; x <= x1; ++x) {
+                put(x, y, r, g, b, a);
+            }
+        }
+    };
+    auto circle = [&](int cx, int cy, int radius, std::uint8_t r,
+                      std::uint8_t g, std::uint8_t b) {
+        for (int y = -radius; y <= radius; ++y) {
+            for (int x = -radius; x <= radius; ++x) {
+                if (x * x + y * y <= radius * radius) {
+                    put(cx + x, cy + y, r, g, b);
+                }
+            }
+        }
+    };
+    auto windows = [&](int x0, int top, int cols, int rows, int step_x,
+                       int step_y, std::uint8_t lr, std::uint8_t lg,
+                       std::uint8_t lb) {
+        int k = 0;
+        for (int ry = 0; ry < rows; ++ry) {
+            for (int cx = 0; cx < cols; ++cx) {
+                const bool lit = (CityHash(k++, type, level) % 5) < 3;
+                const std::uint8_t r = lit ? lr : 52;
+                const std::uint8_t g = lit ? lg : 58;
+                const std::uint8_t b = lit ? lb : 72;
+                rect(x0 + cx * step_x, top + ry * step_y,
+                     x0 + cx * step_x + 3, top + ry * step_y + 3, r, g, b);
+            }
+        }
+    };
+
+    // Contact shadow under every footprint.
+    for (int y = 58; y < 64; ++y) {
+        for (int x = 3; x < 29; ++x) {
+            put(x, y, 24, 30, 26, 70);
+        }
+    }
+
+    if (type == 3) { // park
+        rect(2, 30, 29, 62, 82, 142, 70);
+        rect(2, 30, 29, 32, 108, 168, 88);
+        const int count = 1 + level;
+        for (int i = 0; i < count; ++i) {
+            const int cx = 7 + (i * 9) % 20;
+            const int cy = 40 + (i * 7) % 16;
+            rect(cx - 1, cy, cx + 1, cy + 6, 96, 70, 44);
+            circle(cx, cy - 3, 5, 46, 118, 54);
+            circle(cx - 1, cy - 4, 3, 74, 158, 76);
+        }
+        return;
+    }
+    if (type == 4) { // power plant
+        rect(4, 40, 28, 62, 118, 120, 118);
+        rect(4, 40, 28, 42, 156, 158, 154);
+        rect(13, 20, 18, 42, 148, 146, 140);
+        rect(22, 8, 27, 42, 148, 146, 140);
+        rect(22, 8, 27, 11, 196, 90, 64);
+        rect(13, 20, 18, 22, 196, 90, 64);
+        // Lightning badge.
+        rect(7, 46, 10, 49, 246, 208, 72);
+        rect(8, 49, 12, 52, 246, 208, 72);
+        rect(7, 52, 10, 55, 246, 208, 72);
+        return;
+    }
+
+    int h = 0;
+    std::uint8_t wr = 0, wg = 0, wb = 0;
+    std::uint8_t rr = 0, rg = 0, rb = 0;
+    int cols = 0;
+    int top = 0;
+    if (type == 0) {
+        h = 22 + level * 9;
+        wr = static_cast<std::uint8_t>(210 + level * 4);
+        wg = static_cast<std::uint8_t>(196 - level * 10);
+        wb = static_cast<std::uint8_t>(168 - level * 12);
+        rr = 150;
+        rg = 96;
+        rb = 78;
+        cols = 4;
+    } else if (type == 1) {
+        h = 26 + level * 13;
+        wr = static_cast<std::uint8_t>(88 + level * 8);
+        wg = static_cast<std::uint8_t>(126 + level * 8);
+        wb = static_cast<std::uint8_t>(154 + level * 10);
+        rr = 62;
+        rg = 88;
+        rb = 118;
+        cols = 5;
+    } else {
+        h = 18 + level * 7;
+        wr = 150;
+        wg = 138;
+        wb = 118;
+        rr = 92;
+        rg = 84;
+        rb = 74;
+        cols = 3;
+    }
+    top = 60 - h;
+    rect(4, top, 27, 61, wr, wg, wb);
+    rect(25, top, 27, 61, static_cast<std::uint8_t>(wr * 0.72f),
+         static_cast<std::uint8_t>(wg * 0.72f), static_cast<std::uint8_t>(wb * 0.72f));
+    rect(2, top - 3, 29, top + 1, rr, rg, rb);
+    rect(2, top - 3, 29, top - 2, static_cast<std::uint8_t>(rr + 26),
+         static_cast<std::uint8_t>(rg + 26), static_cast<std::uint8_t>(rb + 26));
+
+    if (type == 0) {
+        windows(7, top + 5, cols, 3, 6, 6, 252, 224, 122);
+        rect(14, 56, 17, 61, 92, 66, 44);
+        rect(4, 61, 27, 62, 116, 112, 104);
+    } else if (type == 1) {
+        windows(5, top + 5, cols, 4, 5, 7, 170, 220, 244);
+        rect(5, 60, 26, 62, 68, 76, 92);
+        rect(5, top + h - 6, 24, top + h - 4, 236, 196, 72);
+    } else {
+        windows(7, top + 4, cols, 2, 6, 6, 226, 190, 120);
+        // Saw-tooth roof and a smokestack.
+        for (int i = 0; i < 3; ++i) {
+            rect(5 + i * 7, top - 6, 11 + i * 7, top - 1, 78, 74, 68);
+        }
+        rect(21, top - 14, 25, 61, 110, 108, 102);
+        rect(21, top - 14, 25, top - 11, 178, 74, 56);
+    }
+
+    if (type == 0 && level >= 2) {
+        rect(6, top - 8, 10, top - 1, 130, 122, 110);
+        rect(6, top - 8, 10, top - 7, 190, 184, 172);
+    }
+}
+
+void PaintCitySpecial(std::uint8_t *img, int col) {
+    const int sheet_w = kCityBuildLevels * kCityBuildFrameW;
+    const int ox = col * kCityBuildFrameW;
+    const int oy = 5 * kCityBuildFrameH;
+    auto put = [&](int x, int y, std::uint8_t r, std::uint8_t g, std::uint8_t b,
+                   std::uint8_t a = 255) {
+        if (x < 0 || y < 0 || x >= kCityBuildFrameW || y >= kCityBuildFrameH) {
+            return;
+        }
+        std::uint8_t *px = img + (static_cast<size_t>(oy + y) * sheet_w + ox + x) * 4;
+        px[0] = r;
+        px[1] = g;
+        px[2] = b;
+        px[3] = a;
+    };
+    auto rect = [&](int x0, int y0, int x1, int y1, std::uint8_t r,
+                    std::uint8_t g, std::uint8_t b, std::uint8_t a = 255) {
+        for (int y = y0; y <= y1; ++y) {
+            for (int x = x0; x <= x1; ++x) {
+                put(x, y, r, g, b, a);
+            }
+        }
+    };
+    if (col == 0) { // construction site
+        rect(2, 50, 29, 62, 132, 110, 82);
+        rect(2, 50, 29, 52, 156, 134, 100);
+        for (int i = 0; i < 4; ++i) {
+            rect(5 + i * 6, 34, 6 + i * 6, 56, 178, 142, 82);
+            rect(5 + i * 6, 34, 6 + i * 6, 35, 214, 186, 120);
+        }
+        rect(4, 40, 27, 41, 178, 142, 82);
+        rect(21, 6, 24, 48, 206, 176, 96);
+        rect(24, 6, 27, 8, 206, 176, 96);
+        rect(26, 8, 27, 22, 206, 176, 96);
+        rect(7, 55, 12, 62, 110, 88, 64);
+        return;
+    }
+    // Abandoned shell: dark walls, broken windows and a caved-in roof.
+    rect(4, 30, 27, 62, 104, 96, 88);
+    rect(22, 30, 27, 62, 80, 74, 68);
+    rect(2, 26, 29, 31, 72, 68, 64);
+    for (int i = 0; i < 4; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            const bool broken = (CityHash(i, j, 41) % 3) != 0;
+            rect(6 + i * 5, 34 + j * 7, 8 + i * 5, 36 + j * 7,
+                 broken ? 28 : 88, broken ? 32 : 96, broken ? 34 : 106);
+        }
+    }
+    rect(12, 54, 18, 62, 54, 48, 44);
+    rect(4, 30, 8, 46, 118, 108, 98);
+}
+
+/// Buildings atlas: rows are types (residential, commercial, industrial, park,
+/// power, special) and columns are growth levels 1..4. 32x64 frames keep the
+/// footprint one tile wide while the height gives the city its skyline.
+void EnsureCityAssets(bool regen) {
+    const std::filesystem::path dir = "assets/city";
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+
+    const std::filesystem::path tiles_path = dir / "city_tiles.png";
+    if (regen || !std::filesystem::exists(tiles_path)) {
+        std::vector<std::uint8_t> pixels(
+            static_cast<size_t>(kCitySheetCols * kCityTile) * (2 * kCityTile) * 4, 0);
+        PaintCityTileset(pixels.data());
+        stbi_write_png(tiles_path.string().c_str(), kCitySheetCols * kCityTile,
+                       2 * kCityTile, 4, pixels.data(), kCitySheetCols * kCityTile * 4);
+    }
+
+    const std::filesystem::path build_path = dir / "buildings.png";
+    if (regen || !std::filesystem::exists(build_path)) {
+        std::vector<std::uint8_t> pixels(
+            static_cast<size_t>(kCityBuildLevels * kCityBuildFrameW) *
+                (kCityBuildRows * kCityBuildFrameH) * 4,
+            0);
+        for (int type = 0; type < 5; ++type) {
+            for (int level = 0; level < kCityBuildLevels; ++level) {
+                PaintCityBuilding(pixels.data(), type, level);
+            }
+        }
+        PaintCitySpecial(pixels.data(), 0);
+        PaintCitySpecial(pixels.data(), 1);
+        stbi_write_png(build_path.string().c_str(),
+                       kCityBuildLevels * kCityBuildFrameW,
+                       kCityBuildRows * kCityBuildFrameH, 4, pixels.data(),
+                       kCityBuildLevels * kCityBuildFrameW * 4);
+    }
+
+    const std::filesystem::path map_path = dir / "city_map.json";
+    if (!regen && std::filesystem::exists(map_path)) {
+        return;
+    }
+    // gid order matches the tileset above: 1 grass, 2 flowers, 3 water,
+    // 4 sand, 5 road, 6 residential, 7 commercial, 8 industrial, 9 park,
+    // 10 rubble, 11 forest, 12 power pad.
+    std::vector<std::uint32_t> gids(static_cast<size_t>(kCityMapCols) * kCityMapRows, 1);
+    auto at = [&](int c, int r) -> std::uint32_t & {
+        return gids[static_cast<size_t>(r) * kCityMapCols + c];
+    };
+    for (int r = 0; r < kCityMapRows; ++r) {
+        for (int c = 0; c < kCityMapCols; ++c) {
+            const std::uint32_t h = CityHash(c, r, 11);
+            at(c, r) = (h % 6 == 0) ? 2 : 1;
+            if (h % 1000 > 962) {
+                at(c, r) = 11;
+            }
+        }
+    }
+    // Lake in the north-east and a pond in the south-west, both ringed by sand.
+    const auto lake = [&](int cx, int cy, double rx, double ry) {
+        for (int r = 0; r < kCityMapRows; ++r) {
+            for (int c = 0; c < kCityMapCols; ++c) {
+                const double dx = (c - cx) / rx;
+                const double dy = (r - cy) / ry;
+                const double d = dx * dx + dy * dy;
+                if (d < 1.0) {
+                    at(c, r) = 3;
+                } else if (d < 1.35) {
+                    at(c, r) = 4;
+                }
+            }
+        }
+    };
+    lake(43, 13, 10.0, 8.0);
+    lake(9, 36, 6.5, 4.2);
+
+    // Baked entrance network: a road from the west edge into a starter grid.
+    const auto road = [&](int c, int r) {
+        if (c >= 0 && c < kCityMapCols && r >= 0 && r < kCityMapRows) {
+            at(c, r) = 5;
+        }
+    };
+    for (int c = 0; c <= 24; ++c) {
+        road(c, 21);
+    }
+    for (int r = 12; r <= 33; ++r) {
+        road(8, r);
+    }
+    for (int c = 8; c <= 18; ++c) {
+        road(c, 14);
+    }
+    for (int r = 14; r <= 21; ++r) {
+        road(18, r);
+    }
+    for (int r = 21; r <= 31; ++r) {
+        road(24, r);
+    }
+
+    std::ostringstream json;
+    json << "{\n"
+         << "  \"orientation\": \"orthogonal\",\n"
+         << "  \"width\": " << kCityMapCols << ", \"height\": " << kCityMapRows << ",\n"
+         << "  \"tilewidth\": " << kCityTile << ", \"tileheight\": " << kCityTile << ",\n"
+         << "  \"tilesets\": [{\n"
+         << "    \"firstgid\": 1,\n"
+         << "    \"name\": \"city_tiles\",\n"
+         << "    \"tilewidth\": " << kCityTile << ", \"tileheight\": " << kCityTile << ",\n"
+         << "    \"columns\": " << kCitySheetCols << ", \"tilecount\": "
+         << kCitySheetCols * 2 << ",\n"
+         << "    \"image\": \"city_tiles.png\",\n"
+         << "    \"imagewidth\": " << kCitySheetCols * kCityTile
+         << ", \"imageheight\": " << 2 * kCityTile << "\n"
+         << "  }],\n"
+         << "  \"layers\": [{\n"
+         << "    \"name\": \"ground\", \"type\": \"tilelayer\", \"visible\": true,\n"
+         << "    \"opacity\": 1, \"data\": [";
+    for (std::size_t i = 0; i < gids.size(); ++i) {
+        if (i % kCityMapCols == 0) {
+            json << "\n      ";
+        }
+        json << gids[i] << (i + 1 == gids.size() ? "\n" : ", ");
+    }
+    json << "  ]}]\n}\n";
+
+    std::ofstream out(map_path, std::ios::binary);
+    out << json.str();
+}
+
+// ---------------------------------------------------------------------------
+// RTS assets (Phase 41): a terrain tileset, per-unit and per-building sprites
+// (white/grey art tinted by owner team colour) and a 64x48 base map with ore
+// fields, lakes, rock/tree obstacles and mirrored starter bases.
+// ---------------------------------------------------------------------------
+
+constexpr int kRtsTile = 32;
+constexpr int kRtsTileCols = 6;
+constexpr int kRtsMapCols = 64;
+constexpr int kRtsMapRows = 48;
+
+void PaintRtsTileset(std::uint8_t *img) {
+    const int sheet_w = kRtsTileCols * kRtsTile;
+    auto put = [&](int id, int x, int y, std::uint8_t r, std::uint8_t g,
+                   std::uint8_t b, std::uint8_t a = 255) {
+        if (x < 0 || y < 0 || x >= kRtsTile || y >= kRtsTile) {
+            return;
+        }
+        const int ox = (id % kRtsTileCols) * kRtsTile;
+        const int oy = (id / kRtsTileCols) * kRtsTile;
+        std::uint8_t *px = img + (static_cast<size_t>(oy + y) * sheet_w + ox + x) * 4;
+        px[0] = r; px[1] = g; px[2] = b; px[3] = a;
+    };
+    auto fill = [&](int id, int r, int g, int b, int vary, int salt) {
+        for (int y = 0; y < kRtsTile; ++y) {
+            for (int x = 0; x < kRtsTile; ++x) {
+                const int n = static_cast<int>(CityHash(x, y, salt) % (vary * 2 + 1)) - vary;
+                put(id, x, y,
+                    static_cast<std::uint8_t>(std::clamp(r + n, 0, 255)),
+                    static_cast<std::uint8_t>(std::clamp(g + n, 0, 255)),
+                    static_cast<std::uint8_t>(std::clamp(b + n, 0, 255)));
+            }
+        }
+    };
+    auto box = [&](int id, int x0, int y0, int x1, int y1, std::uint8_t r,
+                   std::uint8_t g, std::uint8_t b, std::uint8_t a = 255) {
+        for (int y = y0; y <= y1; ++y) {
+            for (int x = x0; x <= x1; ++x) {
+                put(id, x, y, r, g, b, a);
+            }
+        }
+    };
+    auto rock = [&](int id, int cx, int cy, int radius) {
+        for (int y = -radius; y <= radius; ++y) {
+            for (int x = -radius; x <= radius; ++x) {
+                if (x * x + y * y <= radius * radius) {
+                    const bool lit = x + y < 0 && x * x + y * y < radius * radius - 1;
+                    put(id, cx + x, cy + y, lit ? 158 : 112, lit ? 156 : 110,
+                        lit ? 148 : 104);
+                }
+            }
+        }
+    };
+
+    // 0/1 grass and flowering grass.
+    fill(0, 90, 148, 72, 10, 27);
+    fill(1, 90, 148, 72, 10, 28);
+    for (int i = 0; i < 18; ++i) {
+        const int x = static_cast<int>(CityHash(i, 0, 51) % kRtsTile);
+        const int y = static_cast<int>(CityHash(i, 1, 51) % kRtsTile);
+        put(1, x, y, 236, 228, 166);
+        put(1, x + 1, y, 220, 206, 144);
+    }
+
+    // 2 dirt.
+    fill(2, 148, 122, 86, 9, 29);
+
+    // 3 rock (blocked).
+    fill(3, 132, 116, 92, 7, 30);
+    rock(3, 10, 12, 6);
+    rock(3, 22, 20, 5);
+    rock(3, 23, 8, 4);
+
+    // 4 water (blocked).
+    fill(4, 42, 92, 152, 6, 31);
+    for (int y = 5; y < kRtsTile; y += 9) {
+        for (int x = 2; x < kRtsTile - 2; ++x) {
+            if ((x + y) % 7 < 4) {
+                put(4, x, y, 92, 148, 194);
+                put(4, x, y + 1, 70, 126, 178);
+            }
+        }
+    }
+
+    // 5/6 ore (rich and partly mined).
+    fill(5, 148, 122, 86, 8, 32);
+    fill(6, 148, 122, 86, 8, 33);
+    for (int i = 0; i < 22; ++i) {
+        const int x = static_cast<int>(CityHash(i, 2, 52) % kRtsTile);
+        const int y = static_cast<int>(CityHash(i, 3, 52) % kRtsTile);
+        put(5, x, y, 242, 202, 74);
+        put(5, x + 1, y, 206, 158, 48);
+        put(5, x, y + 1, 224, 176, 58);
+    }
+    for (int i = 0; i < 8; ++i) {
+        const int x = static_cast<int>(CityHash(i, 4, 53) % kRtsTile);
+        const int y = static_cast<int>(CityHash(i, 5, 53) % kRtsTile);
+        put(6, x, y, 232, 190, 70);
+    }
+
+    // 7 concrete base slab.
+    fill(7, 126, 128, 126, 4, 34);
+    for (int i = 0; i < kRtsTile; i += 8) {
+        box(7, i, 0, i, kRtsTile - 1, 108, 110, 108);
+        box(7, 0, i, kRtsTile - 1, i, 108, 110, 108);
+    }
+
+    // 8 tree (blocked).
+    fill(8, 82, 138, 66, 8, 35);
+    box(8, 14, 16, 17, 28, 92, 66, 42);
+    for (int y = -8; y <= 8; ++y) {
+        for (int x = -8; x <= 8; ++x) {
+            if (x * x + y * y <= 64) {
+                const bool lit = x + y < 0;
+                put(8, 15 + x, 12 + y, lit ? 96 : 44, lit ? 152 : 88, lit ? 62 : 44);
+            }
+        }
+    }
+
+    // 9 sand, 10 crater, 11 rubble.
+    fill(9, 198, 180, 130, 8, 36);
+    fill(10, 92, 82, 70, 7, 37);
+    for (int i = 0; i < 16; ++i) {
+        const int x = static_cast<int>(CityHash(i, 6, 54) % kRtsTile);
+        const int y = static_cast<int>(CityHash(i, 7, 54) % kRtsTile);
+        put(10, x, y, 52, 46, 40);
+    }
+    fill(11, 120, 104, 82, 8, 38);
+    for (int i = 0; i < 20; ++i) {
+        const int x = static_cast<int>(CityHash(i, 8, 55) % kRtsTile);
+        const int y = static_cast<int>(CityHash(i, 9, 55) % kRtsTile);
+        put(11, x, y, 76, 68, 56);
+        put(11, x + 1, y, 150, 136, 108);
+    }
+}
+
+void PaintRtsUnit(std::uint8_t *img, int kind) {
+    const int w = 32;
+    auto put = [&](int x, int y, std::uint8_t r, std::uint8_t g, std::uint8_t b,
+                   std::uint8_t a = 255) {
+        if (x < 0 || y < 0 || x >= w || y >= 32) {
+            return;
+        }
+        std::uint8_t *px = img + (static_cast<size_t>(y) * w + x) * 4;
+        px[0] = r; px[1] = g; px[2] = b; px[3] = a;
+    };
+    auto rect = [&](int x0, int y0, int x1, int y1, std::uint8_t r,
+                    std::uint8_t g, std::uint8_t b, std::uint8_t a = 255) {
+        for (int y = y0; y <= y1; ++y) {
+            for (int x = x0; x <= x1; ++x) {
+                put(x, y, r, g, b, a);
+            }
+        }
+    };
+    auto disc = [&](int cx, int cy, int radius, std::uint8_t r, std::uint8_t g,
+                    std::uint8_t b) {
+        for (int y = -radius; y <= radius; ++y) {
+            for (int x = -radius; x <= radius; ++x) {
+                if (x * x + y * y <= radius * radius) {
+                    put(cx + x, cy + y, r, g, b);
+                }
+            }
+        }
+    };
+    if (kind == 0) { // infantry, viewed from above, rifle pointing right
+        rect(12, 18, 19, 24, 188, 188, 182);
+        disc(15, 15, 6, 168, 168, 160);
+        disc(15, 15, 4, 196, 196, 188);
+        rect(7, 20, 11, 23, 140, 140, 134);
+        rect(20, 21, 23, 22, 140, 140, 134);
+        rect(18, 15, 29, 16, 96, 96, 92);
+        rect(19, 14, 21, 14, 120, 120, 112);
+    } else if (kind == 1) { // rocket soldier
+        rect(10, 16, 21, 25, 180, 180, 174);
+        disc(15, 14, 6, 166, 166, 158);
+        rect(20, 12, 27, 20, 96, 96, 92);
+        rect(22, 12, 26, 13, 120, 120, 114);
+        rect(20, 19, 27, 20, 70, 70, 68);
+        rect(8, 18, 13, 24, 132, 132, 126);
+    } else if (kind == 2) { // tank
+        rect(7, 9, 24, 25, 176, 176, 168);
+        rect(7, 9, 24, 11, 92, 92, 88);
+        rect(7, 23, 24, 25, 92, 92, 88);
+        rect(10, 12, 21, 22, 198, 198, 190);
+        disc(16, 17, 7, 170, 170, 162);
+        disc(16, 17, 5, 204, 204, 196);
+        rect(15, 2, 17, 12, 120, 120, 114);
+        rect(14, 10, 18, 12, 150, 150, 142);
+        rect(10, 13, 12, 15, 130, 130, 124);
+    } else { // harvester
+        rect(6, 8, 25, 26, 178, 174, 160);
+        rect(8, 10, 23, 18, 196, 192, 176);
+        rect(11, 20, 20, 25, 120, 116, 104);
+        for (int i = 0; i < 10; ++i) {
+            put(9 + (i % 5) * 3, 21 + (i / 5) * 3, 236, 198, 76);
+        }
+        rect(6, 8, 25, 9, 92, 90, 82);
+        rect(6, 25, 25, 26, 92, 90, 82);
+        rect(12, 2, 19, 7, 166, 162, 148);
+        disc(16, 6, 4, 184, 180, 164);
+    }
+}
+
+void PaintRtsBuilding(std::uint8_t *img, int kind) {
+    const int w = 64;
+    auto put = [&](int x, int y, std::uint8_t r, std::uint8_t g, std::uint8_t b,
+                   std::uint8_t a = 255) {
+        if (x < 0 || y < 0 || x >= w || y >= 64) {
+            return;
+        }
+        std::uint8_t *px = img + (static_cast<size_t>(y) * w + x) * 4;
+        px[0] = r; px[1] = g; px[2] = b; px[3] = a;
+    };
+    auto rect = [&](int x0, int y0, int x1, int y1, std::uint8_t r,
+                    std::uint8_t g, std::uint8_t b, std::uint8_t a = 255) {
+        for (int y = y0; y <= y1; ++y) {
+            for (int x = x0; x <= x1; ++x) {
+                put(x, y, r, g, b, a);
+            }
+        }
+    };
+    auto disc = [&](int cx, int cy, int radius, std::uint8_t r, std::uint8_t g,
+                    std::uint8_t b) {
+        for (int y = -radius; y <= radius; ++y) {
+            for (int x = -radius; x <= radius; ++x) {
+                if (x * x + y * y <= radius * radius) {
+                    put(cx + x, cy + y, r, g, b);
+                }
+            }
+        }
+    };
+    // Every structure sits on a concrete pad.
+    rect(5, 43, 58, 60, 132, 134, 130);
+    rect(5, 43, 58, 45, 158, 160, 154);
+    if (kind == 0) { // construction yard
+        rect(13, 18, 51, 50, 182, 182, 174);
+        rect(13, 18, 51, 20, 218, 218, 208);
+        rect(18, 24, 46, 44, 160, 160, 152);
+        rect(24, 30, 40, 50, 108, 108, 102);
+        rect(30, 8, 33, 32, 214, 196, 92);
+        rect(30, 8, 44, 11, 214, 196, 92);
+        rect(41, 11, 44, 22, 214, 196, 92);
+        rect(48, 40, 54, 52, 120, 120, 114);
+    } else if (kind == 1) { // power plant
+        rect(12, 26, 52, 52, 170, 172, 168);
+        disc(22, 34, 9, 186, 188, 182);
+        disc(22, 34, 6, 120, 122, 118);
+        disc(42, 34, 9, 186, 188, 182);
+        disc(42, 34, 6, 120, 122, 118);
+        rect(26, 20, 38, 26, 150, 150, 146);
+        // Lightning badge.
+        rect(28, 44, 32, 48, 238, 210, 96);
+        rect(30, 48, 36, 52, 238, 210, 96);
+        rect(28, 52, 32, 56, 238, 210, 96);
+    } else if (kind == 2) { // barracks
+        rect(8, 24, 56, 52, 178, 180, 172);
+        rect(8, 24, 56, 27, 206, 208, 198);
+        for (int x = 12; x < 56; x += 8) {
+            rect(x, 28, x + 2, 44, 142, 144, 136);
+        }
+        rect(24, 40, 40, 54, 104, 104, 98);
+        rect(46, 12, 48, 26, 128, 128, 122);
+        rect(46, 12, 54, 16, 206, 206, 196);
+    } else if (kind == 3) { // war factory
+        rect(8, 20, 56, 52, 172, 174, 168);
+        rect(8, 20, 56, 22, 202, 204, 196);
+        rect(14, 30, 50, 54, 108, 110, 106);
+        for (int x = 16; x < 50; x += 6) {
+            rect(x, 31, x, 53, 88, 90, 86);
+        }
+        rect(22, 14, 42, 19, 196, 196, 188);
+        rect(28, 10, 36, 14, 220, 220, 210);
+    } else if (kind == 4) { // refinery
+        rect(8, 24, 56, 52, 174, 176, 170);
+        disc(20, 34, 11, 196, 198, 192);
+        disc(20, 34, 7, 132, 134, 130);
+        disc(44, 34, 11, 196, 198, 192);
+        disc(44, 34, 7, 132, 134, 130);
+        rect(32, 34, 44, 36, 120, 122, 118);
+        rect(32, 44, 44, 46, 120, 122, 118);
+        rect(16, 16, 48, 20, 150, 152, 146);
+        rect(18, 48, 22, 54, 92, 94, 90);
+    } else { // turret
+        rect(10, 40, 54, 58, 132, 134, 130);
+        disc(32, 40, 13, 172, 174, 166);
+        disc(32, 40, 9, 206, 206, 198);
+        disc(32, 40, 5, 150, 152, 146);
+        rect(30, 14, 34, 38, 110, 110, 106);
+        rect(28, 34, 36, 40, 160, 160, 152);
+        rect(33, 14, 35, 20, 190, 190, 182);
+    }
+}
+
+void EnsureRtsAssets(bool regen) {
+    const std::filesystem::path dir = "assets/rts";
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+
+    const std::filesystem::path tiles_path = dir / "tiles.png";
+    if (regen || !std::filesystem::exists(tiles_path)) {
+        std::vector<std::uint8_t> px(
+            static_cast<size_t>(kRtsTileCols * kRtsTile) * (2 * kRtsTile) * 4, 0);
+        PaintRtsTileset(px.data());
+        stbi_write_png(tiles_path.string().c_str(), kRtsTileCols * kRtsTile,
+                       2 * kRtsTile, 4, px.data(), kRtsTileCols * kRtsTile * 4);
+    }
+
+    static const char *kUnitNames[] = {"infantry", "rocket", "tank", "harvester"};
+    const std::filesystem::path udir = dir / "units";
+    std::filesystem::create_directories(udir, ec);
+    for (int i = 0; i < 4; ++i) {
+        const std::filesystem::path path = udir / (std::string(kUnitNames[i]) + ".png");
+        if (regen || !std::filesystem::exists(path)) {
+            std::vector<std::uint8_t> px(32 * 32 * 4, 0);
+            PaintRtsUnit(px.data(), i);
+            stbi_write_png(path.string().c_str(), 32, 32, 4, px.data(), 32 * 4);
+        }
+    }
+
+    static const char *kBuildNames[] = {"cy", "power", "barracks", "factory",
+                                        "refinery", "turret"};
+    const std::filesystem::path bdir = dir / "buildings";
+    std::filesystem::create_directories(bdir, ec);
+    for (int i = 0; i < 6; ++i) {
+        const std::filesystem::path path = bdir / (std::string(kBuildNames[i]) + ".png");
+        if (regen || !std::filesystem::exists(path)) {
+            std::vector<std::uint8_t> px(64 * 64 * 4, 0);
+            PaintRtsBuilding(px.data(), i);
+            stbi_write_png(path.string().c_str(), 64, 64, 4, px.data(), 64 * 4);
+        }
+    }
+
+    const std::filesystem::path map_path = dir / "map.json";
+    if (!regen && std::filesystem::exists(map_path)) {
+        return;
+    }
+    // gid order: 1 grass, 2 flowers, 3 dirt, 4 rock, 5 water, 6 ore,
+    // 7 poor ore, 8 concrete, 9 tree, 10 sand, 11 crater, 12 rubble.
+    std::vector<std::uint32_t> gids(static_cast<size_t>(kRtsMapCols) * kRtsMapRows, 1);
+    auto at = [&](int c, int r) -> std::uint32_t & {
+        return gids[static_cast<size_t>(r) * kRtsMapCols + c];
+    };
+    for (int r = 0; r < kRtsMapRows; ++r) {
+        for (int c = 0; c < kRtsMapCols; ++c) {
+            const std::uint32_t h = CityHash(c, r, 61);
+            at(c, r) = (h % 5 == 0) ? 2 : 1;
+            if (h % 1000 > 958) {
+                at(c, r) = 9;
+            }
+        }
+    }
+    const auto blob = [&](int cx, int cy, double rx, double ry, std::uint32_t gid) {
+        for (int r = 0; r < kRtsMapRows; ++r) {
+            for (int c = 0; c < kRtsMapCols; ++c) {
+                const double dx = (c - cx) / rx;
+                const double dy = (r - cy) / ry;
+                if (dx * dx + dy * dy < 1.0) {
+                    at(c, r) = gid;
+                }
+            }
+        }
+    };
+    blob(6, 6, 5.5, 4.0, 5);      // north-west lake
+    blob(59, 44, 4.5, 3.0, 5);     // south-east pond
+    blob(34, 8, 4.0, 3.0, 4);      // northern rocks
+    blob(54, 33, 3.5, 3.0, 4);     // eastern rocks
+    blob(17, 20, 3.0, 2.0, 4);     // central rocks
+    // Ore fields near both bases and in the centre.
+    blob(24, 32, 4.6, 3.4, 7);
+    blob(24, 32, 3.0, 2.2, 6);
+    blob(39, 16, 4.4, 3.2, 7);
+    blob(39, 16, 2.8, 2.0, 6);
+    blob(32, 25, 5.4, 3.6, 7);
+    blob(32, 25, 3.2, 2.1, 6);
+    // Starter bases: clear the pads and lay concrete under the six structures.
+    const auto clear_area = [&](int c0, int r0, int c1, int r1) {
+        for (int r = r0; r <= r1; ++r) {
+            for (int c = c0; c <= c1; ++c) {
+                if (c >= 0 && c < kRtsMapCols && r >= 0 && r < kRtsMapRows) {
+                    at(c, r) = (CityHash(c, r, 62) % 4 == 0) ? 3 : 1;
+                }
+            }
+        }
+    };
+    clear_area(6, 30, 19, 43);
+    clear_area(42, 5, 58, 19);
+    const auto pad = [&](int c, int r) {
+        for (int y = r; y < r + 2; ++y) {
+            for (int x = c; x < c + 2; ++x) {
+                if (x >= 0 && x < kRtsMapCols && y >= 0 && y < kRtsMapRows) {
+                    at(x, y) = 8;
+                }
+            }
+        }
+    };
+    // Player base.
+    pad(9, 33);
+    pad(13, 33);
+    pad(9, 37);
+    pad(13, 37);
+    pad(17, 33);
+    pad(17, 37);
+    // Enemy base (the mirror layout, with its command yard facing the centre).
+    pad(46, 10);
+    pad(50, 10);
+    pad(54, 10);
+    pad(46, 14);
+    pad(50, 14);
+    pad(54, 14);
+
+    std::ostringstream json;
+    json << "{\n"
+         << "  \"orientation\": \"orthogonal\",\n"
+         << "  \"width\": " << kRtsMapCols << ", \"height\": " << kRtsMapRows << ",\n"
+         << "  \"tilewidth\": " << kRtsTile << ", \"tileheight\": " << kRtsTile << ",\n"
+         << "  \"tilesets\": [{\n"
+         << "    \"firstgid\": 1,\n"
+         << "    \"name\": \"rts_tiles\",\n"
+         << "    \"tilewidth\": " << kRtsTile << ", \"tileheight\": " << kRtsTile << ",\n"
+         << "    \"columns\": " << kRtsTileCols << ", \"tilecount\": "
+         << kRtsTileCols * 2 << ",\n"
+         << "    \"image\": \"tiles.png\",\n"
+         << "    \"imagewidth\": " << kRtsTileCols * kRtsTile
+         << ", \"imageheight\": " << 2 * kRtsTile << ",\n"
+         << "    \"tiles\": [\n"
+         << "      {\"id\": 3, \"properties\": [{\"name\": \"solid\", \"type\": \"bool\", \"value\": true}]},\n"
+         << "      {\"id\": 4, \"properties\": [{\"name\": \"solid\", \"type\": \"bool\", \"value\": true}]},\n"
+         << "      {\"id\": 8, \"properties\": [{\"name\": \"solid\", \"type\": \"bool\", \"value\": true}]}\n"
+         << "    ]\n"
+         << "  }],\n"
+         << "  \"layers\": [{\n"
+         << "    \"name\": \"ground\", \"type\": \"tilelayer\", \"visible\": true,\n"
+         << "    \"opacity\": 1, \"data\": [";
+    for (std::size_t i = 0; i < gids.size(); ++i) {
+        if (i % kRtsMapCols == 0) {
+            json << "\n      ";
+        }
+        json << gids[i] << (i + 1 == gids.size() ? "\n" : ", ");
+    }
+    json << "  ]}]\n}\n";
+    std::ofstream out(map_path, std::ios::binary);
+    out << json.str();
+}
+
+// ---------------------------------------------------------------------------
+// Visual-novel assets (Phase 42): painted backgrounds and anime-style bust
+// portraits with five expressions for four heroines.
+// ---------------------------------------------------------------------------
+
+constexpr int kVnBgW = 960;
+constexpr int kVnBgH = 540;
+constexpr int kVnPortraitW = 320;
+constexpr int kVnPortraitH = 480;
+
+void VnBlend(std::uint8_t *img, int w, int h, int x, int y, int r, int g, int b,
+             float a) {
+    if (x < 0 || y < 0 || x >= w || y >= h || a <= 0.0f) {
+        return;
+    }
+    std::uint8_t *px = img + (static_cast<size_t>(y) * w + x) * 4;
+    const float sa = std::min(a, 1.0f);
+    const float da = px[3] / 255.0f;
+    const float oa = sa + da * (1.0f - sa);
+    if (oa <= 0.0f) {
+        return;
+    }
+    px[0] = static_cast<std::uint8_t>((r * sa + px[0] * da * (1.0f - sa)) / oa);
+    px[1] = static_cast<std::uint8_t>((g * sa + px[1] * da * (1.0f - sa)) / oa);
+    px[2] = static_cast<std::uint8_t>((b * sa + px[2] * da * (1.0f - sa)) / oa);
+    px[3] = static_cast<std::uint8_t>(oa * 255.0f);
+}
+
+void VnRect(std::uint8_t *img, int w, int h, int x0, int y0, int x1, int y1,
+            int r, int g, int b, float a = 1.0f) {
+    for (int y = y0; y <= y1; ++y) {
+        for (int x = x0; x <= x1; ++x) {
+            VnBlend(img, w, h, x, y, r, g, b, a);
+        }
+    }
+}
+
+void VnEllipse(std::uint8_t *img, int w, int h, float cx, float cy, float rx,
+               float ry, int r, int g, int b, float a = 1.0f) {
+    const int x0 = static_cast<int>(cx - rx - 1.0f);
+    const int x1 = static_cast<int>(cx + rx + 1.0f);
+    const int y0 = static_cast<int>(cy - ry - 1.0f);
+    const int y1 = static_cast<int>(cy + ry + 1.0f);
+    const float edge_scale = std::min(rx, ry);
+    for (int y = y0; y <= y1; ++y) {
+        for (int x = x0; x <= x1; ++x) {
+            const float dx = (static_cast<float>(x) - cx) / rx;
+            const float dy = (static_cast<float>(y) - cy) / ry;
+            const float d = std::sqrt(dx * dx + dy * dy);
+            if (d < 1.0f) {
+                const float cov = std::clamp((1.0f - d) * edge_scale + 0.5f, 0.0f, 1.0f);
+                VnBlend(img, w, h, x, y, r, g, b, a * cov);
+            }
+        }
+    }
+}
+
+void VnLine(std::uint8_t *img, int w, int h, float x1, float y1, float x2,
+            float y2, float thickness, int r, int g, int b, float a = 1.0f) {
+    const float dx = x2 - x1;
+    const float dy = y2 - y1;
+    const float len2 = dx * dx + dy * dy;
+    const int bx0 = static_cast<int>(std::min(x1, x2) - thickness - 1.0f);
+    const int bx1 = static_cast<int>(std::max(x1, x2) + thickness + 1.0f);
+    const int by0 = static_cast<int>(std::min(y1, y2) - thickness - 1.0f);
+    const int by1 = static_cast<int>(std::max(y1, y2) + thickness + 1.0f);
+    for (int y = by0; y <= by1; ++y) {
+        for (int x = bx0; x <= bx1; ++x) {
+            const float px = static_cast<float>(x);
+            const float py = static_cast<float>(y);
+            float t = 0.0f;
+            if (len2 > 0.0f) {
+                t = ((px - x1) * dx + (py - y1) * dy) / len2;
+                t = std::clamp(t, 0.0f, 1.0f);
+            }
+            const float qx = x1 + dx * t;
+            const float qy = y1 + dy * t;
+            const float d = std::sqrt((px - qx) * (px - qx) + (py - qy) * (py - qy));
+            if (d <= thickness * 0.5f + 1.0f) {
+                const float cov = std::clamp(thickness * 0.5f - d + 0.5f, 0.0f, 1.0f);
+                VnBlend(img, w, h, x, y, r, g, b, a * cov);
+            }
+        }
+    }
+}
+
+void VnTri(std::uint8_t *img, int w, int h, float ax, float ay, float bx,
+           float by, float cx, float cy, int r, int g, int b, float a = 1.0f) {
+    const int x0 = static_cast<int>(std::min({ax, bx, cx}) - 1.0f);
+    const int x1 = static_cast<int>(std::max({ax, bx, cx}) + 1.0f);
+    const int y0 = static_cast<int>(std::min({ay, by, cy}) - 1.0f);
+    const int y1 = static_cast<int>(std::max({ay, by, cy}) + 1.0f);
+    for (int y = y0; y <= y1; ++y) {
+        for (int x = x0; x <= x1; ++x) {
+            const float px = static_cast<float>(x) + 0.5f;
+            const float py = static_cast<float>(y) + 0.5f;
+            const float d1 = (px - bx) * (ay - by) - (ax - bx) * (py - by);
+            const float d2 = (px - cx) * (by - cy) - (bx - cx) * (py - cy);
+            const float d3 = (px - ax) * (cy - ay) - (cx - ax) * (py - ay);
+            const bool neg = d1 < 0.0f || d2 < 0.0f || d3 < 0.0f;
+            const bool pos = d1 > 0.0f || d2 > 0.0f || d3 > 0.0f;
+            if (!(neg && pos)) {
+                VnBlend(img, w, h, x, y, r, g, b, a);
+            }
+        }
+    }
+}
+
+void VnGradient(std::uint8_t *img, int w, int h, int x0, int x1, int y0, int y1,
+                int r0, int g0, int b0, int r1, int g1, int b1) {
+    for (int y = y0; y <= y1; ++y) {
+        const float t = (y1 > y0) ? static_cast<float>(y - y0) / (y1 - y0) : 0.0f;
+        const int r = static_cast<int>(r0 + (r1 - r0) * t);
+        const int g = static_cast<int>(g0 + (g1 - g0) * t);
+        const int b = static_cast<int>(b0 + (b1 - b0) * t);
+        VnRect(img, w, h, x0, y, x1, y, r, g, b, 1.0f);
+    }
+}
+
+void PaintVnSchoolGate(std::uint8_t *img) {
+    VnGradient(img, kVnBgW, kVnBgH, 0, kVnBgW - 1, 0, 330, 132, 186, 236, 246, 231, 211);
+    VnGradient(img, kVnBgW, kVnBgH, 0, kVnBgW - 1, 331, kVnBgH - 1, 154, 196, 146,
+               92, 150, 104);
+    VnEllipse(img, kVnBgW, kVnBgH, 780, 120, 110, 90, 255, 244, 206, 0.35f);
+    VnEllipse(img, kVnBgW, kVnBgH, 780, 120, 60, 50, 255, 250, 228, 0.55f);
+    // Clouds.
+    VnEllipse(img, kVnBgW, kVnBgH, 170, 96, 80, 26, 250, 250, 250, 0.75f);
+    VnEllipse(img, kVnBgW, kVnBgH, 240, 88, 60, 24, 255, 255, 255, 0.8f);
+    VnEllipse(img, kVnBgW, kVnBgH, 520, 130, 96, 24, 250, 250, 252, 0.6f);
+    VnEllipse(img, kVnBgW, kVnBgH, 600, 122, 55, 20, 255, 255, 255, 0.7f);
+    // Distant school block.
+    VnRect(img, kVnBgW, kVnBgH, 300, 232, 660, 380, 226, 214, 188, 1.0f);
+    VnRect(img, kVnBgW, kVnBgH, 288, 216, 672, 240, 152, 138, 118, 1.0f);
+    VnRect(img, kVnBgW, kVnBgH, 322, 252, 494, 286, 176, 204, 218, 1.0f);
+    for (int i = 0; i < 4; ++i) {
+        VnRect(img, kVnBgW, kVnBgH, 340 + i * 52, 300, 372 + i * 52, 340,
+               176, 204, 218, 1.0f);
+        VnRect(img, kVnBgW, kVnBgH, 340 + i * 52, 352, 372 + i * 52, 374,
+               176, 204, 218, 1.0f);
+    }
+    // Gate and path.
+    VnRect(img, kVnBgW, kVnBgH, 430, 300, 470, 430, 238, 232, 218, 1.0f);
+    VnRect(img, kVnBgW, kVnBgH, 490, 300, 530, 430, 238, 232, 218, 1.0f);
+    VnRect(img, kVnBgW, kVnBgH, 430, 300, 530, 314, 210, 202, 190, 1.0f);
+    VnTri(img, kVnBgW, kVnBgH, 420, 540, 540, 540, 480, 430, 212, 198, 176, 1.0f);
+    VnTri(img, kVnBgW, kVnBgH, 420, 540, 480, 430, 390, 540, 196, 182, 162, 1.0f);
+    // Cherry trees.
+    const auto tree = [&](int cx, int cy, int scale) {
+        VnRect(img, kVnBgW, kVnBgH, cx - 7, cy, cx + 7, cy + 150, 110, 78, 56, 1.0f);
+        for (int i = 0; i < 9; ++i) {
+            const int ox = static_cast<int>(CityHash(i, 0, 71) % (scale * 2)) - scale;
+            const int oy = static_cast<int>(CityHash(i, 1, 71) % (scale * 2)) - scale;
+            VnEllipse(img, kVnBgW, kVnBgH, static_cast<float>(cx + ox),
+                      static_cast<float>(cy + oy), 52.0f, 40.0f, 244, 196, 210, 0.9f);
+        }
+        for (int i = 0; i < 6; ++i) {
+            const int ox = static_cast<int>(CityHash(i, 2, 72) % (scale * 2)) - scale;
+            const int oy = static_cast<int>(CityHash(i, 3, 72) % (scale * 2)) - scale;
+            VnEllipse(img, kVnBgW, kVnBgH, static_cast<float>(cx + ox),
+                      static_cast<float>(cy + oy), 38.0f, 30.0f, 255, 222, 230, 0.85f);
+        }
+    };
+    tree(110, 300, 70);
+    tree(850, 290, 76);
+    // Fallen petals.
+    for (int i = 0; i < 90; ++i) {
+        const int x = static_cast<int>(CityHash(i, 4, 73) % kVnBgW);
+        const int y = static_cast<int>(CityHash(i, 5, 73) % 470);
+        VnEllipse(img, kVnBgW, kVnBgH, static_cast<float>(x), static_cast<float>(y),
+                  3.0f, 2.0f, 255, 206, 216, 0.9f);
+    }
+}
+
+void PaintVnClassroom(std::uint8_t *img) {
+    VnGradient(img, kVnBgW, kVnBgH, 0, kVnBgW - 1, 0, 300, 238, 222, 198, 222, 204, 182);
+    VnRect(img, kVnBgW, kVnBgH, 0, 300, kVnBgW, 540, 160, 124, 90, 1.0f);
+    // Window.
+    VnRect(img, kVnBgW, kVnBgH, 52, 52, 430, 282, 90, 78, 62, 1.0f);
+    VnGradient(img, kVnBgW, kVnBgH, 64, 424, 64, 270, 150, 196, 238, 208, 226, 232);
+    VnEllipse(img, kVnBgW, kVnBgH, 120, 110, 54, 22, 255, 255, 255, 0.8f);
+    VnEllipse(img, kVnBgW, kVnBgH, 190, 90, 40, 18, 255, 255, 255, 0.7f);
+    VnRect(img, kVnBgW, kVnBgH, 64, 264, 424, 276, 120, 106, 86, 1.0f);
+    VnRect(img, kVnBgW, kVnBgH, 246, 64, 254, 276, 120, 106, 86, 1.0f);
+    VnRect(img, kVnBgW, kVnBgH, 64, 168, 424, 174, 120, 106, 86, 1.0f);
+    // Blackboard.
+    VnRect(img, kVnBgW, kVnBgH, 500, 70, 890, 270, 92, 72, 56, 1.0f);
+    VnRect(img, kVnBgW, kVnBgH, 514, 84, 876, 256, 52, 78, 66, 1.0f);
+    VnLine(img, kVnBgW, kVnBgH, 548, 118, 780, 118, 3.0f, 210, 220, 206, 0.6f);
+    VnLine(img, kVnBgW, kVnBgH, 548, 148, 740, 148, 3.0f, 210, 220, 206, 0.5f);
+    VnLine(img, kVnBgW, kVnBgH, 548, 178, 810, 178, 3.0f, 210, 220, 206, 0.5f);
+    VnRect(img, kVnBgW, kVnBgH, 500, 270, 890, 282, 126, 104, 84, 1.0f);
+    // Desks.
+    for (int row = 0; row < 2; ++row) {
+        for (int col = 0; col < 4; ++col) {
+            const int x = 70 + col * 220;
+            const int y = 330 + row * 100;
+            VnRect(img, kVnBgW, kVnBgH, x, y, x + 150, y + 14, 216, 184, 132, 1.0f);
+            VnRect(img, kVnBgW, kVnBgH, x + 10, y + 14, x + 20, y + 70, 150, 118, 82, 1.0f);
+            VnRect(img, kVnBgW, kVnBgH, x + 130, y + 14, x + 140, y + 70, 150, 118, 82, 1.0f);
+            VnRect(img, kVnBgW, kVnBgH, x + 8, y + 74, x + 142, y + 84, 120, 92, 64, 1.0f);
+            VnRect(img, kVnBgW, kVnBgH, x + 40, y + 40, x + 70, y + 44, 190, 160, 112, 1.0f);
+        }
+    }
+    VnEllipse(img, kVnBgW, kVnBgH, 300, 0, 220, 130, 255, 244, 206, 0.22f);
+}
+
+void PaintVnLibrary(std::uint8_t *img) {
+    VnGradient(img, kVnBgW, kVnBgH, 0, kVnBgW - 1, 0, kVnBgH - 1, 106, 78, 60, 140, 106, 76);
+    VnRect(img, kVnBgW, kVnBgH, 0, 360, kVnBgW, 540, 92, 66, 48, 1.0f);
+    const auto shelf = [&](int x0, int y0, int x1, int y1) {
+        VnRect(img, kVnBgW, kVnBgH, x0, y0, x1, y1, 92, 64, 44, 1.0f);
+        VnRect(img, kVnBgW, kVnBgH, x0 + 8, y0 + 8, x1 - 8, y0 + 14, 126, 94, 62, 1.0f);
+        for (int i = 0; i < 12; ++i) {
+            const int bx = x0 + 12 + i * ((x1 - x0 - 24) / 12);
+            const int bh = 26 + static_cast<int>(CityHash(i, 0, 74) % 22);
+            const int rr = 120 + static_cast<int>(CityHash(i, 1, 74) % 90);
+            const int gg = 80 + static_cast<int>(CityHash(i, 2, 74) % 70);
+            const int bb = 70 + static_cast<int>(CityHash(i, 3, 74) % 80);
+            VnRect(img, kVnBgW, kVnBgH, bx, y1 - bh, bx + 7, y1 - 2, rr, gg, bb, 1.0f);
+        }
+    };
+    shelf(20, 70, 300, 160);
+    shelf(20, 180, 300, 270);
+    shelf(20, 290, 300, 380);
+    shelf(620, 70, 930, 160);
+    shelf(620, 180, 930, 270);
+    shelf(620, 290, 930, 380);
+    // Window and warm light.
+    VnRect(img, kVnBgW, kVnBgH, 380, 60, 560, 270, 74, 56, 42, 1.0f);
+    VnGradient(img, kVnBgW, kVnBgH, 392, 548, 72, 258, 244, 216, 160, 210, 164, 112);
+    VnRect(img, kVnBgW, kVnBgH, 468, 72, 476, 258, 74, 56, 42, 1.0f);
+    VnEllipse(img, kVnBgW, kVnBgH, 470, 150, 190, 160, 255, 224, 160, 0.18f);
+    // Reading table.
+    VnRect(img, kVnBgW, kVnBgH, 330, 370, 640, 398, 152, 110, 74, 1.0f);
+    VnRect(img, kVnBgW, kVnBgH, 344, 398, 360, 470, 118, 84, 58, 1.0f);
+    VnRect(img, kVnBgW, kVnBgH, 610, 398, 626, 470, 118, 84, 58, 1.0f);
+    VnRect(img, kVnBgW, kVnBgH, 462, 356, 512, 372, 232, 226, 210, 1.0f);
+    VnLine(img, kVnBgW, kVnBgH, 486, 360, 486, 370, 2.0f, 160, 120, 90, 1.0f);
+}
+
+void PaintVnGym(std::uint8_t *img) {
+    VnGradient(img, kVnBgW, kVnBgH, 0, kVnBgW - 1, 0, 230, 206, 220, 236, 186, 200, 216);
+    VnRect(img, kVnBgW, kVnBgH, 0, 230, kVnBgW, 540, 190, 136, 84, 1.0f);
+    for (int i = 0; i < 12; ++i) {
+        VnLine(img, kVnBgW, kVnBgH, 0, static_cast<float>(250 + i * 26),
+               static_cast<float>(kVnBgW), static_cast<float>(250 + i * 26), 1.0f,
+               170, 118, 70, 0.8f);
+    }
+    VnRect(img, kVnBgW, kVnBgH, 0, 0, kVnBgW, 40, 128, 92, 58, 1.0f);
+    VnEllipse(img, kVnBgW, kVnBgH, 480, 40, 240, 26, 148, 110, 70, 1.0f);
+    // Bleachers.
+    for (int i = 0; i < 4; ++i) {
+        VnRect(img, kVnBgW, kVnBgH, 40, 130 + i * 24, 280, 150 + i * 24,
+               126, 96, 66, 1.0f);
+    }
+    // Hoop and court lines.
+    VnRect(img, kVnBgW, kVnBgH, 830, 30, 840, 170, 110, 110, 108, 1.0f);
+    VnRect(img, kVnBgW, kVnBgH, 800, 150, 880, 158, 200, 200, 198, 1.0f);
+    VnEllipse(img, kVnBgW, kVnBgH, 840, 172, 26, 6, 220, 90, 60, 1.0f);
+    VnLine(img, kVnBgW, kVnBgH, 480, 230, 480, 540, 4.0f, 232, 226, 214, 0.7f);
+    VnEllipse(img, kVnBgW, kVnBgH, 480, 360, 120, 60, 232, 226, 214, 0.25f);
+    VnEllipse(img, kVnBgW, kVnBgH, 480, 360, 30, 16, 226, 224, 214, 0.5f);
+    // Banner.
+    VnRect(img, kVnBgW, kVnBgH, 300, 60, 660, 96, 190, 64, 66, 1.0f);
+    for (int i = 0; i < 5; ++i) {
+        VnEllipse(img, kVnBgW, kVnBgH, 340 + i * 64, 78, 12, 12, 240, 220, 160, 0.9f);
+    }
+}
+
+void PaintVnPark(std::uint8_t *img) {
+    VnGradient(img, kVnBgW, kVnBgH, 0, kVnBgW - 1, 0, 300, 240, 160, 126, 250, 206, 150);
+    VnRect(img, kVnBgW, kVnBgH, 0, 301, kVnBgW, 389, 96, 132, 82, 1.0f);
+    VnEllipse(img, kVnBgW, kVnBgH, 700, 250, 90, 80, 255, 214, 130, 0.55f);
+    VnEllipse(img, kVnBgW, kVnBgH, 700, 250, 44, 40, 255, 236, 182, 0.8f);
+    VnEllipse(img, kVnBgW, kVnBgH, 170, 120, 100, 22, 230, 180, 160, 0.35f);
+    VnEllipse(img, kVnBgW, kVnBgH, 440, 100, 130, 20, 240, 190, 160, 0.3f);
+    // Distant buildings.
+    for (int i = 0; i < 9; ++i) {
+        const int x = 260 + i * 70;
+        const int hh = 40 + static_cast<int>(CityHash(i, 0, 75) % 70);
+        VnRect(img, kVnBgW, kVnBgH, x, 300 - hh, x + 52, 300, 150, 110, 100, 0.7f);
+    }
+    // Water and bank.
+    VnRect(img, kVnBgW, kVnBgH, 0, 390, kVnBgW, 540, 112, 148, 150, 1.0f);
+    VnEllipse(img, kVnBgW, kVnBgH, 300, 370, 430, 26, 120, 160, 120, 1.0f);
+    for (int i = 0; i < 22; ++i) {
+        const int y = 400 + i * 6;
+        VnLine(img, kVnBgW, kVnBgH, 60.0f + i * 7.0f, static_cast<float>(y),
+               560.0f - i * 5.0f, static_cast<float>(y), 2.0f, 178, 198, 190, 0.35f);
+    }
+    // Trees and bench.
+    const auto tree = [&](int cx, int scale) {
+        VnRect(img, kVnBgW, kVnBgH, cx - 6, 300, cx + 6, 420, 92, 66, 46, 1.0f);
+        for (int i = 0; i < 7; ++i) {
+            const int ox = static_cast<int>(CityHash(i, 1, 76) % (scale * 2)) - scale;
+            VnEllipse(img, kVnBgW, kVnBgH, static_cast<float>(cx + ox),
+                      310.0f + static_cast<float>(i % 3) * 18.0f, 46.0f, 38.0f,
+                      70, 108, 70, 0.95f);
+        }
+    };
+    tree(110, 60);
+    tree(850, 66);
+    VnRect(img, kVnBgW, kVnBgH, 680, 380, 820, 396, 128, 94, 66, 1.0f);
+    VnRect(img, kVnBgW, kVnBgH, 690, 396, 702, 440, 100, 74, 52, 1.0f);
+    VnRect(img, kVnBgW, kVnBgH, 800, 396, 812, 440, 100, 74, 52, 1.0f);
+    VnRect(img, kVnBgW, kVnBgH, 680, 372, 820, 382, 148, 110, 78, 1.0f);
+}
+
+void PaintVnCafe(std::uint8_t *img) {
+    VnGradient(img, kVnBgW, kVnBgH, 0, kVnBgW - 1, 0, 306, 120, 84, 64, 168, 122, 88);
+    VnRect(img, kVnBgW, kVnBgH, 0, 306, kVnBgW, 540, 112, 78, 58, 1.0f);
+    // Window with dusk street.
+    VnRect(img, kVnBgW, kVnBgH, 80, 50, 500, 300, 78, 58, 44, 1.0f);
+    VnGradient(img, kVnBgW, kVnBgH, 92, 488, 62, 288, 110, 130, 188, 238, 164, 120);
+    VnEllipse(img, kVnBgW, kVnBgH, 150, 110, 48, 30, 250, 190, 130, 0.5f);
+    for (int i = 0; i < 6; ++i) {
+        VnRect(img, kVnBgW, kVnBgH, 110 + i * 60, 210 + (i % 2) * 30, 156 + i * 60,
+               288, 64, 52, 52, 0.85f);
+    }
+    VnRect(img, kVnBgW, kVnBgH, 284, 62, 292, 288, 78, 58, 44, 1.0f);
+    VnRect(img, kVnBgW, kVnBgH, 92, 176, 488, 184, 78, 58, 44, 1.0f);
+    // Counter and lamps.
+    VnRect(img, kVnBgW, kVnBgH, 0, 330, 300, 430, 128, 90, 62, 1.0f);
+    VnRect(img, kVnBgW, kVnBgH, 0, 318, 300, 332, 156, 112, 78, 1.0f);
+    for (int i = 0; i < 3; ++i) {
+        const int x = 330 + i * 190;
+        VnLine(img, kVnBgW, kVnBgH, static_cast<float>(x), 0.0f,
+               static_cast<float>(x), 70.0f, 2.0f, 70, 52, 44, 1.0f);
+        VnEllipse(img, kVnBgW, kVnBgH, static_cast<float>(x), 78, 22, 16,
+                  255, 218, 142, 1.0f);
+        VnEllipse(img, kVnBgW, kVnBgH, static_cast<float>(x), 78, 80, 60,
+                  255, 220, 150, 0.16f);
+    }
+    // Tables.
+    VnEllipse(img, kVnBgW, kVnBgH, 380, 430, 90, 28, 176, 132, 92, 1.0f);
+    VnRect(img, kVnBgW, kVnBgH, 382, 430, 396, 520, 112, 80, 56, 1.0f);
+    VnEllipse(img, kVnBgW, kVnBgH, 690, 400, 100, 30, 176, 132, 92, 1.0f);
+    VnRect(img, kVnBgW, kVnBgH, 692, 400, 706, 500, 112, 80, 56, 1.0f);
+    VnEllipse(img, kVnBgW, kVnBgH, 660, 392, 22, 14, 240, 232, 214, 1.0f);
+    VnEllipse(img, kVnBgW, kVnBgH, 760, 396, 20, 12, 240, 232, 214, 1.0f);
+}
+
+void PaintVnRooftop(std::uint8_t *img) {
+    VnGradient(img, kVnBgW, kVnBgH, 0, kVnBgW - 1, 0, 300, 62, 72, 126, 250, 172, 130);
+    VnEllipse(img, kVnBgW, kVnBgH, 700, 290, 70, 60, 255, 214, 150, 0.65f);
+    VnEllipse(img, kVnBgW, kVnBgH, 700, 290, 34, 30, 255, 236, 190, 0.85f);
+    VnEllipse(img, kVnBgW, kVnBgH, 200, 140, 80, 18, 230, 170, 170, 0.25f);
+    VnEllipse(img, kVnBgW, kVnBgH, 520, 110, 120, 20, 240, 180, 160, 0.2f);
+    // City skyline.
+    for (int i = 0; i < 14; ++i) {
+        const int x = i * 74;
+        const int hh = 60 + static_cast<int>(CityHash(i, 0, 77) % 100);
+        VnRect(img, kVnBgW, kVnBgH, x, 330 - hh, x + 60, 330, 66, 62, 84, 0.85f);
+    }
+    VnRect(img, kVnBgW, kVnBgH, 0, 330, kVnBgW, 540, 96, 90, 104, 1.0f);
+    VnRect(img, kVnBgW, kVnBgH, 0, 330, kVnBgW, 338, 136, 126, 140, 1.0f);
+    // Railing.
+    for (int x = 20; x < kVnBgW; x += 90) {
+        VnRect(img, kVnBgW, kVnBgH, x, 340, x + 8, 500, 72, 74, 84, 1.0f);
+    }
+    VnRect(img, kVnBgW, kVnBgH, 0, 340, kVnBgW, 352, 78, 80, 92, 1.0f);
+    VnRect(img, kVnBgW, kVnBgH, 0, 500, kVnBgW, 540, 80, 74, 82, 1.0f);
+    VnEllipse(img, kVnBgW, kVnBgH, 160, 510, 90, 24, 112, 100, 112, 0.8f);
+    VnEllipse(img, kVnBgW, kVnBgH, 760, 510, 100, 26, 112, 100, 112, 0.8f);
+}
+
+void PaintVnFestival(std::uint8_t *img) {
+    VnGradient(img, kVnBgW, kVnBgH, 0, kVnBgW - 1, 0, 330, 18, 22, 48, 84, 52, 96);
+    const auto star = [&](int x, int y) {
+        VnEllipse(img, kVnBgW, kVnBgH, static_cast<float>(x), static_cast<float>(y),
+                  2.0f, 2.0f, 255, 250, 220, 0.8f);
+    };
+    for (int i = 0; i < 80; ++i) {
+        star(static_cast<int>(CityHash(i, 0, 78) % kVnBgW),
+             static_cast<int>(CityHash(i, 1, 78) % 220));
+    }
+    // School silhouette.
+    VnRect(img, kVnBgW, kVnBgH, 260, 220, 700, 360, 42, 38, 62, 1.0f);
+    VnRect(img, kVnBgW, kVnBgH, 240, 210, 720, 226, 34, 32, 52, 1.0f);
+    for (int i = 0; i < 5; ++i) {
+        VnRect(img, kVnBgW, kVnBgH, 300 + i * 80, 250, 336 + i * 80, 286,
+               196, 156, 86, 0.5f);
+    }
+    // Lantern strings.
+    for (int s = 0; s < 3; ++s) {
+        const int y0 = 60 + s * 40;
+        for (int i = 0; i < 14; ++i) {
+            const int x = 30 + i * 70;
+            const int y = y0 + (i % 2) * 14;
+            VnEllipse(img, kVnBgW, kVnBgH, static_cast<float>(x), static_cast<float>(y),
+                      8.0f, 12.0f, 246, 88, 70, 1.0f);
+            VnEllipse(img, kVnBgW, kVnBgH, static_cast<float>(x), static_cast<float>(y),
+                      34.0f, 30.0f, 255, 160, 90, 0.12f);
+            VnRect(img, kVnBgW, kVnBgH, x - 1, y - 16, x + 1, y - 10, 240, 200, 120, 1.0f);
+        }
+    }
+    // Ground and stalls.
+    VnRect(img, kVnBgW, kVnBgH, 0, 331, kVnBgW, 540, 48, 40, 58, 1.0f);
+    VnRect(img, kVnBgW, kVnBgH, 0, 360, kVnBgW, 540, 42, 35, 52, 1.0f);
+    for (int i = 0; i < 6; ++i) {
+        const int x = 40 + i * 160;
+        VnRect(img, kVnBgW, kVnBgH, x, 370, x + 110, 430, 140, 70, 64, 1.0f);
+        for (int k = 0; k < 5; ++k) {
+            VnRect(img, kVnBgW, kVnBgH, x + k * 22, 366, x + k * 22 + 12, 378,
+                   i % 2 == 0 ? 236 : 220, 200, 120, 1.0f);
+        }
+    }
+    // Reflections.
+    VnEllipse(img, kVnBgW, kVnBgH, 240, 470, 160, 20, 196, 120, 90, 0.18f);
+    VnEllipse(img, kVnBgW, kVnBgH, 720, 480, 180, 18, 196, 120, 90, 0.18f);
+}
+
+void PaintVnBackground(std::uint8_t *img, int id) {
+    if (id == 0) PaintVnSchoolGate(img);
+    else if (id == 1) PaintVnClassroom(img);
+    else if (id == 2) PaintVnLibrary(img);
+    else if (id == 3) PaintVnGym(img);
+    else if (id == 4) PaintVnPark(img);
+    else if (id == 5) PaintVnCafe(img);
+    else if (id == 6) PaintVnRooftop(img);
+    else PaintVnFestival(img);
+}
+
+struct VnGirlStyle {
+    int style;
+    int hair_r, hair_g, hair_b;
+    int eye_r, eye_g, eye_b;
+    int blazer_r, blazer_g, blazer_b;
+    int ribbon_r, ribbon_g, ribbon_b;
+};
+
+void PaintVnPortrait(std::uint8_t *img, int girl, int expr) {
+    const VnGirlStyle styles[4] = {
+        {0, 196, 116, 62, 198, 124, 58, 42, 50, 84, 204, 62, 74},
+        {1, 54, 48, 66, 86, 114, 154, 44, 52, 88, 72, 112, 184},
+        {2, 176, 150, 214, 142, 112, 190, 50, 48, 88, 222, 180, 240},
+        {3, 240, 202, 118, 190, 150, 54, 84, 42, 62, 196, 58, 64},
+    };
+    const VnGirlStyle &st = styles[girl];
+    const int hr = st.hair_r, hg = st.hair_g, hb = st.hair_b;
+    const int hdr = hr * 2 / 3, hdg = hg * 2 / 3, hdb = hb * 2 / 3;
+    const int hl_r = std::min(255, hr + 38), hl_g = std::min(255, hg + 38),
+              hl_b = std::min(255, hb + 38);
+    const int skin_r = 255, skin_g = 226, skin_b = 210;
+    const int shd_r = 238, shd_g = 190, shd_b = 178;
+    const int ink_r = 58, ink_g = 46, ink_b = 58;
+
+    // --- hair silhouette behind the head/body -----------------------------
+    VnEllipse(img, kVnPortraitW, kVnPortraitH, 160, 160, 110, 118, hdr, hdg, hdb);
+    if (st.style == 0) {
+        VnEllipse(img, kVnPortraitW, kVnPortraitH, 160, 218, 86, 62, hdr, hdg, hdb);
+        VnEllipse(img, kVnPortraitW, kVnPortraitH, 246, 235, 28, 58, hdr, hdg, hdb);
+    } else if (st.style == 1) {
+        VnEllipse(img, kVnPortraitW, kVnPortraitH, 100, 290, 34, 120, hdr, hdg, hdb);
+        VnEllipse(img, kVnPortraitW, kVnPortraitH, 220, 290, 34, 120, hdr, hdg, hdb);
+    } else if (st.style == 2) {
+        VnEllipse(img, kVnPortraitW, kVnPortraitH, 52, 260, 38, 96, hdr, hdg, hdb);
+        VnEllipse(img, kVnPortraitW, kVnPortraitH, 268, 260, 38, 96, hdr, hdg, hdb);
+    } else {
+        VnEllipse(img, kVnPortraitW, kVnPortraitH, 92, 300, 40, 118, hdr, hdg, hdb);
+        VnEllipse(img, kVnPortraitW, kVnPortraitH, 228, 300, 40, 118, hdr, hdg, hdb);
+    }
+
+    // --- body / uniform -----------------------------------------------------
+    VnEllipse(img, kVnPortraitW, kVnPortraitH, 160, 410, 162, 150, st.blazer_r,
+              st.blazer_g, st.blazer_b);
+    VnRect(img, kVnPortraitW, kVnPortraitH, 20, 410, 300, 479, st.blazer_r,
+           st.blazer_g, st.blazer_b);
+    VnEllipse(img, kVnPortraitW, kVnPortraitH, 160, 258, 22, 40, shd_r, shd_g, shd_b);
+    // White shirt wedge and lapels.
+    VnTri(img, kVnPortraitW, kVnPortraitH, 160, 268, 126, 340, 194, 340, 244, 240, 232);
+    VnTri(img, kVnPortraitW, kVnPortraitH, 160, 268, 92, 330, 138, 352,
+          st.blazer_r * 3 / 4, st.blazer_g * 3 / 4, st.blazer_b * 3 / 4);
+    VnTri(img, kVnPortraitW, kVnPortraitH, 160, 268, 228, 330, 182, 352,
+          st.blazer_r * 3 / 4, st.blazer_g * 3 / 4, st.blazer_b * 3 / 4);
+    // Ribbon.
+    VnEllipse(img, kVnPortraitW, kVnPortraitH, 143, 326, 16, 11, st.ribbon_r,
+              st.ribbon_g, st.ribbon_b);
+    VnEllipse(img, kVnPortraitW, kVnPortraitH, 177, 326, 16, 11, st.ribbon_r,
+              st.ribbon_g, st.ribbon_b);
+    VnEllipse(img, kVnPortraitW, kVnPortraitH, 160, 326, 8, 8, st.ribbon_r * 4 / 5,
+              st.ribbon_g * 4 / 5, st.ribbon_b * 4 / 5);
+
+    // --- head ---------------------------------------------------------------
+    VnEllipse(img, kVnPortraitW, kVnPortraitH, 160, 178, 64, 82, skin_r, skin_g, skin_b);
+    VnEllipse(img, kVnPortraitW, kVnPortraitH, 96, 190, 12, 20, skin_r, skin_g, skin_b);
+    VnEllipse(img, kVnPortraitW, kVnPortraitH, 224, 190, 12, 20, skin_r, skin_g, skin_b);
+    // Cheek/jaw shading and bang shadow.
+    VnEllipse(img, kVnPortraitW, kVnPortraitH, 160, 238, 44, 18, shd_r, shd_g, shd_b, 0.5f);
+    VnEllipse(img, kVnPortraitW, kVnPortraitH, 160, 152, 54, 16, shd_r, shd_g, shd_b, 0.45f);
+
+    // --- front hair ---------------------------------------------------------
+    VnEllipse(img, kVnPortraitW, kVnPortraitH, 160, 106, 72, 46, hr, hg, hb);
+    VnEllipse(img, kVnPortraitW, kVnPortraitH, 124, 130, 30, 40, hr, hg, hb);
+    VnEllipse(img, kVnPortraitW, kVnPortraitH, 196, 130, 30, 40, hr, hg, hb);
+    VnEllipse(img, kVnPortraitW, kVnPortraitH, 98, 178, 18, 72, hdr, hdg, hdb);
+    VnEllipse(img, kVnPortraitW, kVnPortraitH, 222, 178, 18, 72, hdr, hdg, hdb);
+    if (st.style == 1) {
+        // Straight fringe built from overlapping rounded strands.
+        for (int i = 0; i < 5; ++i) {
+            VnEllipse(img, kVnPortraitW, kVnPortraitH, 108.0f + i * 26.0f,
+                      106.0f, 16.0f, 44.0f, hr, hg, hb);
+        }
+    } else if (st.style == 2) {
+        // Centre-parted fringe.
+        VnEllipse(img, kVnPortraitW, kVnPortraitH, 130, 112, 34, 42, hr, hg, hb);
+        VnEllipse(img, kVnPortraitW, kVnPortraitH, 190, 112, 34, 42, hr, hg, hb);
+    } else if (st.style == 3) {
+        // Swept fringe.
+        VnEllipse(img, kVnPortraitW, kVnPortraitH, 120, 112, 44, 42, hr, hg, hb);
+        VnEllipse(img, kVnPortraitW, kVnPortraitH, 190, 100, 38, 36, hr, hg, hb);
+    }
+    // Hair highlight.
+    VnEllipse(img, kVnPortraitW, kVnPortraitH, 128, 96, 34, 8, hl_r, hl_g, hl_b, 0.75f);
+    VnEllipse(img, kVnPortraitW, kVnPortraitH, 186, 100, 22, 6, hl_r, hl_g, hl_b, 0.6f);
+
+    // --- eyes / expression --------------------------------------------------
+    const bool smile = expr == 1;
+    const bool blush = expr == 2;
+    const bool sad = expr == 3;
+    const float eye_ry = smile ? 8.0f : (blush ? 12.0f : 10.5f);
+    const auto eye = [&](float ex) {
+        const int dark_r = ink_r, dark_g = ink_g, dark_b = ink_b;
+        VnEllipse(img, kVnPortraitW, kVnPortraitH, ex, 190, 18.0f,
+                  eye_ry + 3.0f, dark_r, dark_g, dark_b);
+        VnEllipse(img, kVnPortraitW, kVnPortraitH, ex, 191, 16.0f, eye_ry,
+                  250, 250, 252);
+        VnEllipse(img, kVnPortraitW, kVnPortraitH, ex, 192, 9.0f, 9.0f,
+                  st.eye_r, st.eye_g, st.eye_b);
+        VnEllipse(img, kVnPortraitW, kVnPortraitH, ex, 192, 4.0f, 4.0f,
+                  40, 32, 46);
+        VnEllipse(img, kVnPortraitW, kVnPortraitH, ex - 3.5f, 188, 3.0f, 3.0f,
+                  255, 255, 255);
+        VnEllipse(img, kVnPortraitW, kVnPortraitH, ex + 3.0f, 196, 2.0f, 2.0f,
+                  255, 255, 255, 0.7f);
+    };
+    eye(128.0f);
+    eye(192.0f);
+    // Brows.
+    if (sad) {
+        VnLine(img, kVnPortraitW, kVnPortraitH, 111, 168, 145, 160, 3.0f, ink_r, ink_g, ink_b);
+        VnLine(img, kVnPortraitW, kVnPortraitH, 175, 160, 209, 168, 3.0f, ink_r, ink_g, ink_b);
+    } else {
+        VnLine(img, kVnPortraitW, kVnPortraitH, 110, 165, 145, 160, 3.0f, hdr, hdg, hdb);
+        VnLine(img, kVnPortraitW, kVnPortraitH, 175, 160, 210, 165, 3.0f, hdr, hdg, hdb);
+    }
+    // Nose and mouth.
+    VnLine(img, kVnPortraitW, kVnPortraitH, 159, 209, 163, 213, 2.0f, shd_r, shd_g, shd_b, 0.7f);
+    if (blush) {
+        VnEllipse(img, kVnPortraitW, kVnPortraitH, 160, 228, 7.0f, 9.0f, 120, 60, 72);
+        VnEllipse(img, kVnPortraitW, kVnPortraitH, 160, 232, 4.0f, 4.0f, 200, 100, 110);
+    } else if (smile) {
+        VnLine(img, kVnPortraitW, kVnPortraitH, 146, 226, 160, 232, 2.5f, 150, 76, 88);
+        VnLine(img, kVnPortraitW, kVnPortraitH, 160, 232, 174, 226, 2.5f, 150, 76, 88);
+    } else if (sad) {
+        VnLine(img, kVnPortraitW, kVnPortraitH, 146, 232, 160, 226, 2.5f, 150, 76, 88);
+        VnLine(img, kVnPortraitW, kVnPortraitH, 160, 226, 174, 232, 2.5f, 150, 76, 88);
+    } else {
+        VnLine(img, kVnPortraitW, kVnPortraitH, 151, 227, 169, 227, 2.5f, 150, 76, 88);
+    }
+    if (blush || smile) {
+        const float ba = blush ? 0.55f : 0.25f;
+        VnEllipse(img, kVnPortraitW, kVnPortraitH, 112, 212, 16.0f, 9.0f, 244, 152, 148, ba);
+        VnEllipse(img, kVnPortraitW, kVnPortraitH, 208, 212, 16.0f, 9.0f, 244, 152, 148, ba);
+    }
+
+    // --- accessories and front hair tails -----------------------------------
+    if (st.style == 0) {
+        VnEllipse(img, kVnPortraitW, kVnPortraitH, 247, 205, 9.0f, 7.0f, 210, 70, 76);
+        VnEllipse(img, kVnPortraitW, kVnPortraitH, 258, 250, 20.0f, 42.0f, hr, hg, hb);
+    } else if (st.style == 1) {
+        // Rectangular lens frames (no line through the iris) and long side hair.
+        VnLine(img, kVnPortraitW, kVnPortraitH, 106, 176, 151, 176, 2.0f,
+               ink_r, ink_g, ink_b, 0.55f);
+        VnLine(img, kVnPortraitW, kVnPortraitH, 106, 204, 151, 204, 2.0f,
+               ink_r, ink_g, ink_b, 0.55f);
+        VnLine(img, kVnPortraitW, kVnPortraitH, 106, 176, 106, 204, 2.0f,
+               ink_r, ink_g, ink_b, 0.55f);
+        VnLine(img, kVnPortraitW, kVnPortraitH, 151, 176, 151, 204, 2.0f,
+               ink_r, ink_g, ink_b, 0.55f);
+        VnLine(img, kVnPortraitW, kVnPortraitH, 169, 176, 214, 176, 2.0f,
+               ink_r, ink_g, ink_b, 0.55f);
+        VnLine(img, kVnPortraitW, kVnPortraitH, 169, 204, 214, 204, 2.0f,
+               ink_r, ink_g, ink_b, 0.55f);
+        VnLine(img, kVnPortraitW, kVnPortraitH, 169, 176, 169, 204, 2.0f,
+               ink_r, ink_g, ink_b, 0.55f);
+        VnLine(img, kVnPortraitW, kVnPortraitH, 214, 176, 214, 204, 2.0f,
+               ink_r, ink_g, ink_b, 0.55f);
+        VnLine(img, kVnPortraitW, kVnPortraitH, 151, 190, 169, 190, 2.0f,
+               ink_r, ink_g, ink_b, 0.55f);
+        VnEllipse(img, kVnPortraitW, kVnPortraitH, 72, 330, 24.0f, 105.0f, hr, hg, hb);
+        VnEllipse(img, kVnPortraitW, kVnPortraitH, 248, 330, 24.0f, 105.0f, hr, hg, hb);
+        VnEllipse(img, kVnPortraitW, kVnPortraitH, 80, 280, 14.0f, 20.0f, hr, hg, hb, 0.8f);
+        VnEllipse(img, kVnPortraitW, kVnPortraitH, 240, 280, 14.0f, 20.0f, hr, hg, hb, 0.8f);
+    } else if (st.style == 2) {
+        VnEllipse(img, kVnPortraitW, kVnPortraitH, 44, 300, 30.0f, 100.0f, hr, hg, hb, 0.95f);
+        VnEllipse(img, kVnPortraitW, kVnPortraitH, 276, 300, 30.0f, 100.0f, hr, hg, hb, 0.95f);
+        VnEllipse(img, kVnPortraitW, kVnPortraitH, 54, 295, 10.0f, 8.0f, st.ribbon_r,
+                  st.ribbon_g, st.ribbon_b);
+        VnEllipse(img, kVnPortraitW, kVnPortraitH, 266, 295, 10.0f, 8.0f, st.ribbon_r,
+                  st.ribbon_g, st.ribbon_b);
+        VnEllipse(img, kVnPortraitW, kVnPortraitH, 212, 96, 8.0f, 8.0f, 250, 220, 120, 1.0f);
+    } else {
+        VnEllipse(img, kVnPortraitW, kVnPortraitH, 58, 340, 26.0f, 110.0f, hr, hg, hb, 0.95f);
+        VnEllipse(img, kVnPortraitW, kVnPortraitH, 262, 340, 26.0f, 110.0f, hr, hg, hb, 0.95f);
+        VnEllipse(img, kVnPortraitW, kVnPortraitH, 226, 112, 12.0f, 8.0f, st.ribbon_r,
+                  st.ribbon_g, st.ribbon_b);
+        VnEllipse(img, kVnPortraitW, kVnPortraitH, 246, 120, 8.0f, 6.0f, st.ribbon_r,
+                  st.ribbon_g, st.ribbon_b);
+    }
+}
+
+void EnsureVnAssets(bool regen) {
+    const std::filesystem::path dir = "assets/vn";
+    std::error_code ec;
+    std::filesystem::create_directories(dir / "bg", ec);
+    std::filesystem::create_directories(dir / "portraits", ec);
+
+    static const char *kBgNames[] = {"gate", "classroom", "library", "gym",
+                                     "park", "cafe", "rooftop", "festival"};
+    for (int i = 0; i < 8; ++i) {
+        const std::filesystem::path path = dir / "bg" / (std::string(kBgNames[i]) + ".png");
+        if (regen || !std::filesystem::exists(path)) {
+            std::vector<std::uint8_t> px(kVnBgW * kVnBgH * 4, 0);
+            PaintVnBackground(px.data(), i);
+            stbi_write_png(path.string().c_str(), kVnBgW, kVnBgH, 4, px.data(),
+                           kVnBgW * 4);
+        }
+    }
+    static const char *kGirlNames[] = {"linxia", "suqing", "guyu", "tangxin"};
+    static const char *kExprNames[] = {"neutral", "smile", "blush", "sad"};
+    for (int g = 0; g < 4; ++g) {
+        for (int e = 0; e < 4; ++e) {
+            const std::filesystem::path path =
+                dir / "portraits" /
+                (std::string(kGirlNames[g]) + "_" + kExprNames[e] + ".png");
+            if (regen || !std::filesystem::exists(path)) {
+                std::vector<std::uint8_t> px(kVnPortraitW * kVnPortraitH * 4, 0);
+                PaintVnPortrait(px.data(), g, e);
+                stbi_write_png(path.string().c_str(), kVnPortraitW, kVnPortraitH, 4,
+                               px.data(), kVnPortraitW * 4);
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -284,6 +2063,104 @@ void EnsureBeatEmUpAudio(fake2d::AudioEngine &audio) {
                   MakeArpeggio({196.0f, 246.94f, 293.66f, 392.0f,
                                 329.63f, 293.66f, 246.94f, 329.63f},
                                0.20f, 0.18f));
+}
+
+/// Shmup SFX and the looping stage theme (synthesized, no binary audio).
+void EnsureShmupAudio(fake2d::AudioEngine &audio) {
+    audio.AddClip("shoot", MakeTone(1150.0f, 620.0f, 0.035f, 0, 0.16f, 30.0f));
+    audio.AddClip("laser", MakeTone(1500.0f, 900.0f, 0.05f, 0, 0.14f, 24.0f));
+    audio.AddClip("missile", MakeTone(300.0f, 900.0f, 0.08f, 2, 0.12f, 14.0f));
+    audio.AddClip("enemy_shot", MakeTone(420.0f, 250.0f, 0.07f, 1, 0.18f, 16.0f));
+    audio.AddClip("hit", MakeTone(980.0f, 620.0f, 0.03f, 1, 0.20f, 32.0f));
+    audio.AddClip("boom", MakeTone(180.0f, 45.0f, 0.32f, 2, 0.45f, 6.0f));
+    audio.AddClip("bomb", MakeTone(260.0f, 50.0f, 0.50f, 2, 0.50f, 3.0f));
+    audio.AddClip("power", MakeArpeggio({660.0f, 990.0f, 1320.0f}, 0.06f, 0.28f));
+    audio.AddClip("boss", MakeArpeggio({110.0f, 82.0f, 110.0f, 73.0f}, 0.18f, 0.35f));
+    audio.AddClip("shmup_theme",
+                  MakeArpeggio({196.0f, 246.94f, 293.66f, 392.0f,
+                                329.63f, 293.66f, 246.94f, 329.63f},
+                               0.16f, 0.16f));
+}
+
+/// Snooker table SFX: a soft cue thock, ball clicks, cushion thud, pocket
+/// drop plus pot / foul / frame stingers.
+void EnsureSnookerAudio(fake2d::AudioEngine &audio) {
+    audio.AddClip("cue", MakeTone(520.0f, 170.0f, 0.055f, 2, 0.38f, 16.0f));
+    audio.AddClip("click", MakeTone(1500.0f, 900.0f, 0.03f, 0, 0.15f, 30.0f));
+    audio.AddClip("cushion", MakeTone(280.0f, 150.0f, 0.06f, 0, 0.20f, 18.0f));
+    audio.AddClip("pocket", MakeTone(190.0f, 55.0f, 0.28f, 2, 0.32f, 5.0f));
+    audio.AddClip("pot", MakeArpeggio({523.25f, 659.25f, 880.0f}, 0.06f, 0.22f));
+    audio.AddClip("foul", MakeArpeggio({330.0f, 262.0f, 196.0f}, 0.11f, 0.20f));
+    audio.AddClip("frame", MakeArpeggio({523.25f, 659.25f, 783.99f, 1046.5f}, 0.10f, 0.30f));
+}
+
+/// Run-and-gun SFX: four weapon reports, hits, booms, death, pickup, boss and
+/// the stage-clear fanfare, plus a looping march-like theme.
+void EnsureContraAudio(fake2d::AudioEngine &audio) {
+    audio.AddClip("rifle", MakeTone(1000.0f, 420.0f, 0.045f, 1, 0.22f, 26.0f));
+    audio.AddClip("mg", MakeTone(900.0f, 500.0f, 0.032f, 1, 0.17f, 30.0f));
+    audio.AddClip("spread", MakeTone(620.0f, 300.0f, 0.060f, 1, 0.20f, 20.0f));
+    audio.AddClip("laser", MakeTone(1600.0f, 700.0f, 0.090f, 0, 0.18f, 18.0f));
+    audio.AddClip("ehit", MakeTone(500.0f, 1100.0f, 0.040f, 0, 0.16f, 20.0f));
+    audio.AddClip("jump2", MakeTone(280.0f, 620.0f, 0.090f, 0, 0.25f, 12.0f));
+    audio.AddClip("enemy", MakeTone(420.0f, 210.0f, 0.070f, 1, 0.15f, 18.0f));
+    audio.AddClip("boom", MakeTone(220.0f, 45.0f, 0.350f, 2, 0.50f, 5.0f));
+    audio.AddClip("death", MakeArpeggio({330.0f, 262.0f, 196.0f, 131.0f}, 0.12f, 0.30f));
+    audio.AddClip("pickup", MakeArpeggio({660.0f, 880.0f, 1320.0f}, 0.06f, 0.30f));
+    audio.AddClip("boss", MakeArpeggio({110.0f, 82.0f, 110.0f, 73.0f}, 0.20f, 0.35f));
+    audio.AddClip("clear", MakeArpeggio({523.25f, 659.25f, 783.99f, 1046.5f}, 0.12f, 0.35f));
+    audio.AddClip("contra_theme",
+                  MakeArpeggio({262.0f, 262.0f, 330.0f, 262.0f,
+                                392.0f, 330.0f, 262.0f, 196.0f},
+                               0.15f, 0.20f));
+}
+
+/// City-builder SFX: tool placement, zoning, demolition, an invalid click and
+/// a monthly budget chime, plus a slow looping city theme.
+void EnsureCityAudio(fake2d::AudioEngine &audio) {
+    audio.AddClip("city_build", MakeTone(760.0f, 460.0f, 0.055f, 1, 0.24f, 20.0f));
+    audio.AddClip("city_zone", MakeTone(480.0f, 720.0f, 0.070f, 0, 0.22f, 16.0f));
+    audio.AddClip("city_bulldoze", MakeTone(300.0f, 95.0f, 0.140f, 2, 0.30f, 8.0f));
+    audio.AddClip("city_error", MakeTone(240.0f, 170.0f, 0.120f, 1, 0.22f, 12.0f));
+    audio.AddClip("city_month", MakeArpeggio({659.25f, 783.99f, 987.77f}, 0.055f, 0.18f));
+    audio.AddClip("city_power", MakeArpeggio({220.0f, 329.63f, 440.0f}, 0.080f, 0.24f));
+    audio.AddClip("city_theme",
+                  MakeArpeggio({196.0f, 246.94f, 293.66f, 349.23f,
+                                293.66f, 246.94f, 220.0f, 196.0f},
+                               0.24f, 0.14f));
+}
+
+/// RTS SFX: placement / completion / unit-ready chimes, harvesting cash,
+/// rifle, cannon, rocket, explosion, base alarm and a looping march.
+void EnsureRtsAudio(fake2d::AudioEngine &audio) {
+    audio.AddClip("rts_build", MakeTone(520.0f, 300.0f, 0.09f, 2, 0.30f, 10.0f));
+    audio.AddClip("rts_done", MakeArpeggio({523.25f, 783.99f}, 0.06f, 0.26f));
+    audio.AddClip("rts_ready", MakeArpeggio({392.0f, 523.25f, 659.25f}, 0.05f, 0.30f));
+    audio.AddClip("rts_cash", MakeArpeggio({880.0f, 1174.7f, 1568.0f}, 0.04f, 0.24f));
+    audio.AddClip("rts_rifle", MakeTone(1150.0f, 500.0f, 0.035f, 1, 0.18f, 28.0f));
+    audio.AddClip("rts_cannon", MakeTone(220.0f, 70.0f, 0.18f, 2, 0.40f, 8.0f));
+    audio.AddClip("rts_rocket", MakeTone(700.0f, 1100.0f, 0.08f, 0, 0.20f, 16.0f));
+    audio.AddClip("rts_boom", MakeTone(160.0f, 42.0f, 0.42f, 2, 0.55f, 4.0f));
+    audio.AddClip("rts_alarm", MakeArpeggio({440.0f, 330.0f, 440.0f, 330.0f}, 0.09f, 0.28f));
+    audio.AddClip("rts_theme",
+                  MakeArpeggio({261.63f, 293.66f, 329.63f, 392.0f,
+                                329.63f, 293.66f, 261.63f, 220.0f},
+                               0.18f, 0.14f));
+}
+
+/// Visual-novel SFX: dialogue blips, choice clicks, affection chimes and a
+/// gentle looping piano-like theme.
+void EnsureVnAudio(fake2d::AudioEngine &audio) {
+    audio.AddClip("vn_blip", MakeTone(640.0f, 760.0f, 0.022f, 0, 0.10f, 30.0f));
+    audio.AddClip("vn_click", MakeTone(520.0f, 860.0f, 0.055f, 0, 0.22f, 18.0f));
+    audio.AddClip("vn_choice", MakeTone(420.0f, 620.0f, 0.050f, 1, 0.20f, 18.0f));
+    audio.AddClip("vn_aff", MakeArpeggio({659.25f, 783.99f, 987.77f}, 0.055f, 0.24f));
+    audio.AddClip("vn_heart", MakeArpeggio({523.25f, 659.25f, 783.99f, 1046.5f}, 0.07f, 0.28f));
+    audio.AddClip("vn_sad", MakeArpeggio({392.0f, 329.63f, 261.63f, 196.0f}, 0.11f, 0.22f));
+    audio.AddClip("vn_theme",
+                  MakeArpeggio({261.63f, 329.63f, 392.0f, 523.25f,
+                                392.0f, 329.63f, 293.66f, 261.63f},
+                               0.20f, 0.12f));
 }
 
 /// Two looping themes for --audio-demo, so the cross-fade has something to
@@ -2289,6 +4166,453 @@ int RunCombatTest(fake2d::Engine &engine) {
     }
 
     std::printf("[combat] %s: %d checks, %d failures\n",
+                failures == 0 ? "PASS" : "FAILED", checks, failures);
+    return failures == 0 ? 0 : 1;
+}
+
+// Shmup asset self-test (Phase 37): every sprite sheet, background layer and
+// the nearest-filter loader the vertical shooter depends on.
+int RunShmupTest(fake2d::Engine &engine) {
+    int failures = 0;
+    int checks = 0;
+    auto check = [&](bool ok, const char *what) {
+        ++checks;
+        if (!ok) {
+            ++failures;
+            std::printf("[shmup] FAIL %s\n", what);
+        }
+    };
+
+    struct Asset {
+        const char *path;
+        int width;
+        int height;
+    };
+    static const Asset kAssets[] = {
+        {"assets/shmup/ship.png", 80, 48},
+        {"assets/shmup/enemy-small.png", 32, 16},
+        {"assets/shmup/enemy-medium.png", 64, 16},
+        {"assets/shmup/enemy-big.png", 64, 32},
+        {"assets/shmup/explosion.png", 80, 16},
+        {"assets/shmup/laser-bolts.png", 32, 32},
+        {"assets/shmup/power-up.png", 32, 32},
+        {"assets/shmup/bg/desert.png", 256, 608},
+        {"assets/shmup/bg/clouds.png", 256, 103},
+    };
+
+    auto &resources = engine.GetResources();
+    for (const Asset &asset : kAssets) {
+        const fake2d::TextureHandle handle = resources.LoadTexture(
+            asset.path, fake2d::TextureFilter::Nearest);
+        const fake2d::Texture2D *texture = resources.GetTexture(handle);
+        const bool ok = texture != nullptr &&
+                        texture->Width() == asset.width &&
+                        texture->Height() == asset.height;
+        check(ok, asset.path);
+        if (handle != fake2d::kInvalidTextureHandle) {
+            resources.Release(handle);
+        }
+    }
+
+    check(resources.LoadTexture("assets/shmup/does-not-exist.png",
+                                fake2d::TextureFilter::Nearest) ==
+              fake2d::kInvalidTextureHandle,
+          "missing shmup asset is rejected");
+
+    std::printf("[shmup] %s: %d checks, %d failures\n",
+                failures == 0 ? "PASS" : "FAILED", checks, failures);
+    return failures == 0 ? 0 : 1;
+}
+
+// Snooker sprite self-test (Phase 38): the generated shaded ball sprite must
+// exist at 64x64, be lit in the centre, transparent in the corners and load
+// through both filters; white.png and missing-file handling are checked too.
+int RunSnookerTest(fake2d::Engine &engine) {
+    int failures = 0;
+    int checks = 0;
+    auto check = [&](bool ok, const char *what) {
+        ++checks;
+        if (!ok) {
+            ++failures;
+            std::printf("[snooker] FAIL %s\n", what);
+        }
+    };
+
+    EnsureSnookerAssets();
+
+    auto &resources = engine.GetResources();
+    const fake2d::TextureHandle ball = resources.LoadTexture(
+        "assets/snooker/ball.png", fake2d::TextureFilter::Linear);
+    const fake2d::Texture2D *ball_tex = resources.GetTexture(ball);
+    check(ball_tex != nullptr, "ball sprite loads");
+    check(ball_tex != nullptr && ball_tex->Width() == 64 &&
+              ball_tex->Height() == 64, "ball sprite is 64x64");
+
+    const fake2d::TextureHandle white = resources.LoadTexture(
+        "assets/white.png", fake2d::TextureFilter::Nearest);
+    const fake2d::Texture2D *white_tex = resources.GetTexture(white);
+    check(white_tex != nullptr && white_tex->Width() == 1 &&
+              white_tex->Height() == 1, "white texel is 1x1");
+
+    int w = 0;
+    int h = 0;
+    int comp = 0;
+    unsigned char *pixels = stbi_load("assets/snooker/ball.png", &w, &h, &comp, 4);
+    check(pixels != nullptr, "ball PNG decodes");
+    if (pixels != nullptr) {
+        check(w == 64 && h == 64, "decoded ball is 64x64");
+        const unsigned char *centre = pixels + (32 * 64 + 32) * 4;
+        check(centre[3] >= 250, "centre is opaque");
+        check(centre[0] >= 180, "centre is lit");
+        const unsigned char *corner = pixels + (1 * 64 + 1) * 4;
+        check(corner[3] == 0, "corner is transparent");
+        const unsigned char *rim = pixels + (32 * 64 + 2) * 4;
+        check(rim[3] > 0 && rim[0] < centre[0], "rim is darker than centre");
+        stbi_image_free(pixels);
+    }
+
+    check(resources.LoadTexture("assets/snooker/does-not-exist.png",
+                                fake2d::TextureFilter::Linear) ==
+              fake2d::kInvalidTextureHandle,
+          "missing snooker asset is rejected");
+
+    std::printf("[snooker] %s: %d checks, %d failures\n",
+                failures == 0 ? "PASS" : "FAILED", checks, failures);
+    return failures == 0 ? 0 : 1;
+}
+
+// Run-and-gun art self-test (Phase 39): both soldier strips, the explosion
+// sheet and the generated moon/glow discs (with alpha probes).
+int RunContraTest(fake2d::Engine &engine) {
+    int failures = 0;
+    int checks = 0;
+    auto check = [&](bool ok, const char *what) {
+        ++checks;
+        if (!ok) {
+            ++failures;
+            std::printf("[contra] FAIL %s\n", what);
+        }
+    };
+
+    EnsureContraAssets();
+
+    struct Asset {
+        const char *path;
+        int width;
+        int height;
+    };
+    static const Asset kAssets[] = {
+        {"assets/brawler/NES_Soldier_Walk_1_strip4.png", 64, 32},
+        {"assets/brawler/NES_Soldier_Idle_1_strip4.png", 64, 32},
+        {"assets/brawler/NES_Soldier_Hurt.png", 16, 32},
+        {"assets/brawler/Renegade_Walk_1_strip4.png", 64, 32},
+        {"assets/contra/explosion.png", 80, 16},
+        {"assets/contra/moon.png", 64, 64},
+        {"assets/contra/glow.png", 64, 64},
+    };
+
+    auto &resources = engine.GetResources();
+    for (const Asset &asset : kAssets) {
+        const fake2d::TextureHandle handle = resources.LoadTexture(
+            asset.path, fake2d::TextureFilter::Nearest);
+        const fake2d::Texture2D *texture = resources.GetTexture(handle);
+        check(texture != nullptr && texture->Width() == asset.width &&
+                  texture->Height() == asset.height, asset.path);
+        if (handle != fake2d::kInvalidTextureHandle) {
+            resources.Release(handle);
+        }
+    }
+
+    int w = 0;
+    int h = 0;
+    int comp = 0;
+    unsigned char *moon = stbi_load("assets/contra/moon.png", &w, &h, &comp, 4);
+    check(moon != nullptr, "moon PNG decodes");
+    if (moon != nullptr) {
+        const unsigned char *centre = moon + (32 * 64 + 32) * 4;
+        const unsigned char *corner = moon + (1 * 64 + 1) * 4;
+        check(centre[3] >= 250, "moon centre is opaque");
+        check(corner[3] == 0, "moon corner is transparent");
+        stbi_image_free(moon);
+    }
+
+    unsigned char *glow = stbi_load("assets/contra/glow.png", &w, &h, &comp, 4);
+    check(glow != nullptr, "glow PNG decodes");
+    if (glow != nullptr) {
+        const unsigned char *centre = glow + (32 * 64 + 32) * 4;
+        const unsigned char *corner = glow + (1 * 64 + 1) * 4;
+        check(centre[3] >= 180, "glow centre is bright");
+        check(corner[3] == 0, "glow corner is transparent");
+        stbi_image_free(glow);
+    }
+
+    check(resources.LoadTexture("assets/contra/does-not-exist.png",
+                                fake2d::TextureFilter::Nearest) ==
+              fake2d::kInvalidTextureHandle,
+          "missing contra asset is rejected");
+
+    std::printf("[contra] %s: %d checks, %d failures\n",
+                failures == 0 ? "PASS" : "FAILED", checks, failures);
+    return failures == 0 ? 0 : 1;
+}
+
+// City-builder asset self-test (Phase 40): the generated terrain tileset, the
+// building atlas (alpha/shape probes) and the generated Tiled base map.
+int RunCityTest(fake2d::Engine &engine) {
+    int failures = 0;
+    int checks = 0;
+    auto check = [&](bool ok, const char *what) {
+        ++checks;
+        if (!ok) {
+            ++failures;
+            std::printf("[city] FAIL %s\n", what);
+        }
+    };
+
+    EnsureCityAssets(false);
+
+    struct Asset {
+        const char *path;
+        int width;
+        int height;
+    };
+    static const Asset kAssets[] = {
+        {"assets/city/city_tiles.png", 192, 64},
+        {"assets/city/buildings.png", 128, 384},
+    };
+    auto &resources = engine.GetResources();
+    for (const Asset &asset : kAssets) {
+        const fake2d::TextureHandle handle = resources.LoadTexture(
+            asset.path, fake2d::TextureFilter::Nearest);
+        const fake2d::Texture2D *texture = resources.GetTexture(handle);
+        check(texture != nullptr && texture->Width() == asset.width &&
+                  texture->Height() == asset.height, asset.path);
+        if (handle != fake2d::kInvalidTextureHandle) {
+            resources.Release(handle);
+        }
+    }
+
+    // The building atlas must be transparent outside the silhouette and
+    // opaque on the wall, roof and tree pixels.
+    int w = 0;
+    int h = 0;
+    int comp = 0;
+    unsigned char *buildings =
+        stbi_load("assets/city/buildings.png", &w, &h, &comp, 4);
+    check(buildings != nullptr && w == 128 && h == 384, "building atlas decodes");
+    if (buildings != nullptr) {
+        auto px = [&](int x, int y) {
+            return buildings + (static_cast<size_t>(y) * w + x) * 4;
+        };
+        check(px(0, 0)[3] == 0, "residential frame corner is transparent");
+        check(px(16, 50)[3] >= 200, "residential level 1 wall is opaque");
+        check(px(80, 94)[3] >= 200, "commercial level 3 tower is opaque");
+        check(px(85, 158)[3] >= 200, "industrial smokestack is opaque");
+        check(px(16, 238)[3] >= 200, "park tree patch is opaque");
+        check(px(24, 276)[3] >= 200, "power plant chimney is opaque");
+        stbi_image_free(buildings);
+    }
+
+    const int map_id = engine.GetTilemaps().Load("assets/city/city_map.json",
+                                                 resources);
+    const fake2d::Tilemap *map = engine.GetTilemaps().Get(map_id);
+    check(map != nullptr, "city base map loads");
+    if (map != nullptr) {
+        check(map->Cols() == kCityMapCols && map->Rows() == kCityMapRows,
+              "city base map is 56x42 cells");
+        check(map->TileWidth() == kCityTile && map->TileHeight() == kCityTile,
+              "city tiles are 32x32 pixels");
+        check(map->GidAt(0, 0, 21) == 5, "west entrance is a road");
+        check(map->GidAt(0, 8, 21) == 5, "starter cross road exists");
+        check(map->GidAt(0, 44, 13) == 3, "north-east lake is water");
+        check(map->GidAt(0, 0, 0) == 1 || map->GidAt(0, 0, 0) == 2 ||
+                  map->GidAt(0, 0, 0) == 11,
+              "corner terrain is grass or forest");
+    }
+    engine.GetTilemaps().Destroy(map_id);
+
+    check(resources.LoadTexture("assets/city/does-not-exist.png",
+                                fake2d::TextureFilter::Nearest) ==
+              fake2d::kInvalidTextureHandle,
+          "missing city asset is rejected");
+
+    std::printf("[city] %s: %d checks, %d failures\n",
+                failures == 0 ? "PASS" : "FAILED", checks, failures);
+    return failures == 0 ? 0 : 1;
+}
+
+// RTS asset self-test (Phase 41): terrain tileset, four unit sprites, six
+// building sprites, alpha/shape probes and the generated 64x48 battle map.
+int RunRtsTest(fake2d::Engine &engine) {
+    int failures = 0;
+    int checks = 0;
+    auto check = [&](bool ok, const char *what) {
+        ++checks;
+        if (!ok) {
+            ++failures;
+            std::printf("[rts] FAIL %s\n", what);
+        }
+    };
+
+    EnsureRtsAssets(false);
+
+    struct Asset {
+        const char *path;
+        int width;
+        int height;
+    };
+    static const Asset kAssets[] = {
+        {"assets/rts/tiles.png", 192, 64},
+        {"assets/rts/units/infantry.png", 32, 32},
+        {"assets/rts/units/rocket.png", 32, 32},
+        {"assets/rts/units/tank.png", 32, 32},
+        {"assets/rts/units/harvester.png", 32, 32},
+        {"assets/rts/buildings/cy.png", 64, 64},
+        {"assets/rts/buildings/power.png", 64, 64},
+        {"assets/rts/buildings/barracks.png", 64, 64},
+        {"assets/rts/buildings/factory.png", 64, 64},
+        {"assets/rts/buildings/refinery.png", 64, 64},
+        {"assets/rts/buildings/turret.png", 64, 64},
+    };
+    auto &resources = engine.GetResources();
+    for (const Asset &asset : kAssets) {
+        const fake2d::TextureHandle handle = resources.LoadTexture(
+            asset.path, fake2d::TextureFilter::Nearest);
+        const fake2d::Texture2D *texture = resources.GetTexture(handle);
+        check(texture != nullptr && texture->Width() == asset.width &&
+                  texture->Height() == asset.height, asset.path);
+        if (handle != fake2d::kInvalidTextureHandle) {
+            resources.Release(handle);
+        }
+    }
+
+    int w = 0;
+    int h = 0;
+    int comp = 0;
+    unsigned char *inf = stbi_load("assets/rts/units/infantry.png", &w, &h, &comp, 4);
+    check(inf != nullptr && w == 32 && h == 32, "infantry sprite decodes");
+    if (inf != nullptr) {
+        const unsigned char *centre = inf + (15 * 32 + 15) * 4;
+        const unsigned char *corner = inf + (1 * 32 + 1) * 4;
+        check(centre[3] >= 200, "infantry helmet is opaque");
+        check(corner[3] == 0, "infantry sprite corner is transparent");
+        stbi_image_free(inf);
+    }
+    unsigned char *tank = stbi_load("assets/rts/units/tank.png", &w, &h, &comp, 4);
+    check(tank != nullptr, "tank sprite decodes");
+    if (tank != nullptr) {
+        const unsigned char *barrel = tank + (4 * 32 + 16) * 4;
+        check(barrel[3] >= 200, "tank barrel is opaque");
+        stbi_image_free(tank);
+    }
+    unsigned char *cy = stbi_load("assets/rts/buildings/cy.png", &w, &h, &comp, 4);
+    check(cy != nullptr && w == 64 && h == 64, "construction yard decodes");
+    if (cy != nullptr) {
+        const unsigned char *centre = cy + (34 * 64 + 32) * 4;
+        const unsigned char *corner = cy + (1 * 64 + 1) * 4;
+        check(centre[3] >= 200, "construction yard body is opaque");
+        check(corner[3] == 0, "building sprite corner is transparent");
+        stbi_image_free(cy);
+    }
+
+    const int map_id = engine.GetTilemaps().Load("assets/rts/map.json", resources);
+    const fake2d::Tilemap *map = engine.GetTilemaps().Get(map_id);
+    check(map != nullptr, "RTS battle map loads");
+    if (map != nullptr) {
+        check(map->Cols() == kRtsMapCols && map->Rows() == kRtsMapRows,
+              "RTS map is 64x48 cells");
+        check(map->GidAt(0, 9, 33) == 8, "player construction yard sits on concrete");
+        check(map->GidAt(0, 24, 32) == 6, "player ore field is rich ore");
+        check(map->GidAt(0, 4, 3) == 5, "north-west lake is water");
+        check(map->SolidAt(4, 3), "water is marked solid");
+        check(!map->SolidAt(9, 33), "base concrete is walkable");
+    }
+    engine.GetTilemaps().Destroy(map_id);
+
+    check(resources.LoadTexture("assets/rts/does-not-exist.png",
+                                fake2d::TextureFilter::Nearest) ==
+              fake2d::kInvalidTextureHandle,
+          "missing RTS asset is rejected");
+
+    std::printf("[rts] %s: %d checks, %d failures\n",
+                failures == 0 ? "PASS" : "FAILED", checks, failures);
+    return failures == 0 ? 0 : 1;
+}
+
+// Visual-novel art self-test (Phase 42): eight painted backgrounds, sixteen
+// heroine portraits and the alpha/shape probes the dialogue view relies on.
+int RunVnTest(fake2d::Engine &engine) {
+    int failures = 0;
+    int checks = 0;
+    auto check = [&](bool ok, const char *what) {
+        ++checks;
+        if (!ok) {
+            ++failures;
+            std::printf("[vn] FAIL %s\n", what);
+        }
+    };
+
+    EnsureVnAssets(false);
+
+    static const char *kBgNames[] = {"gate", "classroom", "library", "gym",
+                                     "park", "cafe", "rooftop", "festival"};
+    struct Asset {
+        std::string path;
+        int width;
+        int height;
+    };
+    std::vector<Asset> assets;
+    for (const char *bg : kBgNames) {
+        assets.push_back({"assets/vn/bg/" + std::string(bg) + ".png", 960, 540});
+    }
+    static const char *kGirlNames[] = {"linxia", "suqing", "guyu", "tangxin"};
+    static const char *kExprNames[] = {"neutral", "smile", "blush", "sad"};
+    for (const char *g : kGirlNames) {
+        for (const char *e : kExprNames) {
+            assets.push_back({"assets/vn/portraits/" + std::string(g) + "_" +
+                                  std::string(e) + ".png", 320, 480});
+        }
+    }
+    auto &resources = engine.GetResources();
+    for (const Asset &asset : assets) {
+        const fake2d::TextureHandle handle = resources.LoadTexture(
+            asset.path, fake2d::TextureFilter::Linear);
+        const fake2d::Texture2D *texture = resources.GetTexture(handle);
+        check(texture != nullptr && texture->Width() == asset.width &&
+                  texture->Height() == asset.height, asset.path.c_str());
+        if (handle != fake2d::kInvalidTextureHandle) {
+            resources.Release(handle);
+        }
+    }
+
+    int w = 0;
+    int h = 0;
+    int comp = 0;
+    unsigned char *bg = stbi_load("assets/vn/bg/gate.png", &w, &h, &comp, 4);
+    check(bg != nullptr && w == 960 && h == 540, "school gate decodes");
+    if (bg != nullptr) {
+        const unsigned char *sky = bg + (10 * 960 + 10) * 4;
+        const unsigned char *path = bg + (500 * 960 + 470) * 4;
+        check(sky[3] == 255, "background sky is opaque");
+        check(path[3] == 255, "background path is opaque");
+        stbi_image_free(bg);
+    }
+    unsigned char *face = stbi_load("assets/vn/portraits/linxia_neutral.png", &w, &h, &comp, 4);
+    check(face != nullptr && w == 320 && h == 480, "heroine portrait decodes");
+    if (face != nullptr) {
+        const unsigned char *skin = face + (180 * 320 + 160) * 4;
+        const unsigned char *corner = face + (1 * 320 + 1) * 4;
+        check(skin[3] >= 200, "portrait face is opaque");
+        check(corner[3] == 0, "portrait corner is transparent");
+        stbi_image_free(face);
+    }
+
+    check(resources.LoadTexture("assets/vn/does-not-exist.png",
+                                fake2d::TextureFilter::Linear) ==
+              fake2d::kInvalidTextureHandle,
+          "missing VN asset is rejected");
+
+    std::printf("[vn] %s: %d checks, %d failures\n",
                 failures == 0 ? "PASS" : "FAILED", checks, failures);
     return failures == 0 ? 0 : 1;
 }
@@ -6875,6 +9199,18 @@ int main(int argc, char **argv) {
     bool audio_test = false;
     bool combat_test = false;
     bool beat_demo = false;
+    bool shmup_test = false;
+    bool shmup_demo = false;
+    bool snooker_test = false;
+    bool snooker_demo = false;
+    bool contra_test = false;
+    bool contra_demo = false;
+    bool city_test = false;
+    bool city_demo = false;
+    bool rts_test = false;
+    bool rts_demo = false;
+    bool vn_test = false;
+    bool vn_demo = false;
     int max_frames = 0;
     int shot_frame = 30;
     int shot_min_colors = 0;
@@ -6962,6 +9298,36 @@ int main(int argc, char **argv) {
             // attacks with hit-stop, wave waves and a boss.
             beat_demo = true;
             cfg.script_entry = "scripts/beat_em_up_demo.lua";
+        } else if (arg == "--shmup-demo") {
+            // Vertical shoot'em up: scrolling desert, weapon upgrades, bombs,
+            // fighter waves and a multi-pattern boss.
+            shmup_demo = true;
+            cfg.script_entry = "scripts/shmup_demo.lua";
+        } else if (arg == "--snooker-demo") {
+            // Snooker: substepped billiards physics, spin, pockets and a
+            // two-player frame with simplified rules.
+            snooker_demo = true;
+            cfg.script_entry = "scripts/snooker_demo.lua";
+        } else if (arg == "--contra-demo") {
+            // Run-and-gun: a jungle stage, 8-way aiming, weapon pickups,
+            // turrets, flying capsules and a fortress boss.
+            contra_demo = true;
+            cfg.script_entry = "scripts/contra_demo.lua";
+        } else if (arg == "--city-demo") {
+            // City builder: zone, road and power placement on a generated
+            // 56x42 map, with a monthly economy and an attract mayor AI.
+            city_demo = true;
+            cfg.script_entry = "scripts/city_demo.lua";
+        } else if (arg == "--rts-demo") {
+            // Red Alert-style RTS: bases, harvesters, tanks, infantry and
+            // an enemy commander on a 64x48 battle map.
+            rts_demo = true;
+            cfg.script_entry = "scripts/rts_demo.lua";
+        } else if (arg == "--vn-demo") {
+            // Tokimeki-style dating sim: portraits, backgrounds, branching
+            // dialogue, a daily schedule and four heroines.
+            vn_demo = true;
+            cfg.script_entry = "scripts/vn_demo.lua";
         } else if (arg == "--screenshot" && i + 1 < argc) {
             screenshot = argv[++i];
         } else if (arg == "--shot-frame" && i + 1 < argc) {
@@ -7102,6 +9468,48 @@ int main(int argc, char **argv) {
             cfg.headless = true;
             cfg.script_entry.clear();
             cfg.vsync = false;
+        } else if (arg == "--shmup-test") {
+            // Self-test of the shooter art pipeline: sprite sheet dimensions,
+            // nearest-filter loading and missing-file handling.
+            shmup_test = true;
+            cfg.headless = true;
+            cfg.script_entry.clear();
+            cfg.vsync = false;
+        } else if (arg == "--snooker-test") {
+            // Self-test of the snooker sprite pipeline: the generated shaded
+            // ball at 64x64, alpha/shading probes and loader rejection.
+            snooker_test = true;
+            cfg.headless = true;
+            cfg.script_entry.clear();
+            cfg.vsync = false;
+        } else if (arg == "--contra-test") {
+            // Self-test of the run-and-gun art: soldier strips, explosion
+            // sheet, moon/glow alpha probes and loader rejection.
+            contra_test = true;
+            cfg.headless = true;
+            cfg.script_entry.clear();
+            cfg.vsync = false;
+        } else if (arg == "--city-test") {
+            // Self-test of the city-builder scaffolding: tileset/building atlas
+            // dimensions, alpha probes, and the generated Tiled base map.
+            city_test = true;
+            cfg.headless = true;
+            cfg.script_entry.clear();
+            cfg.vsync = false;
+        } else if (arg == "--rts-test") {
+            // Self-test of the RTS art pipeline: terrain, unit and building
+            // sprites, alpha probes, and the generated battle map.
+            rts_test = true;
+            cfg.headless = true;
+            cfg.script_entry.clear();
+            cfg.vsync = false;
+        } else if (arg == "--vn-test") {
+            // Self-test of the visual-novel art: backgrounds, portraits,
+            // alpha/shape probes and missing-file rejection.
+            vn_test = true;
+            cfg.headless = true;
+            cfg.script_entry.clear();
+            cfg.vsync = false;
         } else if (arg == "--fixed-hz" && i + 1 < argc) {
             // Physics rate; 0 (or --variable-step) restores variable stepping.
             const int hz = std::atoi(argv[++i]);
@@ -7188,6 +9596,24 @@ int main(int argc, char **argv) {
     if (combat_test) {
         return RunCombatTest(engine);
     }
+    if (shmup_test) {
+        return RunShmupTest(engine);
+    }
+    if (snooker_test) {
+        return RunSnookerTest(engine);
+    }
+    if (contra_test) {
+        return RunContraTest(engine);
+    }
+    if (city_test) {
+        return RunCityTest(engine);
+    }
+    if (rts_test) {
+        return RunRtsTest(engine);
+    }
+    if (vn_test) {
+        return RunVnTest(engine);
+    }
 
     // All gameplay is pure Lua below; C++ only guarantees the binary asset
     // scaffolding exists before the script's first frame.
@@ -7215,6 +9641,31 @@ int main(int argc, char **argv) {
     if (beat_demo) {
         EnsureBeatEmUpAssets();
         EnsureBeatEmUpAudio(engine.GetAudio());
+    }
+    if (shmup_demo) {
+        EnsureShmupAudio(engine.GetAudio());
+    }
+    if (snooker_demo) {
+        EnsureSnookerAssets();
+        EnsureSnookerAudio(engine.GetAudio());
+    }
+    if (contra_demo) {
+        EnsureContraAssets();
+        EnsureContraAudio(engine.GetAudio());
+    }
+    if (city_demo) {
+        EnsureCityAssets(regen_assets);
+        EnsureCityAudio(engine.GetAudio());
+    }
+    if (rts_demo) {
+        EnsureRtsAssets(regen_assets);
+        EnsureRtsAudio(engine.GetAudio());
+    }
+    if (vn_demo) {
+        // The AI-illustrated VN art ships under assets/vn; only fill in a
+        // missing file with the procedural fallback (never overwrite it).
+        EnsureVnAssets(false);
+        EnsureVnAudio(engine.GetAudio());
     }
     if (angry_demo) {
         // Launch / impact / pop / win / lose clips come from the same
