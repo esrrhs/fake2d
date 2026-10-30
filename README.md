@@ -7,7 +7,7 @@
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-brightgreen.svg)](https://en.cppreference.com/w/cpp/23)
 [![OpenGL](https://img.shields.io/badge/OpenGL-3.3%20Core%20%7C%202.1-orange.svg)](https://www.opengl.org/)
 [![FakeLua](https://img.shields.io/badge/Script-FakeLua-red.svg)](https://github.com/esrrhs/fakelua)
-[![Version](https://img.shields.io/badge/version-1.30.1-informational.svg)](include/fake2d/version.h)
+[![Version](https://img.shields.io/badge/version-1.36.0-informational.svg)](include/fake2d/version.h)
 
 **Fake2D** is a modern, lightweight, high-performance 2D game engine powered by [FakeLua](https://github.com/esrrhs/fakelua):
 - **C++23 Host Engine**: Controls window management, GPU rendering pipelines, 2D physics, multi-bus audio mixing, and native resource lifecycles;
@@ -49,7 +49,7 @@ Fake2D is a fully battery-included engine, not just a bare graphics library:
 ### 5. Developer Experience & Automated Testing
 - **JIT Script Hot-Reload**: GCC JIT backend with automatic interpreter fallback; edit Lua scripts live and see changes reflected instantly without restarting;
 - **Headless & CI-Ready**: First-class `--headless`, `--frames N`, and `--screenshot` CLI flags allow visual regression tests and automated smoke validation in headless Linux/macOS/Windows environments;
-- **18 Built-in Self-Test Suites**: Over 800 assertions covering rigid-body dynamics, joints, sleeping, anti-tunneling, physics queries, filters, timesteps, tilemap objects, A\* pathfinding, render targets, UI widgets, post-FX, fog of war, audio mixing, animated tiles, UTF-8/CJK text with fallback faces, the platform layer, deterministic RNG, easing, entity snapshots, input actions, window controls, gameplay time scale / hit-stop, 16-slot entity actors and the 128-clip animation pool (all mutation-tested);
+- **24 Built-in Self-Test Suites**: 914 assertions covering rigid-body dynamics, joints, sleeping, anti-tunneling, physics queries, filters, timesteps, tilemap objects, A\* pathfinding, render targets, UI widgets, post-FX, fog of war, audio mixing, animated tiles, UTF-8/CJK text with fallback faces, the platform layer, deterministic RNG, easing, entity snapshots, input actions, window controls, gameplay time scale / hit-stop, 16-slot entity actors, the 128-clip animation pool, the shmup sprite/background asset pipeline, the city-builder tileset/building atlas/base map, the RTS terrain/unit/building/map pipeline and the visual-novel background/portrait art (all mutation-tested);
 - **Standalone Packaging**: Bundling scripts under `tools/` generate self-contained archives on Linux, macOS, and Windows with all dependencies, shaders, and assets included.
 
 ---
@@ -87,7 +87,7 @@ Fake2D is a fully battery-included engine, not just a bare graphics library:
 
 ## 🎮 Runnable Demos Matrix
 
-Fake2D comes with 17 rich, self-contained demos demonstrating platformer mechanics, retro and brawler gameplay, spatial audio, immediate UI, and graphical post-processing:
+Fake2D comes with 23 rich, self-contained demos demonstrating platformer mechanics, retro brawler and run-and-gun gameplay, cue-sport physics, city simulation, real-time strategy, dating-sim storytelling, spatial audio, immediate UI, and graphical post-processing:
 
 | Demo Flag | Topic | Key Highlighted Features |
 |---|---|---|
@@ -97,6 +97,12 @@ Fake2D comes with 17 rich, self-contained demos demonstrating platformer mechani
 | `--limbo-demo` | **LIMBO Jointed Sandbox** | 6-part revolute ragdoll, 9-node rope chain and revolute bridge, buoyancy water, and sever-on-death pieces that stay tethered |
 | `--platformer-demo` | **Platformer Controller** | Kinematic tile platforming; coyote time, jump buffering, one-way ledges, coin pickups, smooth follow camera |
 | `--beat-em-up-demo` | **2.5D Brawler (Dino Brawl)** | CC0 pixel-art fighters (Chasersgaming Renegade/Soldier) and a CC0 night-city parallax backdrop (FisherG), nearest-filtered and palette-swapped; ground-plane x/depth/height movement with y-sorted actors; 3-hit combos, kicks, spins, hit-stop, i-frames, knockdown/getup, wave spawning with a locked camera, enemy AI and a boss, plus an attract AI for headless runs |
+| `--shmup-demo` | **Vertical Shooter (Raiden-style)** | CC0 pixel art by ansimuz: scrolling desert + clouds, player ship with 8-way movement and auto-fire, three upgradeable weapons (Vulcan / Laser / Missiles), bullet-clearing bombs, fighter waves with aimed/spread fire, a multi-pattern boss with a health bar, lives/score/stage loops, and an attract AI for headless runs |
+| `--snooker-demo` | **Snooker & Billiards Physics** | Purpose-built billiards solver in Lua: fixed substeps with continuous contact rewind, elastic ball-ball impulses and positional separation, cushion restitution with side-spin rebound, six pockets, cloth rolling friction, follow/draw, cue-stick aiming with a ghost line and spin pad. Full frame rules (reds → nominated colour → yellow-to-black), fouls, respots, two-player scoring, and a ghost-ball pot-finding attract AI |
+| `--contra-demo` | **Run-and-Gun (Contra-style)** | A jungle stage with layered palm/mountain parallax, run / variable jump / crouch and 8-direction fire, weapon capsules (Rifle, Machine Gun, Spread Gun, Laser), advancing soldiers, wall turrets, flying carriers, pits, a fortress boss with destructible turrets and a reactor core, lives, respawns, stage loops, synthesized march theme and an attract AI that runs and clears the whole stage headlessly |
+| `--city-demo` | **City Simulation (SimCity-style)** | A generated 56x42 region you road, zone (housing / shops / factories), park and power yourself. Monthly simulation drives road-network connectivity, power coverage, RCI demand, three-level building growth, abandonment, pollution and a tax/upkeep budget. Pixel-correct screen-space HUD, clickable minimap, drag painting, tooltips, synthesized city theme and an attract "mayor" AI that builds a growing town headlessly |
+| `--rts-demo` | **Real-Time Strategy (Red Alert-style)** | A 64x48 battle map with mirrored bases. Harvest ore with auto-cycling harvesters, build power plants / barracks / war factory / refinery / turrets, train infantry, rocketeers, tanks and more harvesters, then drag-box select and right-click to move / attack. Homing rifles, rockets and shells, team-tinted generated sprites, power-gated production, minimap, mission HUD, an enemy commander with attack waves, and an attract commander that plays the whole match headlessly |
+| `--vn-demo` | **Visual Novel / Dating Sim (Tokimeki-style)** | Four heroines with AI-illustrated expression portraits, eight illustrated backgrounds and a branching Chinese-language story. A 14-day calendar with study / fitness / charm / money / stamina, free chats with three topics per girl (the third unlocks with affection), gifts, dates, a summer festival and a confession ending. Typewriter dialogue, clickable choices, affection toasts, quick save/load, and an attract player that reads the whole story headlessly |
 | `--slope-demo` | **Slopes & Terrain** | Tiled slope calculation (`map_slope_dir` / `map_ground_y`), smooth angle traversal and live ground overlays |
 | `--path-demo` | **Maze Chase & A\* Pathfinding** | Generated maze, staggered AI tracking, player autopilot mode, and live polyline path drawing |
 | `--tile-demo` | **Animated Tiles** | Tiled tileset animations driven by a single engine clock; rippling pond water and torch flames |
@@ -184,6 +190,24 @@ cmake --build build --parallel
 
 # 2.5D brawler (WASD move, SPACE/J punch, K kick, L spin)
 ./build/bin/fake2d_hello --beat-em-up-demo
+
+# Vertical shooter (WASD fly, SPACE/J fire, K bomb)
+./build/bin/fake2d_hello --shmup-demo
+
+# Snooker (mouse aim, hold LMB to charge, arrow keys / spin pad for spin, R new frame)
+./build/bin/fake2d_hello --snooker-demo
+
+# Run-and-gun (A/D run, W aim up, S crouch, Space jump, J/X fire)
+./build/bin/fake2d_hello --contra-demo
+
+# City simulation (1-7 tools, drag to pave/zone, WASD pan, wheel zoom, Space pause)
+./build/bin/fake2d_hello --city-demo
+
+# Real-time strategy (LMB select / drag box, RMB orders, 1-5 build, 6-9 train, WASD pan)
+./build/bin/fake2d_hello --rts-demo
+
+# Visual novel / dating sim (click or Space to advance, 1-4 choose, F5/F9 save/load)
+./build/bin/fake2d_hello --vn-demo
 ```
 
 ### Development & Benchmarking Options
@@ -220,7 +244,7 @@ xvfb-run ./build/bin/fake2d_hello --headless --mario-demo --shot-frame 60 --scre
 # Reject screenshots that saved but drew nothing (exit 2): colour floor probe
 xvfb-run ./build/bin/fake2d_hello --headless --text-demo --screenshot text.png --shot-min-colors 12
 
-# Run the 18 built-in engine self-test suites (verified via exit codes)
+# Run the 24 built-in engine self-test suites (verified via exit codes)
 xvfb-run ./build/bin/fake2d_hello --phys-query-test    # Ray casts, overlaps, contact lifecycle
 xvfb-run ./build/bin/fake2d_hello --phys-filter-test   # 16-bit category/mask collision filtering
 xvfb-run ./build/bin/fake2d_hello --phys-rigid-test    # Rotational inertia, friction, resting stacks
@@ -239,6 +263,12 @@ xvfb-run ./build/bin/fake2d_hello --font-test          # UTF-8/CJK glyph atlas, 
 xvfb-run ./build/bin/fake2d_hello --platform-test      # i18n packs, user paths, save v2, Steam stub, UI text
 xvfb-run ./build/bin/fake2d_hello --gameplay-test      # RNG, easing, entity snapshots, actions, window
 xvfb-run ./build/bin/fake2d_hello --combat-test        # Time scale, hit-stop, 16-slot actors, clip pool
+xvfb-run ./build/bin/fake2d_hello --shmup-test         # Shooter sprite sheets, nearest filtering, missing files
+xvfb-run ./build/bin/fake2d_hello --snooker-test       # Shaded ball sprite, alpha/shading probes, loader rejection
+xvfb-run ./build/bin/fake2d_hello --contra-test         # Soldier strips, blast sheet, moon/glow probes, loader rejection
+xvfb-run ./build/bin/fake2d_hello --city-test           # City tileset/building atlas, base map roads/lake, loader rejection
+xvfb-run ./build/bin/fake2d_hello --rts-test            # RTS terrain/unit/building sprites, battle map pads/ore/water
+xvfb-run ./build/bin/fake2d_hello --vn-test             # VN backgrounds/portraits, alpha probes, loader rejection
 ```
 
 ---
@@ -352,6 +382,11 @@ fake2d/
 │   ├── audio_demo.lua       # Mixing console & streaming benchmark
 │   ├── spatial_demo.lua     # 3D positional audio
 │   ├── text_demo.lua        # UTF-8/CJK, i18n, paths, save v2 & Steam
+│   ├── snooker_demo.lua     # Substepped snooker physics & full frame rules
+│   ├── contra_demo.lua      # Contra-style run-and-gun on a jungle stage
+│   ├── city_demo.lua        # SimCity-style zoning, economy & growth simulation
+│   ├── rts_demo.lua         # Red Alert-style bases, harvesters, units & combat
+│   ├── vn_demo.lua          # Tokimeki-style visual novel & dating sim
 │   └── ui_demo*.lua         # Immediate-mode UI demonstrations
 ├── tools/                   # Standalone packaging scripts (Linux/macOS/Windows)
 ├── docs/                    # Extensive documentation

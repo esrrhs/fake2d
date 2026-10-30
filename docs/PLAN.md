@@ -472,6 +472,104 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 
 ---
 
+## Phase 37 — Vertical shooter & Raiden-style demo (1.31.x)
+
+- [x] **`--shmup-demo` (Raiden-style vertical shooter)**, built in `scripts/shmup_demo.lua`:
+  - vertically looping desert + parallax clouds; a fixed screen-space camera so world and screen coordinates agree
+  - player ship: 8-way movement, held auto-fire, banking frames, engine glow, invulnerability blink and respawn
+  - three upgradeable weapons — Vulcan (parallel / 3-way / 5-way), Laser (piercing beams), homing Missiles — plus pickups and a bomb that clears bullets and damages the screen
+  - fighters (sine descent, aimed shots), medium ships (wave movement, 3-spread), big ships (hover + 5-spread, power-up drops)
+  - a multi-pattern boss (aimed fan, 16-bullet ring, mixed volley) with an entry/hover cycle and a health bar
+  - lives/score/stage loop, game over, restart, and a bullet-dodging attract AI for headless runs
+- [x] **CC0 art**: ansimuz's pixel shmup pack (ship/enemies/explosions/bolts/power-ups + 256×608 looping desert and cloud layer), committed under `assets/shmup/` with `LICENSE.txt`; uses the nearest-filter and flip/tint bindings added in 1.30.1
+- [x] **`--shmup-test` (10 assertions)**: every sprite sheet/background dimension, nearest-filter loading and missing-file rejection
+- [x] Wired into CI on Linux, macOS and Windows (`--shmup-test` exit gate + `--shmup-demo` headless run and screenshot colour probe)
+- [x] Verification: `--shmup-test` 10/10; all 19 self-tests at 815 assertions; every demo smoke; text/beat/shmup colour probes
+
+---
+
+## Phase 38 — Snooker & billiards physics demo (1.32.x)
+
+- [x] **`--snooker-demo` (playable snooker frame)**, built in `scripts/snooker_demo.lua`:
+  - a purpose-built billiards solver: 5 fixed substeps per frame, constant cloth rolling deceleration, equal-mass elastic ball-ball impulses with positional separation
+  - continuous contact rewind: each overlapping pair is solved at the exact contact instant (quadratic time-of-impact) so the object-ball direction stays accurate enough to pot
+  - cushions reflect the normal component (restitution + tangential damping) and bend the rebound with side spin; follow/draw transfers top/back spin along the pre-impact cue direction
+  - six pocket mouths swallow balls inside a radius; cue-ball pot respots in the D and colours return to their spots
+  - cue control: mouse aim, hold-to-charge power gauge, ghost-ball aim line, cue-stick pull-back, clickable spin pad and arrow-key spin
+  - full frame flow: reds then a nominated colour, colours respotted while reds remain, then yellow → black in order, foul penalties (cue potted, wrong first contact, wrong ball potted), two-player scoring, breaks and frame wins
+  - an attract AI with a ghost-ball pot solver (legal ball + pocket + clear object path + solid contact), falling back to a safe first-contact line; deterministic and active whenever the controls are idle, so headless runs play themselves
+- [x] **`--snooker-test` (10 assertions)**: generated shaded 64×64 ball sprite (linear-filter load, opaque lit centre, transparent corner, darker rim) plus white texel and missing-file rejection
+- [x] Wired into CI on Linux, macOS and Windows (`--snooker-test` exit gate + `--snooker-demo` headless run and screenshot colour probe)
+- [x] Verification: `--snooker-test` 10/10; all 20 self-tests at 825 assertions; every demo smoke; text/beat/shmup/snooker colour probes
+
+---
+
+## Phase 39 — Run-and-gun & Contra-style demo (1.33.x)
+
+- [x] **`--contra-demo` (Contra-inspired run-and-gun)**, built in `scripts/contra_demo.lua`:
+  - a 3400px jungle stage with layered parallax (moon, stars, diamond mountains, three palm layers, mist); ground segments, pits, one-way steel beams and solid crates
+  - kinematic player: acceleration/friction, coyote time, jump buffering, variable jump height, crouch, one-hit deaths, lives and safe respawns
+  - 8-direction fire with a procedural gun arm and muzzle flash; Rifle, Machine Gun, Spread Gun and laser weapon capsules dropped by flying carriers
+  - enemy AI: advancing rifle soldiers, wall turrets with tracked barrels, sine-flying carriers; enemy bullets with spread, solid-platform collision and pooled bullets
+  - a fortress boss: destructible top/bottom turrets plus an armoured reactor core with radial fans and aimed bursts; a core kill triggers a staged explosion sequence and a stage-clear banner
+  - HUD (score, lives icons, weapon, stage, boss health), pickup banners, stage-clear/game-over overlays, synthesized SFX and a looping march theme
+  - an attract AI that free-aims, jumps pits and crates, mechanically plays the whole stage and loops it; in attract mode hits do not spend the player's lives (the human player keeps the one-hit rule)
+- [x] **Generated art pass**: moon disc, additive glow and a five-frame blast sheet under `assets/contra/`; the CC0 NES Soldier / Renegade sprites from the brawler pack are reused for the player and enemy soldiers
+- [x] **`--contra-test` (14 assertions)**: soldier/idle/hurt/enemy strips, the blast sheet, the generated moon/glow (dimensions + alpha probes) and missing-file rejection
+- [x] Wired into CI on Linux, macOS and Windows (`--contra-test` exit gate + `--contra-demo` headless runs; the Linux job also asserts "fortress core destroyed" to prove the full stage/boss flow)
+- [x] Verification: `--contra-test` 14/14; all 21 self-tests at 839 assertions; all demos smoke; text/beat/shmup/snooker/contra colour probes
+
+---
+
+## Phase 40 — City simulation & SimCity-style demo (1.34.x)
+
+- [x] **`--city-demo` (city builder)**, built in `scripts/city_demo.lua`:
+  - a generated 56x42 region (grass, forest, lake + pond, sand shores) loaded as a Tiled map; the script mutates the tile grid in place with roads, R/C/I plots, parks and power pads
+  - a screen-space HUD projected through the camera so it stays pixel-correct at any zoom: funds, date, population, jobs, RCI demand meters, adjustable tax slider, monthly income/upkeep, happiness, speed controls, alert banner and a clickable minimap
+  - tool palette with keyboard hotkeys: road (drag-paint), residential / commercial / industrial zoning, parks, power plants and bulldozing, each with money costs, validity checks and synthesized SFX
+  - monthly simulation: road-network flood fill from the west entrance, power coverage diamonds around plants, zone development, three growth levels per building, abandonment/rebuilding, pollution/happiness, tax income and road/plant/park upkeep
+  - camera pan (WASD/arrows), wheel zoom around a 1792x1344 world, hover cell targeting, per-tile building tooltips (population/jobs/power/road status) and y-sorted 32x64 building sprites
+  - a deterministic "mayor" attract AI that places power, extends streets and zones by relative RCI demand, so headless runs produce a functioning, growing town
+- [x] **Generated art pass**: a 12-tile terrain sheet (grass/flowers/water/sand/asphalt/zoning plots/rubble/forest/power pad), a 128x384 building atlas (5 types x 4 levels plus construction and abandoned shells) and the Tiled base map under `assets/city/`
+- [x] **`--city-test` (17 assertions)**: tileset/building atlas dimensions, alpha probes on houses/towers/smokestacks/trees/chimneys, the generated 56x42 map (entrance/starter roads/lake/terrain), and missing-file rejection
+- [x] Wired into CI on Linux, macOS and Windows (`--city-test` exit gate + a 2500-frame headless city run with a screenshot colour probe and population-milestone grep)
+- [x] Verification: `--city-test` 17/17; all 22 self-tests at 856 assertions; all demos smoke; text/beat/shmup/snooker/contra/city colour probes
+
+---
+
+## Phase 41 — RTS & Red Alert-style demo (1.35.x)
+
+- [x] **`--rts-demo` (real-time strategy skirmish)**, built in `scripts/rts_demo.lua`:
+  - a 64x48 battle map with mirrored bases, ore fields, lakes, rocks and trees; generated 32px terrain tileset and per-unit / per-building sprites tinted by team colour
+  - base building: power plants, barracks, war factory, refinery and turrets with construction timers; power generation/consumption gates production speed and alerts
+  - economy: harvesters auto-mine ore cells (rich → poor → dirt), haul cargo to the nearest refinery and unload credits; credits pay for structures and units
+  - units: infantry, rocketeer, tank and harvester with distinct HP / speed / range / damage / cooldown; homing rifle, rocket and cannon projectiles, muzzle effects, damage flashes, explosion particles and health bars
+  - controls: click/drag-box selection, right-click move/attack/harvest/return, WASD pan, wheel zoom, 1-5 structure hotkeys, 6-9 unit hotkeys, minimap click-to-jump
+  - a screen-space RTS HUD: credits, power meter, army counts, mission timer, selection card, production progress and the complete structure/unit command panel
+  - an enemy commander that rebuilds lost structures, builds turrets, trains units and sends attack waves at the player base; an attract commander plays the player side (including two home guards) whenever input is idle, so headless runs resolve into a real battle and victory
+- [x] **Generated art pass**: 12-tile terrain sheet, four 32x32 unit sprites, six 64x64 building sprites and the Tiled base map under `assets/rts/`
+- [x] **`--rts-test` (27 assertions)**: every terrain/unit/building texture dimension, alpha/shape probes (helmet, tank barrel, command-yard body), the 64x48 map's concrete pads/ore/lake and solid water, plus loader rejection
+- [x] Wired into CI on Linux, macOS and Windows (`--rts-test` exit gate + a 2400-frame headless battle with a screenshot colour probe and `first blood` / `player victory` log greps)
+- [x] Verification: `--rts-test` 27/27; all 23 self-tests at 883 assertions; all demos smoke; headless battle wins at frame 2080; long runs stable
+
+---
+
+## Phase 42 — Visual novel & Tokimeki-style dating sim (1.36.x)
+
+- [x] **`--vn-demo` (dating-sim visual novel)**, built in `scripts/vn_demo.lua`:
+  - eight illustrated 960x540 backgrounds (school gate, classroom, library, gym, park, cafe, rooftop, summer festival) and sixteen 320x480 heroine portraits (four girls x neutral / smile / blush / sad). The shipped art is AI-illustrated and tracked under `assets/vn/`; the host painters remain as a procedural fallback when a file is missing
+  - a title screen, a 14-day calendar loop and a confession ending; stats for study / fitness / charm, stamina, money and affection for four heroines
+  - daily actions (study, train, style, part-time work, rest), free chats with three topics per girl (the third unlocks at affection 20), gifts, dates at affection 30+, and a day-7 summer-festival choice
+  - a full dialogue runner: portraits with expression changes, typewriter text (UTF-8/CJK aware), speaker name plates, 3-4 clickable choices, affection toasts, fade-in, portrait slide and falling cherry petals
+  - quick save/load with a real `storage_save("vn_quick")` slot and a title-screen continue button
+  - an attract player that reads the story, picks choices and finishes the romance headlessly, so CI screenshots always contain a live scene and the log proves the whole arc
+- [x] **Generated art pass**: AI-illustrated backgrounds and expression sheets, chroma-keyed portraits, plus the procedural host painters as a fallback under `assets/vn/`
+- [x] **`--vn-test` (31 assertions)**: every background/portrait dimension, opaque background and portrait alpha/shape probes, and missing-file rejection
+- [x] Wired into CI on Linux, macOS and Windows (`--vn-test` exit gate + a 2400-frame headless story with a screenshot colour probe and day-7 / ending log greps)
+- [x] Verification: `--vn-test` 31/31; all 24 self-tests at 914 assertions; all demos smoke; headless story reaches day 7, the festival and a successful confession at frame 1590
+
+---
+
 ## Non-goals (for now)
 
 - Full 3D / PBR (Fake2D is strictly focused on high-performance 2D)
