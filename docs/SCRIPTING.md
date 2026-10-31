@@ -552,6 +552,107 @@ a kinematic *physics* body bound with `occluder_add_body`, so its shadow comes
 out of the simulated polygon rather than a re-uploaded rect. `SPACE` bursts 24
 more lights into the same buffer for 24 frames.
 
+### Skeletal animation
+
+A rig, not a film strip. `AnimationSystem` swaps whole pre-drawn frames; a
+skeleton stores *bones* and moves them, so the same eight body parts give an
+idle that breathes, a run that plants its feet, a shot that kicks the gun, a hit
+that snaps the body and a death that folds him over — and switching between them
+cross-fades instead of popping. One asset is shared by any number of instances,
+which is what makes a crowd affordable.
+
+Author the rig in JSON, load it once, spawn instances, play clips:
+
+```lua
+local rig = skel_load("assets/skeleton/soldier.json")   -- bones + slots + clips
+local hero = skel_create(rig)
+skel_set_mix(hero, 0.22)                                -- default cross-fade
+skel_play(hero, "idle", 0.0)
+
+-- every frame, after the engine has advanced the clock for you
+if walking then skel_play(hero, "run", 0.22) end        -- fades idle out
+skel_aim(hero, "gun", input_mouse_x(), input_mouse_y()) -- one-bone aim
+skel_draw(hero, x, y, 1.0, facing, 1.0, 1.0, 1.0, 1.0)  -- one draw call
+if skel_finished(hero) then skel_play(hero, "idle", 0.2) end
+```
+
+Instances advance on the engine's own clock, like frame animations and physics,
+so hit-stop and time scale stop a rig and a sprite sheet together.
+
+**The asset.** Angles are **degrees** throughout (this is the animation
+authoring convention; the physics bindings use radians, so check which layer you
+are in). Positions are pixels, y down, with the root usually at the feet.
+
+| block | what it holds |
+| --- | --- |
+| `skeleton.texture` | the sheet every region is cut from, resolved next to the JSON |
+| `bones` | `{name, parent, x, y, rot, scaleX, scaleY, length}` — **parent first** |
+| `regions` | named rectangles on the sheet |
+| `attachments` | a region plus `w, h, ox, oy, rot`: where it sits on its bone |
+| `slots` | draw order, one bone each, plus the alternate attachments a skin picks between |
+| `skins` | `{slot = attachment}` substitutions applied in one call |
+| `animations` | per bone `rotate`/`translate`/`scale` key lists, per slot `color`, and `events` |
+
+A key is `{time, angle}` / `{time, x, y}` and may carry `"curve": "stepped"` to
+hold the previous pose until it lands instead of easing into it. A clip's
+duration is the last authored moment unless `duration` says otherwise.
+
+```json
+"animations": { "run": { "loop": true, "bones": {
+  "hip_r":  { "rotate": [ {"time": 0.0, "angle": 52}, {"time": 0.36, "angle": 126} ] },
+  "knee_r": { "rotate": [ {"time": 0.0, "angle": -14}, {"time": 0.18, "angle": -52} ] }
+}, "events": [ {"time": 0.02, "name": "footstep", "data": 1} ] } }
+```
+
+**Bone tracks are absolute**, not additive: the key says what the bone's local
+angle *is*, and the setup pose is what a track with no key falls back to. That
+makes clips independent of each other, which is what lets a cross-fade lerp two
+poses instead of accumulating two deltas.
+
+**Events** fire between the previous and the new clock value, so a footstep
+lands on the frame it was authored for even when the frame was long, and a
+looping clip fires the tail and the head of the seam in the right order. Read
+them once per frame:
+
+```lua
+for i = 0, skel_event_count(hero) - 1 do
+    if skel_event_name(hero, i) == "muzzle" then
+        part_emit(flash, 4, skel_bone_x(hero, muzzle), skel_bone_y(hero, muzzle))
+    end
+end
+```
+
+**IK.** `skel_ik(id, root, mid, tip, x, y, bend)` solves a two-bone chain
+analytically: the *tip's end* (its origin plus `length`) lands on the target, the
+chain straightens exactly when the target is out of reach, and `bend` picks the
+elbow or knee side. `skel_aim(id, bone, x, y)` is the one-bone version — rotate a
+bone until its +x axis points at a world position, which is all a gun needs when
+the hand already follows the arm.
+
+**Cost.** Per instance per frame: `bones` matrix multiplies and `slots` quads.
+Every part comes off one sheet, so a whole character is **one draw call** and the
+batch coalesces identically-textured characters into one more — `--skeleton-test`
+draws a rank of twelve and asserts the call count does not move. `skel_stat`
+prints the live numbers: 1 assets, 2 instances, 3 bones posed, 4 parts drawn,
+5 draw calls, 6 events fired, 7 clips. The draw-call figure is the last completed
+frame's, because a quad still sitting in the batch has not cost a call yet.
+
+`--skeleton-test` (82 checks) builds a rig in code whose expected numbers are
+known exactly, then loads the shipped soldier and checks the same shapes through
+the JSON path: hierarchy composition through a rotated parent, linear versus
+stepped keys, a cross-fade that keeps the outgoing clip running while it fades,
+one-shot `Finished()` reporting exactly once, events fired once per pass, IK
+landing on the target and straightening when it cannot reach, `ResetPose`
+returning every bone to its authored setup values, and the draw-call numbers
+above measured against the renderer's own counter.
+
+`scripts/skeleton_demo.lua` (`--skeleton-demo`) is a soldier on a wall with a
+rank of six more instances of the same rig marching behind him: LEFT/RIGHT walk,
+SPACE shoot, H take a hit, K die, R revive, B overlays the bones so you can see
+the rig steering the art, N swaps the skin. With nobody at the keyboard it works
+through the whole clip set on its own.
+
+
 ### Audio
 
 A mixer, not a fire-and-forget player. Clips are mono float PCM registered
@@ -1623,6 +1724,17 @@ Collected while building the samples, so you don't have to rediscover them:
   pixel coordinates are therefore doubles; every `map_*` cell binding
   accepts floats and truncates natively, but a Lua-side `for r = r0, r1 do`
   over them works too because the bounds are whole numbers.
+- **A table stored on a `NativeObject` keeps its fields read-only, and the
+  write is dropped without an error.** `S.list = {}` then `S.list[i] = v`
+  leaves `S.list[i]` as `nil` — no `attempt to modify a const table`, nothing
+  logged. The failure surfaces later as a type error wherever the nil lands,
+  which is why it is easy to misread as an engine crash: `scripts/skeleton_demo.lua`
+  kept its marching-rank instance ids in such a table, and every
+  `skel_draw(S.soldiers[i], ...)` died on `FakeluaToNativeDouble failed, type
+  is Nil` with a JIT stack trace that pointed into the interpreter, not at the
+  assignment. Store per-item state in flat fields (`S["soldier_" .. i] = id`)
+  or in one field per item; `#S.list` on such a table is unreliable for the
+  same reason.
 - Semantics differ from stock Lua where listed above; when in doubt, test
   the pattern headlessly first:
   `./build/bin/fake2d_hello --headless --frames 100` plus `log_number`.

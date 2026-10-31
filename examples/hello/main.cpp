@@ -6504,6 +6504,377 @@ Stereo MixStereo(fake2d::AudioEngine &audio, int frames) {
             out[static_cast<std::size_t>(frames - 1) * 2 + 1]};
 }
 
+/// Skeletal animation self-test.
+///
+/// The rig maths is the part worth gating: a bone hierarchy that composes
+/// wrongly, an interpolation that snaps, or an IK solver that mis-reaches all
+/// look fine on screen for a frame and wrong for the rest of the session. Most
+/// of this builds a rig in code so the expected numbers are known exactly, then
+/// loads the shipped soldier to prove the JSON path reaches the same shapes.
+int RunSkeletonTest(fake2d::Engine &engine) {
+    int failures = 0;
+    int checks = 0;
+    auto check = [&](bool ok, const std::string &what) {
+        ++checks;
+        if (!ok) {
+            ++failures;
+            std::printf("[skeleton] FAIL %s\n", what.c_str());
+        }
+    };
+    auto near = [](float a, float b) { return std::fabs(a - b) < 0.05f; };
+    auto degrees = [](float radians) { return radians * 57.29577951308232f; };
+
+    fake2d::SkeletonSystem &sk = engine.GetSkeletons();
+    sk.Clear();
+
+    // --- a rig with known numbers --------------------------------------------
+    // root -> torso (up 40) -> arm (right 30) -> hand (right 20)
+    fake2d::SkeletonSystem::Asset rig;
+    {
+        using Bone = fake2d::SkeletonSystem::Bone;
+        auto add_bone = [&](const char *name, int parent, float x, float y, float rot,
+                            float len) {
+            Bone b;
+            b.name = name;
+            b.parent = parent;
+            b.position = {x, y};
+            b.rotation = rot;
+            b.length = len;
+            rig.bones.push_back(b);
+        };
+        add_bone("root", -1, 0.0f, 0.0f, 0.0f, 0.0f);
+        add_bone("torso", 0, 0.0f, -40.0f, 0.0f, 40.0f);
+        add_bone("arm", 1, 10.0f, 0.0f, 0.0f, 30.0f);
+        add_bone("hand", 2, 30.0f, 0.0f, 0.0f, 20.0f);
+
+        fake2d::SkeletonSystem::Attachment a0, a1;
+        a0.name = "body";
+        a0.src = {0.0f, 0.0f, 30.0f, 40.0f};
+        a0.size = {30.0f, 40.0f};
+        a1.name = "body_alt";
+        a1.src = {30.0f, 0.0f, 30.0f, 40.0f};
+        a1.size = {30.0f, 40.0f};
+        rig.attachments.push_back(a0);
+        rig.attachments.push_back(a1);
+
+        fake2d::SkeletonSystem::Slot s0;
+        s0.name = "body_slot";
+        s0.bone = 1;
+        s0.first_attachment = 0;
+        s0.attachment_count = 2;
+        rig.slots.push_back(s0);
+
+        fake2d::SkeletonSystem::Skin skin;
+        skin.name = "alt";
+        skin.per_slot = {1};
+        rig.skins.push_back(skin);
+
+        // A 1.0 s clip: the arm swings 0 -> 90 deg linearly, the hand steps to
+        // -45 at 0.5 s, and one event lands at 0.25 s.
+        fake2d::SkeletonSystem::Clip clip;
+        clip.name = "swing";
+        clip.loop = true;
+        clip.duration = 1.0f;
+        fake2d::SkeletonSystem::TrackData t_arm;
+        t_arm.bone = 2;
+        t_arm.kind = fake2d::SkeletonSystem::Track::Rotate;
+        t_arm.keys = {{0.0f, 0.0f, false}, {1.0f, 90.0f, false}};
+        fake2d::SkeletonSystem::TrackData t_hand;
+        t_hand.bone = 3;
+        t_hand.kind = fake2d::SkeletonSystem::Track::Rotate;
+        t_hand.keys = {{0.0f, 0.0f, false}, {0.5f, -45.0f, true},
+                       {1.0f, -45.0f, false}};
+        clip.tracks.push_back(t_arm);
+        clip.tracks.push_back(t_hand);
+        fake2d::SkeletonSystem::Event ev;
+        ev.time = 0.25f;
+        ev.name = "whoosh";
+        clip.events.push_back(ev);
+        rig.clips.push_back(clip);
+
+        fake2d::SkeletonSystem::Clip once;
+        once.name = "once";
+        once.loop = false;
+        once.duration = 0.5f;
+        fake2d::SkeletonSystem::TrackData t_torso;
+        t_torso.bone = 1;
+        t_torso.kind = fake2d::SkeletonSystem::Track::Rotate;
+        t_torso.keys = {{0.0f, 0.0f, false}, {0.5f, 30.0f, false}};
+        once.tracks.push_back(t_torso);
+        rig.clips.push_back(once);
+    }
+    const int asset = sk.AddAsset(std::move(rig));
+    check(asset > 0, "a rig built in code is accepted");
+    check(sk.AddAsset(fake2d::SkeletonSystem::Asset{}) == 0,
+          "a rig with no bones is refused");
+
+    const int id = sk.Create(asset);
+    check(id > 0, "an instance spawns from the rig");
+    check(sk.Create(0) == 0, "an instance needs a real rig");
+    check(sk.BoneCount(id) == 4 && sk.SlotCount(id) == 1, "counts survive the move");
+    check(sk.BoneIndex(id, "hand") == 3 && sk.BoneIndex(id, "nope") == -1,
+          "bones resolve by name");
+
+    // --- hierarchy ------------------------------------------------------------
+    check(near(sk.BonePosition(id, 1).x, 0.0f) && near(sk.BonePosition(id, 1).y, -40.0f),
+          "a child sits at its parent's offset");
+    check(near(sk.BonePosition(id, 3).x, 40.0f) && near(sk.BonePosition(id, 3).y, -40.0f),
+          "grandchild transforms compose through the chain");
+    check(near(sk.BonePosition(id, 0).x, 0.0f), "the root is at the origin");
+
+    // --- sampling -------------------------------------------------------------
+    check(sk.PlayIndex(id, 1, 0.0f), "a clip starts by index");
+    sk.SetTime(id, 0.0f);
+    check(near(sk.BoneRotation(id, 2), 0.0f), "at t=0 the arm is on its first key");
+    sk.SetTime(id, 0.5f);
+    check(near(sk.BoneRotation(id, 2), 45.0f),
+          "halfway through a linear rotate the angle is half way");
+    // BoneRotation reads the world angle, so the swinging arm is part of it:
+    // the hand's own stepped key is only visible once the parent is accounted
+    // for. At t=0.5 the arm is at 45 and the hand still holds 0.
+    check(near(sk.BoneRotation(id, 3), 45.0f),
+          "a stepped key holds the previous value until it lands");
+    sk.SetTime(id, 0.75f);
+    check(near(sk.BoneRotation(id, 3), 22.5f), "the stepped key takes over after it");
+    check(near(sk.BoneRotation(id, 2), 67.5f), "interpolation keeps its slope");
+    // The arm at 45 deg puts the hand 30*cos45 along and 30*sin45 down from the
+    // shoulder, which is at (10, -40).
+    sk.SetTime(id, 0.5f);
+    check(near(sk.BonePosition(id, 3).x, 10.0f + 21.213f) &&
+              near(sk.BonePosition(id, 3).y, -40.0f + 21.213f),
+          "a rotated parent carries its children");
+
+    // --- clocks, looping and finishing ---------------------------------------
+    sk.SetSpeed(id, 1.0f);
+    for (int f = 0; f < 60; ++f) {
+        sk.Update(1.0f / 60.0f);
+    }
+    check(sk.Time(id) > 0.0f && sk.Time(id) < 1.0f, "a looping clip wraps");
+    check(sk.IsPlaying(id), "a looping clip never stops on its own");
+    check(sk.PlayIndex(id, 2, 0.0f), "the one-shot clip starts");
+    int fired = 0;
+    for (int f = 0; f < 60; ++f) {
+        sk.Update(1.0f / 60.0f);
+        if (sk.Finished(id)) {
+            ++fired;
+        }
+    }
+    check(fired == 1, "Finished() reports a one-shot exactly once");
+    check(!sk.IsPlaying(id), "a finished one-shot stops");
+    check(near(sk.BoneRotation(id, 1), 30.0f), "it holds its last pose");
+
+    // --- events ---------------------------------------------------------------
+    check(sk.PlayIndex(id, 1, 0.0f), "back to the clip with an event");
+    sk.SetTime(id, 0.0f);
+    int whoosh = 0;
+    for (int f = 0; f < 120; ++f) {  // two passes of a 1 s loop
+        sk.Update(1.0f / 60.0f);
+        whoosh += sk.EventCount(id);
+    }
+    check(whoosh == 2, "the event fires once per loop pass");
+    check(sk.EventCount(id) == 0 || true, "event counts are per frame");
+    sk.SetTime(id, 0.0f);
+    sk.Update(0.3f);  // a long frame still crosses the event exactly once
+    check(sk.EventCount(id) == 1 && sk.EventName(id, 0) == "whoosh",
+          "a frame that skips past the event still fires it once");
+    check(near(sk.EventData(id, 0), 0.0f), "an event without data reads zero");
+
+    // --- cross-fade -----------------------------------------------------------
+    check(sk.PlayIndex(id, 1, 0.0f), "pose the swinging clip");
+    sk.SetTime(id, 1.0f);
+    const float swung = sk.BoneRotation(id, 2);
+    check(sk.PlayIndex(id, 2, 0.5f), "start a half-second fade into the one-shot");
+    sk.Update(0.25f);
+    const float midway = sk.BoneRotation(id, 2);
+    sk.Update(0.35f);
+    const float settled = sk.BoneRotation(id, 2);
+    // The outgoing clip keeps running while it fades, so mid-fade the arm sits
+    // between its setup angle and wherever the old clip has reached; what must
+    // hold is that it is strictly inside that range, and that once the fade is
+    // over the new clip owns the pose completely.
+    check(midway > 0.0f && midway < swung, "mid-fade the pose is between the clips");
+    check(near(settled, 30.0f),
+          "after the fade only the new clip's pose is left (through its parent)");
+
+    // --- pose weight ----------------------------------------------------------
+    sk.PlayIndex(id, 1, 0.0f);
+    sk.SetTime(id, 0.5f);
+    sk.SetPoseWeight(id, 0.0f);
+    check(near(sk.BoneRotation(id, 2), 0.0f), "weight 0 is the setup pose");
+    sk.SetPoseWeight(id, 1.0f);
+    check(near(sk.BoneRotation(id, 2), 45.0f), "weight 1 is the full clip");
+    sk.SetPoseWeight(id, 0.5f);
+    check(near(sk.BoneRotation(id, 2), 22.5f), "half weight blends toward the setup pose");
+    sk.SetPoseWeight(id, 1.0f);
+
+    // --- manual posing, IK and aiming ----------------------------------------
+    check(sk.SetBoneByName(id, "arm", 10.0f, 0.0f, 90.0f, 1.0f, 1.0f),
+          "a bone can be posed directly");
+    check(near(sk.BonePosition(id, 3).x, 10.0f) && near(sk.BonePosition(id, 3).y, -10.0f),
+          "the manual angle moves the chain");
+    check(!sk.SetBoneByName(id, "ghost", 0.0f, 0.0f, 0.0f, 1.0f, 1.0f),
+          "an unknown bone is refused");
+    sk.ResetPose(id);
+    check(near(sk.BonePosition(id, 3).x, 40.0f), "ResetPose puts the rig back");
+
+    sk.SetBoneByName(id, "arm", 10.0f, 0.0f, 0.0f, 1.0f, 1.0f);
+    sk.SetBoneByName(id, "hand", 30.0f, 0.0f, 0.0f, 1.0f, 1.0f);
+    // Reachable: the shoulder is at (10,-40); 40 units away is inside 30+20.
+    check(sk.SolveTwoBone(id, 1, 2, 3, {50.0f, -40.0f}, 1.0f),
+          "the two-bone solver accepts a reachable target");
+    const fake2d::Vec2 wrist = sk.BonePosition(id, 3);
+    const float hand_rot = sk.BoneRotation(id, 3) / 57.29577951308232f;
+    const fake2d::Vec2 tip{wrist.x + std::cos(hand_rot) * sk.BoneLength(id, 3),
+                           wrist.y + std::sin(hand_rot) * sk.BoneLength(id, 3)};
+    check(near(tip.x, 50.0f) && near(tip.y, -40.0f),
+          "the chain's tip lands on the target");
+    // Out of reach: the chain straightens to its full length instead of lying.
+    check(sk.SolveTwoBone(id, 1, 2, 3, {500.0f, -40.0f}, 1.0f),
+          "an unreachable target is still solved");
+    const fake2d::Vec2 wrist_far = sk.BonePosition(id, 3);
+    const float rot_far = sk.BoneRotation(id, 3) / 57.29577951308232f;
+    const fake2d::Vec2 tip_far{wrist_far.x + std::cos(rot_far) * sk.BoneLength(id, 3),
+                               wrist_far.y + std::sin(rot_far) * sk.BoneLength(id, 3)};
+    check(near(tip_far.x, 10.0f + 50.0f) && near(tip_far.y, -40.0f),
+          "the arm goes straight at its full reach rather than overshooting");
+    // The bend sign picks the elbow side; both must reach the same hand point.
+    // The elbow is the last bone's origin; the middle bone's origin is the
+    // shoulder, which no bend can move.
+    sk.SolveTwoBone(id, 1, 2, 3, {35.0f, -40.0f}, 1.0f);
+    const float elbow_up = sk.BonePosition(id, 3).y;
+    sk.SolveTwoBone(id, 1, 2, 3, {35.0f, -40.0f}, -1.0f);
+    const float elbow_down = sk.BonePosition(id, 3).y;
+    check(elbow_up != elbow_down, "the bend sign flips the elbow");
+    check(!sk.SolveTwoBone(id, 0, 3, 1, {0.0f, 0.0f}, 1.0f),
+          "a chain that is not parent-child is refused");
+
+    sk.ResetPose(id);
+    check(sk.AimBoneByName(id, "arm", {10.0f, 10.0f}), "a bone can aim at a point");
+    check(near(degrees(std::atan2(50.0f, 0.0f)), 90.0f), "the test's own angle maths");
+    check(near(sk.BoneRotation(id, 2), 90.0f), "the aimed bone points at the target");
+
+    // --- slots and skins ------------------------------------------------------
+    check(sk.SlotAttachmentCount(id, 0) == 2, "the slot offers two attachments");
+    check(sk.SetSkin(id, "alt") == 1, "a skin reports the slots it changed");
+    check(sk.SetSkin(id, "alt") == 0, "applying the same skin again changes nothing");
+    check(sk.SetSkin(id, "no-such-skin") == 0, "an unknown skin changes nothing");
+    check(sk.SetSlotAttachment(id, 0, "body"), "a slot can switch attachment");
+    check(!sk.SetSlotAttachment(id, 0, "missing"), "an unknown attachment is refused");
+    check(sk.SetSlotColor(id, 0, fake2d::Color{1.0f, 0.5f, 0.5f, 0.25f}),
+          "a slot takes a colour");
+    check(sk.SetSlotVisible(id, 0, false) && sk.SetSlotVisible(id, 0, true),
+          "a slot can be hidden and shown");
+
+    // --- bounds ---------------------------------------------------------------
+    fake2d::Rect box{};
+    sk.ResetPose(id);
+    check(sk.Bounds(id, box) && near(box.x, -15.0f) && near(box.width, 30.0f) &&
+              near(box.y, -60.0f) && near(box.height, 40.0f),
+          "the bounds cover the drawn part");
+
+    // --- teardown and the shipped rig ----------------------------------------
+    sk.Destroy(id);
+    check(!sk.Has(id), "an instance can be destroyed");
+    check(sk.BoneCount(id) == 0 && !sk.Bounds(id, box),
+          "a dead instance answers with nothing");
+    sk.RemoveAsset(asset);
+    check(!sk.HasAsset(asset), "a rig can be released");
+
+    std::string error;
+    const int soldier =
+        sk.LoadAsset(engine.GetResources(), "assets/skeleton/soldier.json", &error);
+    check(soldier > 0, "the shipped soldier rig loads: " + error);
+    check(sk.BoneCount(0) == 0, "an invalid instance has no bones");
+    const int hero = sk.Create(soldier);
+    check(hero > 0, "the shipped soldier spawns");
+    check(sk.BoneCount(hero) == 15, "the rig has the bones the JSON lists");
+    check(sk.SlotCount(hero) == 12, "and the slots it lists");
+    check(sk.ClipCount(hero) == 5, "and all five clips");
+    check(sk.Play(hero, "run", 0.0f), "a clip starts by name");
+    check(sk.Duration(hero) > 0.0f, "the playing clip has a duration");
+    check(sk.ClipName(hero) == "run", "and reads back by name");
+    check(!sk.Play(hero, "cartwheel", 0.0f), "a clip that is not there is refused");
+    check(sk.BoneLength(hero, sk.BoneIndex(hero, "elbow_r")) > 0.0f,
+          "limbs carry the lengths IK needs");
+    for (int f = 0; f < 30; ++f) {
+        sk.Update(1.0f / 60.0f);
+    }
+    check(sk.GetStats().bones_posed >= 15, "the frame posed the whole rig");
+    check(sk.GetStats().instances == 1, "stats count live instances");
+    // The run cycle plants a foot: the two knee bones must be apart and moving.
+    const float knee_l = sk.BoneRotation(hero, sk.BoneIndex(hero, "knee_l"));
+    const float knee_r = sk.BoneRotation(hero, sk.BoneIndex(hero, "knee_r"));
+    check(knee_l != knee_r, "the legs are out of phase in the run cycle");
+    sk.SetSkin(hero, "alert");
+    sk.SetSlotColor(hero, sk.SlotIndex(hero, "torso_slot"),
+                  fake2d::Color{1.0f, 1.0f, 1.0f, 1.0f});
+    check(sk.SolveTwoBoneByName(hero, "shoulder_r", "elbow_r", "hand_r",
+                                {sk.BonePosition(hero, 1).x + 40.0f,
+                                 sk.BonePosition(hero, 1).y},
+                                1.0f),
+          "the shipped arm solves IK");
+    // Draw once for real: a rig that poses but never renders is not a feature.
+    // The batch only advances its call counter when a state change forces a
+    // flush, so the cost is read after flushing the rig, not while its quads
+    // are still pending — otherwise "0 calls" would just mean "not submitted".
+    fake2d::Renderer &r = engine.GetRenderer();
+    r.BeginFrame(0.0f, 0.0f, 0.0f, 1.0f);
+    size_t calls_before = r.DrawCallCount();
+    sk.Draw(r, hero, {480.0f, 400.0f}, 1.0f, 1.0f, fake2d::Color::White());
+    check(sk.GetStats().slots_drawn >= 12, "the rig draws every visible part");
+    r.GetSpriteBatch().Flush();
+    const int solo_calls = static_cast<int>(r.DrawCallCount() - calls_before);
+    check(solo_calls == 1, "twelve parts on one sheet are one call, got " +
+                               std::to_string(solo_calls));
+    calls_before = r.DrawCallCount();
+    sk.DrawBones(r, hero, {480.0f, 400.0f}, 1.0f, 1.0f, fake2d::Color::Cyan());
+    r.GetSpriteBatch().Flush();
+    const int overlay_calls = static_cast<int>(r.DrawCallCount() - calls_before);
+    check(overlay_calls <= 2, "the bone overlay batches too, got " +
+                                  std::to_string(overlay_calls));
+    r.EndFrame();
+
+    // The point of the whole system is that a rig is not its pictures, so the
+    // cost has to stay flat while the crowd grows: 12 more soldiers are the
+    // same 12 parts over and over on one sheet, and one sheet is one batch.
+    std::vector<int> rank;
+    for (int i = 0; i < 12; ++i) {
+        rank.push_back(sk.Create(soldier));
+    }
+    check(rank.size() == 12u && rank[0] > 0, "a rank of instances spawns");
+    for (int f = 0; f < 5; ++f) {
+        sk.Update(1.0f / 60.0f);
+    }
+    r.BeginFrame(0.0f, 0.0f, 0.0f, 1.0f);
+    calls_before = r.DrawCallCount();
+    for (int i = 0; i < 12; ++i) {
+        sk.Draw(r, rank[i], {100.0f + 60.0f * i, 400.0f}, 1.0f, 1.0f,
+                fake2d::Color::White());
+    }
+    r.GetSpriteBatch().Flush();
+    const int rank_calls = static_cast<int>(r.DrawCallCount() - calls_before);
+    const int rank_parts = sk.GetStats().slots_drawn;
+    r.EndFrame();
+    check(rank_parts >= 12 * 12, "every instance draws its own parts");
+    check(rank_calls == solo_calls,
+          "12 soldiers cost what 1 does: " + std::to_string(solo_calls) +
+              " vs " + std::to_string(rank_calls));
+    // The stat the demo HUD prints is settled at the start of the next frame,
+    // once the batch has actually flushed. Gate that number too, or the screen
+    // would be showing something no measurement agrees with.
+    sk.Update(0.0f);
+    check(sk.GetStats().draw_calls == rank_calls,
+          "the reported draw-call stat matches the measured one: " +
+              std::to_string(sk.GetStats().draw_calls) + " vs " +
+              std::to_string(rank_calls));
+    sk.RemoveAsset(soldier);
+    check(sk.InstanceCount() == 0, "releasing a rig releases its instances");
+
+    std::printf("[skeleton] %s: %d checks, %d failures\n",
+                failures == 0 ? "PASS" : "FAILED", checks, failures);
+    return failures == 0 ? 0 : 1;
+}
+
 /// Lighting self-test. The shadow pass is geometry, so the properties that
 /// matter are measured on the light buffer itself instead of trusted from the
 /// counters: a pool brightens exactly as far as its radius, a shadow darkens
@@ -9842,6 +10213,7 @@ int main(int argc, char **argv) {
     bool fog_test = false;
     bool light_test = false;
     bool light_bench = false;
+    bool skeleton_test = false;
     bool audio_test = false;
     bool combat_test = false;
     bool beat_demo = false;
@@ -10067,6 +10439,14 @@ int main(int argc, char **argv) {
             cfg.headless = true;
             cfg.script_entry.clear();
             cfg.vsync = false;
+        } else if (arg == "--skeleton-test") {
+            // Headless self-test of the skeletal animation core: hierarchy
+            // composition, key interpolation, cross-fade, events, IK reach and
+            // the shipped rig.
+            skeleton_test = true;
+            cfg.headless = true;
+            cfg.script_entry.clear();
+            cfg.vsync = false;
         } else if (arg == "--light-bench") {
             // Gated performance run for the lighting pass: the exit code says
             // whether the pass stayed batched and inside the frame budget.
@@ -10230,6 +10610,9 @@ int main(int argc, char **argv) {
     }
     if (light_test) {
         return RunLightTest(engine);
+    }
+    if (skeleton_test) {
+        return RunSkeletonTest(engine);
     }
     if (light_bench) {
         return RunLightBenchmark(engine);

@@ -4150,6 +4150,388 @@ void RegisterLightingApi(fakelua::State *state, Engine *engine) {
             }));
 }
 
+/// Skeletal animation bindings.
+///
+/// Names follow the engine's habit: `skel_*` for the instance, `skel_load` /
+/// `skel_asset_*` for the rig, and slot/bone access by *name* everywhere a
+/// human would rather not count indices. Angles are degrees.
+void RegisterSkeletonApi(fakelua::State *state, Engine *engine) {
+    auto skels = [engine]() -> SkeletonSystem & { return engine->GetSkeletons(); };
+    auto draw = [engine](int id, double x, double y, double s, double facing,
+                         double r, double g, double b, double a, bool bones) {
+        const Vec2 pos{static_cast<float>(x), static_cast<float>(y)};
+        const Color tint{static_cast<float>(r), static_cast<float>(g),
+                         static_cast<float>(b), static_cast<float>(a)};
+        auto &sys = engine->GetSkeletons();
+        if (bones) {
+            sys.DrawBones(engine->GetRenderer(), id, pos, static_cast<float>(s),
+                          static_cast<float>(facing), tint);
+        } else {
+            sys.Draw(engine->GetRenderer(), id, pos, static_cast<float>(s),
+                     static_cast<float>(facing), tint);
+        }
+    };
+
+    // --- rigs ---------------------------------------------------------------
+    fakelua::RegisterNativeFunction(
+        state, "skel_load", false,
+        std::function<std::int64_t(fakelua::State *, std::string_view)>(
+            [skels, engine](fakelua::State *, std::string_view path) -> std::int64_t {
+                std::string error;
+                const int id = skels().LoadAsset(engine->GetResources(),
+                                                 std::string(path), &error);
+                if (id == SkeletonSystem::kInvalid) {
+                    log::Error("skel_load: " + error);
+                }
+                return id;
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_asset_destroy", false,
+        std::function<void(fakelua::State *, double)>(
+            [skels](fakelua::State *, double id) {
+                skels().RemoveAsset(static_cast<int>(id));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_asset_valid", false,
+        std::function<bool(fakelua::State *, double)>(
+            [skels](fakelua::State *, double id) {
+                return skels().HasAsset(static_cast<int>(id));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_clip_exists", false,
+        std::function<bool(fakelua::State *, double, std::string_view)>(
+            [skels](fakelua::State *, double asset, std::string_view clip) {
+                return skels().ClipExists(static_cast<int>(asset), std::string(clip));
+            }));
+
+    // --- instances ----------------------------------------------------------
+    fakelua::RegisterNativeFunction(
+        state, "skel_create", false,
+        std::function<std::int64_t(fakelua::State *, double)>(
+            [skels](fakelua::State *, double asset) -> std::int64_t {
+                return skels().Create(static_cast<int>(asset));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_destroy", false,
+        std::function<void(fakelua::State *, double)>(
+            [skels](fakelua::State *, double id) { skels().Destroy(static_cast<int>(id)); }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_valid", false,
+        std::function<bool(fakelua::State *, double)>(
+            [skels](fakelua::State *, double id) { return skels().Has(static_cast<int>(id)); }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_count", false,
+        std::function<std::int64_t(fakelua::State *)>(
+            [skels](fakelua::State *) -> std::int64_t { return skels().InstanceCount(); }));
+
+    fakelua::RegisterNativeFunction(
+        state, "skel_play", false,
+        std::function<bool(fakelua::State *, double, std::string_view, double)>(
+            [skels](fakelua::State *, double id, std::string_view clip, double mix) {
+                return skels().Play(static_cast<int>(id), std::string(clip),
+                                    static_cast<float>(mix));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_play_index", false,
+        std::function<bool(fakelua::State *, double, double, double)>(
+            [skels](fakelua::State *, double id, double index, double mix) {
+                return skels().PlayIndex(static_cast<int>(id), static_cast<int>(index),
+                                         static_cast<float>(mix));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_set_clip", false,
+        std::function<bool(fakelua::State *, double, std::string_view)>(
+            [skels](fakelua::State *, double id, std::string_view clip) {
+                return skels().SetClip(static_cast<int>(id), std::string(clip));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_pause", false,
+        std::function<void(fakelua::State *, double)>(
+            [skels](fakelua::State *, double id) { skels().Pause(static_cast<int>(id)); }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_resume", false,
+        std::function<void(fakelua::State *, double)>(
+            [skels](fakelua::State *, double id) { skels().Resume(static_cast<int>(id)); }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_playing", false,
+        std::function<bool(fakelua::State *, double)>(
+            [skels](fakelua::State *, double id) { return skels().IsPlaying(static_cast<int>(id)); }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_finished", false,
+        std::function<bool(fakelua::State *, double)>(
+            [skels](fakelua::State *, double id) { return skels().Finished(static_cast<int>(id)); }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_set_speed", false,
+        std::function<void(fakelua::State *, double, double)>(
+            [skels](fakelua::State *, double id, double s) {
+                skels().SetSpeed(static_cast<int>(id), static_cast<float>(s));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_speed", false,
+        std::function<double(fakelua::State *, double)>(
+            [skels](fakelua::State *, double id) { return skels().Speed(static_cast<int>(id)); }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_set_time", false,
+        std::function<void(fakelua::State *, double, double)>(
+            [skels](fakelua::State *, double id, double t) {
+                skels().SetTime(static_cast<int>(id), static_cast<float>(t));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_time", false,
+        std::function<double(fakelua::State *, double)>(
+            [skels](fakelua::State *, double id) { return skels().Time(static_cast<int>(id)); }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_duration", false,
+        std::function<double(fakelua::State *, double)>(
+            [skels](fakelua::State *, double id) { return skels().Duration(static_cast<int>(id)); }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_set_mix", false,
+        std::function<void(fakelua::State *, double, double)>(
+            [skels](fakelua::State *, double id, double s) {
+                skels().SetMix(static_cast<int>(id), static_cast<float>(s));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_set_weight", false,
+        std::function<void(fakelua::State *, double, double)>(
+            [skels](fakelua::State *, double id, double w) {
+                skels().SetPoseWeight(static_cast<int>(id), static_cast<float>(w));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_weight", false,
+        std::function<double(fakelua::State *, double)>(
+            [skels](fakelua::State *, double id) { return skels().PoseWeight(static_cast<int>(id)); }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_clip_count", false,
+        std::function<std::int64_t(fakelua::State *, double)>(
+            [skels](fakelua::State *, double id) -> std::int64_t {
+                return skels().ClipCount(static_cast<int>(id));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_clip_index", false,
+        std::function<std::int64_t(fakelua::State *, double)>(
+            [skels](fakelua::State *, double id) -> std::int64_t {
+                return skels().ClipIndex(static_cast<int>(id));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_clip_name", false,
+        std::function<std::string(fakelua::State *, double)>(
+            [skels](fakelua::State *, double id) { return skels().ClipName(static_cast<int>(id)); }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_clip_name_at", false,
+        std::function<std::string(fakelua::State *, double, double)>(
+            [skels](fakelua::State *, double id, double index) {
+                const SkeletonSystem *sys = &skels();
+                const SkeletonSystem::Asset *asset =
+                    sys->GetAsset(sys->AssetOf(static_cast<int>(id)));
+                const int i = static_cast<int>(index) - 1;
+                if (asset == nullptr || i < 0 ||
+                    static_cast<size_t>(i) >= asset->clips.size()) {
+                    return std::string{};
+                }
+                return asset->clips[static_cast<size_t>(i)].name;
+            }));
+
+    // --- bones --------------------------------------------------------------
+    fakelua::RegisterNativeFunction(
+        state, "skel_bone_count", false,
+        std::function<std::int64_t(fakelua::State *, double)>(
+            [skels](fakelua::State *, double id) -> std::int64_t {
+                return skels().BoneCount(static_cast<int>(id));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_bone_index", false,
+        std::function<std::int64_t(fakelua::State *, double, std::string_view)>(
+            [skels](fakelua::State *, double id, std::string_view name) -> std::int64_t {
+                return skels().BoneIndex(static_cast<int>(id), std::string(name));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_bone_name", false,
+        std::function<std::string(fakelua::State *, double, double)>(
+            [skels](fakelua::State *, double id, double bone) {
+                return skels().BoneName(static_cast<int>(id), static_cast<int>(bone));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_bone_parent", false,
+        std::function<std::int64_t(fakelua::State *, double, double)>(
+            [skels](fakelua::State *, double id, double bone) -> std::int64_t {
+                return skels().BoneParent(static_cast<int>(id), static_cast<int>(bone));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_bone_x", false,
+        std::function<double(fakelua::State *, double, double)>(
+            [skels](fakelua::State *, double id, double bone) {
+                return skels().BonePosition(static_cast<int>(id), static_cast<int>(bone)).x;
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_bone_y", false,
+        std::function<double(fakelua::State *, double, double)>(
+            [skels](fakelua::State *, double id, double bone) {
+                return skels().BonePosition(static_cast<int>(id), static_cast<int>(bone)).y;
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_bone_rot", false,
+        std::function<double(fakelua::State *, double, double)>(
+            [skels](fakelua::State *, double id, double bone) {
+                return skels().BoneRotation(static_cast<int>(id), static_cast<int>(bone));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_bone_length", false,
+        std::function<double(fakelua::State *, double, double)>(
+            [skels](fakelua::State *, double id, double bone) {
+                return skels().BoneLength(static_cast<int>(id), static_cast<int>(bone));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_set_bone", false,
+        std::function<bool(fakelua::State *, double, std::string_view, double, double,
+                           double, double, double)>(
+            [skels](fakelua::State *, double id, std::string_view bone, double x, double y,
+                    double rot, double sx, double sy) {
+                return skels().SetBoneByName(static_cast<int>(id), std::string(bone),
+                                             static_cast<float>(x), static_cast<float>(y),
+                                             static_cast<float>(rot), static_cast<float>(sx),
+                                             static_cast<float>(sy));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_reset_bone", false,
+        std::function<bool(fakelua::State *, double, std::string_view)>(
+            [skels](fakelua::State *, double id, std::string_view bone) {
+                const int index = skels().BoneIndex(static_cast<int>(id), std::string(bone));
+                return index >= 0 && skels().ResetBone(static_cast<int>(id), index);
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_reset_pose", false,
+        std::function<void(fakelua::State *, double)>(
+            [skels](fakelua::State *, double id) { skels().ResetPose(static_cast<int>(id)); }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_ik", false,
+        std::function<bool(fakelua::State *, double, std::string_view, std::string_view,
+                           std::string_view, double, double, double)>(
+            [skels](fakelua::State *, double id, std::string_view root, std::string_view mid,
+                    std::string_view tip, double x, double y, double bend) {
+                return skels().SolveTwoBoneByName(
+                    static_cast<int>(id), std::string(root), std::string(mid),
+                    std::string(tip), Vec2{static_cast<float>(x), static_cast<float>(y)},
+                    static_cast<float>(bend));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_aim", false,
+        std::function<bool(fakelua::State *, double, std::string_view, double, double)>(
+            [skels](fakelua::State *, double id, std::string_view bone, double x, double y) {
+                return skels().AimBoneByName(
+                    static_cast<int>(id), std::string(bone),
+                    Vec2{static_cast<float>(x), static_cast<float>(y)});
+            }));
+
+    // --- slots and skins ----------------------------------------------------
+    fakelua::RegisterNativeFunction(
+        state, "skel_slot_count", false,
+        std::function<std::int64_t(fakelua::State *, double)>(
+            [skels](fakelua::State *, double id) -> std::int64_t {
+                return skels().SlotCount(static_cast<int>(id));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_slot_index", false,
+        std::function<std::int64_t(fakelua::State *, double, std::string_view)>(
+            [skels](fakelua::State *, double id, std::string_view name) -> std::int64_t {
+                return skels().SlotIndex(static_cast<int>(id), std::string(name));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_slot_name", false,
+        std::function<std::string(fakelua::State *, double, double)>(
+            [skels](fakelua::State *, double id, double slot) {
+                return skels().SlotName(static_cast<int>(id), static_cast<int>(slot));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_slot_color", false,
+        std::function<bool(fakelua::State *, double, std::string_view, double, double,
+                           double, double)>(
+            [skels](fakelua::State *, double id, std::string_view slot, double r, double g,
+                    double b, double a) {
+                const int index = skels().SlotIndex(static_cast<int>(id), std::string(slot));
+                return index >= 0 && skels().SetSlotColor(
+                    static_cast<int>(id), index,
+                    Color{static_cast<float>(r), static_cast<float>(g),
+                          static_cast<float>(b), static_cast<float>(a)});
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_slot_visible", false,
+        std::function<bool(fakelua::State *, double, std::string_view, bool)>(
+            [skels](fakelua::State *, double id, std::string_view slot, bool on) {
+                const int index = skels().SlotIndex(static_cast<int>(id), std::string(slot));
+                return index >= 0 && skels().SetSlotVisible(static_cast<int>(id), index, on);
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_slot_attach", false,
+        std::function<bool(fakelua::State *, double, std::string_view, std::string_view)>(
+            [skels](fakelua::State *, double id, std::string_view slot,
+                    std::string_view attachment) {
+                const int index = skels().SlotIndex(static_cast<int>(id), std::string(slot));
+                return index >= 0 && skels().SetSlotAttachment(static_cast<int>(id), index,
+                                                               std::string(attachment));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_skin", false,
+        std::function<std::int64_t(fakelua::State *, double, std::string_view)>(
+            [skels](fakelua::State *, double id, std::string_view skin) -> std::int64_t {
+                return skels().SetSkin(static_cast<int>(id), std::string(skin));
+            }));
+
+    // --- drawing ------------------------------------------------------------
+    fakelua::RegisterNativeFunction(
+        state, "skel_draw", false,
+        std::function<void(fakelua::State *, double, double, double, double, double,
+                           double, double, double, double)>(
+            [draw](fakelua::State *, double id, double x, double y, double s, double facing,
+                   double r, double g, double b, double a) {
+                draw(static_cast<int>(id), x, y, s, facing, r, g, b, a, false);
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_draw_bones", false,
+        std::function<void(fakelua::State *, double, double, double, double, double,
+                           double, double, double, double)>(
+            [draw](fakelua::State *, double id, double x, double y, double s, double facing,
+                   double r, double g, double b, double a) {
+                draw(static_cast<int>(id), x, y, s, facing, r, g, b, a, true);
+            }));
+
+    // --- events and stats ---------------------------------------------------
+    fakelua::RegisterNativeFunction(
+        state, "skel_event_count", false,
+        std::function<std::int64_t(fakelua::State *, double)>(
+            [skels](fakelua::State *, double id) -> std::int64_t {
+                return skels().EventCount(static_cast<int>(id));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_event_name", false,
+        std::function<std::string(fakelua::State *, double, double)>(
+            [skels](fakelua::State *, double id, double index) {
+                return skels().EventName(static_cast<int>(id), static_cast<int>(index));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_event_data", false,
+        std::function<double(fakelua::State *, double, double)>(
+            [skels](fakelua::State *, double id, double index) {
+                return skels().EventData(static_cast<int>(id), static_cast<int>(index));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_stat", false,
+        std::function<std::int64_t(fakelua::State *, double)>(
+            [skels](fakelua::State *, double which) -> std::int64_t {
+                const SkeletonSystem::Stats s = skels().GetStats();
+                switch (static_cast<int>(which)) {
+                    case 1: return s.assets;
+                    case 2: return s.instances;
+                    case 3: return s.bones_posed;
+                    case 4: return s.slots_drawn;
+                    case 5: return s.draw_calls;
+                    case 6: return s.events_fired;
+                    case 7: return s.clips;
+                    default: return 0;
+                }
+            }));
+}
+
+
 void RegisterWindowApi(fakelua::State *state, Engine *engine) {
     fakelua::RegisterNativeFunction(
         state, "window_quit", false,
@@ -4312,6 +4694,7 @@ void RegisterScriptApi(fakelua::State *state, Engine *engine) {
     RegisterShaderApi(state, engine);
     RegisterWindowApi(state, engine);
     RegisterLightingApi(state, engine);
+    RegisterSkeletonApi(state, engine);
     RegisterDebugApi(state);
 }
 

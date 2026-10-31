@@ -56,7 +56,7 @@ coverage_html/
 # maps, WAV) — except the hand-written GLSL sources and the shipped sprite art,
 # which are source files and must stay in git: the CC0 packs (brawler, shmup),
 # the AI-illustrated art (art, vn) and the committed sheets the city, rts,
-# contra and snooker demos load instead of falling back to host painters.
+# contra, snooker and skeleton demos load instead of falling back to host painters.
 assets/*
 !assets/*.vert
 !assets/*.frag
@@ -88,6 +88,11 @@ assets/*
 !assets/rts/**
 !assets/shmup/
 !assets/shmup/**
+# The skeletal rig is authored data, not a first-run cache: soldier.json is the
+# bone/clip source the demo and --skeleton-test load, and the sheet beside it is
+# baked by tools/make_skeleton_sheet.py.
+!assets/skeleton/
+!assets/skeleton/**
 !assets/snooker/
 !assets/snooker/**
 !assets/vn/

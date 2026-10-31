@@ -24,6 +24,7 @@ struct Engine::Impl {
     ParticleSystem particles;
     PhysicsWorld physics;
     AnimationSystem animations;
+    SkeletonSystem skeletons;
     TilemapLibrary tilemaps;
     UISystem ui;
     SaveStore saves;
@@ -191,6 +192,9 @@ int Engine::Run(int max_frames) {
         impl_->renderer.GetCamera().UpdateEffects(static_cast<float>(impl_->delta_time));
         impl_->particles.Update(static_cast<float>(impl_->delta_time));
         impl_->animations.Update(static_cast<float>(impl_->delta_time));
+        // Skeletons ride the same clock, so a rig and a frame clip on
+        // the same character cannot drift apart over a long session.
+        impl_->skeletons.Update(static_cast<float>(impl_->delta_time));
         // Animated tiles ride their own clock, like the animator and unlike
         // a script-fed uniform: water and torches loop with no bookkeeping.
         impl_->tilemaps.AdvanceAll(static_cast<float>(impl_->delta_time));
@@ -279,6 +283,7 @@ void Engine::Shutdown() {
     impl_->particles.Clear();
     impl_->physics.Clear();
     impl_->animations.Clear();
+    impl_->skeletons.Clear();
     impl_->tilemaps.Clear();
     impl_->audio.Shutdown();
     impl_->resources.Clear();
@@ -434,6 +439,14 @@ PhysicsWorld &Engine::GetPhysics() {
 
 const PhysicsWorld &Engine::GetPhysics() const {
     return impl_->physics;
+}
+
+SkeletonSystem &Engine::GetSkeletons() {
+    return impl_->skeletons;
+}
+
+const SkeletonSystem &Engine::GetSkeletons() const {
+    return impl_->skeletons;
 }
 
 AnimationSystem &Engine::GetAnimations() {

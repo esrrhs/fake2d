@@ -1,6 +1,7 @@
 #pragma once
 
 #include "fake2d/animation.h"
+#include "fake2d/skeleton.h"
 #include "fake2d/achievements.h"
 #include "fake2d/audio.h"
 #include "fake2d/entity_store.h"
@@ -172,6 +173,11 @@ public:
     /// Frame-animation clip pool (auto-advanced once per frame).
     AnimationSystem &GetAnimations();
     [[nodiscard]] const AnimationSystem &GetAnimations() const;
+
+    /// Skeletal animation: rigs, clips, and the instances posing them
+    /// (auto-advanced once per frame, drawn by the game when it wants them).
+    SkeletonSystem &GetSkeletons();
+    [[nodiscard]] const SkeletonSystem &GetSkeletons() const;
 
     /// Loaded Tiled tile maps.
     TilemapLibrary &GetTilemaps();

@@ -33,6 +33,7 @@ inline constexpr DemoInfo kDemos[] = {
     {"rts", "scripts/rts_demo.lua", "game"},
     {"vn", "scripts/vn_demo.lua", "game"},
     // --- engine feature showcases ----------------------------------------
+    {"skeleton", "scripts/skeleton_demo.lua", "engine"},
     {"light", "scripts/light_demo.lua", "engine"},
     {"scene", "scripts/scene_demo.lua", "engine"},
     {"slope", "scripts/slope_demo.lua", "engine"},

@@ -42,6 +42,7 @@ Fake2D is a fully battery-included engine, not just a bare graphics library:
 - **Studio-Grade Audio Engine**: Device-decoupled software mixer, 3-bus hierarchy (Master / SFX / Music), linear gain envelopes and music cross-fades, 3D positional audio (distance rolloff and stereo pan), low-memory streamed playback (8192-frame streaming windows for WAV / MP3 / OGG / FLAC), and real-time stereo VU peak metering;
 - **Multi-Pass Post-Processing & FBO**: Offscreen `RenderTarget` pool, ping-pong blur passes, bloom thresholding (`fx_bright`), animated wave shimmer (`fx_wave` with auto `u_time`/`u_resolution`), fog of war with multiply blending & `rt_sample` exploration probes, and baked minimaps;
 - **Real-Time 2D Lighting**: Point lights with soft radial falloff and hard projected shadow volumes, so a light that moves sweeps its shadows across the scene with it. One generated falloff sprite and one multiply blit, grouped by blend state — 64 moving lights against all 256 caster slots cost 4 draw calls and 0.7 ms. Casters are rects, polygons or live physics bodies, each shadow is confined to its own light's circle, and a per-frame quad budget bounds the worst case;
+- **2D Skeletal Animation**: bone hierarchies posed by keyframed clips, so a walk cycle is a list of angles instead of two hundred pictures. Rigs load from JSON (a Spine-shaped schema of bones, slots, attachments, skins and clips), interpolate per channel with linear or stepped keys, cross-fade with the outgoing clip still animating underneath, fire timeline events that land on the frame they were authored for even across the loop seam, and reach live targets with two-bone and aim IK. The cost is measured, not assumed: twelve parts on one sheet are one draw call, and twelve soldiers are still one;
 - **Immediate-Mode UI (UISystem)**: Ready-to-use widgets including Panels, Buttons, Labels, Sliders, Checkboxes, UTF-8 TextInputs, ScrollAreas, ProgressBars, RadioButtons, Combos, draggable Windows (with mouse deltas), Tab bars, disclosure Trees, and Tooltips.
 - **Text & Platform Layer**: UTF-8 text with an on-demand glyph atlas (CJK/Japanese/Korean included, `font_load` for any TTF/TTC/OTF, fallback faces for missing glyphs), CJK per-character vs Latin word wrapping with 禁则 rules and kerning, rotated, shadowed, outlined and shrink-to-fit text, TSV localization packs switched at runtime (BOM-safe, missing-key reports), cross-platform resource/user directories, CRC-checked v2 save containers with automatic `.bak` rollback, entity snapshots through the same container, file logging with crash reports, an offline achievement mirror, a `mod.json` mod manager, and an optional Steamworks adapter (achievements / Rich Presence / language / cloud flag) that stubs out when the SDK is absent.
 - **Gameplay Utilities**: deterministic splitmix64 RNG, named easing curves and frame-rate-independent `Approach`, input action maps with rebinding, window size/resizable/min-size/cursor controls, audio pitch/looping/stop, and runtime FPS / frame-ms / draw-call stats.
@@ -50,7 +51,7 @@ Fake2D is a fully battery-included engine, not just a bare graphics library:
 ### 5. Developer Experience & Automated Testing
 - **JIT Script Hot-Reload**: GCC JIT backend with automatic interpreter fallback; edit Lua scripts live and see changes reflected instantly without restarting;
 - **Headless & CI-Ready**: First-class `--headless`, `--frames N`, and `--screenshot` CLI flags allow visual regression tests and automated smoke validation in headless Linux/macOS/Windows environments;
-- **28 Built-in Self-Test Suites**: 1300 assertions covering rigid-body dynamics, joints, sleeping, anti-tunneling, physics queries, filters, timesteps, tilemap objects, A\* pathfinding, render targets, UI widgets, post-FX, fog of war, 2D lighting and shadow containment, audio mixing, animated tiles, UTF-8/CJK text with fallback faces, the platform layer, deterministic RNG, easing, entity snapshots, input actions, window controls, gameplay time scale / hit-stop, 16-slot entity actors, the 128-clip animation pool, the shmup sprite/background asset pipeline, the city-builder tileset/building atlas/base map, the RTS terrain/unit/building/map pipeline and the visual-novel background/portrait art (all mutation-tested);
+- **29 Built-in Self-Test Suites**: 1388 assertions covering rigid-body dynamics, joints, sleeping, anti-tunneling, physics queries, filters, timesteps, tilemap objects, A\* pathfinding, render targets, UI widgets, post-FX, fog of war, 2D lighting and shadow containment, bone hierarchy and clip playback with cross-fade, IK and timeline events, audio mixing, animated tiles, UTF-8/CJK text with fallback faces, the platform layer, deterministic RNG, easing, entity snapshots, input actions, window controls, gameplay time scale / hit-stop, 16-slot entity actors, the 128-clip animation pool, the shmup sprite/background asset pipeline, the city-builder tileset/building atlas/base map, the RTS terrain/unit/building/map pipeline and the visual-novel background/portrait art (all mutation-tested);
 - **Standalone Packaging**: Bundling scripts under `tools/` generate self-contained archives on Linux, macOS, and Windows with all dependencies, shaders, and assets included.
 
 ---
@@ -88,11 +89,11 @@ Fake2D is a fully battery-included engine, not just a bare graphics library:
 
 ## 🎮 Runnable Demos Matrix
 
-Fake2D comes with 28 rich, self-contained demos plus an in-engine launcher for picking between them, demonstrating platformer mechanics, retro brawler and run-and-gun gameplay, cue-sport physics, city simulation, real-time strategy, dating-sim storytelling, real-time 2D lighting with projected shadows, spatial audio, immediate UI, and graphical post-processing:
+Fake2D comes with 29 rich, self-contained demos plus an in-engine launcher for picking between them, demonstrating platformer mechanics, retro brawler and run-and-gun gameplay, cue-sport physics, city simulation, real-time strategy, dating-sim storytelling, real-time 2D lighting with projected shadows, keyframed 2D skeletal animation with IK, spatial audio, immediate UI, and graphical post-processing:
 
 | Demo Flag | Topic | Key Highlighted Features |
 |---|---|---|
-| `--launcher` | **Demo Launcher (default)** | Cover-art picker for all 28 demos: category filter, mouse and keyboard navigation, and the exact command line behind each entry; picking one re-execs into it |
+| `--launcher` | **Demo Launcher (default)** | Cover-art picker for all 29 demos: category filter, mouse and keyboard navigation, and the exact command line behind each entry; picking one re-execs into it |
 | `--breakout-demo` | **Breakout** | Ball physics reflections, brick destruction, particle debris, HUD text, and procedural audio chirps |
 | `--mario-demo` | **Super Mario Bros 1-1** | Faithful SMB 1-1 recreation; small/big Mario forms, Goomba patrols & squashing, ? blocks, brick shatter particles, flag pole sequence, attract AI |
 | `--angry-birds-demo` | **Angry Birds Sandbox** | Slingshot impulse launch, stacked towers that sleep and wake, contact-driven pig pops, camera follow, synthesized SFX |
@@ -110,6 +111,7 @@ Fake2D comes with 28 rich, self-contained demos plus an in-engine launcher for p
 | `--tile-demo` | **Animated Tiles** | Tiled tileset animations driven by a single engine clock; rippling pond water and torch flames |
 | `--fog-demo` | **Fog of War** | Procedural world; multiply blend mask, cumulative exploration reveal, clickable minimap, and `rt_sample` probes |
 | `--light-demo` | **2D Lighting & Projected Shadows** | Moving light sources with hard projected shadows: a carried lantern, a flickering torch, an orbiting orb, a shadowless fill, sliding crates and a physics-simulated crate that drag their shadows; 24 lights burst on one keypress, whole pass in 4 draw calls |
+| `--skeleton-demo` | **2D Skeletal Animation** | A rigged soldier on a 15-bone hierarchy: a walk cycle authored as keyframed angles, an idle that breathes, aim at the cursor through two-bone arm IK, muzzle-flash and recoil, hit and death one-shots cross-faded from whatever pose was running, timeline events that spawn dust, flash and a casing at the exact frame they were authored for, skin swaps, a bone overlay, and a rank of six more soldiers marching behind him off the same asset |
 | `--fx-demo` | **Multi-Pass Post-FX & Bloom** | Procedural skyline; FBO downsampling, separable 9-tap Gaussian blur, bloom thresholding, wave wobble, split-screen |
 | `--post-demo` | **Post-Grade & Baked Minimap** | Presentation-grade shaders (desaturation, lift, vignette, scanlines) and camera-baked tilemap minimap |
 | `--rt-demo` | **Render Targets & Feedback Trails**| Bake-once background canvas beside an accumulating fading motion trail |
@@ -211,6 +213,9 @@ back to the launcher and pick again.
 # 2D Lighting & Projected Shadows (LEFT/RIGHT walk, SPACE burst, L toggle)
 ./build/bin/fake2d_hello --light-demo
 
+# Skeletal Animation (LEFT/RIGHT walk, SPACE shoot, H hit, K die, R revive, B bones, N skin)
+./build/bin/fake2d_hello --skeleton-demo
+
 # Multi-pass Post-FX & Bloom (Press S to toggle split-screen mode)
 ./build/bin/fake2d_hello --fx-demo
 
@@ -282,7 +287,7 @@ xvfb-run ./build/bin/fake2d_hello --headless --mario-demo --shot-frame 60 --scre
 # Reject screenshots that saved but drew nothing (exit 2): colour floor probe
 xvfb-run ./build/bin/fake2d_hello --headless --text-demo --screenshot text.png --shot-min-colors 12
 
-# Run the 28 built-in engine self-test suites (verified via exit codes)
+# Run the 29 built-in engine self-test suites (verified via exit codes)
 xvfb-run ./build/bin/fake2d_hello --phys-query-test    # Ray casts, overlaps, contact lifecycle
 xvfb-run ./build/bin/fake2d_hello --phys-filter-test   # 16-bit category/mask collision filtering
 xvfb-run ./build/bin/fake2d_hello --phys-rigid-test    # Rotational inertia, friction, resting stacks
@@ -298,6 +303,7 @@ xvfb-run ./build/bin/fake2d_hello --fx-test            # Multi-pass ping-pong bl
 xvfb-run ./build/bin/fake2d_hello --fog-test           # Fog of war multiply blending & rt_sample
 xvfb-run ./build/bin/fake2d_hello --light-test         # Light pools, shadow containment, budget
 xvfb-run ./build/bin/fake2d_hello --light-bench        # Lighting stays batched: calls flat in lights
+xvfb-run ./build/bin/fake2d_hello --skeleton-test      # Bone hierarchy, clips, cross-fade, IK, events
 xvfb-run ./build/bin/fake2d_hello --audio-test         # Mixer buses, envelopes, streamed music
 xvfb-run ./build/bin/fake2d_hello --font-test          # UTF-8/CJK glyph atlas, wrapping, rotation, shrink
 xvfb-run ./build/bin/fake2d_hello --platform-test      # i18n packs, user paths, save v2, Steam stub, UI text
@@ -380,6 +386,7 @@ fake2d/
 │   ├── entity_store.h       # C++ entity slot persistence across arena resets
 │   ├── font.h               # TTF rasterizer & 8x8 bitmap glyph atlas
 │   ├── input.h              # Keyboard, mouse deltas & gamepad snapshot
+│   ├── lighting.h           # Point lights with falloff and projected shadows
 │   ├── math.h               # Vec2, Rect, Color, Mat4 math library
 │   ├── node.h               # Transform2D spatial node hierarchy
 │   ├── particle.h           # Zero-allocation 8192 particle pool & emitters
@@ -391,6 +398,7 @@ fake2d/
 │   ├── scene.h              # Layered scene graph rendering
 │   ├── script_host.h        # FakeLua runtime bridge & JIT host
 │   ├── shader.h             # GLSL shader manager with automatic uniform stamps
+│   ├── skeleton.h           # Bone hierarchies, keyframed clips, IK & skins
 │   ├── sprite_batch.h       # High-throughput multi-key sorted SpriteBatch
 │   ├── texture.h            # Texture2D & 1x1 white texture singleton
 │   ├── tilemap.h            # Tiled maps, slopes, animated tiles & A* pathfinder
@@ -417,6 +425,7 @@ fake2d/
 │   ├── tile_demo.lua        # Animated tiles showcase
 │   ├── fog_demo.lua         # Fog of war & exploration mask
 │   ├── light_demo.lua       # 2D lighting & projected shadows
+│   ├── skeleton_demo.lua    # Skeletal animation & rig posing
 │   ├── fx_demo.lua          # Bloom post-processing & split-screen
 │   ├── post_demo.lua        # Color grading & minimap bake
 │   ├── rt_demo.lua          # Offscreen FBO trails
