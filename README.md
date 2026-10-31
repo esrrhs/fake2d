@@ -155,6 +155,21 @@ cmake --build build --parallel
 
 > **C++ Only Mode**: To build a windowed skeleton without linking FakeLua, pass `-DFAKE2D_WITH_FAKELUA=OFF`.
 
+### Install as a System Dependency
+
+```bash
+# Installs to /usr/local (headers + static library + CMake package, bundled GLFW included)
+cmake --install build
+```
+
+Other projects no longer need the fake2d sources; `find_package` is enough:
+
+```cmake
+find_package(fake2d 1.41 REQUIRED CONFIG)
+add_executable(my_game main.cpp)
+target_link_libraries(my_game PRIVATE fake2d::fake2d)   # GLFW/OpenGL/FakeLua come along automatically
+```
+
 ---
 
 ## 💻 CLI Usage Guide

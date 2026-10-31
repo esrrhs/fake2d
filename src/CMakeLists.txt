@@ -111,7 +111,9 @@ if (FAKE2D_TEST_STEAM_HEADERS)
 endif ()
 
 # JSON parsing for TexturePacker atlases (header-only, kept out of the public API).
-target_link_libraries(fake2d PRIVATE nlohmann_json::nlohmann_json)
+# BUILD_INTERFACE keeps it out of the exported link interface: consumers never
+# need json symbols at link time, and the target itself is not exported.
+target_link_libraries(fake2d PRIVATE $<BUILD_INTERFACE:nlohmann_json::nlohmann_json>)
 
 # miniaudio platform backends.
 if (APPLE)
