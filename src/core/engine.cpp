@@ -123,6 +123,9 @@ bool Engine::Init(const EngineConfig &config) {
 
 #if defined(FAKE2D_WITH_FAKELUA) && FAKE2D_WITH_FAKELUA
     if (!impl_->config.script_entry.empty()) {
+        if (!impl_->config.script_jit) {
+            impl_->script.PreferInterpreter();
+        }
         if (!impl_->script.CompileFile(impl_->config.script_entry)) {
             std::fprintf(stderr, "fake2d: warning: script entry compile failed, continuing without scripts\n");
         }

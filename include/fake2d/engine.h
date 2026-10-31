@@ -43,6 +43,13 @@ struct EngineConfig {
     std::string script_entry = "scripts/game.lua";
     /// Watch the entry script's mtime and hot-reload it on change.
     bool hot_reload = false;
+    /// Compile scripts with the GCC JIT backend. The JIT spends seconds turning
+    /// a script into native code before the first frame, which pays for itself
+    /// in a game that runs for hours and not at all in a demo someone wants to
+    /// look at now — so a windowed demo or launcher run clears this and goes
+    /// straight to the interpreter. Same program, same semantics, called
+    /// through the VM.
+    bool script_jit = true;
     /// Directory holding save slots. Empty (the default) resolves to
     /// `AppPaths::SavesDir()` — the per-user save directory — so games write
     /// where the platform expects. Set an explicit path for portable builds.

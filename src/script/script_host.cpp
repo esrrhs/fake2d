@@ -71,6 +71,13 @@ bool ScriptHost::Init() {
     return impl_->state != nullptr;
 }
 
+void ScriptHost::PreferInterpreter() {
+    // Deliberately one-directional: FAKE2D_LUA_INTERP already forced this in
+    // Init(), and nothing here turns the JIT back on once it has been off.
+    impl_->interp_only = true;
+    impl_->jit = fakelua::JIT_INTERP;
+}
+
 void ScriptHost::BindEngine(Engine *engine) {
     impl_->engine = engine;
     RegisterScriptApi(impl_->state, engine);

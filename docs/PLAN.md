@@ -598,7 +598,7 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 
 - [x] **`--launcher`**: an in-engine picker, so a demo is chosen instead of remembered as a command-line flag. A windowed run with no demo flag opens it; a bare headless run keeps the historical Breakout entry so existing smoke tests are untouched.
 - [x] **One catalogue, two front doors**: `include/fake2d/demos.h` lists every demo as `{flag, script, category}`. The menu reads it through `demo_count()` / `demo_flag()` / `demo_script()` / `demo_category()` and the command line parses the same flags, so the launcher can only ever offer what the host can start. Adding a row lists the demo automatically.
-- [x] **`app_launch(flag)`**: the host re-execs itself with `--<flag>-demo` once `Run()` returns, forwarding `--frames`. Every demo keeps a clean process and its own asset/audio setup. A headless run reports the request instead of execing, so a CI smoke test cannot spawn an unbounded second session.
+- [x] **`app_launch(flag)`**: the host re-execs itself with `--<flag>-demo` once `Run()` returns, forwarding `--frames`. Every demo keeps a clean process and its own asset/audio setup. A headless run reports the request instead of execing, so a CI smoke test cannot spawn an unbounded second session. *(Superseded in Phase 48: the demo runs as a child process and the picker survives it.)*
 - [x] **The menu itself**: cover art drawn from the shipped `assets/` tree, category chips (all / games / engine), a detail panel with the summary, control scheme, exact command line and script path, and full mouse plus keyboard navigation (arrows, PgUp/PgDn, Home, Tab, Enter, Esc, wheel).
 - [x] **`--launcher-test` (110 checks)**: unique flags, only categories the menu can group by, and a script that actually exists for every row.
 - [x] **State model**: launcher state lives in a `new_global_obj` NativeObject, because file-level locals are const bindings. `docs/SCRIPTING.md` rules 3 and 4 now say that plainly — the `+ 0` idiom the older demos use predates the current semantics, and the demo suite still needs migrating to object state.
@@ -615,6 +615,15 @@ FakeLua binds every file-level `local` as const, so the `local score = 0 + 0` id
 - [x] Verification: all 27 demos compile and run 120 headless frames with no script error; the long runs still reach their milestones (Contra clears the fortress core, RTS goes first blood → player victory, the snooker AI resolves shot after shot, the VN story advances); 301 assertions across the 9 suites, including `--launcher-test` and `--art-test`.
 
 ---
+
+## Phase 48 — The picker survives the game (1.41.0)
+
+Two things that only show up when a human actually uses the launcher: five seconds of GCC JIT compile before a demo appears, and a launcher that exec-ed into the demo and so was gone the moment the game closed.
+
+- [x] **`app_launch` starts a child and waits** (`SpawnWaiting`: `_spawnv(_P_WAIT)` / `fork`+`execvp`+`waitpid`), then the launcher process `exec`s itself back into `--launcher`. A demo still gets a clean process with its own asset and audio setup — that is why the hand-off exists — but the menu outlives it, which is the whole point of a picker. `EACCES`-style failures are distinguished from a closed game by the child's `127` exit status, so "could not start" and "played and quit" are different messages. A headless run still only reports the request, so a CI smoke cannot spawn an unbounded session.
+- [x] **Windowed demo and launcher runs default to the interpreter** through the new `EngineConfig::script_jit` → `ScriptHost::PreferInterpreter()`. The JIT is worth seconds-per-hour in a game you play and costs seconds-per-launch in a demo you glance at. `--jit` / `--interp` override, an explicit choice is forwarded to the child so it does not silently pick a different backend, and headless keeps the JIT so CI's backend coverage is unchanged. Measured on `--skeleton-demo`: **4.89 s → 1.59 s** to the first frame.
+- [x] `--launcher-test` gained the child's argument contract (`DemoArgs`): the demo flag alone, the frame budget crossing the boundary, both backend overrides crossing, and the emitted flag parsing back through the catalogue.
+- [x] Verification: 18 launcher generations and 17 demo children round-tripped in a 30 s windowed run driven by `LAUNCHER_TEST_PICK`; windowed `--skeleton-demo` logs no JIT compilation and `--jit` logs it; the suites and the 29-demo sweep are unchanged.
 
 ## Phase 47 — 2D skeletal animation (1.40.x)
 
