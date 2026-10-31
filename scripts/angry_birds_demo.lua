@@ -196,7 +196,9 @@ local function build_scene()
 
     -- Camera: pan with the bird, never leave the level, ease back on reset.
     camera_set_bounds(0.0, 0.0, WORLD_W, SCREEN_H)
-    camera_deadzone(160.0, 0.0)  -- let the bird fly a little before panning
+    -- At rest the view centres on the sling; launch() arms the deadzone so the
+    -- bird can run ahead of the pan while it flies.
+    camera_deadzone(0.0, 0.0)
     camera_smoothing(4.0)
     camera_snap(REST_CENTER_X - SCREEN_W * 0.5, 0.0)
 end
@@ -227,6 +229,10 @@ local function launch(vx, vy)
     S.state = 1
     S.flight_t = 0.0
     S.calm_t = 0.0
+    -- The deadzone only earns its keep while the bird is airborne: it lets the
+    -- bird run ahead of the pan. Re-arm it here because `finish_flight` drops
+    -- it again.
+    camera_deadzone(160.0, 0.0)
     S.birds_left = S.birds_left - 1
     phys_set_gravity_scale(bird, 1.0)
     phys_set_vel(bird, vx, vy)
@@ -236,6 +242,10 @@ local function launch(vx, vy)
 end
 
 local function finish_flight()
+    -- Without this the camera stops as soon as the rest target falls inside the
+    -- flight deadzone, leaving the framing permanently offset by up to 160 px --
+    -- far enough to push the slingshot off the left edge after a long shot.
+    camera_deadzone(0.0, 0.0)
     if S.pigs_left <= 0 then
         S.state = 2
         audio_play("win", 0.85)
