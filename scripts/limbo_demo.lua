@@ -14,8 +14,10 @@
 -- impacts, and a HUD that reads live joint/body counts back from the engine.
 --
 -- Controls: A/D move, SPACE jump, E grab/release the rope, K sever, R reset.
--- Headless: set LIMBO_TEST=1 to teleport the hero to the water, sever at
--- frame 60 and log buoyancy + tether distances at frame 620.
+-- Headless self-checks: LIMBO_TEST=1 teleports the hero to the water, severs
+-- at frame 60 and logs buoyancy + tether distances at frame 2000;
+-- LIMBO_TEST=2 drives right for 150 frames and logs torso tilt/position at
+-- frames 260 and 430 (walking must keep the doll upright and moving).
 
 local SCREEN_W = 960.0
 local SCREEN_H = 540.0
@@ -27,7 +29,10 @@ local WATER_Y = 420.0
 local SPAWN_X = 260.0
 local SPAWN_Y = 452.0
 local ROPE_AX = 430.0
-local ROPE_AY = 150.0
+-- Anchored high: the tail hangs at ~330, clear of the walking hero's head
+-- (~420) so strolling past does not clothesline the doll 170px from spawn.
+-- A jump lifts the arm to ~342, inside the 44px grab radius of the hook.
+local ROPE_AY = 60.0
 local ROPE_NODES = 9
 local BRIDGE_AX = 1432.0
 local BRIDGE_BX = 1740.0
@@ -72,6 +77,7 @@ local function reset_state()
     S.limb_tex = 0 + 0
     S.rope_tex = 0 + 0
     S.water_tex = 0 + 0
+    S.glow_tex = 0 + 0
     S.inited = false
     S.ground = 0 + 0
     S.rope_anchor = 0 + 0
@@ -120,6 +126,7 @@ local function init_assets()
     S.limb_tex = sprite_load("assets/limbo/limb.png")
     S.rope_tex = sprite_load("assets/limbo/rope.png")
     S.water_tex = sprite_load("assets/limbo/water.png")
+    S.glow_tex = sprite_load("assets/art/glow.png")
 end
 
 local function create_statics()
@@ -174,6 +181,15 @@ local function build_ragdoll()
                                   x - 5.0, y + 16.0, x - 5.0, y + 16.0)
     S.j_hip_r = phys_joint_revolute(S.hd_torso, S.hd_leg_r,
                                   x + 5.0, y + 16.0, x + 5.0, y + 16.0)
+
+    -- Angle limits (radians from the standing pose): without them the doll
+    -- folds flat at the hips the moment the torso is pushed, which is what
+    -- made walking tip the whole body over.
+    phys_joint_limit(S.j_neck, -0.35, 0.35)
+    phys_joint_limit(S.j_shoulder_l, -1.3, 1.3)
+    phys_joint_limit(S.j_shoulder_r, -1.3, 1.3)
+    phys_joint_limit(S.j_hip_l, -1.1, 1.1)
+    phys_joint_limit(S.j_hip_r, -1.1, 1.1)
 end
 
 local function build_rope()
@@ -417,6 +433,73 @@ local function apply_water(dt)
     end
 end
 
+-- Locomotion for the ragdoll. Force-based drive was tried and always
+-- face-planted: whatever the push point, the contact solver answers with
+-- ground impulses that net a pitch moment and the doll tips within seconds.
+-- So walking is VELOCITY-level instead: every part's horizontal speed is
+-- steered toward the same target, so no joint ever has to shear and there
+-- is no drive torque to topple anything. The feet run near-frictionless
+-- while sliding (a friction spike under a moving foot is a tripwire -- the
+-- release stop face-planted too), grip returns only once nearly stopped,
+-- the hips stay stiff (speed-0 motors) for a Limbo shuffle, and a gentle
+-- torque PD holds the torso up.
+local MAX_WALK = 220.0
+local HIP_MOTOR_TORQUE = 20000000.0
+
+local function drive(dir, dt)
+    if dt <= 0.0 or S.hd_torso == 0 then
+        return
+    end
+    if not grounded() then
+        if dir ~= 0.0 then
+            -- carry the walk character into a jump: slick feet, stiff hips
+            if S.hd_leg_l ~= 0 then
+                phys_set_friction(S.hd_leg_l, 0.02)
+            end
+            if S.hd_leg_r ~= 0 then
+                phys_set_friction(S.hd_leg_r, 0.02)
+            end
+            phys_joint_motor(S.j_hip_l, 0.0, HIP_MOTOR_TORQUE)
+            phys_joint_motor(S.j_hip_r, 0.0, HIP_MOTOR_TORQUE)
+        end
+        return
+    end
+    local target = dir * MAX_WALK
+    local k = 12.0 * dt
+    if k > 1.0 then
+        k = 1.0
+    end
+    local parts = {S.hd_head, S.hd_torso, S.hd_arm_l, S.hd_arm_r,
+                   S.hd_leg_l, S.hd_leg_r}
+    for i = 1, 6 do
+        local b = parts[i]
+        if b ~= 0 then
+            local vx = phys_vx(b)
+            phys_set_vel(b, vx + (target - vx) * k, phys_vy(b))
+        end
+    end
+    local sliding = math.abs(phys_vx(S.hd_torso)) > 15.0
+    local foot_friction = 0.75
+    local hip_torque = 0.0
+    if sliding then
+        foot_friction = 0.02
+        hip_torque = HIP_MOTOR_TORQUE
+    end
+    if S.hd_leg_l ~= 0 then
+        phys_set_friction(S.hd_leg_l, foot_friction)
+    end
+    if S.hd_leg_r ~= 0 then
+        phys_set_friction(S.hd_leg_r, foot_friction)
+    end
+    phys_joint_motor(S.j_hip_l, 0.0, hip_torque)
+    phys_joint_motor(S.j_hip_r, 0.0, hip_torque)
+    if dir ~= 0.0 then
+        phys_apply_torque(S.hd_torso,
+                          -phys_rot(S.hd_torso) * 1200000.0
+                          - phys_ang_vel(S.hd_torso) * 90000.0)
+    end
+end
+
 local function update_controls(dt)
     if input_key_pressed("r") then
         reset_scene()
@@ -427,8 +510,6 @@ local function update_controls(dt)
     end
 
     if S.alive == 1 then
-        local tx = phys_x(S.hd_torso)
-        local ty = phys_y(S.hd_torso)
         local dir = 0.0
         if input_key_down("a") or input_key_down("left") then
             dir = dir - 1.0
@@ -436,12 +517,16 @@ local function update_controls(dt)
         if input_key_down("d") or input_key_down("right") then
             dir = dir + 1.0
         end
-        if dir ~= 0.0 then
-            phys_apply_impulse(S.hd_torso, dir * 620000.0 * dt, 0.0, tx, ty)
+        -- dir may be 0: drive() then decelerates and hands grip back.
+        -- During the LIMBO_TEST=2 drive window the auto branch owns drive.
+        local auto_walk = S.auto == 2 and S.frame >= 100 and S.frame <= 250
+        if not auto_walk then
+            drive(dir, dt)
         end
         if input_key_pressed("space") and grounded() then
             local mt = phys_mass(S.hd_torso)
-            phys_apply_impulse(S.hd_torso, 0.0, -mt * 420.0, tx, ty)
+            phys_apply_impulse(S.hd_torso, 0.0, -mt * 420.0,
+                               phys_x(S.hd_torso), phys_y(S.hd_torso))
             phys_apply_impulse(S.hd_leg_l, 0.0,
                                -phys_mass(S.hd_leg_l) * 220.0,
                                phys_x(S.hd_leg_l), phys_y(S.hd_leg_l))
@@ -638,11 +723,22 @@ local function draw_hero()
     if S.hd_torso == 0 then
         return
     end
-    -- soft glow so the black silhouette reads against the mist
+    -- Backlight fog: the silhouette art is near-black and the grass band is
+    -- near-black, so the hero only reads with a light pool behind it. The
+    -- old glow drew ball.png (black) and thus did nothing; this stacks three
+    -- soft white discs additively for a radial falloff.
     local x = phys_smooth_x(S.hd_torso)
     local y = phys_smooth_y(S.hd_torso)
-    sprite_draw_tinted(S.ball_tex, x - 60.0, y - 60.0, 120.0, 120.0,
-                       1.0, 1.0, 0.95, 0.05)
+    if S.glow_tex ~= 0 then
+        draw_set_blend(1)
+        sprite_draw_tinted(S.glow_tex, x - 110.0, y - 70.0, 220.0, 220.0,
+                           1.0, 1.0, 1.0, 0.10)
+        sprite_draw_tinted(S.glow_tex, x - 75.0, y - 50.0, 150.0, 150.0,
+                           1.0, 1.0, 1.0, 0.16)
+        sprite_draw_tinted(S.glow_tex, x - 45.0, y - 35.0, 90.0, 90.0,
+                           1.0, 1.0, 1.0, 0.26)
+        draw_set_blend(0)
+    end
     if not draw_part(S.head_tex, S.hd_head, 22.0, 22.0) then
         draw_circle_body(S.hd_head, 8.0, 0.04, 0.05, 0.04)
     end
@@ -750,13 +846,17 @@ function update(dt)
         init_assets()
         phys_gravity(0.0, 900.0)
         phys_set_sleep(true)
-        if os.getenv("LIMBO_TEST") ~= nil then
+        if os.getenv("LIMBO_TEST") == "2" then
+            S.auto = 2
+        elseif os.getenv("LIMBO_TEST") ~= nil then
             S.auto = 1
         end
         reset_scene()
     end
 
     S.frame = S.frame + 1
+
+    local sdt = time_sim_dt() * time_steps()
 
     if S.auto == 1 then
         if S.frame == 30 then
@@ -791,9 +891,25 @@ function update(dt)
                 log_number(900 + math.floor(max_d))
             end
         end
+    elseif S.auto == 2 then
+        -- Walk self-check: drive right for 150 frames, then log (as
+        -- prefix+offset) torso tilt and position while still settled and
+        -- again after coasting. A fallen doll shows rot past 100 (1 rad)
+        -- and a torso y near 480 instead of the standing ~452.
+        if S.frame >= 100 and S.frame <= 250 then
+            drive(1.0, sdt)
+        end
+        if S.frame == 260 or S.frame == 430 then
+            local base = 100
+            if S.frame == 430 then
+                base = 400
+            end
+            log_number(base + math.abs(phys_rot(S.hd_torso)) * 100.0)
+            log_number(base + 100 + phys_x(S.hd_torso) - SPAWN_X)
+            log_number(base + 200 + phys_y(S.hd_torso))
+        end
     end
 
-    local sdt = time_sim_dt() * time_steps()
     update_controls(sdt)
     apply_water(sdt)
 
