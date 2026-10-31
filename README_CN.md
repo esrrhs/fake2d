@@ -161,9 +161,11 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 # 3. 编译构建
 cmake --build build --parallel
 
-# 4. 运行默认打砖块小游戏
+# 4. 运行：打开 Demo 选择器（加 --<name>-demo 可直接进入某个 Demo）
 ./build/bin/fake2d_hello
 ```
+
+> **要在仓库根目录下运行。** `scripts/` 与 `assets/` 按当前工作目录解析，从别处启动只会得到一个空窗口。macOS 上直接双击 `run.command` 即可：它会 `cd` 进仓库、首次运行自动编译，然后打开选择器。
 
 > **纯 C++ 骨架模式**：如果本地暂未安装 FakeLua，可传入 `-DFAKE2D_WITH_FAKELUA=OFF` 编译纯 C++ 骨架工程用于底层图形与硬件调试。
 
@@ -361,6 +363,7 @@ end
 ```
 fake2d/
 ├── CMakeLists.txt           # Modern CMake 工程主配置
+├── run.command              # macOS 双击即编译并打开 Demo 选择器
 ├── include/fake2d/          # C++ 对外公共接口与模块头文件
 │   ├── animation.h          # 关键帧动画系统（AnimationSystem）
 │   ├── atlas.h              # TexturePacker JSON 图集解析

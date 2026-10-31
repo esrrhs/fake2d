@@ -144,9 +144,14 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 # 3. Build in parallel
 cmake --build build --parallel
 
-# 4. Launch the default Breakout game
+# 4. Launch — opens the demo picker; pass --<name>-demo to skip it
 ./build/bin/fake2d_hello
 ```
+
+> **Run it from the repository root.** `scripts/` and `assets/` are resolved
+> against the working directory, so starting the binary from elsewhere opens an
+> empty window. On macOS, double-clicking `run.command` does the right thing: it
+> `cd`s into the repository, builds on first run, and opens the picker.
 
 > **C++ Only Mode**: To build a windowed skeleton without linking FakeLua, pass `-DFAKE2D_WITH_FAKELUA=OFF`.
 
@@ -376,6 +381,7 @@ end
 ```
 fake2d/
 ├── CMakeLists.txt           # Modern CMake root build configuration
+├── run.command              # macOS: double-click to build and open the picker
 ├── include/fake2d/          # Public C++ engine interface headers
 │   ├── animation.h          # Keyframe AnimationSystem
 │   ├── atlas.h              # TexturePacker JSON parser
