@@ -42,6 +42,7 @@ Fake2D 不仅是渲染器，更是一套自洽完备的 2D 游戏开发平台：
 - **专业级音频系统**：设备解耦的纯软件混音核心、三总线路由（Master / SFX / Music）、平滑交叉淡入淡出（Cross-fade Envelopes）、3D 空间位置音频（距离线性衰减与立体声声相 Pan）、大曲目 8192 帧按需流式回填（支持 WAV/MP3/OGG/FLAC）；
 - **多趟后处理与 FBO**：离屏渲染目标（RenderTarget）、Ping-Pong 缓冲交换、Bloom 辉光、可分离 9 抽头高斯模糊、波浪扭曲特效、战争迷雾（Fog of War）以及全景小地图烘焙；
 - **实时 2D 光照与投影阴影**：点光源带径向柔和衰减，每个遮挡物向外投影硬阴影，光源移动时阴影随之扫过场景。整个通道只用一张生成的衰减贴图与一次 Multiply 混合，并按混合状态合批——64 个运动光照打满 256 个遮挡物槽位仍是 4 个 Draw Call、0.7 ms。遮挡物支持矩形、多边形与实时物理刚体，每道阴影都被约束在自己的光照圆内，每帧阴影四边形预算兜住最坏情况；
+- **2D 骨骼动画**：骨骼层级由关键帧剪辑驱动，一套走路循环是一串角度而不是两百张图。骨架从 JSON 载入（bones / slots / attachments / skins / clips 的 Spine 风格结构），逐通道线性或阶梯插值，交叉淡入淡出时旧剪辑仍在底层继续播放，时间轴事件跨过循环接缝也能命中当帧，并支持双臂两骨 IK 与指向 IK。代价是量出来的：一张图集上的 12 个部件只需 1 个 Draw Call，12 个士兵加起来仍是 1 个；
 - **即时模式 UI（Immediate-Mode UI）**：开箱即用的 UI 控件库（Panel、Button、Label、Slider、Checkbox、TextInput、ScrollArea、ProgressBar、RadioButton、Combo、可拖拽 Window、Tab 标签页、Tree 折叠树、Tooltip）。
 - **文本与平台能力层**：UTF-8 按需字形图集（原生支持 CJK/日文/韩文，`font_load` 可载入任意 TTF/TTC/OTF，缺字自动回退字体）、中文逐字换行与英文按词换行（含禁则与 kerning）、旋转/阴影/描边/自动缩字、运行时切换的 TSV 语言包（BOM 兼容、缺 key 报告）、跨平台资源/用户目录、带 CRC 与 `.bak` 回滚的 v2 存档容器、实体快照存读、文件日志与崩溃报告、离线成就镜像、`mod.json` 模组管理器，以及可选 Steamworks 适配层（成就 / Rich Presence / 语言 / 云存档开关，未链接 SDK 时自动降级为零依赖 stub）。
 - **玩法基础工具**：确定性 splitmix64 随机数、命名缓动曲线与帧率无关的 `Approach`、可重绑的输入动作映射、窗口尺寸/resizable/最小尺寸/光标控制、音频 pitch/循环/停止，以及运行时 FPS / 帧耗时 / draw call 统计。
@@ -50,7 +51,7 @@ Fake2D 不仅是渲染器，更是一套自洽完备的 2D 游戏开发平台：
 ### 5. 现代化工程化与极佳开发者体验
 - **JIT 脚本热重载**：支持 GCC JIT 与解释器双模式，在运行中修改 Lua 脚本保存即刻生效，无需重启进程；
 - **无头测试与 CI/CD**：内置原生 `--headless`、`--frames N` 与 `--screenshot` 参数，可在无物理显示器的虚拟机、Docker 容器中运行自动化回归验证与帧缓冲像素级比对；
-- **28 项内置自测试套件**：1300 断言，涵盖刚体动力学、关节、休眠、防穿透、物理查询、碰撞过滤、时间步长、地图对象、A\* 寻路、离屏 FBO、即时 UI、后处理链、战争迷雾、2D 光照与阴影包含性、音频混音、动画瓦片、UTF-8/CJK 文本与字体回退、平台能力层、确定性随机、缓动、实体快照、输入动作、窗口控制、游戏时间缩放/命中停顿、16 槽实体角色、128 剪辑动画池、飞机大战素材管线、城市建造地形/建筑图集/基础地图、RTS 地形/单位/建筑/地图管线与视觉小说背景/立绘素材等，所有测试用例均经过变异测试（Mutation-tested）验证；
+- **29 项内置自测试套件**：1388 断言，涵盖刚体动力学、关节、休眠、防穿透、物理查询、碰撞过滤、时间步长、地图对象、A\* 寻路、离屏 FBO、即时 UI、后处理链、战争迷雾、2D 光照与阴影包含性、骨骼层级/剪辑播放/交叉淡入/IK/时间轴事件、音频混音、动画瓦片、UTF-8/CJK 文本与字体回退、平台能力层、确定性随机、缓动、实体快照、输入动作、窗口控制、游戏时间缩放/命中停顿、16 槽实体角色、128 剪辑动画池、飞机大战素材管线、城市建造地形/建筑图集/基础地图、RTS 地形/单位/建筑/地图管线与视觉小说背景/立绘素材等，所有测试用例均经过变异测试（Mutation-tested）验证；
 - **开箱即用独立打包**：提供自动化打包脚本，一键生成包含依赖库的独立二进制压缩包，分发给玩家免安装环境。
 
 ---
@@ -88,11 +89,11 @@ Fake2D 不仅是渲染器，更是一套自洽完备的 2D 游戏开发平台：
 
 ## 🎮 精彩内置 Demo 矩阵
 
-Fake2D 仓库自带 28 个可直接运行的高质量 Demo，并提供一个引擎内启动器供你自由挑选，涵盖平台跳跃、经典街机、清版动作、纵版弹幕射击、斯诺克台球物理、魂斗罗式横版射击、城市模拟经营、红警式即时战略、心跳回忆式视觉小说、迷宫寻路、即时 UI、战争迷雾、带投影阴影的实时 2D 光照、多趟后处理与空间音频等各个维度：
+Fake2D 仓库自带 29 个可直接运行的高质量 Demo，并提供一个引擎内启动器供你自由挑选，涵盖平台跳跃、经典街机、清版动作、纵版弹幕射击、斯诺克台球物理、魂斗罗式横版射击、城市模拟经营、红警式即时战略、心跳回忆式视觉小说、迷宫寻路、即时 UI、战争迷雾、带投影阴影的实时 2D 光照、关键帧驱动的 2D 骨骼动画、多趟后处理与空间音频等各个维度：
 
 | Demo 启动参数 | 演示主题 | 核心特性亮点 |
 |---|---|---|
-| `--launcher` | **Demo 启动器（默认入口）** | 28 个 Demo 的封面图选择界面：分类过滤、鼠标与键盘操作、并显示每项对应的命令行；选中后自动重启进入该 Demo |
+| `--launcher` | **Demo 启动器（默认入口）** | 29 个 Demo 的封面图选择界面：分类过滤、鼠标与键盘操作、并显示每项对应的命令行；选中后自动重启进入该 Demo |
 | `--breakout-demo` | **经典打砖块 (Breakout)** | 物理反弹、砖块碰撞消除、粒子碎屑飞溅、HUD 文本与音效合成 |
 | `--mario-demo` | **超级马里奥兄弟 1-1** | 完整复刻 SMB 1-1；大/小双形态、板栗仔巡逻与踩扁、顶砖块碎裂粒子、问号箱、旗杆结算流程、Attract 自动巡航 |
 | `--angry-birds-demo` | **愤怒的小鸟沙盒** | 弹弓冲量发射、休眠塔堆、接触事件爆猪与计分、相机跟随与合成音效 |
@@ -110,7 +111,8 @@ Fake2D 仓库自带 28 个可直接运行的高质量 Demo，并提供一个引�
 | `--tile-demo` | **Tiled 动画瓦片** | 引擎统一时钟推进 tileset 动画；池塘水面波光涟漪与跳动火把循环播放，碰撞网格与显示画面解耦 |
 | `--fog-demo` | **战争迷雾与小地图** | 过程化大世界；Multiply 混合模式遮罩、探索区域跨帧累积擦除、无视差小地图联动与 `rt_sample` 探索度采样 |
 | `--light-demo` | **2D 光照与投影阴影** | 会移动的光源与随之扫动的投影阴影：手提灯、闪烁火把、环绕光球、无阴影补光、滑动的木箱与一个由物理模拟驱动的木箱都拖着自己的阴影；一键点亮 24 个额外光源，整个光照通道仅 4 个 Draw Call |
-| `--fx-demo` | **多趟后处理与 Bloom 辉光** | 过程化赛博天际线；FBO 降采样、双趟可分离高斯模糊、Bloom 阈值提取、波浪动态扭曲与分屏（Split-screen）对比 |
+| `--skeleton-demo` | **2D 骨骼动画** | 一个挂在 15 根骨骼上的武装士兵：以关键帧角度写出的走路循环、会呼吸的待机、手臂两骨 IK 让枪口始终指向鼠标、枪口火光与后坐、从当前姿态交叉淡入的受击与死亡一击、在撰写帧精确触发的时间轴事件（尘土、火光、弹壳）、皮肤切换与骨骼叠加视图，身后还有 6 个共用同一套骨架的士兵一起行军 |
+| `--fx-demo` | **多趟后处理与 Bloom 辉光** | 程序化赛博天际线；FBO 降采样、双趟可分离高斯模糊、Bloom 阈值提取、波浪动态扭曲与分屏（Split-screen）对比 |
 | `--post-demo` | **全屏调色与烘焙小地图** | 调色着色器（灰度、对比度拉伸、暗角 Vignette、扫描线 Scanlines）与即时渲染视口烘焙小地图 |
 | `--rt-demo` | **离屏渲染与运动拖尾** | RenderTarget 离屏烘焙、残影拖尾累积反馈（仅淡出不清屏），对比即时渲染模式 |
 | `--spatial-demo` | **3D 空间位置音频** | 4 个世界音源循环发声，WASD 移动侦听者；动态距离线性衰减、立体声声相 Pan、衰减范围圈与 L/R 双通道 VU 电平表 |
@@ -196,6 +198,9 @@ cmake --build build --parallel
 # 2D 光照与投影阴影（左右方向键提灯行走，SPACE 光照爆发，L 切换光照）
 ./build/bin/fake2d_hello --light-demo
 
+# 2D 骨骼动画（左右方向键行走，SPACE 射击，H 受击，K 死亡，R 复活，B 骨骼叠加，N 换皮肤）
+./build/bin/fake2d_hello --skeleton-demo
+
 # 多趟后处理 Bloom 辉光与分屏模式（按 S 切换分屏）
 ./build/bin/fake2d_hello --fx-demo
 
@@ -267,7 +272,7 @@ xvfb-run ./build/bin/fake2d_hello --headless --mario-demo --shot-frame 60 --scre
 # 拒绝“保存成功但画面空白”的截图（退出码 2）：颜色数量下限探测
 xvfb-run ./build/bin/fake2d_hello --headless --text-demo --screenshot text.png --shot-min-colors 12
 
-# 运行 24 组内置无头自测试套件（通过退出码断言执行结果）
+# 运行 29 组内置无头自测试套件（通过退出码断言执行结果）
 xvfb-run ./build/bin/fake2d_hello --phys-query-test    # 射线检测、形状重叠、接触生命周期
 xvfb-run ./build/bin/fake2d_hello --phys-filter-test   # 16位 Category/Mask 碰撞过滤
 xvfb-run ./build/bin/fake2d_hello --phys-rigid-test    # 转动惯量、摩擦与堆叠稳定性
@@ -283,6 +288,7 @@ xvfb-run ./build/bin/fake2d_hello --fx-test            # 多趟 Ping-Pong 后处
 xvfb-run ./build/bin/fake2d_hello --fog-test           # 战争迷雾 Multiply 混合与像素采样
 xvfb-run ./build/bin/fake2d_hello --light-test         # 光照池、阴影包含性与四边形预算
 xvfb-run ./build/bin/fake2d_hello --light-bench        # 光照合批：Draw Call 数不随光源增长
+xvfb-run ./build/bin/fake2d_hello --skeleton-test      # 骨骼层级、剪辑、交叉淡入、IK 与时间轴事件
 xvfb-run ./build/bin/fake2d_hello --audio-test         # 纯软件混音核心、包络、流式播放
 xvfb-run ./build/bin/fake2d_hello --font-test          # UTF-8/CJK 字形图集、换行、旋转与自动缩字
 xvfb-run ./build/bin/fake2d_hello --platform-test      # 语言包、用户目录、存档 v2、Steam stub、UI 文本
@@ -365,6 +371,7 @@ fake2d/
 │   ├── entity_store.h       # C++ 实体槽位管理（穿越 Arena 帧重置）
 │   ├── font.h               # TTF / 8x8 位图字体图集与排版
 │   ├── input.h              # 键盘、鼠标、增量拖拽与手柄输入快照
+│   ├── lighting.h           # 点光源径向衰减与投影阴影体积
 │   ├── math.h               # Vec2, Rect, Color, Mat4 数学库
 │   ├── node.h               # Transform2D 空间层级节点树
 │   ├── particle.h           # 零分配 8192 粒子池与发射器
@@ -376,6 +383,7 @@ fake2d/
 │   ├── scene.h              # 场景图渲染门面
 │   ├── script_host.h        # FakeLua 脚本宿主桥接
 │   ├── shader.h             # 着色器管线与自动 Uniform 注入
+│   ├── skeleton.h           # 骨骼层级、关键帧剪辑、IK 与皮肤
 │   ├── sprite_batch.h       # 高性能多键排序流式 SpriteBatch
 │   ├── texture.h            # Texture2D 与 1x1 白图单例
 │   ├── tilemap.h            # Tiled 地图、对象层、斜坡、动画瓦片与 A* 寻路
@@ -402,6 +410,7 @@ fake2d/
 │   ├── tile_demo.lua        # 动态瓦片动画
 │   ├── fog_demo.lua         # 战争迷雾与动态遮罩
 │   ├── light_demo.lua       # 实时 2D 光照与投影阴影
+│   ├── skeleton_demo.lua    # 2D 骨骼动画与骨架姿态
 │   ├── fx_demo.lua          # Bloom 后处理与分屏渲染
 │   ├── post_demo.lua        # 全屏调色与小地图
 │   ├── rt_demo.lua          # 离屏渲染与运动拖尾

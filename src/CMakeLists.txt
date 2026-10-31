@@ -17,6 +17,7 @@ set(FAKE2D_SOURCES
     render/camera.cpp
     render/sprite_batch.cpp
     render/lighting.cpp
+    render/skeleton.cpp
     render/atlas.cpp
     render/font.cpp
     render/particle.cpp

@@ -216,6 +216,21 @@ jobs:
           # because these runners use software GL.
           run_xvfb ./build/bin/fake2d_hello --light-bench > light_bench.log 2>&1
           rc_light_bench=$?
+          # Skeletal animation (exit code gate): hierarchy composition, key
+          # interpolation, cross-fade, event timing, IK reach and the shipped
+          # rig, all checked against a rig built in code with known numbers.
+          run_xvfb ./build/bin/fake2d_hello --skeleton-test > skeleton.log 2>&1
+          rc_skeleton=$?
+          # Rigged soldier demo: clip switching, IK aim, event-driven effects.
+          run_xvfb ./build/bin/fake2d_hello --headless --frames 240 \
+            --skeleton-demo --screenshot skeleton.png --shot-frame 150 \
+            --shot-min-colors 12 > skeleton_demo.log 2>&1
+          rc_skeleton_demo=$?
+          test -s skeleton.png
+          # A script that throws on every frame still exits 0, so this gate
+          # reads the log as well: one error line folds into the demo's rc.
+          grep -q "update() failed" skeleton_demo.log
+          [ "$?" -ne 0 ] || rc_skeleton_demo=1
           # Lighting showcase: torches, a carried lantern and sliding crates
           # whose shadows move with them.
           run_xvfb ./build/bin/fake2d_hello --headless --frames 240 \
@@ -353,7 +368,7 @@ jobs:
             --entry scripts/phys_test.lua > phys_test.log 2>&1
           rc_lua=$?
           set -e
-          echo "exit codes: query=$rc_query filter=$rc_filter rigid=$rc_rigid extended=$rc_extended birds=$rc_birds limbo=$rc_limbo timestep=$rc_timestep path=$rc_path rt=$rc_rt ui=$rc_ui post=$rc_post fx=$rc_fx fog=$rc_fog light=$rc_light lightbench=$rc_light_bench lightdemo=$rc_light_demo audio=$rc_audio mapobj=$rc_mapobj tile=$rc_tile font=$rc_font platform=$rc_platform gameplay=$rc_gameplay combat=$rc_combat shmup=$rc_shmup art=$rc_art launcher=$rc_launcher snooker=$rc_snooker contra=$rc_contra city=$rc_city rts=$rc_rts vn=$rc_vn beat=$rc_beat shmupdemo=$rc_shmup_demo snookerdemo=$rc_snooker_demo contrademo=$rc_contra_demo citydemo=$rc_city_demo rtsdemo=$rc_rts_demo vndemo=$rc_vn_demo lua=$rc_lua"
+          echo "exit codes: query=$rc_query filter=$rc_filter rigid=$rc_rigid extended=$rc_extended birds=$rc_birds limbo=$rc_limbo timestep=$rc_timestep path=$rc_path rt=$rc_rt ui=$rc_ui post=$rc_post fx=$rc_fx fog=$rc_fog light=$rc_light lightbench=$rc_light_bench lightdemo=$rc_light_demo skeleton=$rc_skeleton skeldemo=$rc_skeleton_demo audio=$rc_audio mapobj=$rc_mapobj tile=$rc_tile font=$rc_font platform=$rc_platform gameplay=$rc_gameplay combat=$rc_combat shmup=$rc_shmup art=$rc_art launcher=$rc_launcher snooker=$rc_snooker contra=$rc_contra city=$rc_city rts=$rc_rts vn=$rc_vn beat=$rc_beat shmupdemo=$rc_shmup_demo snookerdemo=$rc_snooker_demo contrademo=$rc_contra_demo citydemo=$rc_city_demo rtsdemo=$rc_rts_demo vndemo=$rc_vn_demo lua=$rc_lua"
           [ "$rc_query" -eq 0 ]
           [ "$rc_filter" -eq 0 ]
           [ "$rc_rigid" -eq 0 ]
@@ -370,6 +385,8 @@ jobs:
           [ "$rc_light" -eq 0 ]
           [ "$rc_light_bench" -eq 0 ]
           [ "$rc_light_demo" -eq 0 ]
+          [ "$rc_skeleton" -eq 0 ]
+          [ "$rc_skeleton_demo" -eq 0 ]
           [ "$rc_audio" -eq 0 ]
           [ "$rc_mapobj" -eq 0 ]
           [ "$rc_tile" -eq 0 ]
@@ -407,6 +424,7 @@ jobs:
           grep -F "[fog] PASS" fog.log
           grep -F "[light] PASS" light.log
           grep -F "[light-bench] PASS" light_bench.log
+          grep -F "[skeleton] PASS" skeleton.log
           grep -F "[audio] PASS" audio.log
           grep -F "[font] PASS" font.log
           grep -F "[platform] PASS" platform.log
@@ -650,6 +668,8 @@ jobs:
           ./build/bin/fake2d_hello --fog-test
           ./build/bin/fake2d_hello --light-test
           ./build/bin/fake2d_hello --light-bench
+          ./build/bin/fake2d_hello --skeleton-test
+          ./build/bin/fake2d_hello --headless --skeleton-demo --frames 120
           ./build/bin/fake2d_hello --headless --light-demo --frames 120
           ./build/bin/fake2d_hello --audio-test
           ./build/bin/fake2d_hello --map-object-test
@@ -756,6 +776,8 @@ jobs:
           ./build/bin/fake2d_hello.exe --fog-test
           ./build/bin/fake2d_hello.exe --light-test
           ./build/bin/fake2d_hello.exe --light-bench
+          ./build/bin/fake2d_hello.exe --skeleton-test
+          ./build/bin/fake2d_hello.exe --headless --skeleton-demo --frames 120
           ./build/bin/fake2d_hello.exe --headless --light-demo --frames 120
           ./build/bin/fake2d_hello.exe --audio-test
           ./build/bin/fake2d_hello.exe --map-object-test

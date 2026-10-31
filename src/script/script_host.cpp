@@ -1,5 +1,7 @@
 #include "fake2d/script_host.h"
 
+#include <cstdlib>
+
 #include "script_bindings.h"
 #include "fakelua.h"
 
@@ -27,12 +29,22 @@ struct ScriptHost::Impl {
 
 namespace {
 
+/// FAKE2D_LUA_INTERP=1 selects the interpreter backend instead of the GCC JIT.
+/// It is slower on purpose: it is how a suspected codegen defect gets separated
+/// from a script or binding bug without a rebuild. Both the compile config and
+/// the backend the host calls through have to agree, or `update` is looked up
+/// in the backend that never defined it.
+bool EnvForcesInterpreter() {
+    static const bool forced = std::getenv("FAKE2D_LUA_INTERP") != nullptr;
+    return forced;
+}
+
 void CompileIntoState(fakelua::State *state, const std::string &path, bool interp_only) {
     fakelua::CompileConfig cfg;
     cfg.debug_mode = false;
     // TCC is never used; GCC JIT is the default backend.
     cfg.disable_jit[fakelua::JIT_TCC] = true;
-    if (interp_only) {
+    if (interp_only || EnvForcesInterpreter()) {
         cfg.disable_jit[fakelua::JIT_GCC] = true;
     }
     fakelua::CompileFile(state, path, cfg);
@@ -52,6 +64,10 @@ bool ScriptHost::Init() {
     const fakelua::StateConfig cfg;
     impl_->state = fakelua::FakeluaNewState(cfg);
     impl_->owns_state = true;
+    if (EnvForcesInterpreter()) {
+        impl_->interp_only = true;
+        impl_->jit = fakelua::JIT_INTERP;
+    }
     return impl_->state != nullptr;
 }
 
