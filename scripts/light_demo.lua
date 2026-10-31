@@ -23,6 +23,7 @@
 -- lights, L toggles the lighting pass (compare lit vs unlit), ESC quits.
 -- Headless: set LIGHT_TEST=1 to log the stats at frame 60 and 180.
 
+local BURST_N = 24
 local W, H = 960, 540
 local FLOOR_TILE = 256.0
 
@@ -79,9 +80,8 @@ local function reset_state()
     S.orb_light = 0
     S.fill = 0
     S.alarm = 0
-    S.burst_lights = 0
-    S.wall_occ = 0
-    S.crate_occ = 0
+    S.burst_n = 0
+    S.crate_occ_n = 0
     S.beam_occ = 0
 end
 
@@ -115,27 +115,25 @@ local function build_scene()
     light_set_color(S.alarm, 1.0, 0.2, 0.18, 0.9)
     light_set_radius(S.alarm, 210.0)
 
-    S.burst_lights = {}
-    for i = 1, 24 do
+    -- Flat fields, not a table: a table stored on a NativeObject cannot be
+    -- written per key (see the note in scripts/skeleton_demo.lua), and even
+    -- handed over whole it stops reading past its first few slots.
+    for i = 1, BURST_N do
         local id = light_create()
         light_set_radius(id, 120.0)
+        -- Parked with a zero alpha rather than disabled: light_set_enabled(id,
+        -- 0) releases the slot for the next light_create to reuse, so creating
+        -- 24 and disabling each one handed back the same id 24 times.
         light_set_color(id, 1.0, 0.9, 0.5, 0.0)
-        light_set_enabled(id, 0)
-        S.burst_lights[i] = id
+        S["burst_" .. i] = id
     end
+    S.burst_n = BURST_N
 
-    S.wall_occ = {}
-    for i = 1, #WALLS do
-        local wl = WALLS[i]
-        if wl.cast == 1 then
-            S.wall_occ[i] = occluder_add_rect(wl.x, wl.y, wl.w, wl.h)
-        end
-    end
-    S.crate_occ = {}
     for i = 1, #CRATES do
         local c = CRATES[i]
-        S.crate_occ[i] = occluder_add_rect(c.x, c.y, c.w, c.h)
+        S["crate_occ_" .. i] = occluder_add_rect(c.x, c.y, c.w, c.h)
     end
+    S.crate_occ_n = #CRATES
     S.beam_occ = occluder_add_poly(400.0, 300.0, 560.0, 306.0, 560.0, 322.0, 400.0, 316.0)
 
     -- A kinematic body the integrator walks along its track. occluder_add_body
@@ -230,9 +228,9 @@ local function update_lights(dt)
 
     -- Sliding crates drag their shadows with them. CRATES is read-only file
     -- level data, so the offset is recomputed rather than written back.
-    for i = 1, #CRATES do
+    for i = 1, S.crate_occ_n do
         local c = CRATES[i]
-        occluder_set_rect(S.crate_occ[i], crate_x(i), c.y, c.w, c.h)
+        occluder_set_rect(S["crate_occ_" .. i], crate_x(i), c.y, c.w, c.h)
     end
 
     -- The body crate is turned around by its own simulated position, and the
@@ -309,19 +307,18 @@ function update(dt)
     end
     if input_key_pressed("space") then
         S.burst = 24
-        for i = 1, 24 do
-            local a = (i / 24.0) * 6.283
-            light_set_position(S.burst_lights[i], 480.0 + math.cos(a) * 300.0,
+        for i = 1, S.burst_n do
+            local a = (i / S.burst_n) * 6.283
+            light_set_position(S["burst_" .. i], 480.0 + math.cos(a) * 300.0,
                                280.0 + math.sin(a) * 170.0)
-            light_set_color(S.burst_lights[i], 1.0, 0.9, 0.5, 1.2)
-            light_set_enabled(S.burst_lights[i], 1)
+            light_set_color(S["burst_" .. i], 1.0, 0.9, 0.5, 1.2)
         end
     end
     if S.burst > 0 then
         S.burst = S.burst - 1
         if S.burst == 0 then
-            for i = 1, 24 do
-                light_set_enabled(S.burst_lights[i], 0)
+            for i = 1, S.burst_n do
+                light_set_color(S["burst_" .. i], 1.0, 0.9, 0.5, 0.0)
             end
         end
     end

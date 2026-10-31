@@ -2869,6 +2869,15 @@ void RegisterSpriteApi(fakelua::State *state, Engine *engine) {
 void RegisterInputApi(fakelua::State *state, Engine *engine) {
     const Input *input = &engine->GetInput();
 
+    // `--ai`. A demo that already knows how to play itself switches its
+    // attract policy on when this reads true; demos that do not are driven by
+    // the host, which holds real keys through the Input AI overlay and never
+    // asks them anything.
+    fakelua::RegisterNativeFunction(
+        state, "ai_mode", false,
+        std::function<bool(fakelua::State *)>(
+            [engine](fakelua::State *) { return engine->AiInput(); }));
+
     fakelua::RegisterNativeFunction(
         state, "input_key_down", false,
         std::function<bool(fakelua::State *, std::string_view)>(

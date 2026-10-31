@@ -107,6 +107,26 @@ jobs:
           test -s assets/mario.json && test -s assets/platformer.json \
             && test -s assets/slope.json
 
+      - name: Every demo script runs
+        run: |
+          export LD_LIBRARY_PATH="$FLINSTALL/lib:${LD_LIBRARY_PATH:-}"
+          # A demo whose script fails to compile logs a warning and still exits
+          # 0, so the per-demo exit-code checks elsewhere are blind to the one
+          # failure mode every demo edit can cause. Run each one and read the
+          # log, listing the catalogue from the header the launcher and the
+          # command line both read.
+          failed=0
+          for demo in $(grep -oE '\{"[a-z0-9-]+"' include/fake2d/demos.h \
+                          | sed 's/{"//; s/"//'); do
+            if xvfb-run -a -s '-screen 0 1024x768x24' env LIBGL_ALWAYS_SOFTWARE=1 \
+                 ./build/bin/fake2d_hello --headless --frames 2 "--$demo-demo" 2>&1 |
+               grep -qE "syntax error|CompileFile.*failed|update\(\) failed"; then
+              echo "::error::demo '$demo' does not run"
+              failed=1
+            fi
+          done
+          exit $failed
+
       - uses: actions/upload-artifact@v4
         with:
           name: demo-assets
@@ -136,9 +156,12 @@ jobs:
           run_xvfb ./build/bin/fake2d_hello --headless --bench
           run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --tile-demo
           run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --map-demo
-          run_xvfb ./build/bin/fake2d_hello --headless --frames 180 --platformer-demo
-          run_xvfb ./build/bin/fake2d_hello --headless --frames 180 --mario-demo
-          run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --slope-demo
+          # These demos wait for input now that their attract AI is opt-in, so
+          # headless runs ask for it: a character standing at spawn exercises
+          # none of the moves, pickups or win paths these steps are for.
+          run_xvfb ./build/bin/fake2d_hello --headless --ai --frames 180 --platformer-demo
+          run_xvfb ./build/bin/fake2d_hello --headless --ai --frames 180 --mario-demo
+          run_xvfb ./build/bin/fake2d_hello --headless --ai --frames 120 --slope-demo
           run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --path-demo
           run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --rt-demo
           run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --ui-demo
@@ -321,26 +344,26 @@ jobs:
             > launcher_click.log 2>&1
           grep -q "launcher: starting beat-em-up" launcher_click.log
           # Brawler demo: waves, hit detection and a full headless stage run.
-          run_xvfb ./build/bin/fake2d_hello --headless --frames 240 \
+          run_xvfb ./build/bin/fake2d_hello --headless --ai --frames 240 \
             --beat-em-up-demo --screenshot beat.png --shot-min-colors 12 \
             > beat.log 2>&1
           rc_beat=$?
           test -s beat.png
           # Vertical shooter: scrolling stage, waves and bullet patterns.
-          run_xvfb ./build/bin/fake2d_hello --headless --frames 240 \
+          run_xvfb ./build/bin/fake2d_hello --headless --ai --frames 240 \
             --shmup-demo --screenshot shmup.png --shot-min-colors 12 \
             > shmup_demo.log 2>&1
           rc_shmup_demo=$?
           test -s shmup.png
           # Snooker: a full rack, cue strike, cushions, pockets and the AI.
-          run_xvfb ./build/bin/fake2d_hello --headless --frames 900 \
+          run_xvfb ./build/bin/fake2d_hello --headless --ai --frames 900 \
             --snooker-demo --screenshot snooker.png --shot-frame 500 \
             --shot-min-colors 12 > snooker_demo.log 2>&1
           rc_snooker_demo=$?
           test -s snooker.png
           # Run-and-gun: the attract AI crosses the jungle, clears the boss and
           # loops the stage; the log proves the whole stage flow ran.
-          run_xvfb ./build/bin/fake2d_hello --headless --frames 2500 \
+          run_xvfb ./build/bin/fake2d_hello --headless --ai --frames 2500 \
             --contra-demo --screenshot contra.png --shot-frame 1800 \
             --shot-min-colors 12 > contra_demo.log 2>&1
           rc_contra_demo=$?
@@ -349,7 +372,7 @@ jobs:
           grep -F "snooker: shot 1 resolved" snooker_demo.log
           # City builder: the attract mayor paves, zones and powers a town; a
           # population milestone proves the monthly simulation is developing it.
-          run_xvfb ./build/bin/fake2d_hello --headless --frames 1800 \
+          run_xvfb ./build/bin/fake2d_hello --headless --ai --frames 1800 \
             --city-demo --screenshot city.png --shot-frame 1600 \
             --shot-min-colors 12 > city_demo.log 2>&1
           rc_city_demo=$?
@@ -357,7 +380,7 @@ jobs:
           grep -F "city: population milestone 250" city_demo.log
           # RTS: the attract commander and enemy AI fight a full match; the
           # logs prove combat, losses and a decisive command-yard kill.
-          run_xvfb ./build/bin/fake2d_hello --headless --frames 2400 \
+          run_xvfb ./build/bin/fake2d_hello --headless --ai --frames 2400 \
             --rts-demo --screenshot rts.png --shot-frame 1950 \
             --shot-min-colors 12 > rts_demo.log 2>&1
           rc_rts_demo=$?
@@ -366,7 +389,7 @@ jobs:
           grep -F "rts: player victory" rts_demo.log
           # Visual novel: the attract player advances the calendar, chats,
           # reaches the festival and finishes a confession ending.
-          run_xvfb ./build/bin/fake2d_hello --headless --frames 2400 \
+          run_xvfb ./build/bin/fake2d_hello --headless --ai --frames 2400 \
             --vn-demo --screenshot vn.png --shot-frame 1200 \
             --shot-min-colors 12 > vn_demo.log 2>&1
           rc_vn_demo=$?
@@ -698,13 +721,13 @@ jobs:
           ./build/bin/fake2d_hello --city-test
           ./build/bin/fake2d_hello --rts-test
           ./build/bin/fake2d_hello --vn-test
-          ./build/bin/fake2d_hello --headless --frames 180 --beat-em-up-demo
-          ./build/bin/fake2d_hello --headless --frames 180 --shmup-demo
-          ./build/bin/fake2d_hello --headless --frames 180 --snooker-demo
-          ./build/bin/fake2d_hello --headless --frames 180 --contra-demo
-          ./build/bin/fake2d_hello --headless --frames 600 --city-demo
-          ./build/bin/fake2d_hello --headless --frames 600 --rts-demo
-          ./build/bin/fake2d_hello --headless --frames 600 --vn-demo
+          ./build/bin/fake2d_hello --headless --ai --frames 180 --beat-em-up-demo
+          ./build/bin/fake2d_hello --headless --ai --frames 180 --shmup-demo
+          ./build/bin/fake2d_hello --headless --ai --frames 180 --snooker-demo
+          ./build/bin/fake2d_hello --headless --ai --frames 180 --contra-demo
+          ./build/bin/fake2d_hello --headless --ai --frames 600 --city-demo
+          ./build/bin/fake2d_hello --headless --ai --frames 600 --rts-demo
+          ./build/bin/fake2d_hello --headless --ai --frames 600 --vn-demo
           ./build/bin/fake2d_hello --headless --phys-bench
           ./build/bin/fake2d_hello --headless --frames 200 \
             --entry scripts/phys_test.lua > phys_test.log 2>&1
@@ -726,9 +749,9 @@ jobs:
           test -s scene-mac.png
           ./build/bin/fake2d_hello --headless --frames 120 --tile-demo
           ./build/bin/fake2d_hello --headless --frames 120 --map-demo
-          ./build/bin/fake2d_hello --headless --frames 180 --platformer-demo
-          ./build/bin/fake2d_hello --headless --frames 180 --mario-demo
-          ./build/bin/fake2d_hello --headless --frames 120 --slope-demo
+          ./build/bin/fake2d_hello --headless --ai --frames 180 --platformer-demo
+          ./build/bin/fake2d_hello --headless --ai --frames 180 --mario-demo
+          ./build/bin/fake2d_hello --headless --ai --frames 120 --slope-demo
           ./build/bin/fake2d_hello --headless --frames 120 --path-demo
           ./build/bin/fake2d_hello --headless --frames 120 --rt-demo
           ./build/bin/fake2d_hello --headless --frames 120 --ui-demo
@@ -804,13 +827,13 @@ jobs:
           ./build/bin/fake2d_hello.exe --city-test
           ./build/bin/fake2d_hello.exe --rts-test
           ./build/bin/fake2d_hello.exe --vn-test
-          ./build/bin/fake2d_hello.exe --headless --frames 180 --beat-em-up-demo
-          ./build/bin/fake2d_hello.exe --headless --frames 180 --shmup-demo
-          ./build/bin/fake2d_hello.exe --headless --frames 180 --snooker-demo
-          ./build/bin/fake2d_hello.exe --headless --frames 180 --contra-demo
-          ./build/bin/fake2d_hello.exe --headless --frames 600 --city-demo
-          ./build/bin/fake2d_hello.exe --headless --frames 600 --rts-demo
-          ./build/bin/fake2d_hello.exe --headless --frames 600 --vn-demo
+          ./build/bin/fake2d_hello.exe --headless --ai --frames 180 --beat-em-up-demo
+          ./build/bin/fake2d_hello.exe --headless --ai --frames 180 --shmup-demo
+          ./build/bin/fake2d_hello.exe --headless --ai --frames 180 --snooker-demo
+          ./build/bin/fake2d_hello.exe --headless --ai --frames 180 --contra-demo
+          ./build/bin/fake2d_hello.exe --headless --ai --frames 600 --city-demo
+          ./build/bin/fake2d_hello.exe --headless --ai --frames 600 --rts-demo
+          ./build/bin/fake2d_hello.exe --headless --ai --frames 600 --vn-demo
           ./build/bin/fake2d_hello.exe --headless --frames 200 \
             --entry scripts/phys_test.lua > phys_test.log 2>&1
           grep -F "[script] 0" phys_test.log
@@ -821,9 +844,9 @@ jobs:
           test -s scene.png
           ./build/bin/fake2d_hello.exe --headless --frames 120 --tile-demo
           ./build/bin/fake2d_hello.exe --headless --frames 120 --map-demo
-          ./build/bin/fake2d_hello.exe --headless --frames 180 --platformer-demo
-          ./build/bin/fake2d_hello.exe --headless --frames 180 --mario-demo
-          ./build/bin/fake2d_hello.exe --headless --frames 120 --slope-demo
+          ./build/bin/fake2d_hello.exe --headless --ai --frames 180 --platformer-demo
+          ./build/bin/fake2d_hello.exe --headless --ai --frames 180 --mario-demo
+          ./build/bin/fake2d_hello.exe --headless --ai --frames 120 --slope-demo
           ./build/bin/fake2d_hello.exe --headless --frames 120 --path-demo
           ./build/bin/fake2d_hello.exe --headless --frames 120 --rt-demo
           ./build/bin/fake2d_hello.exe --headless --frames 120 --ui-demo

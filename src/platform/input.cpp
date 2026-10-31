@@ -198,9 +198,66 @@ void Input::InjectFrame(const Vec2 &mouse_pos,
     text_input_ = text;
 }
 
+void Input::AiHoldKey(std::string_view key, bool down) {
+    const int code = KeyToGlfw(key);
+    if (code >= 0 && code < static_cast<int>(kKeyCount)) {
+        ai_keys_[code] = down ? 1 : 0;
+    }
+}
+
+void Input::AiHoldButton(std::int64_t button, bool down) {
+    if (button >= 0 && button < static_cast<std::int64_t>(kButtonCount)) {
+        ai_buttons_[button] = down ? 1 : 0;
+    }
+}
+
+void Input::AiHoldMouse(const Vec2 &pos, bool down) {
+    ai_mouse_pos_ = pos;
+    ai_mouse_held_ = down;
+}
+
+void Input::AiClear() {
+    std::fill(ai_keys_, ai_keys_ + kKeyCount, static_cast<std::uint8_t>(0));
+    std::fill(ai_buttons_, ai_buttons_ + kButtonCount, static_cast<std::uint8_t>(0));
+    ai_mouse_held_ = false;
+}
+
+void Input::ApplyAiOverlay(bool advance_edges) {
+    for (std::size_t k = 0; k < kKeyCount; ++k) {
+        if (ai_keys_[k] == 0) {
+            continue;
+        }
+        // On the polled path the previous state was already copied by
+        // NewFrame; on the headless path there is no poll, so the copy has to
+        // happen here or a key the AI holds reads as *pressed* forever.
+        if (advance_edges) {
+            prev_keys_[k] = keys_[k];
+        }
+        keys_[k] = 1;
+    }
+    for (std::size_t b = 0; b < kButtonCount; ++b) {
+        if (ai_buttons_[b] == 0) {
+            continue;
+        }
+        if (advance_edges) {
+            prev_buttons_[b] = buttons_[b];
+        }
+        buttons_[b] = 1;
+    }
+    if (ai_mouse_held_) {
+        mouse_delta_ = {ai_mouse_pos_.x - mouse_pos_.x,
+                        ai_mouse_pos_.y - mouse_pos_.y};
+        mouse_pos_ = ai_mouse_pos_;
+    }
+}
+
 void Input::NewFrame(void *native_window) {
     GLFWwindow *window = static_cast<GLFWwindow *>(native_window);
     if (window == nullptr) {
+        // Nothing to poll, but the AI overlay still has to land: a CGL
+        // headless run has no window either, and that is exactly where the
+        // attract driver does most of its work.
+        ApplyAiOverlay(true);
         return;
     }
 
@@ -260,6 +317,10 @@ void Input::NewFrame(void *native_window) {
     text_input_.clear();
     text_input_.swap(text_pending_);
     text_pending_.clear();
+
+    // Last, so the AI rides on top of whatever the window reported rather
+    // than being mistaken for a physical release.
+    ApplyAiOverlay(false);
 
     // Gamepads: poll every joystick slot. Hot-unplug simply reads neutral.
     for (int pad = 0; pad < kPadCount; ++pad) {

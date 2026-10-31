@@ -27,6 +27,10 @@ local HOME = 9
 local TAG_BALL = 20
 local TAG_FX = 21
 
+-- `--ai`: the break and clearance are played by the AI; without it the table
+-- waits for a player.
+local AI = ai_mode()
+
 -- Table geometry in logical points (the window is 960x540).
 local TX = 120.0
 local TY = 100.0
@@ -110,7 +114,6 @@ local function reset_state()
     S.last_power = 0.0 + 0.0
     S.spin_side = 0.0 + 0.0
     S.spin_top = 0.0 + 0.0
-    S.ai_timer = 0.0 + 0.0
     S.ai_delay = 0.0 + 0.0
     S.ai_planned = false
     S.ai_target_power = 0.0 + 0.0
@@ -330,7 +333,6 @@ local function new_frame()
     S.spin_top = 0.0
     S.ai_planned = false
     S.ai_delay = 0.0
-    S.ai_timer = 0.0
     S.event_code = 0
     S.event_val = 0
     S.event_t = 0.0
@@ -1160,16 +1162,6 @@ end
 -- input
 -- ---------------------------------------------------------------------------
 
-local function mouse_activity()
-    if math.abs(input_mouse_dx()) > 0.5 then return true end
-    if math.abs(input_mouse_dy()) > 0.5 then return true end
-    if input_mouse_down(0) then return true end
-    if input_key_down("space") or input_key_down("j") then return true end
-    if input_key_down("left") or input_key_down("right") then return true end
-    if input_key_down("up") or input_key_down("down") then return true end
-    return false
-end
-
 local function spin_pad_hit(mx, my)
     if mx < 84.0 or mx > 128.0 then return false end
     if my < 500.0 or my > 540.0 then return false end
@@ -1192,13 +1184,10 @@ local function update_input(dt)
     if input_key_down("up") then S.spin_top = clampf(S.spin_top + dt * 1.8, -1.0, 1.0) end
     if input_key_down("down") then S.spin_top = clampf(S.spin_top - dt * 1.8, -1.0, 1.0) end
 
-    local human = mouse_activity()
-    if human then
-        S.ai_timer = 0.0
-    else
-        S.ai_timer = S.ai_timer + dt
-    end
-    S.ai_active = S.ai_timer > 2.0
+    -- Attract mode is a launch option, not an idle fallback: `--ai` racks the
+    -- balls, without it the table waits for a player. The two-second takeover
+    -- is gone because the host's injected clicks read like a player arriving.
+    S.ai_active = AI
 
     if S.match_over then return end
 

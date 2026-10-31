@@ -404,6 +404,10 @@ std::uint64_t Engine::FrameIndex() const {
     return impl_ ? impl_->frame_index : 0;
 }
 
+bool Engine::AiInput() const {
+    return impl_ && impl_->config.ai_input;
+}
+
 Renderer &Engine::GetRenderer() {
     return impl_->renderer;
 }

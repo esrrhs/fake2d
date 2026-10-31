@@ -28,6 +28,8 @@ local E_SMALL, E_MEDIUM, E_BIG, E_BOSS = 0, 1, 2, 3
 -- Player weapon kinds.
 local W_VULCAN, W_LASER, W_MISSILE = 0, 1, 2
 
+-- `--ai`: the wing flies itself; without it the sticks belong to the player.
+local AI = ai_mode()
 local PLAYER_SPEED = 330.0
 local PLAYER_RADIUS = 7.0
 local BG_SPEED = 145.0
@@ -81,7 +83,6 @@ local function reset_state()
     S.flash_t = 0.0 + 0.0
     S.bg_scroll = 0.0 + 0.0
     S.cloud_scroll = 0.0 + 0.0
-    S.idle_frames = 0 + 0
     S.ai_bomb_t = 0.0 + 0.0
     S.vw = 960.0 + 0.0
     S.vh = 540.0 + 0.0
@@ -694,12 +695,10 @@ local function update_player(dt)
         if input_pad_pressed(0, "b") then bomb = true end
     end
 
-    if ix == 0.0 and iy == 0.0 and not fire and not bomb then
-        S.idle_frames = S.idle_frames + 1
-    else
-        S.idle_frames = 0
-    end
-    if S.idle_frames > 150 then
+    -- Attract mode is a launch option, not an idle fallback: `--ai` flies the
+    -- ship, without it the sticks are the pilot's. The takeover timer is gone
+    -- because the host's injected keys read exactly like a player arriving.
+    if AI then
         ix, iy, fire, bomb = ai_input()
     end
 
@@ -810,7 +809,6 @@ local function reset_stage(full)
     S.boss_active = false
     S.boss_id = 0
     S.flash_t = 0.0
-    S.idle_frames = 0
     S.ai_bomb_t = 0.0
     S.end_t = 0.0
     spawn_player()

@@ -50,15 +50,17 @@ SCENARIOS = [
     ("mario_phys", "scripts/mario.lua", 600, {"MARIO_TEST_PHYS": "1"}),
     ("mario_blocks", "scripts/mario.lua", 1800, {"MARIO_TEST_BLOCKS": "1"}),
     ("slope_smoke", "scripts/slope_demo.lua", 120, {}),
-    ("platformer_smoke", "scripts/platformer_demo.lua", 120, {}),
+    ("platformer_smoke", "scripts/platformer_demo.lua", 120,
+     {"FIX_AI": "1"}),
 ]
 
 # Script test hooks that must never leak between scenarios.
 TEST_ENV_VARS = [
-    "MARIO_TEST_DEATH", "MARIO_TEST_WIN", "MARIO_TEST_BIG", "MARIO_TEST_AI",
+    "MARIO_TEST_DEATH", "MARIO_TEST_WIN", "MARIO_TEST_BIG",
     "MARIO_TEST_RIGHT", "MARIO_TEST_JUMP", "MARIO_TEST_DIE3", "MARIO_TEST_TP",
     "MARIO_TEST_MUSH", "MARIO_TEST_PHYS", "MARIO_TEST_BLOCKS",
     "SLOPE_TEST_RIGHT", "SLOPE_TEST_JUMP", "SLOPE_TEST_SURFACE",
+    "FIX_AI",
 ]
 
 

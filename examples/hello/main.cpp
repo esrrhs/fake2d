@@ -10102,12 +10102,16 @@ bool SpawnWaiting(const char *self, const std::vector<std::string> &args) {
 }
 
 /// The arguments a demo child needs: its own flag, the frame budget so a
-/// scripted run cannot spawn a session that never ends, and the backend choice
-/// when the caller pinned one.
+/// scripted run cannot spawn a session that never ends, the backend choice
+/// when the caller pinned one, and `--ai` so a picker opened under the
+/// attract driver hands the same controller to the demo it starts.
 std::vector<std::string> DemoArgs(const std::string &flag, int max_frames,
-                                  int jit_choice) {
+                                  int jit_choice, bool ai = false) {
     std::vector<std::string> args;
     args.push_back("--" + flag + "-demo");
+    if (ai) {
+        args.push_back("--ai");
+    }
     if (max_frames > 0) {
         args.push_back("--frames");
         args.push_back(std::to_string(max_frames));
@@ -10126,14 +10130,18 @@ std::vector<std::string> DemoArgs(const std::string &flag, int max_frames,
 /// Run() already tears the window down on the way out — but the *launcher* has
 /// to survive it, because a picker that can only pick once is a boot screen.
 bool RunDemoAsChild(const char *self, const std::string &flag, int max_frames,
-                    int jit_choice) {
-    return SpawnWaiting(self, DemoArgs(flag, max_frames, jit_choice));
+                    int jit_choice, bool ai) {
+    return SpawnWaiting(self, DemoArgs(flag, max_frames, jit_choice, ai));
 }
 
 /// Replace this process with a fresh picker once the demo closes.
-bool RelaunchAsLauncher(const char *self, int max_frames, int jit_choice) {
+bool RelaunchAsLauncher(const char *self, int max_frames, int jit_choice,
+                        bool ai) {
     std::vector<std::string> args;
     args.push_back("--launcher");
+    if (ai) {
+        args.push_back("--ai");
+    }
     if (max_frames > 0) {
         args.push_back("--frames");
         args.push_back(std::to_string(max_frames));
@@ -10247,6 +10255,9 @@ int RunLauncherTest() {
         const std::vector<std::string> interp = DemoArgs("mario", 0, 0);
         check(interp.size() == 2 && interp[1] == "--interp",
               "an explicit --interp reaches the child");
+        const std::vector<std::string> attracted = DemoArgs("mario", 0, -1, true);
+        check(attracted.size() == 2 && attracted[1] == "--ai",
+              "the attract driver survives the handoff to the child");
         const fake2d::DemoInfo *child = nullptr;
         check(ParseDemoArg(plain[0], &child) == DemoArg::kResolved,
               "the child's argument list parses back through the catalogue");
@@ -10256,6 +10267,56 @@ int RunLauncherTest() {
                 failures == 0 ? "PASS" : "FAILED", checks, failures,
                 fake2d::kDemoCount);
     return failures == 0 ? 0 : 1;
+}
+
+/// The generic `--ai` rhythm, for the demos that have no attract policy of
+/// their own. Directions are held a beat at a time (a tapped arrow is a
+/// twitch, a held one is a run) and the action keys tap on a faster clock.
+/// The pointer walks a coarse raster across the window, clicking as it goes:
+/// UIs are laid out in rows and columns, so a sweep that visits every cell
+/// lands on a widget somewhere, while an arc or a Lissajous curve spends its
+/// life in the margins. It is not trying to play well -- it is trying to look
+/// like somebody is home.
+void AiRhythm(fake2d::Input &input, std::uint64_t frame, float w, float h) {
+    constexpr std::string_view kDirs[] = {"right", "left", "up", "down"};
+    constexpr std::string_view kActions[] = {"space", "j", "space", "x"};
+    constexpr std::uint64_t kBeat = 45;
+    const int slot = static_cast<int>((frame / kBeat) % 4);
+    for (int i = 0; i < 4; ++i) {
+        input.AiHoldKey(kDirs[i], i == slot);
+    }
+    for (std::string_view key : kActions) {
+        input.AiHoldKey(key, false);
+    }
+    if (frame % 18 < 2) {
+        input.AiHoldKey(kActions[slot], true);
+    }
+
+    constexpr int kCols = 6;
+    constexpr int kRows = 5;
+    constexpr std::uint64_t kDwell = 26;
+    const int cell = static_cast<int>((frame / kDwell) % (kCols * kRows));
+    const float fx = (static_cast<float>(cell % kCols) + 0.5f) / kCols;
+    const float fy = (static_cast<float>(cell / kCols) + 0.5f) / kRows;
+    input.AiHoldMouse({w * (0.10f + 0.80f * fx), h * (0.15f + 0.70f * fy)}, true);
+    input.AiHoldButton(0, frame % kDwell < 3);
+}
+
+/// Demos whose script already plays itself. Their in-engine AI reads the
+/// level and the physics to decide what to do, which beats any rhythm the
+/// host could invent, so `--ai` hands them the controller through ai_mode()
+/// and injects nothing.
+bool AiScriptDriven(std::string_view flag) {
+    constexpr std::string_view kScriptDriven[] = {
+        "mario", "platformer", "contra", "beat-em-up", "shmup", "snooker",
+        "city", "rts", "vn",
+    };
+    for (std::string_view name : kScriptDriven) {
+        if (name == flag) {
+            return true;
+        }
+    }
+    return false;
 }
 
 int main(int argc, char **argv) {
@@ -10366,6 +10427,8 @@ int main(int argc, char **argv) {
         const std::string_view arg = argv[i];
         if (arg == "--headless") {
             cfg.headless = true;
+        } else if (arg == "--ai") {
+            cfg.ai_input = true;
         } else if (arg == "--frames" && i + 1 < argc) {
             max_frames = std::atoi(argv[++i]);
         } else if (arg == "--hot-reload") {
@@ -10808,11 +10871,24 @@ int main(int argc, char **argv) {
         EnsureGameAudio(engine.GetAudio());
         EnsureAudioDemoMusic(engine.GetAudio());
     }
-    // Generic host-level screenshot hook (visual regression; not game logic).
+    // Generic host-level frame hook: the `--ai` key rhythm and screenshots
+    // (visual regression; neither is game logic).
     bool shot_blank = false;
-    if (!screenshot.empty()) {
+    const bool ai_injects_keys =
+        cfg.ai_input &&
+        (demo_info == nullptr || !AiScriptDriven(demo_info->flag));
+    if (ai_injects_keys || !screenshot.empty()) {
         engine.SetFrameCallback([&](fake2d::Engine &e) {
-            if (e.FrameIndex() == static_cast<std::uint64_t>(shot_frame)) {
+            // Runs after this frame's script update, so what the rhythm sets
+            // here is what the script sees on the next one -- one frame of
+            // latency, which is what a human's finger costs too.
+            if (ai_injects_keys) {
+                AiRhythm(e.GetInput(), e.FrameIndex(),
+                         static_cast<float>(e.WindowWidth()),
+                         static_cast<float>(e.WindowHeight()));
+            }
+            if (!screenshot.empty() &&
+                e.FrameIndex() == static_cast<std::uint64_t>(shot_frame)) {
                 e.GetRenderer().GetSpriteBatch().Flush();
                 const bool saved = e.GetRenderer().SaveScreenshot(screenshot);
                 if (saved && shot_min_colors > 0) {
@@ -10840,13 +10916,14 @@ int main(int argc, char **argv) {
                         chosen.c_str());
             return shot_blank ? 2 : rc;
         }
-        if (!RunDemoAsChild(argv[0], chosen, max_frames, jit_choice)) {
+        if (!RunDemoAsChild(argv[0], chosen, max_frames, jit_choice,
+                            cfg.ai_input)) {
             std::fprintf(stderr,
                          "fake2d_hello: could not start '%s'; run: %s --%s-demo\n",
                          chosen.c_str(), argv[0], chosen.c_str());
             return 1;
         }
-        if (RelaunchAsLauncher(argv[0], max_frames, jit_choice)) {
+        if (RelaunchAsLauncher(argv[0], max_frames, jit_choice, cfg.ai_input)) {
             return rc;  // only reached if the exec failed to replace the image
         }
         std::fprintf(stderr, "fake2d_hello: could not return to the launcher; run: %s\n",

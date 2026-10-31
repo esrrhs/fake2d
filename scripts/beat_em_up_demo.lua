@@ -39,6 +39,9 @@ local SPIN_TIME = 0.58
 local HURT_TIME = 0.22
 local DOWN_TIME = 1.10
 local GETUP_TIME = 0.34
+-- `--ai`: the brawler works the nearest foe; without it the keys are its only
+-- orders. Not called AI: this file already uses that name for an entity slot.
+local ATTRACT = ai_mode()
 local MAX_WAVE = 2
 
 local D_EPS = 0.00002
@@ -94,7 +97,6 @@ local function reset_state()
     S.serial = 0 + 0
     S.combo = 0 + 0
     S.combo_t = 0.0 + 0.0
-    S.idle_frames = 0 + 0
     S.ai_attack_t = 0.0 + 0.0
     S.enemy_atk_cd = 0.0 + 0.0
     S.stage_done = false
@@ -787,13 +789,11 @@ local function update_hero(id, dt)
         if input_pad_pressed(0, "x") then spin = true end
     end
 
-    -- attract AI takes over after a second without human input
-    if ix == 0.0 and iy == 0.0 and not atk and not kick and not spin then
-        S.idle_frames = S.idle_frames + 1
-    else
-        S.idle_frames = 0
-    end
-    if S.idle_frames > 45 then
+    -- Attract mode is a launch option, not an idle fallback: `--ai` walks the
+    -- brawler onto the nearest foe, and without it only the keys move it. The
+    -- takeover timer is gone because the host's injected keys read exactly
+    -- like a player at the controls.
+    if ATTRACT then
         local tx, td, found = nearest_foe(id)
         if found then
             local hx = ent_num(id, X)
@@ -969,7 +969,6 @@ local function reset_game()
     S.combo = 0
     S.combo_t = 0.0
     S.serial = 0
-    S.idle_frames = 0
     S.ai_attack_t = 0.0
     S.enemy_atk_cd = 0.0
     S.game_over = false

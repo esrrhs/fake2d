@@ -44,6 +44,8 @@ local ACC_GROUND = 2400.0
 local ACC_AIR = 1500.0
 local FRICTION = 2200.0
 local JUMP_V = -540.0
+-- `--ai`: the stage runs itself; without it a player holds the controls.
+local AI = ai_mode()
 local PW, PH = 20.0, 46.0
 local CROUCH_H = 28.0
 local PLAYER_DEATH_Y = 620.0
@@ -125,7 +127,6 @@ local function reset_state()
     S.event_val = 0 + 0
     S.event_t = 0.0 + 0.0
     S.sfx_cd = 0.0 + 0.0
-    S.ai_timer = 0.0 + 0.0
     S.ai_active = false
     S.ai_jump_cd = 0.0 + 0.0
     S.ai_jump_hold = 0.0 + 0.0
@@ -516,7 +517,6 @@ local function start_stage(st)
     S.aim_y = 0.0
     S.facing = 1
     S.fire_cd = 0.0
-    S.ai_timer = 0.0
     S.ai_jump_cd = 0.0
     S.ai_jump_hold = 0.0
     S.ai_move_hold = 0.0
@@ -1311,7 +1311,6 @@ end
 -- ---------------------------------------------------------------------------
 
 local function read_input(dt)
-    local any = false
     S.ctl_dir = 0
     S.ctl_up = false
     S.ctl_down = false
@@ -1320,22 +1319,22 @@ local function read_input(dt)
     S.ctl_jump_press = false
     S.ai_aim = false
 
-    if input_key_down("a") or input_key_down("left") then S.ctl_dir = -1; any = true end
-    if input_key_down("d") or input_key_down("right") then S.ctl_dir = 1; any = true end
-    if input_key_down("w") or input_key_down("up") then S.ctl_up = true; any = true end
-    if input_key_down("s") or input_key_down("down") then S.ctl_down = true; any = true end
-    if input_key_down("space") or input_key_down("z") then S.ctl_jump = true; any = true end
-    if input_key_pressed("space") or input_key_pressed("z") then S.ctl_jump_press = true; any = true end
-    if input_key_down("j") or input_key_down("x") then S.ctl_fire = true; any = true end
+    if input_key_down("a") or input_key_down("left") then S.ctl_dir = -1 end
+    if input_key_down("d") or input_key_down("right") then S.ctl_dir = 1 end
+    if input_key_down("w") or input_key_down("up") then S.ctl_up = true end
+    if input_key_down("s") or input_key_down("down") then S.ctl_down = true end
+    if input_key_down("space") or input_key_down("z") then S.ctl_jump = true end
+    if input_key_pressed("space") or input_key_pressed("z") then S.ctl_jump_press = true end
+    if input_key_down("j") or input_key_down("x") then S.ctl_fire = true end
 
-    if any then S.ai_timer = 0.0 end
-    if S.ai_timer > 0.5 then
-        S.ai_active = true
+    -- Attract mode is a launch option, not an idle fallback: `--ai` gives the
+    -- stage to the AI, and without it the controls belong to a player. The
+    -- half-second takeover is gone because the host's injected keys read
+    -- exactly like a player arriving.
+    S.ai_active = AI
+    if AI then
         ai_update(dt)
-    else
-        S.ai_active = false
     end
-    S.ai_timer = S.ai_timer + dt
 end
 
 local function update_camera(dt)

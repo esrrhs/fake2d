@@ -50,7 +50,7 @@ Fake2D 不仅是渲染器，更是一套自洽完备的 2D 游戏开发平台：
 
 ### 5. 现代化工程化与极佳开发者体验
 - **JIT 脚本热重载**：支持 GCC JIT 与解释器双模式，在运行中修改 Lua 脚本保存即刻生效，无需重启进程；
-- **无头测试与 CI/CD**：内置原生 `--headless`、`--frames N` 与 `--screenshot` 参数，可在无物理显示器的虚拟机、Docker 容器中运行自动化回归验证与帧缓冲像素级比对；
+- **无头测试与 CI/CD**：内置原生 `--headless`、`--frames N`、`--screenshot` 与 `--ai` 参数，可在无物理显示器的虚拟机、Docker 容器中运行自动化回归验证与帧缓冲像素级比对；
 - **29 项内置自测试套件**：1393 断言，涵盖刚体动力学、关节、休眠、防穿透、物理查询、碰撞过滤、时间步长、地图对象、A\* 寻路、离屏 FBO、即时 UI、后处理链、战争迷雾、2D 光照与阴影包含性、骨骼层级/剪辑播放/交叉淡入/IK/时间轴事件、音频混音、动画瓦片、UTF-8/CJK 文本与字体回退、平台能力层、确定性随机、缓动、实体快照、输入动作、窗口控制、游戏时间缩放/命中停顿、16 槽实体角色、128 剪辑动画池、飞机大战素材管线、城市建造地形/建筑图集/基础地图、RTS 地形/单位/建筑/地图管线与视觉小说背景/立绘素材等，所有测试用例均经过变异测试（Mutation-tested）验证；
 - **开箱即用独立打包**：提供自动化打包脚本，一键生成包含依赖库的独立二进制压缩包，分发给玩家免安装环境。
 
@@ -293,6 +293,12 @@ xvfb-run ./build/bin/fake2d_hello --headless --mario-demo --shot-frame 60 --scre
 
 # 拒绝“保存成功但画面空白”的截图（退出码 2）：颜色数量下限探测
 xvfb-run ./build/bin/fake2d_hello --headless --text-demo --screenshot text.png --shot-min-colors 12
+
+# 把手柄交给自动演示驱动。`--ai` 会为没有内置自动策略的 demo 模拟按键与鼠标拖动，
+# 并为已有策略的 demo（mario、contra、city、snooker、rts、vn 等）打开脚本内的自动 AI。
+# 窗口模式下同样有效——启动 demo 即可看它自己玩。
+./build/bin/fake2d_hello --ai --mario-demo
+xvfb-run ./build/bin/fake2d_hello --headless --ai --contra-demo --frames 2500
 
 # 运行 29 组内置无头自测试套件（通过退出码断言执行结果）
 xvfb-run ./build/bin/fake2d_hello --phys-query-test    # 射线检测、形状重叠、接触生命周期

@@ -48,6 +48,8 @@ local BST_BUILDING, BST_ACTIVE = 0, 1
 
 local MAX_ARMY = 20
 local MAX_ARMY_E = 6
+-- `--ai`: the commander is the attract driver, not an idle timer.
+local AI = ai_mode()
 local WAVE_INTERVAL = 360
 local WAVE_INTERVAL_E = 900
 local UNIT_CAP = 56
@@ -114,7 +116,6 @@ local function reset_state()
     S.first_structure = false
     S.first_damage = false
     S.attract = false
-    S.idle_frames = 0 + 0
     S.frame_no = 0 + 0
     S.match_frames = 0 + 0
     S.cam_left = 0.0 + 0.0
@@ -1611,25 +1612,11 @@ local function handle_command_press()
 end
 
 local function update_keys()
-    local activity = false
-    if input_key_down("space") then activity = true end
-    if math.abs(input_mouse_dx()) + math.abs(input_mouse_dy()) > 1.0 then activity = true end
-    if input_mouse_down(0) or input_mouse_down(2) then activity = true end
-    if math.abs(input_mouse_wheel()) > 0.0 then activity = true end
-    local k = 1
-    while k <= 9 do
-        local key = string.format("%d", k)
-        if input_key_pressed(key) then activity = true end
-        k = k + 1
-    end
-    if input_key_pressed("m") or input_key_pressed("escape") then activity = true end
-    if activity then
-        S.idle_frames = 0
-        if S.attract then S.attract = false end
-    else
-        S.idle_frames = S.idle_frames + 1
-        if S.idle_frames > 120 then S.attract = true end
-    end
+    -- Attract mode is a launch option, not an idle fallback: `--ai` puts the
+    -- commander in charge, without it the battlefield waits for a player. The
+    -- takeover timer is gone because the host's injected clicks read exactly
+    -- like a player arriving.
+    S.attract = AI
 
     if input_key_pressed("m") then S.minimap_on = not S.minimap_on end
     if input_key_pressed("escape") then

@@ -26,6 +26,10 @@ local G_GRASS, G_FLOWER, G_WATER, G_SAND = 1, 2, 3, 4
 local G_ROAD, G_RES, G_COM, G_IND = 5, 6, 7, 8
 local G_PARK, G_RUBBLE, G_FOREST, G_POWER = 9, 10, 11, 12
 
+-- `--ai`: the mayor is elected by the attract driver instead of by an
+-- idle timer.
+local AI = ai_mode()
+
 -- tools.
 local T_ROAD, T_RES, T_COM, T_IND = 0, 1, 2, 3
 local T_PARK, T_POWER, T_BULL = 4, 5, 6
@@ -98,7 +102,6 @@ local function reset_state()
     S.overlay_power = false
     S.alert_code = 0 + 0
     S.alert_frames = 0 + 0
-    S.idle_frames = 0 + 0
     S.attract = false
     S.ai_t = 0 + 0
     S.ai_actions = 0 + 0
@@ -815,28 +818,12 @@ local function update_camera()
 end
 
 local function update_keys()
-    local activity = false
-    if input_mouse_pressed(0) or input_mouse_pressed(1) or input_mouse_pressed(2) then activity = true end
-    if input_mouse_down(0) or input_mouse_down(1) then activity = true end
-    if math.abs(input_mouse_dx()) + math.abs(input_mouse_dy()) > 1.0 then activity = true end
-    if input_key_down("space") or input_key_down("enter") then activity = true end
-    if math.abs(input_mouse_wheel()) > 0.0 then activity = true end
-    if input_key_pressed("1") or input_key_pressed("2") or input_key_pressed("3") or
-       input_key_pressed("4") or input_key_pressed("5") or input_key_pressed("6") or
-       input_key_pressed("7") or input_key_pressed("m") or input_key_pressed("o") or
-       input_key_pressed("equals") or input_key_pressed("minus") then
-        activity = true
-    end
-    if activity then
-        S.idle_frames = 0
-        if S.attract then
-            S.attract = false
-            S.speed = 1
-        end
-    else
-        S.idle_frames = S.idle_frames + 1
-        if S.idle_frames > 90 then S.attract = true end
-    end
+    -- Attract mode is a launch option, not something the city falls into when
+    -- nobody is playing. `--ai` hands the mayor's pen to the AI; without it
+    -- the town waits for a player. The old "idle for a second and take over"
+    -- timer is gone because the host's injected clicks read exactly like a
+    -- player arriving, which would have put an empty chair in charge.
+    S.attract = AI
 
     if input_key_pressed("1") then S.tool = T_ROAD end
     if input_key_pressed("2") then S.tool = T_RES end

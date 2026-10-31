@@ -799,6 +799,7 @@ camera_snap(0.0, 0.0)   -- on every level reset
 | `input_bind(action, key)` | Bind one key to a named action (call again to add a second key). |
 | `input_actions_clear([action])` | Remove one action's bindings, or every binding when empty. |
 | `input_action_down/pressed/released(action) -> bool` | Same semantics as the key readers, over every bound key. |
+| `ai_mode() -> bool` | True when the run started with `--ai`. A demo with its own attract policy uses it to take the wheel; demos without one never call it, because the host is already pressing their keys. |
 
 Key names: `"a"`–`"z"`, `"0"`–`"9"`, `"f1"`–`"f12"`, `"space"`, `"enter"`,
 `"escape"`, `"tab"`, `"backspace"`, `"insert"`, `"delete"`, `"up"`, `"down"`,
@@ -806,6 +807,30 @@ Key names: `"a"`–`"z"`, `"0"`–`"9"`, `"f1"`–`"f12"`, `"space"`, `"enter"`,
 `"caps_lock"`, `"left_shift"`, `"right_shift"`, `"left_control"`,
 `"right_control"`, `"left_alt"`, `"right_alt"`, `"left_super"`,
 `"right_super"`, `"menu"`, and punctuation `"-" "=" "[" "]" "\\" ";" "'" "\`" "," "." "/"`.
+
+#### Attract mode (`--ai`)
+
+`--ai` is how a demo plays itself, for a launcher left running or a CI screenshot
+that has to show something other than a start screen. There are two halves, and
+a demo belongs to exactly one of them:
+
+- **The host presses the keys.** For a demo with no policy, the host holds an
+  arrow for a beat at a time, taps the action keys, and walks the pointer
+  across a coarse raster clicking as it goes. The keys arrive through
+  `Input`'s AI overlay, which is merged into *every* frame — so a windowed run
+  reads them exactly like a player, which `Input::InjectFrame` (wiped by the
+  next real poll) cannot do. The demo needs no code for this and never sees
+  `ai_mode()`.
+- **The script drives.** A demo that can actually read its own level — where
+  the wall is, which ball to pocket — beats any rhythm, so it keeps its policy
+  and gates it on `ai_mode()`. `examples/hello/main.cpp` lists those demos in
+  `AiScriptDriven` and injects nothing for them; a demo added to that list must
+  read `ai_mode()` or it will sit still under `--ai`.
+
+Attract mode is a launch option, not something a demo falls into after nobody
+has typed for a second: the idle-takeover timers this replaced read the host's
+injected keys as a player arriving, which handed the demo straight back to an
+empty chair.
 
 #### Gamepad
 

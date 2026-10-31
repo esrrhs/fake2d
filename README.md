@@ -50,7 +50,7 @@ Fake2D is a fully battery-included engine, not just a bare graphics library:
 
 ### 5. Developer Experience & Automated Testing
 - **JIT Script Hot-Reload**: GCC JIT backend with automatic interpreter fallback; edit Lua scripts live and see changes reflected instantly without restarting;
-- **Headless & CI-Ready**: First-class `--headless`, `--frames N`, and `--screenshot` CLI flags allow visual regression tests and automated smoke validation in headless Linux/macOS/Windows environments;
+- **Headless & CI-Ready**: First-class `--headless`, `--frames N`, `--screenshot` and `--ai` CLI flags allow visual regression tests and automated smoke validation in headless Linux/macOS/Windows environments;
 - **29 Built-in Self-Test Suites**: 1393 assertions covering rigid-body dynamics, joints, sleeping, anti-tunneling, physics queries, filters, timesteps, tilemap objects, A\* pathfinding, render targets, UI widgets, post-FX, fog of war, 2D lighting and shadow containment, bone hierarchy and clip playback with cross-fade, IK and timeline events, audio mixing, animated tiles, UTF-8/CJK text with fallback faces, the platform layer, deterministic RNG, easing, entity snapshots, input actions, window controls, gameplay time scale / hit-stop, 16-slot entity actors, the 128-clip animation pool, the shmup sprite/background asset pipeline, the city-builder tileset/building atlas/base map, the RTS terrain/unit/building/map pipeline and the visual-novel background/portrait art (all mutation-tested);
 - **Standalone Packaging**: Bundling scripts under `tools/` generate self-contained archives on Linux, macOS, and Windows with all dependencies, shaders, and assets included.
 
@@ -315,6 +315,13 @@ xvfb-run ./build/bin/fake2d_hello --headless --mario-demo --shot-frame 60 --scre
 
 # Reject screenshots that saved but drew nothing (exit 2): colour floor probe
 xvfb-run ./build/bin/fake2d_hello --headless --text-demo --screenshot text.png --shot-min-colors 12
+
+# Hand the controls to the attract driver. `--ai` presses the keys and drags the
+# pointer for demos that have no attract policy, and switches on the in-script
+# one for the demos that do (mario, contra, city, snooker, rts, vn, ...). It
+# works in a window too -- start a demo and watch it play itself.
+./build/bin/fake2d_hello --ai --mario-demo
+xvfb-run ./build/bin/fake2d_hello --headless --ai --contra-demo --frames 2500
 
 # Run the 29 built-in engine self-test suites (verified via exit codes)
 xvfb-run ./build/bin/fake2d_hello --phys-query-test    # Ray casts, overlaps, contact lifecycle

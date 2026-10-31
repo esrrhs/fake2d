@@ -34,6 +34,11 @@ struct EngineConfig {
     int height = 720;
     bool vsync = true;
     bool headless = false;
+    /// `--ai`: hand the controls to the attract driver. A demo that carries a
+    /// script-side policy reads this through `ai_mode()` and switches itself
+    /// on; for the demos that have no policy the host injects a generic key
+    /// and pointer rhythm instead (see examples/hello/main.cpp).
+    bool ai_input = false;
     /// Start resizable; games can toggle it later with SetWindowResizable().
     bool resizable = true;
     /// Minimum user-resizable size (0 = no constraint).
@@ -128,6 +133,8 @@ public:
     /// hitstop).
     [[nodiscard]] double TimeElapsed() const;
     [[nodiscard]] std::uint64_t FrameIndex() const;
+    /// True when the run was started with `--ai`.
+    [[nodiscard]] bool AiInput() const;
 
     // --- gameplay time control ---
     /// Global gameplay time multiplier (0 = frozen, 1 = real time, 2 = double).

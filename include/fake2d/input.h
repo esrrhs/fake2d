@@ -65,6 +65,21 @@ public:
                      double wheel = 0.0,
                      const std::vector<unsigned int> &text = {});
 
+    // --- AI overlay --------------------------------------------------------
+    /// Hold (or release) a key for the attract driver. Unlike InjectFrame,
+    /// which one real frame of polling wipes out, the overlay is merged into
+    /// every snapshot -- polled or headless -- so a demo driven by it reads
+    /// exactly like a player holding that key, in a real window included.
+    /// The merge is an OR, so a human pressing the same key changes nothing.
+    void AiHoldKey(std::string_view key, bool down);
+    /// Hold/release a mouse button (0 = left, 1 = right, 2 = middle).
+    void AiHoldButton(std::int64_t button, bool down);
+    /// Park the cursor at `pos` on every frame while held; releasing hands it
+    /// back to the real mouse.
+    void AiHoldMouse(const Vec2 &pos, bool down);
+    /// Drop the whole overlay.
+    void AiClear();
+
     // --- gamepad (GLFW standard mapping, Xbox layout) ---
     // pad is a 0-based joystick slot; disconnected pads read as neutral.
     /// True when a gamepad (Standard Mapping recognized) is present on `pad`.
@@ -93,6 +108,12 @@ public:
     [[nodiscard]] bool ActionReleased(std::string_view action) const;
 
 private:
+    /// OR the AI overlay into the snapshot. `advance_edges` is set on the
+    /// headless path, where there is no poll step to move the current state
+    /// into the previous one -- without it a held key would read as *pressed*
+    /// on every frame.
+    void ApplyAiOverlay(bool advance_edges);
+
     static constexpr std::size_t kKeyCount = 349;   // GLFW_KEY_LAST + 1
     static constexpr std::size_t kButtonCount = 8;  // GLFW_MOUSE_BUTTON_LAST + 1
     static constexpr int kPadCount = 16;            // GLFW_JOYSTICK_LAST + 1
@@ -108,12 +129,16 @@ private:
     std::uint8_t tap_hold_[kButtonCount] = {};
     std::uint8_t had_key_press_[kKeyCount] = {};
     std::uint8_t key_tap_hold_[kKeyCount] = {};
+    std::uint8_t ai_keys_[kKeyCount] = {};
+    std::uint8_t ai_buttons_[kButtonCount] = {};
+    bool ai_mouse_held_ = false;
     std::uint8_t pad_connected_[kPadCount] = {};
     std::uint8_t pad_buttons_[kPadCount][kPadButtonCount] = {};
     std::uint8_t prev_pad_buttons_[kPadCount][kPadButtonCount] = {};
     float pad_axes_[kPadCount][kPadAxisCount] = {};
     Vec2 mouse_pos_{0.0f, 0.0f};
     Vec2 mouse_delta_{0.0f, 0.0f};
+    Vec2 ai_mouse_pos_{0.0f, 0.0f};
     double wheel_ = 0.0;
     double wheel_pending_ = 0.0;
     /// Codepoints handed to the current frame; the callback fills the pending

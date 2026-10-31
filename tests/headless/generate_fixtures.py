@@ -441,6 +441,9 @@ function sprite_draw_rotated(h, sx, sy, sw, sh, dx, dy, dw, dh, a0, a1, a2) end
 function sprite_draw_flip(h, sx, sy, sw, sh, dx, dy, dw, dh, fx, fy) end
 
 -- ---------------------------------------------------------------- input
+-- `--ai` is a host command-line flag and flua has no such thing, so the
+-- harness asks for attract mode through the environment instead.
+function ai_mode() return os.getenv("FIX_AI") ~= nil end
 function input_key_down(k) return false end
 function input_key_pressed(k) return false end
 function input_key_released(k) return false end

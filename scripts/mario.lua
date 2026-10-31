@@ -18,16 +18,18 @@
 --                     (shader_load / shader_set_* / draw_use_shader); the band
 --                     travels down it as the frame counter advances.
 --
--- Controls: Left/Right or A/D move, Shift run, Space/W/Up jump, P toggles the
---   attract AI.
--- The attract AI (runs right on its own and hops walls/pits/goombas) is OFF
--- by default so a human keeps full control of the controller. Press P to
--- switch it back on for an unattended attract run. Headless runs that want
--- the AI drive it with MARIO_TEST_AI=1.
+-- Controls: Left/Right or A/D move, Shift run, Space/W/Up jump.
+-- The attract AI (runs right on its own and hops walls/pits/goombas) is a
+-- launch option: start with `--ai` and the plumber plays himself, without it
+-- a human keeps full control.
 -- Debug hooks (test only): MARIO_TEST_DEATH=<frame>, MARIO_TEST_BIG=1,
 --   MARIO_TEST_WIN=<frame>, MARIO_TEST_RIGHT=1, MARIO_TEST_JUMP=1,
 --   MARIO_TEST_DIE3=1, MARIO_TEST_TP=<px>, MARIO_TEST_MUSH=1,
---   MARIO_TEST_PHYS=1, MARIO_TEST_BLOCKS=1, MARIO_TEST_AI=1.
+--   MARIO_TEST_PHYS=1, MARIO_TEST_BLOCKS=1.
+
+-- `--ai`: the attract AI takes the controller. It used to be a P-key
+-- toggle, which meant a run could start either way by accident.
+local AI = ai_mode()
 
 -- gids (must match the host-generated assets/mario.json)
 local G_GROUND, G_DIRT, G_BRICK, G_QUESTION, G_USED = 1, 2, 3, 4, 5
@@ -905,13 +907,6 @@ local function build_intent(dt)
     end
     if move ~= 0.0 or key_jump or real_held then S.human_seen = 1 end
 
-    -- P toggles the attract AI so a human keeps the controller by default.
-    if input_key_pressed("p") then
-        S.ai_enabled = 1 - S.ai_enabled
-        S.ai_cd_t = 0.0
-        log_number(860000 + S.ai_enabled)
-    end
-
     if S.test_jump == 1 then key_jump = true end
     local key_held = real_held
     if S.test_jump == 1 then key_held = true end
@@ -1307,7 +1302,7 @@ local function draw_hud()
     -- Only shown while the attract AI actually has the controller, so the
     -- default view stays clean.
     if S.ai_enabled == 1 then
-        draw_text_str("DEMO AI ON  (P)", sx + 700.0, sy + 34.0, 0.45,
+        draw_text_str("DEMO AI ON  (--ai)", sx + 700.0, sy + 34.0, 0.45,
                       0.6, 1.0, 0.6)
     end
 end
@@ -1588,7 +1583,7 @@ function update(dt)
         if td ~= nil then S.test_death = tonumber(td) + 0 end
         if tw ~= nil then S.test_win = tonumber(tw) + 0 end
         if os.getenv("MARIO_TEST_BIG") ~= nil then S.test_big = 1 end
-        if os.getenv("MARIO_TEST_AI") ~= nil then S.ai_enabled = 1 end
+        if AI then S.ai_enabled = 1 end
         if os.getenv("MARIO_TEST_RIGHT") ~= nil then S.test_right = 1 end
         if os.getenv("MARIO_TEST_JUMP") ~= nil then S.test_jump = 1 end
         local ttp = os.getenv("MARIO_TEST_TP")

@@ -13,6 +13,8 @@ local SW = 960.0
 local SH = 540.0
 
 local ST_TITLE, ST_DIALOGUE, ST_HUB, ST_TOPICS, ST_SUMMARY = 0, 1, 2, 3, 4
+-- `--ai`: the story plays itself; without it a page waits for the player.
+local AI = ai_mode()
 local DM_INTRO, DM_CHAT, DM_DATE, DM_FESTIVAL, DM_ENDING = 1, 2, 3, 4, 5
 
 local NEUTRAL, SMILE, BLUSH, SAD = 0, 1, 2, 3
@@ -118,7 +120,6 @@ local function reset_state()
     S.hub_toast_t = 0 + 0
     S.ending_girl = 0 + 0
     S.ending_success = false
-    S.idle_frames = 0 + 0
     S.attract = false
     S.auto_t = 0 + 0
     S.mouse_x = 0.0 + 0.0
@@ -902,15 +903,6 @@ end
 -- input
 -- ---------------------------------------------------------------------------
 
-local function any_activity()
-    if input_mouse_pressed(0) then return true end
-    if input_key_pressed("space") or input_key_pressed("enter") then return true end
-    if input_key_pressed("escape") or input_key_pressed("f5") or input_key_pressed("f9") then return true end
-    if input_key_pressed("1") or input_key_pressed("2") or input_key_pressed("3") or
-       input_key_pressed("4") then return true end
-    return false
-end
-
 local function update_title_input(clicked)
     local bx = 720.0
     local by = 190.0
@@ -1589,13 +1581,11 @@ function update(dt)
         return 0
     end
 
-    if any_activity() then
-        S.idle_frames = 0
-        if S.attract then S.attract = false end
-    else
-        S.idle_frames = S.idle_frames + 1
-        if S.idle_frames > 80 then S.attract = true end
-    end
+    -- Attract mode is a launch option, not an idle fallback: `--ai` reads the
+    -- story, without it the page waits for a player. The takeover timer is
+    -- gone because the host's injected clicks read exactly like a player
+    -- arriving.
+    S.attract = AI
 
     if S.state == ST_HUB then
         if input_key_pressed("f5") then save_game() end
