@@ -22,6 +22,7 @@ public:
 class ISteamFriends {
 public:
     bool SetRichPresence(const char *, const char *) { return true; }
+    void ClearRichPresence() {}
 };
 
 inline bool SteamAPI_Init() { return true; }
