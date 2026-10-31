@@ -10,14 +10,17 @@
 --   * death (K, or drowning) destroys every ragdoll joint and re-tethers the
 --     pieces with slack rope joints, so the body separates but still tugs
 --
--- Presentation: silhouettes over misty layers, camera follow, synthesized
--- impacts, and a HUD that reads live joint/body counts back from the engine.
+-- Presentation: a back-lit silhouette boy (rim-lit parts over misty layers),
+-- camera follow, synthesized impacts, and a HUD that reads live joint/body
+-- counts back from the engine.
 --
 -- Controls: A/D move, SPACE jump, E grab/release the rope, K sever, R reset.
 -- Headless self-checks: LIMBO_TEST=1 teleports the hero to the water, severs
 -- at frame 60 and logs buoyancy + tether distances at frame 2000;
 -- LIMBO_TEST=2 drives right for 150 frames and logs torso tilt/position at
--- frames 260 and 430 (walking must keep the doll upright and moving).
+-- frames 260 and 430, plus a "limbo: walk PASS/FAIL" line that requires the
+-- doll to be upright, at standing height, moving under its own power, and --
+-- the part a screenshot cannot show -- having opened its legs mid-stride.
 
 local SCREEN_W = 960.0
 local SCREEN_H = 540.0
@@ -31,7 +34,8 @@ local SPAWN_Y = 452.0
 local ROPE_AX = 430.0
 -- Anchored high: the tail hangs at ~330, clear of the walking hero's head
 -- (~420) so strolling past does not clothesline the doll 170px from spawn.
--- A jump lifts the arm to ~342, inside the 44px grab radius of the hook.
+-- A jump lifts ~102 px, which brings the right hand to ~351 -- 20 px from
+-- the hook, inside its 44 px grab radius.
 local ROPE_AY = 60.0
 local ROPE_NODES = 9
 local BRIDGE_AX = 1432.0
@@ -42,6 +46,11 @@ local BRIDGE_PLANKS = 6
 local TAG_ROPE = 1
 local TAG_PLANK = 2
 local TAG_PROP = 3
+
+-- Collision bucket for the hero's own parts, and the mask everything in it
+-- uses: the world minus the hero. See make_part.
+local CAT_HERO = 8
+local MASK_NOT_HERO = 0xFFFF - CAT_HERO
 
 
 -- world statics (created once)
@@ -72,9 +81,7 @@ local function reset_state()
     S.ball_tex = 0 + 0
     S.bg_tex = 0 + 0
     S.ground_tex = 0 + 0
-    S.head_tex = 0 + 0
-    S.torso_tex = 0 + 0
-    S.limb_tex = 0 + 0
+    S.white_tex = 0 + 0
     S.rope_tex = 0 + 0
     S.water_tex = 0 + 0
     S.glow_tex = 0 + 0
@@ -105,6 +112,11 @@ local function reset_state()
     S.grabbed = 1 - 1
     S.frame = 0 + 0
     S.auto = 0 + 0
+    S.gait_phase = 0.0
+    S.gait_amp = 0.0
+    S.leg_spread = 0.0
+    S.walk_speed = 0.0
+    S.face = 1.0
 end
 
 local function add_entity(tag, body, joint)
@@ -119,11 +131,10 @@ local function init_assets()
     S.ball_tex = sprite_load("assets/ball.png")
     S.bg_tex = sprite_load("assets/art/limbo_bg.png")
     S.ground_tex = sprite_load("assets/art/limbo_ground.png")
-    -- AI-illustrated silhouette set; the primitive painters below keep the
-    -- sandbox readable when the shipped art is absent.
-    S.head_tex = sprite_load("assets/limbo/head.png")
-    S.torso_tex = sprite_load("assets/limbo/torso.png")
-    S.limb_tex = sprite_load("assets/limbo/limb.png")
+    -- One white texel: the hero is painted as crisp rotated shapes. The old
+    -- AI silhouette parts were soft-edged and, at 70 px tall, merged into a
+    -- single black blob against the near-black grass.
+    S.white_tex = sprite_load("assets/white.png")
     S.rope_tex = sprite_load("assets/limbo/rope.png")
     S.water_tex = sprite_load("assets/limbo/water.png")
     S.glow_tex = sprite_load("assets/art/glow.png")
@@ -150,11 +161,16 @@ local function create_statics()
 end
 
 local function make_part(kind, x, y, hx, hy, density)
+    -- Ragdoll parts take each other out of their collision mask. A boy's arm
+    -- box starts out overlapping his chest box, and the contact solver
+    -- answers that overlap by shooting the pieces apart -- which is what
+    -- kicked the legs well past the stride on the frames after spawn.
+    -- Everything else (ground, rope, bridge, props) still hits him.
     local b = 0 + 0
     if kind == 0 then
-        b = phys_create_circle(x, y, hx)
+        b = phys_create_circle_cat(x, y, hx, CAT_HERO, MASK_NOT_HERO)
     else
-        b = phys_create_box(x, y, hx, hy)
+        b = phys_create_box_cat(x, y, hx, hy, CAT_HERO, MASK_NOT_HERO)
     end
     phys_set_density(b, density)
     phys_set_friction(b, 0.75)
@@ -167,29 +183,52 @@ local function build_ragdoll()
     local y = SPAWN_Y
     S.hd_head = make_part(0, x, y - 24.0, 8.0, 8.0, 0.5)
     S.hd_torso = make_part(1, x, y, 8.0, 16.0, 0.7)
-    S.hd_arm_l = make_part(1, x - 14.0, y - 12.0, 4.0, 10.0, 0.45)
-    S.hd_arm_r = make_part(1, x + 14.0, y - 12.0, 4.0, 10.0, 0.45)
-    S.hd_leg_l = make_part(1, x - 6.0, y + 27.0, 4.0, 11.0, 0.5)
-    S.hd_leg_r = make_part(1, x + 6.0, y + 27.0, 4.0, 11.0, 0.5)
+    -- Every limb is built hanging: its body centre sits directly below its
+    -- joint anchor. Limits are measured from the creation pose, so a limb
+    -- built out to the side can only swing 1.3 rad from *that* -- which is
+    -- how the old shoulders left the arms frozen out like scarecrow wings,
+    -- merging the figure into one black mass.
+    S.hd_arm_l = make_part(1, x - 9.0, y + 1.0, 4.0, 10.0, 0.45)
+    S.hd_arm_r = make_part(1, x + 9.0, y + 1.0, 4.0, 10.0, 0.45)
+    S.hd_leg_l = make_part(1, x - 5.5, y + 27.0, 4.0, 11.0, 0.5)
+    S.hd_leg_r = make_part(1, x + 5.5, y + 27.0, 4.0, 11.0, 0.5)
 
     S.j_neck = phys_joint_revolute(S.hd_torso, S.hd_head, x, y - 16.0, x, y - 16.0)
     S.j_shoulder_l = phys_joint_revolute(S.hd_torso, S.hd_arm_l,
-                                       x - 8.0, y - 10.0, x - 8.0, y - 10.0)
+                                       x - 9.0, y - 10.0, x - 9.0, y - 10.0)
     S.j_shoulder_r = phys_joint_revolute(S.hd_torso, S.hd_arm_r,
-                                       x + 8.0, y - 10.0, x + 8.0, y - 10.0)
+                                       x + 9.0, y - 10.0, x + 9.0, y - 10.0)
     S.j_hip_l = phys_joint_revolute(S.hd_torso, S.hd_leg_l,
-                                  x - 5.0, y + 16.0, x - 5.0, y + 16.0)
+                                  x - 5.5, y + 16.0, x - 5.5, y + 16.0)
     S.j_hip_r = phys_joint_revolute(S.hd_torso, S.hd_leg_r,
-                                  x + 5.0, y + 16.0, x + 5.0, y + 16.0)
+                                  x + 5.5, y + 16.0, x + 5.5, y + 16.0)
 
     -- Angle limits (radians from the standing pose): without them the doll
     -- folds flat at the hips the moment the torso is pushed, which is what
-    -- made walking tip the whole body over.
-    phys_joint_limit(S.j_neck, -0.35, 0.35)
-    phys_joint_limit(S.j_shoulder_l, -1.3, 1.3)
-    phys_joint_limit(S.j_shoulder_r, -1.3, 1.3)
+    -- made walking tip the whole body over. Shoulders are tight enough to
+    -- stay in a walking arc now that the arms start at their side, and the
+    -- neck only has to survive a nod -- a head tilted 20 degrees reads as a
+    -- broken doll rather than a boy walking.
+    phys_joint_limit(S.j_neck, -0.16, 0.16)
+    phys_joint_limit(S.j_shoulder_l, -0.8, 0.8)
+    phys_joint_limit(S.j_shoulder_r, -0.8, 0.8)
     phys_joint_limit(S.j_hip_l, -1.1, 1.1)
     phys_joint_limit(S.j_hip_r, -1.1, 1.1)
+
+    -- The skull balances on the neck anchor with its centre of mass 8 px
+    -- above the pivot, i.e. an inverted pendulum: left alone it always falls
+    -- to whichever side of the neck limit gravity picks, and a head tilted
+    -- 0.16 rad reads as a broken doll. A zero-speed motor is what the neck
+    -- muscles do in the same situation -- it holds the pose, it does not
+    -- lock the joint.
+    phys_joint_motor(S.j_neck, 0.0, 400000.0)
+
+    -- Light angular damping lets the limbs settle once a stride ends instead
+    -- of swinging like pendulums through the next idle pose.
+    phys_set_damping(S.hd_arm_l, 0.0, 2.0)
+    phys_set_damping(S.hd_arm_r, 0.0, 2.0)
+    phys_set_damping(S.hd_leg_l, 0.0, 2.0)
+    phys_set_damping(S.hd_leg_r, 0.0, 2.0)
 end
 
 local function build_rope()
@@ -413,8 +452,8 @@ local function apply_water(dt)
     buoyancy(S.hd_torso, 16.0, 1.0, dt)
     buoyancy(S.hd_arm_l, 10.0, 1.0, dt)
     buoyancy(S.hd_arm_r, 10.0, 1.0, dt)
-    buoyancy(S.hd_leg_l, 11.0, 1.0, dt)
-    buoyancy(S.hd_leg_r, 11.0, 1.0, dt)
+    buoyancy(S.hd_leg_l, 12.0, 1.0, dt)
+    buoyancy(S.hd_leg_r, 12.0, 1.0, dt)
 
     local n = ent_count(TAG_ROPE)
     for i = 0, n - 1 do
@@ -436,21 +475,79 @@ end
 -- Locomotion for the ragdoll. Force-based drive was tried and always
 -- face-planted: whatever the push point, the contact solver answers with
 -- ground impulses that net a pitch moment and the doll tips within seconds.
--- So walking is VELOCITY-level instead: every part's horizontal speed is
--- steered toward the same target, so no joint ever has to shear and there
--- is no drive torque to topple anything. The feet run near-frictionless
--- while sliding (a friction spike under a moving foot is a tripwire -- the
--- release stop face-planted too), grip returns only once nearly stopped,
--- the hips stay stiff (speed-0 motors) for a Limbo shuffle, and a gentle
--- torque PD holds the torso up.
-local MAX_WALK = 220.0
+-- So locomotion is velocity-level, in two parts:
+--   * translation: every part's horizontal speed is steered toward the same
+--     target, so no joint ever has to shear and there is no drive torque to
+--     topple anything.
+--   * stride: the hips track a sine of the stride phase, so the legs scissor
+--     instead of gliding. A revolute joint leaves relative rotation free, so
+--     the stride never fights the joint solver. Feet run near-frictionless
+--     while they swing (a friction spike under a moving foot is a tripwire);
+--     grip returns only once the body and the stride have both stopped, and
+--     then gravity settles the legs.
+-- The stride rate is derived from the ground speed rather than fixed: a foot
+-- planted for half a cycle has to leave the body exactly one stride length
+-- (2 * GAIT_HIP * LEG_REACH) behind, so one cycle covers four of them. Any
+-- other ratio and the feet crawl through the air faster or slower than the
+-- floor moves under them -- which is precisely the sliding the doll had at a
+-- fixed stride rate and, worse, at zero hip swing.
+local MAX_WALK = 120.0
+local GAIT_HIP = 0.52         -- rad of hip swing; stride = 2 * this * LEG_REACH
+local GAIT_ARM = 0.34
+local LEG_REACH = 27.0        -- hip anchor to sole, px
+local GAIT_RATE_MIN = 5.0     -- rad/s, so a crawling doll still has a walk
+local GAIT_RATE_MAX = 22.0
+local GAIT_LEAN = 0.05        -- rad of forward tilt while striding
 local HIP_MOTOR_TORQUE = 20000000.0
+
+-- World position of a joint anchor carried by `body` at local (lx, ly).
+local function joint_anchor(body, lx, ly)
+    local rot = phys_rot(body)
+    local c = math.cos(rot)
+    local s = math.sin(rot)
+    return phys_x(body) + lx * c - ly * s, phys_y(body) + lx * s + ly * c
+end
+
+-- ... and its velocity: the carrier's own speed plus the sweep of the anchor
+-- around the carrier's centre.
+local function joint_vel(body, lx, ly)
+    local rot = phys_rot(body)
+    local c = math.cos(rot)
+    local s = math.sin(rot)
+    local rx = lx * c - ly * s
+    local ry = lx * s + ly * c
+    local w = phys_ang_vel(body)
+    return phys_vx(body) - w * ry, phys_vy(body) + w * rx
+end
+
+-- Rotate a limb about its joint anchor. Posing the stride this way (instead
+-- of only twisting the body) leaves no joint error for the solver to answer
+-- with a shove on the torso, which otherwise cancelled half the walk speed.
+-- The limb's velocity has to come along: setting position and rotation alone
+-- teleports it, and the solver reads the gap between where the limb now is
+-- and where its old velocity says it should be as an error to correct -- it
+-- answered by twisting the legs well past the swing that was asked for.
+local function pose_limb(body, ax, ay, avx, avy, target_rot, dt)
+    local dx = phys_x(body) - ax
+    local dy = phys_y(body) - ay
+    local dr = target_rot - phys_rot(body)
+    local c = math.cos(dr)
+    local s = math.sin(dr)
+    local nx = ax + dx * c - dy * s
+    local ny = ay + dx * s + dy * c
+    local w = dr / dt
+    phys_set_rot(body, target_rot)
+    phys_set_pos(body, nx, ny)
+    phys_set_vel(body, avx - w * (ny - ay), avy + w * (nx - ax))
+    phys_set_ang_vel(body, w)
+end
 
 local function drive(dir, dt)
     if dt <= 0.0 or S.hd_torso == 0 then
         return
     end
     if not grounded() then
+        S.gait_amp = 0.0
         if dir ~= 0.0 then
             -- carry the walk character into a jump: slick feet, stiff hips
             if S.hd_leg_l ~= 0 then
@@ -478,12 +575,18 @@ local function drive(dir, dt)
             phys_set_vel(b, vx + (target - vx) * k, phys_vy(b))
         end
     end
-    local sliding = math.abs(phys_vx(S.hd_torso)) > 15.0
+
+    if dir ~= 0.0 then
+        S.face = dir
+        S.gait_amp = math.min(1.0, S.gait_amp + 6.0 * dt)
+    else
+        S.gait_amp = math.max(0.0, S.gait_amp - 6.0 * dt)
+    end
+    local striding = S.gait_amp > 0.01
+    local moving = math.abs(phys_vx(S.hd_torso)) > 15.0
     local foot_friction = 0.75
-    local hip_torque = 0.0
-    if sliding then
+    if striding or moving then
         foot_friction = 0.02
-        hip_torque = HIP_MOTOR_TORQUE
     end
     if S.hd_leg_l ~= 0 then
         phys_set_friction(S.hd_leg_l, foot_friction)
@@ -491,13 +594,102 @@ local function drive(dir, dt)
     if S.hd_leg_r ~= 0 then
         phys_set_friction(S.hd_leg_r, foot_friction)
     end
-    phys_joint_motor(S.j_hip_l, 0.0, hip_torque)
-    phys_joint_motor(S.j_hip_r, 0.0, hip_torque)
-    if dir ~= 0.0 then
-        phys_apply_torque(S.hd_torso,
-                          -phys_rot(S.hd_torso) * 1200000.0
-                          - phys_ang_vel(S.hd_torso) * 90000.0)
+
+    -- Pitch is steered at velocity level too. A torque PD was not enough:
+    -- while the legs scissor, the two stance feet trade ground normal
+    -- impulses that net a forward pitch couple, and the doll leaned over
+    -- within a second. Setting the angular velocity proportional to the
+    -- tilt keeps it upright the same way set_vel keeps the body moving --
+    -- except now the target is a slight forward lean, because a body held
+    -- perfectly vertical while its feet run under it reads as a robot on
+    -- skates.
+    local trot = phys_ang_vel(S.hd_torso)
+    if dir ~= 0.0 or striding then
+        local lean = S.face * GAIT_LEAN * S.gait_amp
+        trot = (lean - phys_rot(S.hd_torso)) * 18.0
+        if trot > 8.0 then
+            trot = 8.0
+        elseif trot < -8.0 then
+            trot = -8.0
+        end
+        phys_set_ang_vel(S.hd_torso, trot)
     end
+
+    if striding then
+        -- One cycle carries the body four stride lengths (see the note on
+        -- GAIT_HIP), so the swing rate follows the ground speed.
+        local rate = math.pi * math.abs(phys_vx(S.hd_torso)) /
+                     (2.0 * GAIT_HIP * LEG_REACH)
+        if rate < GAIT_RATE_MIN then
+            rate = GAIT_RATE_MIN
+        elseif rate > GAIT_RATE_MAX then
+            rate = GAIT_RATE_MAX
+        end
+        if phys_vx(S.hd_torso) < 0.0 then
+            rate = -rate
+        end
+        S.gait_phase = S.gait_phase + rate * dt
+        -- Pose the stride straight from the sine instead of integrating an
+        -- angular velocity: ground contacts on a stance foot push back hard
+        -- enough to ratchet the legs into their hip limits after a couple
+        -- of seconds, and once both legs pinned forward the doll toppled.
+        local rel = GAIT_HIP * S.gait_amp * math.sin(S.gait_phase)
+        local rel_arm = GAIT_ARM * S.gait_amp * math.sin(S.gait_phase)
+        local torso_rot = phys_rot(S.hd_torso)
+        local hl = {joint_anchor(S.hd_torso, -5.5, 16.0)}
+        local hr = {joint_anchor(S.hd_torso, 5.5, 16.0)}
+        local sl = {joint_anchor(S.hd_torso, -9.0, -10.0)}
+        local sr = {joint_anchor(S.hd_torso, 9.0, -10.0)}
+        local hlv = {joint_vel(S.hd_torso, -5.5, 16.0)}
+        local hrv = {joint_vel(S.hd_torso, 5.5, 16.0)}
+        local slv = {joint_vel(S.hd_torso, -9.0, -10.0)}
+        local srv = {joint_vel(S.hd_torso, 9.0, -10.0)}
+        if S.hd_leg_l ~= 0 then
+            pose_limb(S.hd_leg_l, hl[1], hl[2], hlv[1], hlv[2],
+                      torso_rot + rel, dt)
+        end
+        if S.hd_leg_r ~= 0 then
+            pose_limb(S.hd_leg_r, hr[1], hr[2], hrv[1], hrv[2],
+                      torso_rot - rel, dt)
+        end
+        if S.hd_arm_l ~= 0 then
+            pose_limb(S.hd_arm_l, sl[1], sl[2], slv[1], slv[2],
+                      torso_rot - rel_arm, dt)
+        end
+        if S.hd_arm_r ~= 0 then
+            pose_limb(S.hd_arm_r, sr[1], sr[2], srv[1], srv[2],
+                      torso_rot + rel_arm, dt)
+        end
+        -- a 0-speed motor would cancel the stride it is meant to allow
+        phys_joint_motor(S.j_hip_l, 0.0, 0.0)
+        phys_joint_motor(S.j_hip_r, 0.0, 0.0)
+        phys_joint_motor(S.j_shoulder_l, 0.0, 0.0)
+        phys_joint_motor(S.j_shoulder_r, 0.0, 0.0)
+    else
+        -- at rest the motors are off: gravity hangs the limbs, so the doll
+        -- never freezes in the last stride pose
+        phys_joint_motor(S.j_hip_l, 0.0, 0.0)
+        phys_joint_motor(S.j_hip_r, 0.0, 0.0)
+    end
+end
+
+-- A ragdoll has to jump as a whole. Pushing only the torso spends most of the
+-- impulse dragging the head and the arms up through the joints: the same
+-- delta-v that lifts a single body 98 px lifted this doll 32 px, which left
+-- the rope hook out of reach and the hop looking like a stutter.
+local JUMP_V = 430.0
+
+local function jump()
+    local parts = {S.hd_head, S.hd_torso, S.hd_arm_l, S.hd_arm_r,
+                   S.hd_leg_l, S.hd_leg_r}
+    for i = 1, 6 do
+        local b = parts[i]
+        if b ~= 0 then
+            phys_apply_impulse(b, 0.0, -phys_mass(b) * JUMP_V,
+                               phys_x(b), phys_y(b))
+        end
+    end
+    audio_play("jump", 0.5)
 end
 
 local function update_controls(dt)
@@ -524,16 +716,7 @@ local function update_controls(dt)
             drive(dir, dt)
         end
         if input_key_pressed("space") and grounded() then
-            local mt = phys_mass(S.hd_torso)
-            phys_apply_impulse(S.hd_torso, 0.0, -mt * 420.0,
-                               phys_x(S.hd_torso), phys_y(S.hd_torso))
-            phys_apply_impulse(S.hd_leg_l, 0.0,
-                               -phys_mass(S.hd_leg_l) * 220.0,
-                               phys_x(S.hd_leg_l), phys_y(S.hd_leg_l))
-            phys_apply_impulse(S.hd_leg_r, 0.0,
-                               -phys_mass(S.hd_leg_r) * 220.0,
-                               phys_x(S.hd_leg_r), phys_y(S.hd_leg_r))
-            audio_play("jump", 0.5)
+            jump()
         end
 
         -- grab / release the rope hook with the right hand
@@ -704,58 +887,152 @@ local function draw_props()
     end
 end
 
--- One illustrated silhouette part, placed and rotated by its physics body.
-local function draw_part(tex, body, w, h)
-    if tex == 0 or body == 0 then
-        return false
+-- The hero is a back-lit silhouette, and what makes it read as a boy rather
+-- than as one black mass is the seam: every part is drawn as a pale rim first
+-- and its dark body on top of it, parts back-to-front, so each part's rim
+-- cuts the part behind it. Flat near-black boxes with no rim fuse into a blob
+-- at 70 px tall, and the AI part sprites were worse still -- they measured
+-- mean RGB (1,4,1) for the head and (4,6,4) for the torso, i.e. black on
+-- black. Three tones (far side, torso, near side) give the figure depth.
+local RIM_R, RIM_G, RIM_B, RIM_A = 0.72, 0.76, 0.68, 0.42
+local RIM_GROW = 3.2
+local TONE_FAR = {0.010, 0.012, 0.010}
+local TONE_BODY = {0.030, 0.034, 0.030}
+local TONE_NEAR = {0.052, 0.058, 0.052}
+
+-- One part = a list of boxes in that body's own frame:
+-- {lx, ly, w, h, round, drot, mirrored}
+local TORSO_SPEC = {
+    {0.0, -10.5, 16.0, 12.0, 0, 0.0, 0},    -- shoulders
+    {0.0, 1.0, 12.5, 12.0, 0, 0.0, 0},      -- waist
+    {0.0, 11.5, 14.0, 10.0, 0, 0.0, 0},     -- hips
+    {0.0, -18.0, 7.0, 9.0, 0, 0.0, 0}       -- neck
+}
+local ARM_SPEC = {
+    {0.0, -0.5, 6.5, 20.0, 0, 0.0, 0},
+    {0.5, 10.0, 6.0, 5.0, 0, 0.0, 1}        -- hand
+}
+local LEG_SPEC = {
+    {0.0, -1.5, 8.0, 23.0, 0, 0.0, 0},
+    {3.5, 12.0, 10.5, 5.0, 0, 0.0, 1}       -- shoe
+}
+local HEAD_SPEC = {
+    {0.0, 0.0, 17.0, 18.0, 1, 0.0, 0},      -- skull
+    {0.5, 5.5, 9.5, 7.0, 0, 0.0, 1},        -- jaw
+    {-5.5, -6.5, 5.0, 5.5, 0, -0.5, 1},     -- hair, swept off the face
+    {-1.0, -8.5, 5.0, 5.0, 0, -0.1, 1},
+    {3.5, -7.0, 4.5, 4.5, 0, 0.3, 1},
+    {-8.0, -1.5, 4.0, 6.5, 0, -0.8, 1}
+}
+
+local function hero_quad(cx, cy, w, h, rot, r, g, b, a)
+    if S.white_tex == 0 then
+        return
     end
-    local x = phys_smooth_x(body)
-    local y = phys_smooth_y(body)
+    sprite_draw_rotated_tinted(S.white_tex, 0.0, 0.0, 1.0, 1.0,
+                               cx - w * 0.5, cy - h * 0.5, w, h,
+                               rot, w * 0.5, h * 0.5, r, g, b, a)
+end
+
+-- Four inscribed squares 22.5 degrees apart: a 16-gon that reads as a disc
+-- at this size while keeping every edge crisp. (A square repeats every 90
+-- degrees, so 45-degree steps would only give two distinct orientations.)
+local function hero_round(cx, cy, w, h, rot, r, g, b, a)
+    local kw = w * 0.7071
+    local kh = h * 0.7071
+    for i = 0, 3 do
+        hero_quad(cx, cy, kw, kh, rot + i * 0.3927, r, g, b, a)
+    end
+end
+
+local function hero_point(body, lx, ly)
     local rot = phys_smooth_rot(body)
-    sprite_draw_rotated_tinted(tex, 0.0, 0.0,
-                               sprite_width(tex), sprite_height(tex),
-                               x - w * 0.5, y - h * 0.5, w, h,
-                               rot, w * 0.5, h * 0.5, 1.0, 1.0, 1.0, 1.0)
-    return true
+    local c = math.cos(rot)
+    local s = math.sin(rot)
+    return phys_smooth_x(body) + lx * c - ly * s,
+           phys_smooth_y(body) + lx * s + ly * c
+end
+
+-- `bob` lifts the upper body a couple of pixels through the stride; the legs
+-- are posed off the physics hips and stay where the ground put them.
+local function hero_part(body, spec, bob, grow, r, g, b, a)
+    local rot = phys_smooth_rot(body)
+    for i = 1, #spec do
+        local s = spec[i]
+        local m = 1.0
+        if s[7] == 1 then
+            m = S.face
+        end
+        local cx, cy = hero_point(body, s[1] * m, s[2])
+        if s[5] == 1 then
+            hero_round(cx, cy + bob, s[3] + grow, s[4] + grow, rot + s[6] * m,
+                       r, g, b, a)
+        else
+            hero_quad(cx, cy + bob, s[3] + grow, s[4] + grow, rot + s[6] * m,
+                      r, g, b, a)
+        end
+    end
+end
+
+local function draw_part(body, spec, tone, bob)
+    if body == 0 then
+        return
+    end
+    hero_part(body, spec, bob, RIM_GROW, RIM_R, RIM_G, RIM_B, RIM_A)
+    hero_part(body, spec, bob, 0.0, tone[1], tone[2], tone[3], 1.0)
 end
 
 local function draw_hero()
     if S.hd_torso == 0 then
         return
     end
-    -- Backlight fog: the silhouette art is near-black and the grass band is
-    -- near-black, so the hero only reads with a light pool behind it. The
-    -- old glow drew ball.png (black) and thus did nothing; this stacks three
-    -- soft white discs additively for a radial falloff.
     local x = phys_smooth_x(S.hd_torso)
     local y = phys_smooth_y(S.hd_torso)
+    -- Backlight fog: a black silhouette needs light behind it to read, the
+    -- way Limbo's mist separates the boy from the scenery. Kept wide and
+    -- faint -- three stacked cores turned it into a searchlight that made the
+    -- figure a cut-out rather than a body in a place.
     if S.glow_tex ~= 0 then
         draw_set_blend(1)
-        sprite_draw_tinted(S.glow_tex, x - 110.0, y - 70.0, 220.0, 220.0,
-                           1.0, 1.0, 1.0, 0.10)
-        sprite_draw_tinted(S.glow_tex, x - 75.0, y - 50.0, 150.0, 150.0,
-                           1.0, 1.0, 1.0, 0.16)
-        sprite_draw_tinted(S.glow_tex, x - 45.0, y - 35.0, 90.0, 90.0,
-                           1.0, 1.0, 1.0, 0.26)
+        sprite_draw_tinted(S.glow_tex, x - 150.0, y - 105.0, 300.0, 300.0,
+                           0.86, 0.90, 0.94, 0.11)
+        sprite_draw_tinted(S.glow_tex, x - 78.0, y - 58.0, 156.0, 156.0,
+                           0.92, 0.94, 0.96, 0.16)
         draw_set_blend(0)
     end
-    if not draw_part(S.head_tex, S.hd_head, 22.0, 22.0) then
-        draw_circle_body(S.hd_head, 8.0, 0.04, 0.05, 0.04)
+    -- Contact shadow, so the feet belong to the ground instead of to the fog.
+    if S.glow_tex ~= 0 and grounded() then
+        sprite_draw_tinted(S.glow_tex, x - 34.0, GROUND_Y - 16.0, 68.0, 26.0,
+                           0.0, 0.0, 0.0, 0.5)
     end
-    if not draw_part(S.torso_tex, S.hd_torso, 20.0, 36.0) then
-        draw_box_body(S.hd_torso, 8.0, 16.0, 0.04, 0.05, 0.04)
+
+    -- The near side is whichever pair of limbs leads the way the boy faces;
+    -- drawing far, torso, near, head is what lets each rim cut the part
+    -- behind it.
+    local far_leg, near_leg = S.hd_leg_l, S.hd_leg_r
+    local far_arm, near_arm = S.hd_arm_l, S.hd_arm_r
+    if S.face < 0.0 then
+        far_leg, near_leg = near_leg, far_leg
+        far_arm, near_arm = near_arm, far_arm
     end
-    if not draw_part(S.limb_tex, S.hd_arm_l, 11.0, 24.0) then
-        draw_box_body(S.hd_arm_l, 4.0, 10.0, 0.04, 0.05, 0.04)
+    local bob = 0.0
+    if S.gait_amp > 0.01 then
+        -- twice per cycle, peaking as a leg passes under the body
+        bob = -1.8 * S.gait_amp * math.cos(S.gait_phase * 2.0)
     end
-    if not draw_part(S.limb_tex, S.hd_arm_r, 11.0, 24.0) then
-        draw_box_body(S.hd_arm_r, 4.0, 10.0, 0.04, 0.05, 0.04)
-    end
-    if not draw_part(S.limb_tex, S.hd_leg_l, 11.0, 28.0) then
-        draw_box_body(S.hd_leg_l, 4.0, 11.0, 0.04, 0.05, 0.04)
-    end
-    if not draw_part(S.limb_tex, S.hd_leg_r, 11.0, 28.0) then
-        draw_box_body(S.hd_leg_r, 4.0, 11.0, 0.04, 0.05, 0.04)
+
+    draw_part(far_leg, LEG_SPEC, TONE_FAR, 0.0)
+    draw_part(far_arm, ARM_SPEC, TONE_FAR, bob)
+    draw_part(S.hd_torso, TORSO_SPEC, TONE_BODY, bob)
+    draw_part(near_leg, LEG_SPEC, TONE_NEAR, 0.0)
+    draw_part(near_arm, ARM_SPEC, TONE_NEAR, bob)
+    draw_part(S.hd_head, HEAD_SPEC, TONE_NEAR, bob)
+
+    -- the two pale eyes that give the silhouette a face
+    for i = -1, 1, 2 do
+        local ex, ey = hero_point(S.hd_head, i * 2.6 + S.face * 1.8, -0.5)
+        hero_round(ex, ey + bob, 2.9, 2.9, phys_smooth_rot(S.hd_head),
+                   0.93, 0.96, 0.88, 1.0)
     end
 
     if S.alive == 0 then
@@ -893,11 +1170,51 @@ function update(dt)
         end
     elseif S.auto == 2 then
         -- Walk self-check: drive right for 150 frames, then log (as
-        -- prefix+offset) torso tilt and position while still settled and
-        -- again after coasting. A fallen doll shows rot past 100 (1 rad)
-        -- and a torso y near 480 instead of the standing ~452.
+        -- prefix+offset) torso tilt, position and the peak spread between
+        -- the two legs while still settled and again after coasting. A
+        -- fallen doll shows rot past 100 (1 rad) and a torso y near 480
+        -- instead of the standing ~452. The spread is the anti-glide gate:
+        -- legs that never open past a few hundredths of a radian mean the
+        -- doll is being towed along on two frozen poles.
+        if S.hd_leg_l ~= 0 and S.hd_leg_r ~= 0 and S.frame >= 100
+           and S.frame <= 250 then
+            local spread = math.abs(phys_rot(S.hd_leg_l) - phys_rot(S.hd_leg_r))
+            if spread > S.leg_spread then
+                S.leg_spread = spread
+            end
+            local speed = math.abs(phys_vx(S.hd_torso))
+            if speed > S.walk_speed then
+                S.walk_speed = speed
+            end
+        end
         if S.frame >= 100 and S.frame <= 250 then
             drive(1.0, sdt)
+        end
+        if S.hd_torso ~= 0 and S.frame % 20 == 0 and S.frame >= 100
+           and S.frame <= 260 then
+            log_number(100000 + math.floor(phys_rot(S.hd_torso) * 1000.0))
+            log_number(200000 + S.frame)
+            log_number(500000 + math.floor(phys_vx(S.hd_torso) * 10.0))
+            log_number(600000 + math.floor((phys_x(S.hd_torso) - SPAWN_X) * 10.0))
+        end
+        if S.frame == 260 then
+            -- The verdict CI greps for. Upright, at standing height and
+            -- moving are all satisfiable by a doll being towed on two frozen
+            -- legs, so the spread between them is the line that actually says
+            -- "walked". Speed and joint angles are asserted rather than the
+            -- distance covered: a headless run's dt comes from the wall clock,
+            -- so metres are not reproducible across machines.
+            local dx = phys_x(S.hd_torso) - SPAWN_X
+            local rot = math.abs(phys_rot(S.hd_torso))
+            local vy = phys_y(S.hd_torso)
+            local verb = "FAIL"
+            if rot < 0.2 and vy < 470.0 and S.walk_speed > 60.0
+               and S.leg_spread > 0.5 then
+                verb = "PASS"
+            end
+            log_info(string.format(
+                "limbo: walk %s rot %.3f speed %.0f spread %.2f dx %.0f y %.0f",
+                verb, rot, S.walk_speed, S.leg_spread, dx, vy))
         end
         if S.frame == 260 or S.frame == 430 then
             local base = 100
@@ -907,6 +1224,7 @@ function update(dt)
             log_number(base + math.abs(phys_rot(S.hd_torso)) * 100.0)
             log_number(base + 100 + phys_x(S.hd_torso) - SPAWN_X)
             log_number(base + 200 + phys_y(S.hd_torso))
+            log_number(base + 300 + S.leg_spread * 1000.0)
         end
     end
 

@@ -179,6 +179,18 @@ jobs:
           # LIMBO demo smoke: ragdoll + rope + bridge + water + severing.
           run_xvfb ./build/bin/fake2d_hello --headless --limbo-demo --frames 240 > limbo.log 2>&1
           rc_limbo=$?
+          # LIMBO walk gate: the doll has to stay upright, stand at standing
+          # height, cover ground AND open its legs. A ragdoll towed along on
+          # two frozen poles passes all of the first three -- the sliding the
+          # eye catches instantly, so the log has to say the stride happened.
+          # The env var goes through `env` rather than a prefix because
+          # run_xvfb is a shell function.
+          run_xvfb env LIMBO_TEST=2 ./build/bin/fake2d_hello --headless \
+            --limbo-demo --frames 300 --screenshot limbo_walk.png \
+            --shot-frame 180 --shot-min-colors 12 > limbo_walk.log 2>&1
+          rc_limbo_walk=$?
+          test -s limbo_walk.png
+          grep -F "limbo: walk PASS" limbo_walk.log
           # Fixed-step accumulator + camera tools (exit code gate).
           run_xvfb ./build/bin/fake2d_hello --timestep-test > timestep.log 2>&1
           rc_timestep=$?
@@ -368,13 +380,14 @@ jobs:
             --entry scripts/phys_test.lua > phys_test.log 2>&1
           rc_lua=$?
           set -e
-          echo "exit codes: query=$rc_query filter=$rc_filter rigid=$rc_rigid extended=$rc_extended birds=$rc_birds limbo=$rc_limbo timestep=$rc_timestep path=$rc_path rt=$rc_rt ui=$rc_ui post=$rc_post fx=$rc_fx fog=$rc_fog light=$rc_light lightbench=$rc_light_bench lightdemo=$rc_light_demo skeleton=$rc_skeleton skeldemo=$rc_skeleton_demo audio=$rc_audio mapobj=$rc_mapobj tile=$rc_tile font=$rc_font platform=$rc_platform gameplay=$rc_gameplay combat=$rc_combat shmup=$rc_shmup art=$rc_art launcher=$rc_launcher snooker=$rc_snooker contra=$rc_contra city=$rc_city rts=$rc_rts vn=$rc_vn beat=$rc_beat shmupdemo=$rc_shmup_demo snookerdemo=$rc_snooker_demo contrademo=$rc_contra_demo citydemo=$rc_city_demo rtsdemo=$rc_rts_demo vndemo=$rc_vn_demo lua=$rc_lua"
+          echo "exit codes: query=$rc_query filter=$rc_filter rigid=$rc_rigid extended=$rc_extended birds=$rc_birds limbo=$rc_limbo limbowalk=$rc_limbo_walk timestep=$rc_timestep path=$rc_path rt=$rc_rt ui=$rc_ui post=$rc_post fx=$rc_fx fog=$rc_fog light=$rc_light lightbench=$rc_light_bench lightdemo=$rc_light_demo skeleton=$rc_skeleton skeldemo=$rc_skeleton_demo audio=$rc_audio mapobj=$rc_mapobj tile=$rc_tile font=$rc_font platform=$rc_platform gameplay=$rc_gameplay combat=$rc_combat shmup=$rc_shmup art=$rc_art launcher=$rc_launcher snooker=$rc_snooker contra=$rc_contra city=$rc_city rts=$rc_rts vn=$rc_vn beat=$rc_beat shmupdemo=$rc_shmup_demo snookerdemo=$rc_snooker_demo contrademo=$rc_contra_demo citydemo=$rc_city_demo rtsdemo=$rc_rts_demo vndemo=$rc_vn_demo lua=$rc_lua"
           [ "$rc_query" -eq 0 ]
           [ "$rc_filter" -eq 0 ]
           [ "$rc_rigid" -eq 0 ]
           [ "$rc_extended" -eq 0 ]
           [ "$rc_birds" -eq 0 ]
           [ "$rc_limbo" -eq 0 ]
+          [ "$rc_limbo_walk" -eq 0 ]
           [ "$rc_timestep" -eq 0 ]
           [ "$rc_path" -eq 0 ]
           [ "$rc_rt" -eq 0 ]
