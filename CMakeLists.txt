@@ -22,6 +22,8 @@ option(FAKE2D_WITH_STEAM "Build the Steamworks adapter (needs the Steam SDK)" OF
 # CI-only: compile src/platform/steam.cpp against tests/fake_steam, proving the
 # SDK branch stays buildable without the proprietary SDK.
 option(FAKE2D_TEST_STEAM_HEADERS "Compile-check the Steam backend with stub headers" OFF)
+# Generate install rules so other projects consume fake2d via find_package.
+option(FAKE2D_INSTALL "Generate install rules for fake2d" ON)
 
 if (FAKE2D_WITH_FAKELUA)
     find_package(fakelua REQUIRED)
@@ -54,4 +56,51 @@ add_subdirectory(src)
 
 if (FAKE2D_BUILD_EXAMPLES)
     add_subdirectory(examples/hello)
+endif ()
+
+# --- Install: make fake2d consumable by other projects via find_package ---
+# Ships the CPM-built GLFW archive alongside libfake2d.a so consumers link
+# only fake2d::fake2d and every transitive dependency resolves locally.
+if (FAKE2D_INSTALL)
+    include(CMakePackageConfigHelpers)
+
+    # Imported targets referenced from the exported interface must be globally
+    # visible for export() to accept them.
+    set_target_properties(OpenGL::GL PROPERTIES IMPORTED_GLOBAL TRUE)
+    if (TARGET Threads::Threads)
+        set_target_properties(Threads::Threads PROPERTIES IMPORTED_GLOBAL TRUE)
+    endif ()
+    if (TARGET fakelua::fakelua)
+        set_target_properties(fakelua::fakelua PROPERTIES IMPORTED_GLOBAL TRUE)
+    endif ()
+
+    # GLFW declares its platform frameworks PRIVATE, which keeps them out of
+    # an exported static library's link interface; surface them for consumers.
+    if (APPLE)
+        set_property(TARGET glfw APPEND PROPERTY INTERFACE_LINK_LIBRARIES
+            "-framework Cocoa" "-framework IOKit" "-framework CoreFoundation")
+    endif ()
+
+    install(TARGETS fake2d glfw EXPORT fake2dTargets
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+    install(DIRECTORY ${glfw_SOURCE_DIR}/include/GLFW
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+    install(EXPORT fake2dTargets
+        NAMESPACE fake2d::
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/fake2d)
+
+    configure_package_config_file(cmake/fake2dConfig.cmake.in
+        "${CMAKE_BINARY_DIR}/cmake/fake2dConfig.cmake"
+        INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/fake2d)
+    write_basic_package_version_file(
+        "${CMAKE_BINARY_DIR}/cmake/fake2dConfigVersion.cmake"
+        VERSION ${PROJECT_VERSION}
+        COMPATIBILITY SameMajorVersion)
+    install(FILES
+        "${CMAKE_BINARY_DIR}/cmake/fake2dConfig.cmake"
+        "${CMAKE_BINARY_DIR}/cmake/fake2dConfigVersion.cmake"
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/fake2d)
 endif ()

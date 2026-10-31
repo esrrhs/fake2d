@@ -169,6 +169,21 @@ cmake --build build --parallel
 
 > **纯 C++ 骨架模式**：如果本地暂未安装 FakeLua，可传入 `-DFAKE2D_WITH_FAKELUA=OFF` 编译纯 C++ 骨架工程用于底层图形与硬件调试。
 
+### 安装为系统依赖
+
+```bash
+# 安装到 /usr/local（头文件 + 静态库 + CMake 包，含自带的 GLFW）
+cmake --install build
+```
+
+其他工程从此无需引用 fake2d 源码，`find_package` 一行接入：
+
+```cmake
+find_package(fake2d 1.41 REQUIRED CONFIG)
+add_executable(my_game main.cpp)
+target_link_libraries(my_game PRIVATE fake2d::fake2d)   # GLFW/OpenGL/FakeLua 随之自动链上
+```
+
 ---
 
 ## 💻 命令行运行手册

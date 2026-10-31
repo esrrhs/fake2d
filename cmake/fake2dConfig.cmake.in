@@ -1,0 +1,13 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+find_dependency(OpenGL)
+find_dependency(Threads)
+if (@FAKE2D_WITH_FAKELUA@)
+    find_dependency(fakelua)
+endif ()
+
+include("${CMAKE_CURRENT_LIST_DIR}/fake2dTargets.cmake")
+
+check_required_components(fake2d)
