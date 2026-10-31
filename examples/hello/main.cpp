@@ -12,6 +12,7 @@
 #include "fake2d/steam.h"
 
 #include <algorithm>
+#include <cerrno>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -28,6 +29,7 @@
 #if defined(_WIN32)
 #include <process.h>
 #else
+#include <sys/wait.h>
 #include <unistd.h>
 #endif
 #include <string_view>
@@ -10069,24 +10071,82 @@ void EnsureTileAnimAssets() {
 // Demo launcher
 // ---------------------------------------------------------------------------
 
-/// Start a fresh process for the demo the launcher picked. Switching demos
-/// means a different entry script *and* a different set of host-side asset and
-/// audio setup, and Run() already tears the window down on the way out — so
-/// re-execing beats unwinding a live engine, and it matches how a launcher is
-/// actually used: pick a game now, restart for another one later.
-bool RelaunchWithDemo(const char *self, const std::string &flag, int max_frames) {
+/// Run `self` with these arguments and block until it exits. Returns false only
+/// when the child could not be started at all.
+bool SpawnWaiting(const char *self, const std::vector<std::string> &args) {
+    std::vector<char *> argv;
+    argv.push_back(const_cast<char *>(self));
+    for (const auto &arg : args) {
+        argv.push_back(const_cast<char *>(arg.data()));
+    }
+    argv.push_back(nullptr);
+#if defined(_WIN32)
+    return _spawnv(_P_WAIT, self, argv.data()) >= 0;
+#else
+    // 127 is the shell's own "could not execute" status, reused here so the
+    // parent can tell a demo that never started from one that ran and closed.
+    constexpr int kExecFailed = 127;
+    const pid_t pid = fork();
+    if (pid < 0) {
+        return false;
+    }
+    if (pid == 0) {
+        execvp(self, argv.data());
+        _exit(kExecFailed);
+    }
+    int status = 0;
+    while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {
+    }
+    return !(WIFEXITED(status) && WEXITSTATUS(status) == kExecFailed);
+#endif
+}
+
+/// The arguments a demo child needs: its own flag, the frame budget so a
+/// scripted run cannot spawn a session that never ends, and the backend choice
+/// when the caller pinned one.
+std::vector<std::string> DemoArgs(const std::string &flag, int max_frames,
+                                  int jit_choice) {
     std::vector<std::string> args;
     args.push_back("--" + flag + "-demo");
     if (max_frames > 0) {
-        // Forward the frame budget so a scripted run cannot spawn a session
-        // that never ends.
         args.push_back("--frames");
         args.push_back(std::to_string(max_frames));
     }
+    if (jit_choice > 0) {
+        args.push_back("--jit");
+    } else if (jit_choice == 0) {
+        args.push_back("--interp");
+    }
+    return args;
+}
+
+/// Start the demo the launcher picked in a child process and wait for it to
+/// close. Handing the demo a fresh process beats unwinding a live engine — a
+/// different entry script means different host-side asset and audio setup, and
+/// Run() already tears the window down on the way out — but the *launcher* has
+/// to survive it, because a picker that can only pick once is a boot screen.
+bool RunDemoAsChild(const char *self, const std::string &flag, int max_frames,
+                    int jit_choice) {
+    return SpawnWaiting(self, DemoArgs(flag, max_frames, jit_choice));
+}
+
+/// Replace this process with a fresh picker once the demo closes.
+bool RelaunchAsLauncher(const char *self, int max_frames, int jit_choice) {
+    std::vector<std::string> args;
+    args.push_back("--launcher");
+    if (max_frames > 0) {
+        args.push_back("--frames");
+        args.push_back(std::to_string(max_frames));
+    }
+    if (jit_choice > 0) {
+        args.push_back("--jit");
+    } else if (jit_choice == 0) {
+        args.push_back("--interp");
+    }
     std::vector<char *> argv;
     argv.push_back(const_cast<char *>(self));
-    for (auto &arg : args) {
-        argv.push_back(arg.data());
+    for (const auto &arg : args) {
+        argv.push_back(const_cast<char *>(arg.data()));
     }
     argv.push_back(nullptr);
 #if defined(_WIN32)
@@ -10169,6 +10229,29 @@ int RunLauncherTest() {
     check(ParseDemoArg("--demo", &resolved) == DemoArg::kNotADemoFlag,
           "the bare --demo form is not a demo flag");
 
+    // What the launcher hands the child process it spawns. The frame budget has
+    // to cross the boundary or a scripted run spawns a session that never ends,
+    // and an explicit backend choice has to cross it too — otherwise the child
+    // quietly picks a different one than the player asked for.
+    {
+        const std::vector<std::string> plain = DemoArgs("mario", 0, -1);
+        check(plain.size() == 1 && plain[0] == "--mario-demo",
+              "a child gets its demo flag and nothing else");
+        const std::vector<std::string> budgeted = DemoArgs("mario", 240, -1);
+        check(budgeted.size() == 3 && budgeted[1] == "--frames" &&
+                  budgeted[2] == "240",
+              "the frame budget is forwarded to the child");
+        const std::vector<std::string> forced = DemoArgs("mario", 0, 1);
+        check(forced.size() == 2 && forced[1] == "--jit",
+              "an explicit --jit reaches the child");
+        const std::vector<std::string> interp = DemoArgs("mario", 0, 0);
+        check(interp.size() == 2 && interp[1] == "--interp",
+              "an explicit --interp reaches the child");
+        const fake2d::DemoInfo *child = nullptr;
+        check(ParseDemoArg(plain[0], &child) == DemoArg::kResolved,
+              "the child's argument list parses back through the catalogue");
+    }
+
     std::printf("[launcher] %s: %d checks, %d failures (%zu demos)\n",
                 failures == 0 ? "PASS" : "FAILED", checks, failures,
                 fake2d::kDemoCount);
@@ -10237,6 +10320,9 @@ int main(int argc, char **argv) {
     bool regen_assets = false;
     bool launcher_mode = false;
     bool launcher_test = false;
+    // Script backend: -1 lets the run decide (see the note where
+    // cfg.script_jit is set), 0 forces the interpreter, 1 forces the GCC JIT.
+    int jit_choice = -1;
     const fake2d::DemoInfo *demo_info = nullptr;
     // Host-side extras a demo needs before its script runs: the procedural
     // sprite sheets and synthesized sound sets that only the host can build.
@@ -10287,6 +10373,11 @@ int main(int argc, char **argv) {
         } else if (arg == "--launcher") {
             // Interactive demo picker.
             launcher_mode = true;
+        } else if (arg == "--interp") {
+            // Skip the JIT compile and call the script through the VM.
+            jit_choice = 0;
+        } else if (arg == "--jit") {
+            jit_choice = 1;
         } else if (arg == "--launcher-test") {
             // Self-test of the demo catalogue the launcher and CLI share.
             launcher_test = true;
@@ -10540,6 +10631,15 @@ int main(int argc, char **argv) {
             cfg.headless ? "scripts/game.lua" : "scripts/launcher.lua";
     }
 
+    // A demo is looked at, not profiled. The GCC JIT spends seconds turning a
+    // script into native code before the first frame, so a windowed demo or
+    // picker run starts on the interpreter instead — same program, called
+    // through the VM. A headless run keeps the JIT, because that is the backend
+    // CI has always exercised, and `--jit` / `--interp` override either way.
+    cfg.script_jit = jit_choice != 0 &&
+                     (jit_choice > 0 || cfg.headless ||
+                      (!launcher_mode && demo_info == nullptr));
+
     // The engine auto-loads <resource root>/assets/lang at Init, so the demo
     // language packs must exist before the engine starts.
     if (text_demo) {
@@ -10731,22 +10831,27 @@ int main(int argc, char **argv) {
 
     const int rc = engine.Run(max_frames);
 
-    // The launcher asked for a demo: hand it to a fresh process. A headless run
-    // only reports the request, so a CI smoke test cannot spawn an unbounded
-    // second session.
+    // The launcher picked a demo: run it in a child, wait for it to close, then
+    // come back to a fresh picker. A headless run only reports the request, so
+    // a CI smoke test cannot spawn an unbounded second session.
     if (const std::string chosen = engine.PendingRelaunch(); !chosen.empty()) {
         if (cfg.headless) {
             std::printf("fake2d_hello: would restart with --%s-demo\n",
                         chosen.c_str());
             return shot_blank ? 2 : rc;
         }
-        if (RelaunchWithDemo(argv[0], chosen, max_frames)) {
-            return rc;  // only reached if exec failed to replace the image
+        if (!RunDemoAsChild(argv[0], chosen, max_frames, jit_choice)) {
+            std::fprintf(stderr,
+                         "fake2d_hello: could not start '%s'; run: %s --%s-demo\n",
+                         chosen.c_str(), argv[0], chosen.c_str());
+            return 1;
         }
-        std::fprintf(stderr,
-                     "fake2d_hello: could not restart for '%s'; run: %s --%s-demo\n",
-                     chosen.c_str(), argv[0], chosen.c_str());
-        return 1;
+        if (RelaunchAsLauncher(argv[0], max_frames, jit_choice)) {
+            return rc;  // only reached if the exec failed to replace the image
+        }
+        std::fprintf(stderr, "fake2d_hello: could not return to the launcher; run: %s\n",
+                     argv[0]);
+        return rc;
     }
     return shot_blank ? 2 : rc;
 }

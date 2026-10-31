@@ -51,7 +51,7 @@ Fake2D is a fully battery-included engine, not just a bare graphics library:
 ### 5. Developer Experience & Automated Testing
 - **JIT Script Hot-Reload**: GCC JIT backend with automatic interpreter fallback; edit Lua scripts live and see changes reflected instantly without restarting;
 - **Headless & CI-Ready**: First-class `--headless`, `--frames N`, and `--screenshot` CLI flags allow visual regression tests and automated smoke validation in headless Linux/macOS/Windows environments;
-- **29 Built-in Self-Test Suites**: 1388 assertions covering rigid-body dynamics, joints, sleeping, anti-tunneling, physics queries, filters, timesteps, tilemap objects, A\* pathfinding, render targets, UI widgets, post-FX, fog of war, 2D lighting and shadow containment, bone hierarchy and clip playback with cross-fade, IK and timeline events, audio mixing, animated tiles, UTF-8/CJK text with fallback faces, the platform layer, deterministic RNG, easing, entity snapshots, input actions, window controls, gameplay time scale / hit-stop, 16-slot entity actors, the 128-clip animation pool, the shmup sprite/background asset pipeline, the city-builder tileset/building atlas/base map, the RTS terrain/unit/building/map pipeline and the visual-novel background/portrait art (all mutation-tested);
+- **29 Built-in Self-Test Suites**: 1393 assertions covering rigid-body dynamics, joints, sleeping, anti-tunneling, physics queries, filters, timesteps, tilemap objects, A\* pathfinding, render targets, UI widgets, post-FX, fog of war, 2D lighting and shadow containment, bone hierarchy and clip playback with cross-fade, IK and timeline events, audio mixing, animated tiles, UTF-8/CJK text with fallback faces, the platform layer, deterministic RNG, easing, entity snapshots, input actions, window controls, gameplay time scale / hit-stop, 16-slot entity actors, the 128-clip animation pool, the shmup sprite/background asset pipeline, the city-builder tileset/building atlas/base map, the RTS terrain/unit/building/map pipeline and the visual-novel background/portrait art (all mutation-tested);
 - **Standalone Packaging**: Bundling scripts under `tools/` generate self-contained archives on Linux, macOS, and Windows with all dependencies, shaders, and assets included.
 
 ---
@@ -93,7 +93,7 @@ Fake2D comes with 29 rich, self-contained demos plus an in-engine launcher for p
 
 | Demo Flag | Topic | Key Highlighted Features |
 |---|---|---|
-| `--launcher` | **Demo Launcher (default)** | Cover-art picker for all 29 demos: category filter, mouse and keyboard navigation, and the exact command line behind each entry; picking one re-execs into it |
+| `--launcher` | **Demo Launcher (default)** | Cover-art picker for all 29 demos: category filter, mouse and keyboard navigation, and the exact command line behind each entry; picking one starts it as a child process, so closing the game returns here |
 | `--breakout-demo` | **Breakout** | Ball physics reflections, brick destruction, particle debris, HUD text, and procedural audio chirps |
 | `--mario-demo` | **Super Mario Bros 1-1** | Faithful SMB 1-1 recreation; small/big Mario forms, Goomba patrols & squashing, ? blocks, brick shatter particles, flag pole sequence, attract AI |
 | `--angry-birds-demo` | **Angry Birds Sandbox** | Slingshot impulse launch, stacked towers that sleep and wake, contact-driven pig pops, camera follow, synthesized SFX |
@@ -187,9 +187,12 @@ the command line parses — so the menu can only ever offer a demo the host know
 how to start, and adding a row there lists it automatically. `--launcher-test`
 gates that table (unique flags, known categories, script files that exist).
 
-Picking a demo re-execs the process with `--<flag>-demo`, so every demo gets a
-clean session with its own asset and audio setup. To play something else, come
-back to the launcher and pick again.
+Picking a demo starts `--<flag>-demo` as a **child process** and waits for it, so
+every demo gets a clean session with its own asset and audio setup — and closing
+the game brings the picker back for the next one. Windowed demo and launcher runs
+skip the GCC JIT and call the script through the interpreter, which is what makes
+that round trip about a second instead of five; `--jit` compiles natively anyway,
+`--interp` forces the VM, and headless runs (CI) keep the JIT as before.
 
 ### Launching Demos
 
@@ -263,6 +266,12 @@ back to the launcher and pick again.
 ```bash
 # Enable live script hot-reload (saving scripts/game.lua updates the running game)
 ./build/bin/fake2d_hello --hot-reload
+
+# Pick the script backend. A windowed demo or launcher run uses the interpreter
+# so it starts in about a second; --jit compiles natively anyway, and a headless
+# run keeps the JIT whether or not you ask.
+./build/bin/fake2d_hello --jit --mario-demo
+./build/bin/fake2d_hello --interp --mario-demo
 
 # Execute a custom Lua entry script
 ./build/bin/fake2d_hello --entry scripts/mario.lua

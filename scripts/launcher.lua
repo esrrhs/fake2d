@@ -7,9 +7,10 @@
 -- start, and a demo added to the catalogue shows up here automatically.
 -- Presentation (title, blurb, cover art) is this file's business, keyed by flag.
 --
--- Choosing a demo calls app_launch(flag): the host re-execs itself with
--- `--<flag>-demo`, so each demo gets a clean process with its own asset and
--- audio setup. Changing game later means coming back here and picking again.
+-- Choosing a demo calls app_launch(flag): the host starts `--<flag>-demo` as a
+-- child process, so each demo gets a clean process with its own asset and audio
+-- setup, and waits for it. Close the game and this menu is back for the next
+-- pick -- the launcher does not exec into the demo and disappear.
 --
 -- State lives in a NativeObject, not in file-level scalars: file-level locals
 -- are const bindings, so cross-frame mutable state has to be a host-side object

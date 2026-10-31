@@ -18,6 +18,11 @@ public:
     ScriptHost &operator=(const ScriptHost &) = delete;
 
     bool Init();
+    /// Compile and call through the interpreter instead of the GCC JIT. Only
+    /// ever turns the JIT off: an environment override stays the stronger
+    /// statement, and calling this after a script is compiled has no effect
+    /// until the next compile.
+    void PreferInterpreter();
     bool CompileFile(std::string_view path);
     /// Re-compile the entry script from disk. On a compile error the previous
     /// program keeps running. Returns true when a new program was loaded.
