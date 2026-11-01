@@ -253,9 +253,12 @@ end
 -- ---------------------------------------------------------------------------
 
 local function destroy_goomba(id)
-    -- release the engine animation slot paired with the entity
+    -- release the engine animation slot paired with the entity. to_int, not
+    -- the raw read: entity slots are floats and anim_destroy takes a handle,
+    -- which FakeLua refuses to convert silently -- it throws, and every frame
+    -- after the first stomped goomba throws with it.
     local aid = ent_num(id, S_ANIM)
-    if aid > 0 then anim_destroy(aid) end
+    if aid > 0 then anim_destroy(to_int(aid)) end
     ent_destroy(id)
 end
 
@@ -361,7 +364,7 @@ local function reset_level()
         local gid = ent_at(i, TAG_GOOMBA)
         if gid ~= 0 then
             local aid = ent_num(gid, S_ANIM)
-            if aid > 0 then anim_destroy(aid) end
+            if aid > 0 then anim_destroy(to_int(aid)) end
         end
     end
     clear_tag(TAG_GOOMBA)

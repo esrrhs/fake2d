@@ -110,18 +110,23 @@ jobs:
       - name: Every demo script runs
         run: |
           export LD_LIBRARY_PATH="$FLINSTALL/lib:${LD_LIBRARY_PATH:-}"
-          # A demo whose script fails to compile logs a warning and still exits
-          # 0, so the per-demo exit-code checks elsewhere are blind to the one
-          # failure mode every demo edit can cause. Run each one and read the
-          # log, listing the catalogue from the header the launcher and the
-          # command line both read.
+          # Two gaps this closes. A script that fails to compile only logs a
+          # warning and still exits 0, so the per-demo exit-code checks are
+          # blind to it; and a script error inside update() does not fail the
+          # run either -- the demo just keeps throwing every frame, which is
+          # how mario shipped a crash on the first stomped goomba that no
+          # exit-code gate could see. Frames 400 under --ai because that is
+          # roughly where the attract AI first kills something; the interpreter
+          # because the JIT would add ~20 minutes to compile 29 scripts and the
+          # per-demo steps below already exercise it.
           failed=0
           for demo in $(grep -oE '\{"[a-z0-9-]+"' include/fake2d/demos.h \
                           | sed 's/{"//; s/"//'); do
             if xvfb-run -a -s '-screen 0 1024x768x24' env LIBGL_ALWAYS_SOFTWARE=1 \
-                 ./build/bin/fake2d_hello --headless --frames 2 "--$demo-demo" 2>&1 |
+                 ./build/bin/fake2d_hello --headless --interp --ai --frames 400 \
+                 "--$demo-demo" 2>&1 |
                grep -qE "syntax error|CompileFile.*failed|update\(\) failed"; then
-              echo "::error::demo '$demo' does not run"
+              echo "::error::demo '$demo' throws while running"
               failed=1
             fi
           done
@@ -349,12 +354,15 @@ jobs:
             > beat.log 2>&1
           rc_beat=$?
           test -s beat.png
+          # A script error does not move the exit code; read the log.
+          if grep -q "update() failed" beat.log; then rc_beat=1; fi
           # Vertical shooter: scrolling stage, waves and bullet patterns.
           run_xvfb ./build/bin/fake2d_hello --headless --ai --frames 240 \
             --shmup-demo --screenshot shmup.png --shot-min-colors 12 \
             > shmup_demo.log 2>&1
           rc_shmup_demo=$?
           test -s shmup.png
+          if grep -q "update() failed" shmup_demo.log; then rc_shmup_demo=1; fi
           # Snooker: a full rack, cue strike, cushions, pockets and the AI.
           run_xvfb ./build/bin/fake2d_hello --headless --ai --frames 900 \
             --snooker-demo --screenshot snooker.png --shot-frame 500 \
@@ -369,7 +377,9 @@ jobs:
           rc_contra_demo=$?
           test -s contra.png
           grep -F "contra: fortress core destroyed" contra_demo.log
+          if grep -q "update() failed" contra_demo.log; then rc_contra_demo=1; fi
           grep -F "snooker: shot 1 resolved" snooker_demo.log
+          if grep -q "update() failed" snooker_demo.log; then rc_snooker_demo=1; fi
           # City builder: the attract mayor paves, zones and powers a town; a
           # population milestone proves the monthly simulation is developing it.
           run_xvfb ./build/bin/fake2d_hello --headless --ai --frames 1800 \
@@ -378,6 +388,7 @@ jobs:
           rc_city_demo=$?
           test -s city.png
           grep -F "city: population milestone 250" city_demo.log
+          if grep -q "update() failed" city_demo.log; then rc_city_demo=1; fi
           # RTS: the attract commander and enemy AI fight a full match; the
           # logs prove combat, losses and a decisive command-yard kill.
           run_xvfb ./build/bin/fake2d_hello --headless --ai --frames 2400 \
@@ -386,6 +397,7 @@ jobs:
           rc_rts_demo=$?
           test -s rts.png
           grep -F "rts: first blood" rts_demo.log
+          if grep -q "update() failed" rts_demo.log; then rc_rts_demo=1; fi
           grep -F "rts: player victory" rts_demo.log
           # Visual novel: the attract player advances the calendar, chats,
           # reaches the festival and finishes a confession ending.
@@ -395,6 +407,7 @@ jobs:
           rc_vn_demo=$?
           test -s vn.png
           grep -F "vn: day 7" vn_demo.log
+          if grep -q "update() failed" vn_demo.log; then rc_vn_demo=1; fi
           grep -F "vn: ending" vn_demo.log
           # Same surface through the Lua bindings; PASS is the [script] 0 line.
           # Capture BOTH streams: under xvfb-run the child's stderr is not
