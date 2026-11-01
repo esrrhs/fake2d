@@ -498,6 +498,13 @@ jobs:
           # without saying so, breaking any project that followed the README
           # and only called find_package. So: install to a prefix, then build
           # and run a throwaway consumer that declares no standard at all.
+          #
+          # FakeLua goes in as a second prefix because fake2dConfig.cmake calls
+          # find_dependency(fakelua) -- a real requirement on consumers, not a
+          # test artifact. The first version of this step passed on a Mac,
+          # where FakeLua happens to sit in /usr/local (a default search path),
+          # and failed here, where it lives in a temp prefix. So "find_package
+          # (fake2d) is enough" only holds while FakeLua is also findable.
           set -e
           PREFIX="$RUNNER_TEMP/fake2d-prefix"
           CONSUMER="$RUNNER_TEMP/fake2d-consumer"
@@ -535,7 +542,8 @@ jobs:
           grep -q "cxx_std_23" "$PREFIX/lib/cmake/fake2d/fake2dTargets.cmake"
 
           cmake -S "$CONSUMER" -B "$CONSUMER/build" \
-            -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PREFIX"
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$PREFIX;$FLINSTALL"
           cmake --build "$CONSUMER/build" -j 4
           export LD_LIBRARY_PATH="$FLINSTALL/lib:${LD_LIBRARY_PATH:-}"
           "$CONSUMER/build/consumer" | grep -F "consumer: 1.41"
