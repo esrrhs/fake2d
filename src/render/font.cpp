@@ -193,6 +193,9 @@ bool LoadFaceFile(const std::string &path, float pixel_height, FaceData &face) {
 
 struct Font::Impl {
     std::vector<FaceData> faces;
+    // 已登记未装载的回退字体：AddFallback 只登记路径，首次缺字才读文件
+    // （系统 CJK 回退字体单个 40-80MB，多数会话永远用不到——实测省 ~800MB 常驻）。
+    std::vector<std::pair<std::string, float>> pending_fallbacks;
     bool has_font = false;
     std::unordered_map<char32_t, Glyph> glyphs;
     int atlas_w = 0;
@@ -288,6 +291,25 @@ const Font::Glyph *Font::GetGlyph(char32_t codepoint) const {
         break; // first face that has the glyph wins
     }
 
+    if (glyph.face < 0 && !impl_->pending_fallbacks.empty()) {
+        // 首次缺字：装载已登记的回退链（惰性），清掉缓存的"无字形"负项后重查。
+        for (const auto &pf : impl_->pending_fallbacks) {
+            FaceData fb;
+            if (LoadFaceFile(pf.first, pf.second, fb)) {
+                impl_->faces.push_back(std::move(fb));
+            }
+        }
+        impl_->pending_fallbacks.clear();
+        for (auto it = impl_->glyphs.begin(); it != impl_->glyphs.end();) {
+            if (it->second.face < 0) {
+                it = impl_->glyphs.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        return GetGlyph(codepoint);   // pending 已清，递归深度 1
+    }
+
     auto inserted = impl_->glyphs.emplace(codepoint, glyph);
     return &inserted.first->second;
 }
@@ -350,25 +372,22 @@ bool Font::AddFallback(const std::string &path, float pixel_height) {
             return true; // already loaded
         }
     }
-    FaceData fallback;
-    if (!LoadFaceFile(path, pixel_height, fallback)) {
-        return false;
-    }
-    impl_->faces.push_back(std::move(fallback));
-    // Codepoints that were missing may now be renderable: drop their cached
-    // "no glyph" entries and let the next lookup walk the expanded stack.
-    for (auto it = impl_->glyphs.begin(); it != impl_->glyphs.end();) {
-        if (it->second.face < 0) {
-            it = impl_->glyphs.erase(it);
-        } else {
-            ++it;
+    for (const auto &pending : impl_->pending_fallbacks) {
+        if (pending.first == path) {
+            return true; // already registered
         }
     }
+    if (!std::filesystem::exists(path)) {
+        return false;
+    }
+    // 惰性：只登记路径（存在性已核），首次缺字时才读文件——
+    // 系统 CJK 回退字体单个 40-80MB，多数会话一个生僻字都不会命中。
+    impl_->pending_fallbacks.emplace_back(path, pixel_height);
     return true;
 }
 
 void Font::ClearFallbacks() {
-    if (!impl_ || impl_->faces.size() <= 1) {
+    if (!impl_ || (impl_->faces.size() <= 1 && impl_->pending_fallbacks.empty())) {
         return;
     }
     // Glyphs rasterized from fallback faces reference vanished face indices;
@@ -381,6 +400,7 @@ void Font::ClearFallbacks() {
         }
     }
     impl_->faces.resize(1);
+    impl_->pending_fallbacks.clear();
 }
 
 std::size_t Font::FaceCount() const {
