@@ -3519,9 +3519,15 @@ int RunFontTest(fake2d::Engine &engine) {
     }
     if (cjk) {
         std::printf("[font] CJK fallback: %s\n", cjk_path);
-        check(r.FontFaceCount() >= 2, "fallback face is registered");
-        check(r.FontFacePath(1) == cjk_path, "fallback face keeps its path");
+        // Lazy on purpose: AddFallbackFont validates the file and records the
+        // path, it does not read a 40-80MB face for glyphs a session may never
+        // draw. So the face count only grows on the first miss the loaded
+        // faces cannot cover -- which is the behaviour worth pinning, because
+        // reading it eagerly is exactly the regression being guarded against.
+        check(r.FontFaceCount() < 2, "the fallback face stays unread until needed");
         check(r.HasGlyph(0x660E), "fallback supplies a missing glyph");
+        check(r.FontFaceCount() >= 2, "the first miss loads the fallback face");
+        check(r.FontFacePath(1) == cjk_path, "fallback face keeps its path");
         const float one = r.MeasureText("明");
         const float two = r.MeasureText("明朝");
         check(one > 8.0f, "CJK glyph has a real advance");
