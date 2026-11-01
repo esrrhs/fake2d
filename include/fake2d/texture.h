@@ -39,6 +39,13 @@ public:
     bool UpdateRegion(int x, int y, int width, int height,
                       const std::uint8_t *data, int channels = 4);
 
+    /// Single-channel (coverage/mask) textures sample as (r, 0, 0, 1) by
+    /// default. This swizzles sampling to (1, 1, 1, r) so a coverage atlas
+    /// renders exactly like a white-RGBA atlas: tint colors the glyph, the
+    /// coverage lands in alpha. Modern GL only (GL_TEXTURE_SWIZZLE_RGBA);
+    /// legacy luminance contexts keep their native sampling.
+    void SetSwizzleRAsAlpha();
+
     void Destroy();
 
     void Bind(std::uint32_t slot = 0) const;

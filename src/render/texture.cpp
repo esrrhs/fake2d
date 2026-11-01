@@ -160,6 +160,19 @@ bool Texture2D::LoadFromFile(std::string_view file_path, TextureFilter filter, T
     return ok;
 }
 
+void Texture2D::SetSwizzleRAsAlpha() {
+    if (!IsValid() || channels_ != 1) {
+        return;
+    }
+    if (glcaps::legacy_mode) {
+        return;   // luminance 纹理原生采样 (cov,cov,cov,1)，走宿主既有的 mask 语义
+    }
+    glBindTexture(GL_TEXTURE_2D, id_);
+    // 采样 (1,1,1,cov)：tint 上色、覆盖度进 alpha —— 与白底 RGBA 图集的采样结果一致。
+    const GLint swizzle[4] = {GL_ONE, GL_ONE, GL_ONE, GL_RED};
+    glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, swizzle);
+}
+
 void Texture2D::Destroy() {
     if (id_) {
         glDeleteTextures(1, &id_);

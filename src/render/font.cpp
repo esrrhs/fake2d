@@ -207,9 +207,15 @@ Font::Font() : impl_(std::make_unique<Impl>()) {}
 
 Font::~Font() = default;
 
-bool Font::CreateAtlasTexture(int width, int height, const std::uint8_t *rgba) {
-    return texture_.Create(width, height, rgba, 4, TextureFilter::Linear,
-                           TextureWrap::Clamp);
+bool Font::CreateAtlasTexture(int width, int height, const std::uint8_t *coverage) {
+    // 单通道覆盖度图集（显存 1B/px，RGBA 的 1/4）：SetSwizzleRAsAlpha 后
+    // 采样 (1,1,1,cov)，对宿主渲染逐像素等同旧白底 RGBA。
+    if (!texture_.Create(width, height, coverage, 1, TextureFilter::Linear,
+                         TextureWrap::Clamp)) {
+        return false;
+    }
+    texture_.SetSwizzleRAsAlpha();
+    return true;
 }
 
 const Font::Glyph *Font::GetGlyph(char32_t codepoint) const {
@@ -264,17 +270,13 @@ const Font::Glyph *Font::GetGlyph(char32_t codepoint) const {
                     impl_->shelf_h = h;
                 }
 
-                std::vector<unsigned char> region(static_cast<std::size_t>(w) *
-                                                  static_cast<std::size_t>(h) * 4, 255);
                 std::vector<unsigned char> bitmap(static_cast<std::size_t>(w) *
                                                   static_cast<std::size_t>(h), 0);
                 stbtt_MakeCodepointBitmap(&face.info, bitmap.data(), w, h, w,
                                           face.scale, face.scale,
                                           static_cast<int>(codepoint));
-                for (std::size_t p = 0; p < bitmap.size(); ++p) {
-                    region[p * 4 + 3] = bitmap[p];
-                }
-                if (texture_.UpdateRegion(px, py, w, h, region.data(), 4)) {
+                // 单通道覆盖度图集：swizzle 后采样 (1,1,1,cov)，等同旧白底 RGBA。
+                if (texture_.UpdateRegion(px, py, w, h, bitmap.data(), 1)) {
                     glyph.atlas = {static_cast<float>(px), static_cast<float>(py),
                                    static_cast<float>(w), static_cast<float>(h)};
                     glyph.offset = {static_cast<float>(x0),
@@ -316,7 +318,7 @@ bool Font::LoadFromTTF(const std::string &path, float pixel_height) {
     // font fully usable. Zero-filled, not undefined: bilinear sampling at a
     // glyph's edge must see transparent padding, never stray alpha.
     const std::vector<std::uint8_t> zeroed(
-        static_cast<std::size_t>(kAtlasWidth) * kAtlasHeight * 4, 0);
+        static_cast<std::size_t>(kAtlasWidth) * kAtlasHeight, 0);
     if (!CreateAtlasTexture(kAtlasWidth, kAtlasHeight, zeroed.data())) {
         return false;
     }
@@ -404,7 +406,7 @@ bool Font::LoadFallback() {
     constexpr int kRows = 6; // 96 chars fit a 16x6 grid of 8x8 cells
     const int w = kCols * kGlyph;
     const int h = kRows * kGlyph;
-    std::vector<std::uint8_t> atlas(static_cast<std::size_t>(w) * h * 4, 0);
+    std::vector<std::uint8_t> atlas(static_cast<std::size_t>(w) * h, 0);
 
     impl_->has_font = false;
     impl_->faces.clear();
@@ -423,12 +425,7 @@ bool Font::LoadFallback() {
                 if ((bits >> px) & 1) {
                     const int x = col * kGlyph + px;
                     const int y = row * kGlyph + py;
-                    unsigned char *pixel =
-                        &atlas[(static_cast<std::size_t>(y) * w + x) * 4];
-                    pixel[0] = 255;
-                    pixel[1] = 255;
-                    pixel[2] = 255;
-                    pixel[3] = 255;
+                    atlas[(static_cast<std::size_t>(y) * w + x)] = 255;
                 }
             }
         }
