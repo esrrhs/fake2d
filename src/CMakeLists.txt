@@ -49,6 +49,16 @@ endif ()
 add_library(fake2d STATIC ${FAKE2D_SOURCES})
 add_library(fake2d::fake2d ALIAS fake2d)
 
+# The headers need C++23 (std::clamp in math.h, constexpr handle types), and
+# CMAKE_CXX_STANDARD is a directory property that stops at this project's edge:
+# an installed-target consumer would otherwise compile them at its own default
+# and fail on the first include. Exporting the feature makes it travel with
+# fake2d::fake2d. Guarded because cxx_std_23 is only known to CMake >= 3.21
+# while this project still declares 3.16.
+if(NOT CMAKE_VERSION VERSION_LESS 3.21)
+    target_compile_features(fake2d PUBLIC cxx_std_23)
+endif()
+
 target_include_directories(fake2d
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
