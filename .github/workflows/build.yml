@@ -489,6 +489,57 @@ jobs:
           grep -F "[script] 0" phys_test.log
           ! grep -E "\[script] (10[0-9][0-9]|200[0-9])" phys_test.log
 
+      - name: Installed package is consumable by another project
+        run: |
+          # The engine installs as a find_package-able package, and every other
+          # step in this job builds inside the repository -- where
+          # CMAKE_CXX_STANDARD is already set by the top level. That is exactly
+          # the blind spot that let a package ship whose headers need C++23
+          # without saying so, breaking any project that followed the README
+          # and only called find_package. So: install to a prefix, then build
+          # and run a throwaway consumer that declares no standard at all.
+          set -e
+          PREFIX="$RUNNER_TEMP/fake2d-prefix"
+          CONSUMER="$RUNNER_TEMP/fake2d-consumer"
+          rm -rf "$PREFIX" "$CONSUMER"
+          cmake --install build --prefix "$PREFIX" > /dev/null
+
+          mkdir -p "$CONSUMER"
+          cat > "$CONSUMER/CMakeLists.txt" <<'EOF'
+          cmake_minimum_required(VERSION 3.16)
+          project(fake2d_consumer CXX)
+          find_package(fake2d 1.41 REQUIRED CONFIG)
+          add_executable(consumer main.cpp)
+          target_link_libraries(consumer PRIVATE fake2d::fake2d)
+          EOF
+          cat > "$CONSUMER/main.cpp" <<'EOF'
+          #include "fake2d/engine.h"
+          #include "fake2d/version.h"
+          #include <cstdio>
+          int main() {
+              fake2d::EngineConfig cfg;
+              fake2d::Engine engine;
+              std::printf("consumer: %s, ai_input default %d, frame %llu\n",
+                          FAKE2D_VERSION_STRING, cfg.ai_input ? 1 : 0,
+                          (unsigned long long)engine.FrameIndex());
+              return 0;
+          }
+          EOF
+
+          # Deliberately absent: if someone adds a standard here the step stops
+          # testing anything, so say so rather than pass quietly.
+          if grep -q "CXX_STANDARD" "$CONSUMER/CMakeLists.txt"; then
+            echo "::error::the consumer must declare no C++ standard; that is the point"
+            exit 1
+          fi
+          grep -q "cxx_std_23" "$PREFIX/lib/cmake/fake2d/fake2dTargets.cmake"
+
+          cmake -S "$CONSUMER" -B "$CONSUMER/build" \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PREFIX"
+          cmake --build "$CONSUMER/build" -j 4
+          export LD_LIBRARY_PATH="$FLINSTALL/lib:${LD_LIBRARY_PATH:-}"
+          "$CONSUMER/build/consumer" | grep -F "consumer: 1.41"
+
   # macOS and Windows build the full fakelua-enabled engine and run the 24
   # Lua logic cases against Linux-produced maps. GitHub macOS VMs have no
   # NSOpenGL pixel format (GLFW 65545), so no engine runs there; Windows
