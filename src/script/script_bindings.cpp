@@ -4485,6 +4485,108 @@ void RegisterSkeletonApi(fakelua::State *state, Engine *engine) {
                 return skels().SetSkin(static_cast<int>(id), std::string(skin));
             }));
 
+    // --- mesh / soft-skin ---------------------------------------------------
+    fakelua::RegisterNativeFunction(
+        state, "skel_mesh", false,
+        std::function<bool(fakelua::State *, double, double)>(
+            [skels](fakelua::State *, double id, double att) {
+                return skels().AttachmentIsMesh(static_cast<int>(id),
+                                                static_cast<int>(att));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_mesh_vertex_count", false,
+        std::function<std::int64_t(fakelua::State *, double, double)>(
+            [skels](fakelua::State *, double id, double att) -> std::int64_t {
+                return skels().MeshVertexCount(static_cast<int>(id),
+                                               static_cast<int>(att));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_mesh_triangle_count", false,
+        std::function<std::int64_t(fakelua::State *, double, double)>(
+            [skels](fakelua::State *, double id, double att) -> std::int64_t {
+                return skels().MeshTriangleCount(static_cast<int>(id),
+                                                 static_cast<int>(att));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_mesh_weight_count", false,
+        std::function<std::int64_t(fakelua::State *, double, double, double)>(
+            [skels](fakelua::State *, double id, double att, double vertex)
+                -> std::int64_t {
+                return skels().MeshWeightCount(static_cast<int>(id),
+                                               static_cast<int>(att),
+                                               static_cast<int>(vertex));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_mesh_weight_bone", false,
+        std::function<std::int64_t(fakelua::State *, double, double, double, double)>(
+            [skels](fakelua::State *, double id, double att, double vertex,
+                    double wi) -> std::int64_t {
+                int bone = -1;
+                float w = 0.0f;
+                if (!skels().MeshWeight(static_cast<int>(id), static_cast<int>(att),
+                                        static_cast<int>(vertex), static_cast<int>(wi),
+                                        bone, w)) {
+                    return -1;
+                }
+                return bone;
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_mesh_weight", false,
+        std::function<double(fakelua::State *, double, double, double, double)>(
+            [skels](fakelua::State *, double id, double att, double vertex,
+                    double wi) {
+                int bone = -1;
+                float w = 0.0f;
+                if (!skels().MeshWeight(static_cast<int>(id), static_cast<int>(att),
+                                        static_cast<int>(vertex), static_cast<int>(wi),
+                                        bone, w)) {
+                    return 0.0;
+                }
+                return static_cast<double>(w);
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_mesh_bind_x", false,
+        std::function<double(fakelua::State *, double, double, double)>(
+            [skels](fakelua::State *, double id, double att, double vertex) {
+                return static_cast<double>(skels().MeshBindVertex(static_cast<int>(id), static_cast<int>(att), static_cast<int>(vertex)).x);  // float promoted via std::function<double>
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_mesh_bind_y", false,
+        std::function<double(fakelua::State *, double, double, double)>(
+            [skels](fakelua::State *, double id, double att, double vertex) {
+                return static_cast<double>(skels().MeshBindVertex(static_cast<int>(id), static_cast<int>(att), static_cast<int>(vertex)).y);
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_mesh_x", false,
+        std::function<double(fakelua::State *, double, double, double)>(
+            [skels](fakelua::State *, double id, double att, double vertex) {
+                fake2d::Vec2 p{};
+                if (!skels().MeshVertexWorld(static_cast<int>(id), static_cast<int>(att),
+                                             static_cast<int>(vertex), p)) {
+                    return 0.0;
+                }
+                return static_cast<double>(p.x);
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_mesh_y", false,
+        std::function<double(fakelua::State *, double, double, double)>(
+            [skels](fakelua::State *, double id, double att, double vertex) {
+                fake2d::Vec2 p{};
+                if (!skels().MeshVertexWorld(static_cast<int>(id), static_cast<int>(att),
+                                             static_cast<int>(vertex), p)) {
+                    return 0.0;
+                }
+                return static_cast<double>(p.y);
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_mesh_deform", false,
+        std::function<bool(fakelua::State *, double, double, double)>(
+            [skels](fakelua::State *, double id, double att, double time) {
+                return skels().SampleDeformAt(static_cast<int>(id),
+                                              static_cast<int>(att),
+                                              static_cast<float>(time));
+            }));
+
     // --- drawing ------------------------------------------------------------
     fakelua::RegisterNativeFunction(
         state, "skel_draw", false,
