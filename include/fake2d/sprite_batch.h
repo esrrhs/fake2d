@@ -85,6 +85,14 @@ public:
     void DrawVertices(const Texture2D &texture, const Vec2 corners[4], const Vec2 uvs[4],
                       const Color &tint = Color::White());
 
+    /// Indexed triangle mesh using the same Vertex2D layout as quads. Pending
+    /// quads flush first (topology switch); consecutive same-texture/blend
+    /// meshes coalesce into one draw call. Region-only paths are unchanged.
+    /// Indices are 16-bit offsets into `verts`. Works on GL2 legacy (dynamic
+    /// element buffer rebound each flush) and GL3+.
+    void DrawTriangles(const Texture2D &texture, const Vertex2D *verts, size_t vert_count,
+                       const std::uint16_t *indices, size_t index_count);
+
     /// Nine-slice panel: the four `corner_x`/`corner_y` source corners keep
     /// their pixel size on screen, the edges stretch along one axis and the
     /// center stretches both — dialog/frame art at any output size without
@@ -128,6 +136,9 @@ private:
     void RecordCommand(std::uint32_t texture_id);
     void FlushImmediate();
     void FlushSorted();
+    void FlushMesh();
+    void EnsureMeshCapacity(size_t verts_to_add, size_t indices_to_add,
+                            std::uint32_t texture_id);
     static void ApplyBlend(BlendMode mode);
     /// glEnable(GL_SCISSOR_TEST) + glScissor for the active clip rect.
     void ApplyClip() const;
@@ -141,6 +152,17 @@ private:
     std::uint32_t vao_ = 0;
     std::uint32_t vbo_ = 0;
     std::uint32_t ibo_ = 0;
+
+    /// Dynamic triangle mesh stream (separate topology from the static quad IBO).
+    std::uint32_t mesh_ibo_ = 0;
+    std::vector<Vertex2D> mesh_vertices_;
+    std::vector<std::uint32_t> mesh_indices_;
+    size_t max_mesh_verts_ = 0;
+    size_t max_mesh_indices_ = 0;
+    size_t current_mesh_verts_ = 0;
+    size_t current_mesh_indices_ = 0;
+    std::uint32_t mesh_texture_id_ = 0;
+    BlendMode mesh_blend_ = BlendMode::Alpha;
 
     std::uint32_t line_vao_ = 0;
     std::uint32_t line_vbo_ = 0;

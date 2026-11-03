@@ -12,6 +12,8 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <map>
+#include <utility>
 
 namespace fake2d {
 
@@ -475,27 +477,69 @@ int SkeletonSystem::LoadAsset(ResourceManager &resources, const std::string &jso
     if (!atts.is_array()) {
         return fail("'attachments' must be an array");
     }
-    // First pass: regions and meshes. linkedmesh is resolved in a second pass.
-    std::vector<std::string> link_parent(atts.size());
-    for (size_t ai = 0; ai < atts.size(); ++ai) {
-        const json &a = atts[ai];
+
+    struct PendingLink {
+        size_t index = 0;
+        std::string parent;
+        std::string parent_skin;  // empty = search all attachments
+        std::string name;         // for error messages
+    };
+    std::vector<PendingLink> pending_links;
+    // skin name -> attachment name -> index into asset.attachments (pre-layout).
+    std::map<std::string, std::map<std::string, int>> skin_att_index;
+    // slot name -> attachment indices embedded under skins for that slot.
+    std::map<std::string, std::vector<int>> skin_slot_embeds;
+
+    auto looks_like_attachment_def = [](const json &o) -> bool {
+        if (!o.is_object() || o.empty()) {
+            return false;
+        }
+        if (o.contains("type") || o.contains("uvs") || o.contains("triangles") ||
+            o.contains("vertices") || o.contains("region") || o.contains("parent") ||
+            o.contains("path") || o.contains("width") || o.contains("height")) {
+            return true;
+        }
+        // Spine region-ish: x/y plus w/h (or width/height already caught).
+        return o.contains("x") && o.contains("y") && o.contains("w") && o.contains("h");
+    };
+
+    // Parse one attachment object into asset.attachments. For linkedmesh, records
+    // a pending link instead of copying yet. Returns false on hard error.
+    auto parse_one_attachment = [&](const json &a, const std::string &forced_name,
+                                    const std::string &owning_skin,
+                                    std::string *why) -> bool {
         Attachment att;
-        att.name = JStr(a, "name");
+        att.name = forced_name.empty() ? JStr(a, "name") : forced_name;
         if (att.name.empty()) {
-            return fail("attachment at index " + std::to_string(ai) + " needs a 'name'");
+            if (why) {
+                *why = "attachment needs a 'name'";
+            }
+            return false;
         }
         const std::string type = JStr(a, "type", "region");
         if (type == "linkedmesh") {
-            link_parent[ai] = JStr(a, "parent");
-            if (link_parent[ai].empty()) {
-                return fail("linkedmesh attachment '" + att.name +
-                            "' needs a 'parent' mesh name");
+            PendingLink link;
+            link.index = asset.attachments.size();
+            link.parent = JStr(a, "parent");
+            link.parent_skin = JStr(a, "skin");
+            link.name = att.name;
+            if (link.parent.empty()) {
+                if (why) {
+                    *why = "linkedmesh attachment '" + att.name +
+                           "' needs a 'parent' mesh name";
+                }
+                return false;
             }
             att.kind = AttachmentKind::Mesh;
             att.offset = {JFloat(a, "ox", 0.0f), JFloat(a, "oy", 0.0f)};
             att.rotation = JFloat(a, "rot", 0.0f);
+            if (!owning_skin.empty()) {
+                skin_att_index[owning_skin][att.name] =
+                    static_cast<int>(asset.attachments.size());
+            }
+            pending_links.push_back(std::move(link));
             asset.attachments.push_back(std::move(att));
-            continue;
+            return true;
         }
         if (type == "mesh") {
             att.kind = AttachmentKind::Mesh;
@@ -512,86 +556,213 @@ int SkeletonSystem::LoadAsset(ResourceManager &resources, const std::string &jso
             }
             const json uvs_json = a.value("uvs", json::array());
             if (!uvs_json.is_array() || uvs_json.empty()) {
-                return fail("mesh attachment '" + att.name + "' needs a 'uvs' array");
+                if (why) {
+                    *why = "mesh attachment '" + att.name + "' needs a 'uvs' array";
+                }
+                return false;
             }
             att.uvs.reserve(uvs_json.size());
             for (const json &u : uvs_json) {
                 if (!u.is_number()) {
-                    return fail("mesh attachment '" + att.name +
-                                "' has a non-numeric UV");
+                    if (why) {
+                        *why = "mesh attachment '" + att.name +
+                               "' has a non-numeric UV";
+                    }
+                    return false;
                 }
                 att.uvs.push_back(u.get<float>());
             }
-            // UVs may be 0..1 within the region, or already sheet-normalized.
-            // If a region is named and every UV is in [0,1], map through src.
-            if (ri >= 0) {
-                bool unit = true;
-                for (float v : att.uvs) {
-                    if (v < -0.001f || v > 1.001f) {
-                        unit = false;
-                        break;
-                    }
-                }
-                if (unit && att.src.width > 0.0f && att.src.height > 0.0f) {
-                    // Defer sheet normalization to draw time via src; store as
-                    // unit UVs into the region by baking to sheet space now
-                    // once the sheet size is known — but sheet is not loaded
-                    // yet. Keep unit-in-region and flag by storing region in src;
-                    // Draw will treat mesh UVs as already sheet-normalized when
-                    // any component > 1, else as region-local.
-                    // Bake to "region-normalized" and convert at draw using src
-                    // / sheet size. Store as region-local 0..1 here; Draw maps.
-                }
-            }
             const json tris = a.value("triangles", json::array());
             if (!tris.is_array()) {
-                return fail("mesh attachment '" + att.name + "' needs 'triangles'");
-            }
-            for (const json &t : tris) {
-                if (!t.is_number()) {
-                    return fail("mesh attachment '" + att.name +
-                                "' has a non-numeric triangle index");
+                if (why) {
+                    *why = "mesh attachment '" + att.name + "' needs 'triangles'";
                 }
-                att.triangles.push_back(static_cast<std::uint16_t>(t.get<int>()));
+                return false;
             }
-            std::string why;
+            for (const json &tr : tris) {
+                if (!tr.is_number()) {
+                    if (why) {
+                        *why = "mesh attachment '" + att.name +
+                               "' has a non-numeric triangle index";
+                    }
+                    return false;
+                }
+                att.triangles.push_back(static_cast<std::uint16_t>(tr.get<int>()));
+            }
+            std::string mesh_why;
             if (!ParseMeshVertices(a.value("vertices", json::array()),
-                                   static_cast<int>(asset.bones.size()), att, &why)) {
-                return fail("mesh attachment '" + att.name + "': " + why);
+                                   static_cast<int>(asset.bones.size()), att,
+                                   &mesh_why)) {
+                if (why) {
+                    *why = "mesh attachment '" + att.name + "': " + mesh_why;
+                }
+                return false;
             }
-            if (!FinalizeMeshAttachment(att, static_cast<int>(asset.bones.size()), &why)) {
-                return fail("mesh attachment '" + att.name + "': " + why);
+            if (!FinalizeMeshAttachment(att, static_cast<int>(asset.bones.size()),
+                                        &mesh_why)) {
+                if (why) {
+                    *why = "mesh attachment '" + att.name + "': " + mesh_why;
+                }
+                return false;
+            }
+            if (!owning_skin.empty()) {
+                skin_att_index[owning_skin][att.name] =
+                    static_cast<int>(asset.attachments.size());
             }
             asset.attachments.push_back(std::move(att));
-            continue;
+            return true;
         }
         if (type != "region" && !type.empty()) {
-            return fail("attachment '" + att.name + "' has unsupported type '" + type +
-                        "' (supported: region, mesh, linkedmesh)");
+            if (why) {
+                *why = "attachment '" + att.name + "' has unsupported type '" + type +
+                       "' (supported: region, mesh, linkedmesh)";
+            }
+            return false;
         }
         const int ri = region_of(JStr(a, "region"));
         if (ri < 0) {
-            return fail("attachment '" + att.name +
-                        "' needs a name and a 'region' that exists");
+            if (why) {
+                *why = "attachment '" + att.name +
+                       "' needs a name and a 'region' that exists";
+            }
+            return false;
         }
         att.src = regions[static_cast<size_t>(ri)].src;
         att.size = {JFloat(a, "w", att.src.width), JFloat(a, "h", att.src.height)};
         att.offset = {JFloat(a, "ox", 0.0f), JFloat(a, "oy", 0.0f)};
         att.rotation = JFloat(a, "rot", 0.0f);
         att.kind = AttachmentKind::Region;
+        if (!owning_skin.empty()) {
+            skin_att_index[owning_skin][att.name] =
+                static_cast<int>(asset.attachments.size());
+        }
         asset.attachments.push_back(std::move(att));
+        return true;
+    };
+
+    // First pass: top-level regions and meshes. linkedmesh is resolved later.
+    for (size_t ai = 0; ai < atts.size(); ++ai) {
+        const json &a = atts[ai];
+        std::string why;
+        if (!parse_one_attachment(a, "", "", &why)) {
+            if (JStr(a, "name").empty() && why.find("needs a 'name'") != std::string::npos) {
+                return fail("attachment at index " + std::to_string(ai) +
+                            " needs a 'name'");
+            }
+            return fail(why);
+        }
     }
-    // Resolve linkedmesh copies.
-    for (size_t ai = 0; ai < asset.attachments.size(); ++ai) {
-        if (link_parent[ai].empty()) {
-            continue;
+    const size_t top_level_attachment_count = asset.attachments.size();
+
+    // Collect skins early so nested attachment defs can feed linkedmesh parents
+    // and slot attachment groups. Supports object map and Spine array form.
+    struct SkinBody {
+        std::string name;
+        json body;
+    };
+    std::vector<SkinBody> skin_bodies;
+    const json &skins_json_early = doc.value("skins", json::object());
+    if (skins_json_early.is_object()) {
+        for (auto it = skins_json_early.begin(); it != skins_json_early.end(); ++it) {
+            skin_bodies.push_back({it.key(), it.value()});
         }
-        const int src = IndexOfName(asset.attachments, link_parent[ai]);
-        if (src < 0 || !asset.attachments[static_cast<size_t>(src)].IsMesh()) {
-            return fail("linkedmesh attachment '" + asset.attachments[ai].name +
-                        "' references unknown mesh '" + link_parent[ai] + "'");
+    } else if (skins_json_early.is_array()) {
+        for (const json &s : skins_json_early) {
+            if (!s.is_object()) {
+                return fail("'skins' array entries must be objects");
+            }
+            const std::string nm = JStr(s, "name");
+            if (nm.empty()) {
+                return fail("skins[] entry needs a 'name'");
+            }
+            json body = s.value("attachments", json::object());
+            if (!body.is_object()) {
+                return fail("skin '" + nm + "' attachments must be an object");
+            }
+            skin_bodies.push_back({nm, std::move(body)});
         }
-        Attachment &dst = asset.attachments[ai];
+    } else {
+        return fail("'skins' must be an object or an array");
+    }
+
+    // Second pass: embed attachment definitions nested under skins
+    // (Spine-style skins[name][slot][attachment] = {type:...}).
+    for (const SkinBody &sb : skin_bodies) {
+        if (!sb.body.is_object()) {
+            return fail("skin '" + sb.name + "' must be an object");
+        }
+        for (auto sit = sb.body.begin(); sit != sb.body.end(); ++sit) {
+            const std::string &slot_name = sit.key();
+            if (!sit.value().is_object()) {
+                continue;  // string form handled when building Skin later
+            }
+            for (auto ait = sit.value().begin(); ait != sit.value().end(); ++ait) {
+                if (!looks_like_attachment_def(ait.value())) {
+                    continue;
+                }
+                std::string why;
+                const int before = static_cast<int>(asset.attachments.size());
+                if (!parse_one_attachment(ait.value(), ait.key(), sb.name, &why)) {
+                    return fail("skin '" + sb.name + "' slot '" + slot_name +
+                                "': " + why);
+                }
+                skin_slot_embeds[slot_name].push_back(before);
+            }
+        }
+    }
+
+    // Resolve linkedmesh copies — parent may live in the same skin, another
+    // skin (via optional "skin" field), or the flat attachments list.
+    auto mesh_ready = [&](int idx) -> bool {
+        return idx >= 0 && static_cast<size_t>(idx) < asset.attachments.size() &&
+               asset.attachments[static_cast<size_t>(idx)].IsMesh() &&
+               !asset.attachments[static_cast<size_t>(idx)].uvs.empty();
+    };
+    auto find_mesh_parent = [&](const PendingLink &link) -> int {
+        if (!link.parent_skin.empty()) {
+            const auto sit = skin_att_index.find(link.parent_skin);
+            if (sit != skin_att_index.end()) {
+                const auto ait = sit->second.find(link.parent);
+                if (ait != sit->second.end() && mesh_ready(ait->second)) {
+                    return ait->second;
+                }
+            }
+            // Explicit skin miss: only a *flat* top-level mesh of that name
+            // may satisfy the link (not an attachment nested under another skin).
+            for (size_t i = 0; i < top_level_attachment_count; ++i) {
+                if (asset.attachments[i].name == link.parent &&
+                    mesh_ready(static_cast<int>(i))) {
+                    return static_cast<int>(i);
+                }
+            }
+            return -1;
+        }
+        // No skin qualifier: prefer a skin-nested mesh, then the flat list.
+        for (const auto &kv : skin_att_index) {
+            const auto ait = kv.second.find(link.parent);
+            if (ait != kv.second.end() && mesh_ready(ait->second)) {
+                return ait->second;
+            }
+        }
+        for (size_t i = 0; i < asset.attachments.size(); ++i) {
+            if (asset.attachments[i].name == link.parent &&
+                mesh_ready(static_cast<int>(i))) {
+                return static_cast<int>(i);
+            }
+        }
+        return -1;
+    };
+    for (const PendingLink &link : pending_links) {
+        const int src = find_mesh_parent(link);
+        if (src < 0 || !asset.attachments[static_cast<size_t>(src)].IsMesh() ||
+            asset.attachments[static_cast<size_t>(src)].uvs.empty()) {
+            return fail("linkedmesh attachment '" + link.name +
+                        "' references unknown mesh '" + link.parent + "'" +
+                        (link.parent_skin.empty()
+                             ? ""
+                             : (" in skin '" + link.parent_skin + "'")));
+        }
+        Attachment &dst = asset.attachments[link.index];
         const Attachment &parent = asset.attachments[static_cast<size_t>(src)];
         const std::string keep_name = dst.name;
         const Vec2 keep_off = dst.offset;
@@ -635,6 +806,23 @@ int SkeletonSystem::LoadAsset(ResourceManager &resources, const std::string &jso
                 grouped[s].push_back(ai);
             }
         }
+        // Attachments embedded under skins for this slot join the group so a
+        // SetSkin local index can address them.
+        const auto eit = skin_slot_embeds.find(slot.name);
+        if (eit != skin_slot_embeds.end()) {
+            for (int ai : eit->second) {
+                bool already = false;
+                for (int x : grouped[s]) {
+                    if (x == ai) {
+                        already = true;
+                        break;
+                    }
+                }
+                if (!already) {
+                    grouped[s].push_back(ai);
+                }
+            }
+        }
         if (static_cast<int>(grouped[s].size()) > kMaxAttachmentsPerSlot) {
             return fail("slot '" + slot.name + "' has too many attachments");
         }
@@ -668,48 +856,44 @@ int SkeletonSystem::LoadAsset(ResourceManager &resources, const std::string &jso
         asset.attachments = std::move(laid);
     }
 
-    const json &skins_json = doc.value("skins", json::object());
-    if (skins_json.is_object()) {
-        for (auto it = skins_json.begin(); it != skins_json.end(); ++it) {
-            Skin skin;
-            skin.name = it.key();
-            skin.per_slot.assign(asset.slots.size(), -1);
-            const json &body = it.value();
-            if (!body.is_object()) {
-                return fail("skin '" + it.key() + "' must be an object");
-            }
-            for (auto sit = body.begin(); sit != body.end(); ++sit) {
-                const int slot = IndexOfName(asset.slots, sit.key());
-                if (slot < 0) {
-                    return fail("skin '" + it.key() + "' names an unknown slot '" +
-                                sit.key() + "'");
-                }
-                std::vector<std::string> wanted;
-                if (sit.value().is_string()) {
-                    wanted.push_back(sit.value().get<std::string>());
-                } else if (sit.value().is_object()) {
-                    for (auto ait = sit.value().begin(); ait != sit.value().end(); ++ait) {
-                        wanted.push_back(ait.key());
-                    }
-                }
-                for (const std::string &name : wanted) {
-                    const Slot &sl = asset.slots[static_cast<size_t>(slot)];
-                    int local = -1;
-                    for (int i = 0; i < sl.attachment_count; ++i) {
-                        if (asset.attachments[static_cast<size_t>(sl.first_attachment + i)]
-                                .name == name) {
-                            local = i;
-                        }
-                    }
-                    if (local < 0) {
-                        return fail("skin '" + it.key() + "' slot '" + sit.key() +
-                                    "' has no attachment named '" + name + "'");
-                    }
-                    skin.per_slot[static_cast<size_t>(slot)] = local;
-                }
-            }
-            asset.skins.push_back(std::move(skin));
+    for (const SkinBody &sb : skin_bodies) {
+        Skin skin;
+        skin.name = sb.name;
+        skin.per_slot.assign(asset.slots.size(), -1);
+        if (!sb.body.is_object()) {
+            return fail("skin '" + sb.name + "' must be an object");
         }
+        for (auto sit = sb.body.begin(); sit != sb.body.end(); ++sit) {
+            const int slot = IndexOfName(asset.slots, sit.key());
+            if (slot < 0) {
+                return fail("skin '" + sb.name + "' names an unknown slot '" +
+                            sit.key() + "'");
+            }
+            std::vector<std::string> wanted;
+            if (sit.value().is_string()) {
+                wanted.push_back(sit.value().get<std::string>());
+            } else if (sit.value().is_object()) {
+                for (auto ait = sit.value().begin(); ait != sit.value().end(); ++ait) {
+                    wanted.push_back(ait.key());
+                }
+            }
+            for (const std::string &name : wanted) {
+                const Slot &sl = asset.slots[static_cast<size_t>(slot)];
+                int local = -1;
+                for (int i = 0; i < sl.attachment_count; ++i) {
+                    if (asset.attachments[static_cast<size_t>(sl.first_attachment + i)]
+                            .name == name) {
+                        local = i;
+                    }
+                }
+                if (local < 0) {
+                    return fail("skin '" + sb.name + "' slot '" + sit.key() +
+                                "' has no attachment named '" + name + "'");
+                }
+                skin.per_slot[static_cast<size_t>(slot)] = local;
+            }
+        }
+        asset.skins.push_back(std::move(skin));
     }
 
     const json &anims = doc.value("animations", json::object());
@@ -2282,36 +2466,20 @@ void SkeletonSystem::Draw(Renderer &renderer, int id, const Vec2 &position, floa
             if (att.triangles.size() < 3 || att.VertexCount() <= 0) {
                 continue;
             }
-            // Skin every vertex once, then submit each triangle as a degenerate
-            // quad so the existing SpriteBatch path (and its single-sheet
-            // coalescing) stays intact for region-only and mixed rigs.
-            std::vector<Vec2> skinned(static_cast<size_t>(att.VertexCount()));
+            // Skin once, then submit as a true indexed triangle mesh so shared
+            // verts are not duplicated. Same-sheet meshes coalesce in the
+            // SpriteBatch mesh stream; region quads still use the static IBO
+            // and region-only single-draw-call ranks are unchanged.
+            std::vector<Vertex2D> mesh_verts(static_cast<size_t>(att.VertexCount()));
             for (int v = 0; v < att.VertexCount(); ++v) {
                 const Vec2 local = SkinVertex(inst, att, v);
-                skinned[static_cast<size_t>(v)] = root.Map(local);
+                const Vec2 uv = SheetUv(att, att.uvs[static_cast<size_t>(v) * 2],
+                                       att.uvs[static_cast<size_t>(v) * 2 + 1], inv_w,
+                                       inv_h);
+                mesh_verts[static_cast<size_t>(v)] = {root.Map(local), uv, c};
             }
-            for (size_t t = 0; t + 2 < att.triangles.size(); t += 3) {
-                const int i0 = att.triangles[t];
-                const int i1 = att.triangles[t + 1];
-                const int i2 = att.triangles[t + 2];
-                const Vec2 corners[4] = {
-                    skinned[static_cast<size_t>(i0)],
-                    skinned[static_cast<size_t>(i1)],
-                    skinned[static_cast<size_t>(i2)],
-                    skinned[static_cast<size_t>(i2)],
-                };
-                const Vec2 uvs[4] = {
-                    SheetUv(att, att.uvs[static_cast<size_t>(i0) * 2],
-                            att.uvs[static_cast<size_t>(i0) * 2 + 1], inv_w, inv_h),
-                    SheetUv(att, att.uvs[static_cast<size_t>(i1) * 2],
-                            att.uvs[static_cast<size_t>(i1) * 2 + 1], inv_w, inv_h),
-                    SheetUv(att, att.uvs[static_cast<size_t>(i2) * 2],
-                            att.uvs[static_cast<size_t>(i2) * 2 + 1], inv_w, inv_h),
-                    SheetUv(att, att.uvs[static_cast<size_t>(i2) * 2],
-                            att.uvs[static_cast<size_t>(i2) * 2 + 1], inv_w, inv_h),
-                };
-                batch.DrawVertices(*sheet, corners, uvs, c);
-            }
+            batch.DrawTriangles(*sheet, mesh_verts.data(), mesh_verts.size(),
+                                att.triangles.data(), att.triangles.size());
             ++stats_.slots_drawn;
             continue;
         }

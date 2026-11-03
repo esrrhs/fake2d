@@ -52,7 +52,7 @@ class SpriteBatch;
 /// ## Cost
 ///
 /// One asset load, then per frame per instance: `bones` matrix multiplies,
-/// `slots` quads (or skinned mesh triangles submitted as batch quads). Every
+/// `slots` quads (or skinned mesh triangles via SpriteBatch::DrawTriangles). Every
 /// attachment comes off one sheet texture, so a whole character is a single
 /// draw call, and the batch coalesces identically-textured characters into one
 /// more. Nothing here allocates per frame on the region path; mesh deform

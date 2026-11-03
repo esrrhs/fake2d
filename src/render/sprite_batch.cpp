@@ -61,6 +61,17 @@ bool SpriteBatch::Init(size_t max_quads) {
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo_);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLsizeiptr>(indices.size() * sizeof(std::uint32_t)), indices.data(), GL_STATIC_DRAW);
 
+    // Dynamic mesh IBO (and shared VBO capacity): triangle submit path.
+    max_mesh_verts_ = max_quads_ * 4;
+    max_mesh_indices_ = max_quads_ * 6;
+    mesh_vertices_.resize(max_mesh_verts_);
+    mesh_indices_.resize(max_mesh_indices_);
+    glGenBuffers(1, &mesh_ibo_);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh_ibo_);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+                 static_cast<GLsizeiptr>(max_mesh_indices_ * sizeof(std::uint32_t)),
+                 nullptr, GL_DYNAMIC_DRAW);
+
     if (!legacy) {
         glBindVertexArray(0);
     }
@@ -135,13 +146,22 @@ void SpriteBatch::Shutdown() {
         glDeleteBuffers(1, &ibo_);
         ibo_ = 0;
     }
+    if (mesh_ibo_) {
+        glDeleteBuffers(1, &mesh_ibo_);
+        mesh_ibo_ = 0;
+    }
     vertices_.clear();
     sorted_vertices_.clear();
+    mesh_vertices_.clear();
+    mesh_indices_.clear();
     line_vertices_.clear();
     commands_.clear();
     current_quads_ = 0;
+    current_mesh_verts_ = 0;
+    current_mesh_indices_ = 0;
     current_lines_ = 0;
     current_texture_id_ = 0;
+    mesh_texture_id_ = 0;
     in_begin_ = false;
 }
 
@@ -150,8 +170,11 @@ void SpriteBatch::Begin(const Mat4 &view_projection, Shader *shader) {
     current_view_projection_ = view_projection;
     current_shader_ = shader ? shader : Shader::GetDefault2D();
     current_quads_ = 0;
+    current_mesh_verts_ = 0;
+    current_mesh_indices_ = 0;
     current_lines_ = 0;
     current_texture_id_ = 0;
+    mesh_texture_id_ = 0;
     commands_.clear();
     next_sequence_ = 0;
     current_layer_ = 0;
@@ -175,6 +198,10 @@ void SpriteBatch::SetSorted(bool sorted) {
 }
 
 void SpriteBatch::EnsureCapacity(size_t quads_to_add, std::uint32_t texture_id) {
+    // Topology switch: pending mesh triangles cannot share the static quad IBO.
+    if (current_mesh_indices_ > 0) {
+        FlushMesh();
+    }
     if (!sorted_ && current_quads_ > 0 &&
         (current_texture_id_ != texture_id || current_blend_ != pending_blend_)) {
         // Immediate mode: a texture or blend-mode switch closes the run.
@@ -221,14 +248,14 @@ void SpriteBatch::ApplyBlend(BlendMode mode) {
 }
 
 void SpriteBatch::Flush() {
-    if (current_quads_ == 0) {
-        return;
+    if (current_quads_ > 0) {
+        if (sorted_) {
+            FlushSorted();
+        } else {
+            FlushImmediate();
+        }
     }
-    if (sorted_) {
-        FlushSorted();
-    } else {
-        FlushImmediate();
-    }
+    FlushMesh();
 }
 
 void SpriteBatch::ApplyClip() const {
@@ -542,6 +569,123 @@ void SpriteBatch::DrawVertices(const Texture2D &texture, const Vec2 corners[4], 
 
     RecordCommand(texture.Id());
     ++current_quads_;
+}
+
+void SpriteBatch::EnsureMeshCapacity(size_t verts_to_add, size_t indices_to_add,
+                                     std::uint32_t texture_id) {
+    if (current_quads_ > 0) {
+        // Topology switch out of quads.
+        if (sorted_) {
+            FlushSorted();
+        } else {
+            FlushImmediate();
+        }
+    }
+    if (current_mesh_indices_ > 0 &&
+        (mesh_texture_id_ != texture_id || mesh_blend_ != current_blend_)) {
+        FlushMesh();
+    }
+    if (current_mesh_verts_ + verts_to_add > max_mesh_verts_ ||
+        current_mesh_indices_ + indices_to_add > max_mesh_indices_) {
+        FlushMesh();
+    }
+    // A single mesh larger than the buffer: grow once (rare soft-skin sheets).
+    if (verts_to_add > max_mesh_verts_ || indices_to_add > max_mesh_indices_) {
+        max_mesh_verts_ = std::max(max_mesh_verts_, verts_to_add);
+        max_mesh_indices_ = std::max(max_mesh_indices_, indices_to_add);
+        mesh_vertices_.resize(max_mesh_verts_);
+        mesh_indices_.resize(max_mesh_indices_);
+        if (mesh_ibo_) {
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh_ibo_);
+            glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+                         static_cast<GLsizeiptr>(max_mesh_indices_ * sizeof(std::uint32_t)),
+                         nullptr, GL_DYNAMIC_DRAW);
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+        }
+    }
+    mesh_texture_id_ = texture_id;
+    mesh_blend_ = current_blend_;
+}
+
+void SpriteBatch::FlushMesh() {
+    if (current_mesh_indices_ == 0 || (!glcaps::legacy_mode && !vao_) ||
+        !current_shader_ || !mesh_ibo_) {
+        current_mesh_verts_ = 0;
+        current_mesh_indices_ = 0;
+        return;
+    }
+
+    ApplyBlend(mesh_blend_);
+    current_shader_->Bind();
+    current_shader_->SetMat4("u_view_projection", current_view_projection_);
+
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, mesh_texture_id_);
+    current_shader_->SetInt("u_texture", 0);
+
+    glBindVertexArray(vao_);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo_);
+    glBufferSubData(GL_ARRAY_BUFFER, 0,
+                    static_cast<GLsizeiptr>(current_mesh_verts_ * sizeof(Vertex2D)),
+                    mesh_vertices_.data());
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh_ibo_);
+    glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0,
+                    static_cast<GLsizeiptr>(current_mesh_indices_ * sizeof(std::uint32_t)),
+                    mesh_indices_.data());
+    if (glcaps::legacy_mode) {
+        ConfigureQuadAttribs();
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh_ibo_);
+    }
+
+    ApplyClip();
+    glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(current_mesh_indices_),
+                   GL_UNSIGNED_INT, nullptr);
+    RestoreClip();
+
+    glBindVertexArray(0);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    ++draw_call_count_;
+    current_mesh_verts_ = 0;
+    current_mesh_indices_ = 0;
+}
+
+void SpriteBatch::DrawTriangles(const Texture2D &texture, const Vertex2D *verts,
+                                size_t vert_count, const std::uint16_t *indices,
+                                size_t index_count) {
+    if (!texture.IsValid() || verts == nullptr || indices == nullptr ||
+        vert_count == 0 || index_count < 3 || (index_count % 3) != 0) {
+        return;
+    }
+    // Validate indices against vert_count so a bad mesh cannot overrun the VBO.
+    for (size_t i = 0; i < index_count; ++i) {
+        if (static_cast<size_t>(indices[i]) >= vert_count) {
+            return;
+        }
+    }
+    // Fallback: if the dynamic mesh IBO never initialised, expand each triangle
+    // into a degenerate quad through the legacy static-IBO path (GL2-safe).
+    if (!mesh_ibo_) {
+        for (size_t t = 0; t + 2 < index_count; t += 3) {
+            const Vertex2D &a = verts[indices[t]];
+            const Vertex2D &b = verts[indices[t + 1]];
+            const Vertex2D &c = verts[indices[t + 2]];
+            const Vec2 corners[4] = {a.position, b.position, c.position, c.position};
+            const Vec2 uvs[4] = {a.uv, b.uv, c.uv, c.uv};
+            DrawVertices(texture, corners, uvs, a.color);
+        }
+        return;
+    }
+    EnsureMeshCapacity(vert_count, index_count, texture.Id());
+    const auto base = static_cast<std::uint32_t>(current_mesh_verts_);
+    for (size_t i = 0; i < vert_count; ++i) {
+        mesh_vertices_[current_mesh_verts_ + i] = verts[i];
+    }
+    for (size_t i = 0; i < index_count; ++i) {
+        mesh_indices_[current_mesh_indices_ + i] = base + indices[i];
+    }
+    current_mesh_verts_ += vert_count;
+    current_mesh_indices_ += index_count;
 }
 
 void SpriteBatch::DrawLine(const Vec2 &a, const Vec2 &b, const Color &color) {
