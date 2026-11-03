@@ -7,6 +7,7 @@
 #include "fake2d/entity_store.h"
 #include "fake2d/i18n.h"
 #include "fake2d/input.h"
+#include "fake2d/input_recording.h"
 #include "fake2d/mod.h"
 #include "fake2d/particle.h"
 #include "fake2d/physics.h"
@@ -75,6 +76,12 @@ struct EngineConfig {
     /// Optional per-frame C++ hook, invoked after the script update and
     /// before the frame is flushed (e.g. to draw a scene graph).
     std::function<void(Engine &)> on_frame;
+    /// When non-empty, capture every frame's Input snapshot into this path
+    /// (F2IR) when Run() finishes. Mutually exclusive with replay_path.
+    std::string record_path;
+    /// When non-empty, feed Input from this F2IR recording instead of the
+    /// device. Mutually exclusive with record_path.
+    std::string replay_path;
 };
 
 /// Host-owned engine: window + renderer + FakeLua state.
@@ -137,6 +144,10 @@ public:
     [[nodiscard]] std::uint64_t FrameIndex() const;
     /// True when the run was started with `--ai`.
     [[nodiscard]] bool AiInput() const;
+    /// True when this run is capturing Input to `record_path`.
+    [[nodiscard]] bool IsRecordingInput() const;
+    /// True when this run feeds Input from `replay_path`.
+    [[nodiscard]] bool IsReplayingInput() const;
 
     // --- gameplay time control ---
     /// Global gameplay time multiplier (0 = frozen, 1 = real time, 2 = double).

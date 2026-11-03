@@ -55,6 +55,10 @@ struct Engine::Impl {
     /// Set when script update() throws; Run() still finishes the frame budget
     /// (headless screenshots need that) but returns non-zero afterward.
     bool update_failed = false;
+    InputRecorder input_recorder;
+    InputReplay input_replay;
+    bool recording_input = false;
+    bool replaying_input = false;
 };
 
 Engine::Engine() : impl_(std::make_unique<Impl>()) {}
@@ -93,6 +97,25 @@ bool Engine::Init(const EngineConfig &config) {
                            impl_->window.Width(), impl_->window.Height(),
                            impl_->window.ContentScale());
     impl_->input.Attach(impl_->window.Handle());
+
+    if (!impl_->config.record_path.empty() && !impl_->config.replay_path.empty()) {
+        std::fprintf(stderr,
+                     "fake2d: --record and --replay are mutually exclusive\n");
+        return false;
+    }
+    if (!impl_->config.replay_path.empty()) {
+        if (!impl_->input_replay.Load(impl_->config.replay_path)) {
+            return false;
+        }
+        impl_->replaying_input = true;
+    }
+    if (!impl_->config.record_path.empty()) {
+        // Pre-size for a few minutes at 60 Hz; Capture grows without heap
+        // traffic until this is exhausted.
+        impl_->input_recorder.Begin(16 * 1024, impl_->config.fixed_dt);
+        impl_->recording_input = true;
+    }
+
     if (!impl_->script.Init()) {
         return false;
     }
@@ -186,7 +209,16 @@ int Engine::Run(int max_frames) {
                                    impl_->window.Width(), impl_->window.Height(),
                                    impl_->window.ContentScale());
         }
-        impl_->input.NewFrame(impl_->window.Handle());
+        if (impl_->replaying_input) {
+            // Device poll skipped: the fixture owns the snapshot for this
+            // frame index (last sample is held past the end).
+            (void)impl_->input_replay.Apply(impl_->frame_index, impl_->input);
+        } else {
+            impl_->input.NewFrame(impl_->window.Handle());
+            if (impl_->recording_input) {
+                impl_->input_recorder.Capture(impl_->frame_index, impl_->input);
+            }
+        }
         impl_->ui.NewFrame();
         impl_->elapsed += impl_->delta_time;
         // Custom shaders that declare `u_time` are stamped from this, so an
@@ -265,6 +297,17 @@ int Engine::Run(int max_frames) {
         impl_->window.SwapBuffers();
 
         ++impl_->frame_index;
+    }
+
+    if (impl_->recording_input) {
+        if (!impl_->input_recorder.Save(impl_->config.record_path)) {
+            Shutdown();
+            return 1;
+        }
+        std::fprintf(stderr,
+                     "fake2d: wrote %zu input samples to '%s'\n",
+                     impl_->input_recorder.Size(),
+                     impl_->config.record_path.c_str());
     }
 
     Shutdown();
@@ -413,6 +456,14 @@ std::uint64_t Engine::FrameIndex() const {
 
 bool Engine::AiInput() const {
     return impl_ && impl_->config.ai_input;
+}
+
+bool Engine::IsRecordingInput() const {
+    return impl_ && impl_->recording_input;
+}
+
+bool Engine::IsReplayingInput() const {
+    return impl_ && impl_->replaying_input;
 }
 
 Renderer &Engine::GetRenderer() {

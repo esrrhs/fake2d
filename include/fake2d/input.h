@@ -11,6 +11,8 @@
 
 namespace fake2d {
 
+struct InputFrameSnapshot;
+
 /// Per-frame input snapshot polled from the platform window.
 /// Game code reads it; the Engine refreshes it once per frame after event polling.
 class Input {
@@ -80,6 +82,23 @@ public:
     /// Drop the whole overlay.
     void AiClear();
 
+    // --- deterministic recording / replay (Phase 52) -------------------------
+    /// Public sizes shared with InputFrameSnapshot (must match the private
+    /// arrays below). Exposed so the recording header stays header-only POD.
+    static constexpr std::size_t kSnapshotKeyCount = 349;   // GLFW_KEY_LAST + 1
+    static constexpr std::size_t kSnapshotButtonCount = 8;
+    static constexpr int kSnapshotPadCount = 16;
+    static constexpr int kSnapshotPadButtonCount = 15;
+    static constexpr int kSnapshotPadAxisCount = 6;
+
+    /// Pack the current snapshot into a fixed-layout sample (no heap).
+    void CaptureSnapshot(InputFrameSnapshot &out,
+                         std::uint64_t step_index) const;
+    /// Replace the device poll: write `snap` as the new current state and
+    /// advance edge detection against the previous frame (same contract as
+    /// InjectFrame, plus gamepad fields InjectFrame does not touch).
+    void ApplySnapshot(const InputFrameSnapshot &snap);
+
     // --- gamepad (GLFW standard mapping, Xbox layout) ---
     // pad is a 0-based joystick slot; disconnected pads read as neutral.
     /// True when a gamepad (Standard Mapping recognized) is present on `pad`.
@@ -114,11 +133,11 @@ private:
     /// on every frame.
     void ApplyAiOverlay(bool advance_edges);
 
-    static constexpr std::size_t kKeyCount = 349;   // GLFW_KEY_LAST + 1
-    static constexpr std::size_t kButtonCount = 8;  // GLFW_MOUSE_BUTTON_LAST + 1
-    static constexpr int kPadCount = 16;            // GLFW_JOYSTICK_LAST + 1
-    static constexpr int kPadButtonCount = 15;      // GLFW_GAMEPAD_BUTTON_LAST + 1
-    static constexpr int kPadAxisCount = 6;         // GLFW_GAMEPAD_AXIS_LAST + 1
+    static constexpr std::size_t kKeyCount = kSnapshotKeyCount;
+    static constexpr std::size_t kButtonCount = kSnapshotButtonCount;
+    static constexpr int kPadCount = kSnapshotPadCount;
+    static constexpr int kPadButtonCount = kSnapshotPadButtonCount;
+    static constexpr int kPadAxisCount = kSnapshotPadAxisCount;
 
     void *window_ = nullptr;
     std::uint8_t keys_[kKeyCount] = {};

@@ -30,6 +30,7 @@ set(FAKE2D_SOURCES
     scene/scene.cpp
     platform/window.cpp
     platform/input.cpp
+    platform/input_recording.cpp
     platform/steam.cpp
     audio/audio.cpp
     physics/physics_world.cpp

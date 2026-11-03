@@ -1,4 +1,5 @@
 #include "fake2d/input.h"
+#include "fake2d/input_recording.h"
 
 #include <cstdint>
 #include <GLFW/glfw3.h>
@@ -220,6 +221,88 @@ void Input::AiClear() {
     std::fill(ai_keys_, ai_keys_ + kKeyCount, static_cast<std::uint8_t>(0));
     std::fill(ai_buttons_, ai_buttons_ + kButtonCount, static_cast<std::uint8_t>(0));
     ai_mouse_held_ = false;
+}
+
+void Input::CaptureSnapshot(InputFrameSnapshot &out, std::uint64_t step_index) const {
+    out.Clear();
+    out.step_index = step_index;
+    out.mouse_x = mouse_pos_.x;
+    out.mouse_y = mouse_pos_.y;
+    out.mouse_dx = mouse_delta_.x;
+    out.mouse_dy = mouse_delta_.y;
+    out.wheel = wheel_;
+    for (std::size_t k = 0; k < kKeyCount; ++k) {
+        if (keys_[k] != 0) {
+            out.SetKey(k, true);
+        }
+    }
+    for (std::size_t b = 0; b < kButtonCount; ++b) {
+        if (buttons_[b] != 0) {
+            out.SetButton(b, true);
+        }
+    }
+    for (int pad = 0; pad < kPadCount; ++pad) {
+        out.pad_connected[pad] = pad_connected_[pad];
+        for (int button = 0; button < kPadButtonCount; ++button) {
+            if (pad_buttons_[pad][button] != 0) {
+                out.SetPadButton(pad, button, true);
+            }
+        }
+        for (int axis = 0; axis < kPadAxisCount; ++axis) {
+            out.pad_axes[pad][axis] = pad_axes_[pad][axis];
+        }
+    }
+    const std::size_t n =
+        text_input_.size() < InputFrameSnapshot::kMaxText ? text_input_.size()
+                                                          : InputFrameSnapshot::kMaxText;
+    out.text_count = static_cast<std::uint16_t>(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        out.text[i] = text_input_[i];
+    }
+}
+
+void Input::ApplySnapshot(const InputFrameSnapshot &snap) {
+    std::fill(had_mouse_press_, had_mouse_press_ + kButtonCount, static_cast<std::uint8_t>(0));
+    std::fill(tap_hold_, tap_hold_ + kButtonCount, static_cast<std::uint8_t>(0));
+    std::fill(had_key_press_, had_key_press_ + kKeyCount, static_cast<std::uint8_t>(0));
+    std::fill(key_tap_hold_, key_tap_hold_ + kKeyCount, static_cast<std::uint8_t>(0));
+
+    std::copy(keys_, keys_ + kKeyCount, prev_keys_);
+    std::copy(buttons_, buttons_ + kButtonCount, prev_buttons_);
+    for (int pad = 0; pad < kPadCount; ++pad) {
+        std::copy(pad_buttons_[pad], pad_buttons_[pad] + kPadButtonCount,
+                  prev_pad_buttons_[pad]);
+    }
+
+    std::fill(keys_, keys_ + kKeyCount, static_cast<std::uint8_t>(0));
+    std::fill(buttons_, buttons_ + kButtonCount, static_cast<std::uint8_t>(0));
+    for (std::size_t k = 0; k < kKeyCount; ++k) {
+        keys_[k] = snap.Key(k) ? 1 : 0;
+    }
+    for (std::size_t b = 0; b < kButtonCount; ++b) {
+        buttons_[b] = snap.Button(b) ? 1 : 0;
+    }
+
+    mouse_pos_ = {snap.mouse_x, snap.mouse_y};
+    mouse_delta_ = {snap.mouse_dx, snap.mouse_dy};
+    wheel_ = snap.wheel;
+
+    text_input_.clear();
+    text_input_.reserve(InputFrameSnapshot::kMaxText);
+    for (std::uint16_t i = 0; i < snap.text_count && i < InputFrameSnapshot::kMaxText; ++i) {
+        text_input_.push_back(snap.text[i]);
+    }
+
+    for (int pad = 0; pad < kPadCount; ++pad) {
+        pad_connected_[pad] = snap.pad_connected[pad];
+        std::memset(pad_buttons_[pad], 0, sizeof(pad_buttons_[pad]));
+        for (int button = 0; button < kPadButtonCount; ++button) {
+            pad_buttons_[pad][button] = snap.PadButton(pad, button) ? 1 : 0;
+        }
+        for (int axis = 0; axis < kPadAxisCount; ++axis) {
+            pad_axes_[pad][axis] = snap.pad_axes[pad][axis];
+        }
+    }
 }
 
 void Input::ApplyAiOverlay(bool advance_edges) {

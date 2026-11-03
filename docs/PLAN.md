@@ -833,3 +833,61 @@ Phase 51 shipped as **1.44.0**: linkedmesh shares `MeshGeometry` bind data
 coalesce through `DrawTriangles` without topology thrash, `--skeleton-test`
 covers bind-share / dual-instance deform / mixed draw-call gates. GPU skinning
 remains deferred for software-GL CI.
+
+
+## Phase 52 — Deterministic input recording & replay (1.45.x)
+
+Soft-skin through Phase 51 is done. This phase opens a new pillar: capture the
+per-frame Input snapshot stream so a run can be driven from a fixture instead of
+a device — for CI attract modes, gameplay demos, and deterministic self-tests.
+GPU skinning and Phase 11 packaging e2e stay deferred.
+
+### Architectural intent
+
+- **Keyed by engine frame index.** `Engine::FrameIndex()` already advances once
+  per loop iteration under the fixed-dt accumulator. Recordings store one sample
+  per frame index so replay feeds the same snapshot gameplay would have read,
+  independent of wall-clock jitter.
+- **Snapshots, not event queues.** Keyboard bitsets, mouse pose/delta/wheel,
+  optional text codepoints (capped), and gamepad connected/buttons/axes are
+  captured after `Input::NewFrame` (or written by `ApplySnapshot` on replay).
+  Edge detection (`Pressed`/`Released`) falls out of consecutive snapshots the
+  same way `InjectFrame` already does.
+- **Zero per-frame heap on the hot path.** Samples are fixed-layout POD.
+  `InputRecorder` pre-reserves a sample ring/buffer; `Capture` appends without
+  allocating when capacity remains. FakeLua's arena contract is untouched.
+- **Versioned binary container.** Magic `F2IR`, `u32` format version, flags,
+  `fixed_dt`, sample count, then POD samples. Unknown versions fail load with a
+  clear stderr message — never silently reinterpret.
+- **Playback replaces the device.** `--replay path` skips window polling and
+  applies the sample for the current frame index; past the last sample the last
+  one is held. `--record path` writes on shutdown / end of `Run`.
+
+### Deliverables
+
+- [x] `InputFrameSnapshot` + `Input::CaptureSnapshot` / `ApplySnapshot`
+      (keyboard, mouse, gamepad; text capped)
+- [x] `InputRecorder` / `InputReplay` (pre-sized buffer, Save/Load, content hash)
+- [x] EngineConfig `record_path` / `replay_path`; loop hooks; mutually exclusive
+- [x] CLI `--record path` / `--replay path` / `--replay-test`
+- [x] Headless `--replay-test`: synthetic record → save → load → replay asserts
+      identical reads + matching hash; unknown-version rejection
+- [x] Docs: PLAN Phase 52, SCRIPTING.md / README note on fixture-driven attract;
+      version **1.45.0**
+
+### Deferred (still)
+
+- [ ] GPU skinning / compute deform
+- [ ] Phase 11 packaging e2e (`[~]`)
+- [ ] Full gameplay-state determinism (RNG seed pinning, variable-dt lockstep) —
+      input stream is the Phase 52 slice; world hash gates can follow later
+
+### Verification
+
+- [x] `--replay-test` green (record/replay identity + version reject)
+- [x] `--skeleton-test` / record+replay CLI smoke green; `--gameplay-test` input-action path unchanged (host window-resize assert is a pre-existing headless GLFW flake)
+
+Phase 52 shipped as **1.45.0**: deterministic Input snapshot recording/replay
+(`F2IR` v1), `--record` / `--replay` / `--replay-test`, engine loop hooks keyed
+by frame index with a pre-sized sample buffer (no hot-path heap while capacity
+holds). GPU skinning and packaging e2e remain deferred.
