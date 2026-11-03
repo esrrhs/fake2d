@@ -7,7 +7,7 @@
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-brightgreen.svg)](https://en.cppreference.com/w/cpp/23)
 [![OpenGL](https://img.shields.io/badge/OpenGL-3.3%20Core%20%7C%202.1-orange.svg)](https://www.opengl.org/)
 [![FakeLua](https://img.shields.io/badge/Script-FakeLua-red.svg)](https://github.com/esrrhs/fakelua)
-[![Version](https://img.shields.io/badge/version-1.45.0-informational.svg)](include/fake2d/version.h)
+[![Version](https://img.shields.io/badge/version-1.46.0-informational.svg)](include/fake2d/version.h)
 
 **Fake2D** 是基于 [FakeLua](https://github.com/esrrhs/fakelua) 驱动的现代化、轻量级、高性能 2D 游戏引擎：
 - **C++23 宿主引擎**：掌管窗口管理、GPU 渲染管线、空间物理、音频混音与底层资源生命周期；
@@ -305,6 +305,9 @@ xvfb-run ./build/bin/fake2d_hello --headless --ai --contra-demo --frames 2500
 ./build/bin/fake2d_hello --headless --ai --mario-demo --frames 120 --record /tmp/mario.f2ir
 ./build/bin/fake2d_hello --headless --mario-demo --frames 120 --replay /tmp/mario.f2ir
 ./build/bin/fake2d_hello --replay-test
+# 固定 RNG，并对两次同种子会话的世界哈希做断言（Phase 53）
+./build/bin/fake2d_hello --determinism-test
+./build/bin/fake2d_hello --headless --frames 60 --rng-seed 42
 
 # 运行 29 组内置无头自测试套件（通过退出码断言执行结果）
 xvfb-run ./build/bin/fake2d_hello --phys-query-test    # 射线检测、形状重叠、接触生命周期
@@ -327,6 +330,7 @@ xvfb-run ./build/bin/fake2d_hello --audio-test         # 纯软件混音核心�
 xvfb-run ./build/bin/fake2d_hello --font-test          # UTF-8/CJK 字形图集、换行、旋转与自动缩字
 xvfb-run ./build/bin/fake2d_hello --platform-test      # 语言包、用户目录、存档 v2、Steam stub、UI 文本
 xvfb-run ./build/bin/fake2d_hello --gameplay-test      # 随机数、缓动、实体快照、输入动作、窗口
+xvfb-run ./build/bin/fake2d_hello --determinism-test   # 同种子世界哈希一致性（Phase 53）
 xvfb-run ./build/bin/fake2d_hello --combat-test        # 时间缩放、命中停顿、16 槽角色、动画池
 xvfb-run ./build/bin/fake2d_hello --shmup-test         # 射击素材图集、最近邻采样、缺失文件
 xvfb-run ./build/bin/fake2d_hello --snooker-test       # 球体阴影贴图、透明度/光照采样、加载器拒绝

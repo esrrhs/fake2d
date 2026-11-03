@@ -879,8 +879,9 @@ GPU skinning and Phase 11 packaging e2e stay deferred.
 
 - [ ] GPU skinning / compute deform
 - [ ] Phase 11 packaging e2e (`[~]`)
-- [ ] Full gameplay-state determinism (RNG seed pinning, variable-dt lockstep) —
-      input stream is the Phase 52 slice; world hash gates can follow later
+- [x] Full gameplay-state determinism (RNG seed pinning, world hash) — taken by
+      Phase 53 (variable-dt lockstep remains a separate concern; fixed_dt is
+      already the default)
 
 ### Verification
 
@@ -890,4 +891,59 @@ GPU skinning and Phase 11 packaging e2e stay deferred.
 Phase 52 shipped as **1.45.0**: deterministic Input snapshot recording/replay
 (`F2IR` v1), `--record` / `--replay` / `--replay-test`, engine loop hooks keyed
 by frame index with a pre-sized sample buffer (no hot-path heap while capacity
-holds). GPU skinning and packaging e2e remain deferred.
+holds). GPU skinning and packaging e2e remain deferred; gameplay-state
+determinism continued in Phase 53.
+
+---
+
+## Phase 53 — Gameplay-state determinism: RNG pin & world hash (1.46.x)
+
+Phase 52 captured the Input stream. This phase closes the next determinism
+slice: pin the engine RNG for a run, and expose a stable world/state hash over
+physics poses, entity-store slots, and camera so two seeded sessions (or a
+record+replay with the same seed) can be asserted identical.
+
+### Architectural intent
+
+- **Pinned RNG at Init.** `EngineConfig::pin_rng` + `rng_seed` seed
+  `Engine::GetRandom()` once at `Init`. Scripts already have
+  `rng_seed` / `rng_state` / `rng_float` / … (splitmix64); the CLI
+  `--rng-seed N` covers host-driven fixtures without a script change.
+- **World hash is a probe, not a per-frame tax.** `ComputeWorldHash` /
+  `Engine::WorldHash()` FNV-1a over RNG state, every alive physics body (slot
+  order: id, type, pose, velocity, user tag, sleep), every active entity
+  (id, tag, numbers, strings), and camera pose (position / zoom / rotation).
+  Viewport and content-scale are omitted so Retina and 1x hosts match when
+  gameplay state matches. Not called on the render/physics hot path.
+- **Slot-ordered enumeration.** `PhysicsWorld::At(i)` mirrors
+  `EntityStore::At` so digests do not depend on free-list reuse timing.
+- **CI gate.** `--determinism-test` runs two identically seeded synthetic
+  sessions and asserts matching subsystem + combined hashes, plus divergence
+  on a different seed and basic `At()` / pin smoke.
+
+### Deliverables
+
+- [x] `EngineConfig::pin_rng` / `rng_seed`; CLI `--rng-seed N`
+- [x] `world_hash.h` + `HashPhysics` / `HashEntities` / `HashCamera` /
+      `HashRng` / `ComputeWorldHash` / `Engine::WorldHash`
+- [x] `PhysicsWorld::At(index)` slot-ordered body enumeration
+- [x] Lua `world_hash() -> int64` (full 64-bit via signed integer)
+- [x] CLI `--determinism-test` (two seeded sessions + pin / At smoke)
+- [x] CI: Linux / macOS / Windows run `--determinism-test` beside `--replay-test`
+- [x] Docs: PLAN Phase 53, SCRIPTING.md / README note; version **1.46.0**
+
+### Deferred (still)
+
+- [ ] GPU skinning / compute deform
+- [ ] Phase 11 packaging e2e (`[~]`)
+- [ ] Broader lockstep (variable-dt hosts, particle/audio digests) — fixed_dt
+      already covers the default sim path; world hash can grow later
+
+### Verification
+
+- [x] `--determinism-test` green (same-seed match, cross-seed diverge, pin, At)
+- [x] `--replay-test` / `--skeleton-test` still green; demos untouched
+
+Phase 53 shipped as **1.46.0**: RNG pin at Init (`--rng-seed`), FNV-1a world
+hash over RNG + physics + entities + camera, Lua `world_hash`, and
+`--determinism-test` CI gate. GPU skinning and packaging e2e remain deferred.

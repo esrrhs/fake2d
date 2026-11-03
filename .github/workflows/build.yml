@@ -337,6 +337,9 @@ jobs:
           # Deterministic input record/replay (F2IR) identity + version reject.
           run_xvfb ./build/bin/fake2d_hello --replay-test > replay.log 2>&1
           rc_replay=$?
+          # Seeded world-hash identity (RNG pin + physics/entities/camera).
+          run_xvfb ./build/bin/fake2d_hello --determinism-test > determinism.log 2>&1
+          rc_determinism=$?
           # Time scale/hit-stop, 16-slot actors and the 128-clip pool.
           run_xvfb ./build/bin/fake2d_hello --combat-test > combat.log 2>&1
           rc_combat=$?
@@ -450,7 +453,7 @@ jobs:
             --entry scripts/phys_test.lua > phys_test.log 2>&1
           rc_lua=$?
           set -e
-          echo "exit codes: query=$rc_query filter=$rc_filter rigid=$rc_rigid extended=$rc_extended birds=$rc_birds limbo=$rc_limbo limbowalk=$rc_limbo_walk timestep=$rc_timestep path=$rc_path rt=$rc_rt ui=$rc_ui post=$rc_post fx=$rc_fx fog=$rc_fog light=$rc_light lightbench=$rc_light_bench lightdemo=$rc_light_demo skeleton=$rc_skeleton skeldemo=$rc_skeleton_demo skelmesh=$rc_skeleton_mesh_demo skellight=$rc_skeleton_light_demo updatefail=$rc_update_fail audio=$rc_audio mapobj=$rc_mapobj tile=$rc_tile font=$rc_font platform=$rc_platform gameplay=$rc_gameplay replay=$rc_replay combat=$rc_combat shmup=$rc_shmup art=$rc_art launcher=$rc_launcher snooker=$rc_snooker contra=$rc_contra city=$rc_city rts=$rc_rts vn=$rc_vn beat=$rc_beat shmupdemo=$rc_shmup_demo snookerdemo=$rc_snooker_demo contrademo=$rc_contra_demo citydemo=$rc_city_demo rtsdemo=$rc_rts_demo vndemo=$rc_vn_demo lua=$rc_lua"
+          echo "exit codes: query=$rc_query filter=$rc_filter rigid=$rc_rigid extended=$rc_extended birds=$rc_birds limbo=$rc_limbo limbowalk=$rc_limbo_walk timestep=$rc_timestep path=$rc_path rt=$rc_rt ui=$rc_ui post=$rc_post fx=$rc_fx fog=$rc_fog light=$rc_light lightbench=$rc_light_bench lightdemo=$rc_light_demo skeleton=$rc_skeleton skeldemo=$rc_skeleton_demo skelmesh=$rc_skeleton_mesh_demo skellight=$rc_skeleton_light_demo updatefail=$rc_update_fail audio=$rc_audio mapobj=$rc_mapobj tile=$rc_tile font=$rc_font platform=$rc_platform gameplay=$rc_gameplay replay=$rc_replay determinism=$rc_determinism combat=$rc_combat shmup=$rc_shmup art=$rc_art launcher=$rc_launcher snooker=$rc_snooker contra=$rc_contra city=$rc_city rts=$rc_rts vn=$rc_vn beat=$rc_beat shmupdemo=$rc_shmup_demo snookerdemo=$rc_snooker_demo contrademo=$rc_contra_demo citydemo=$rc_city_demo rtsdemo=$rc_rts_demo vndemo=$rc_vn_demo lua=$rc_lua"
           [ "$rc_query" -eq 0 ]
           [ "$rc_filter" -eq 0 ]
           [ "$rc_rigid" -eq 0 ]
@@ -480,6 +483,7 @@ jobs:
           [ "$rc_platform" -eq 0 ]
           [ "$rc_gameplay" -eq 0 ]
           [ "$rc_replay" -eq 0 ]
+          [ "$rc_determinism" -eq 0 ]
           [ "$rc_combat" -eq 0 ]
           [ "$rc_shmup" -eq 0 ]
           [ "$rc_art" -eq 0 ]
@@ -824,6 +828,7 @@ jobs:
           ./build/bin/fake2d_hello --platform-test
           ./build/bin/fake2d_hello --gameplay-test
           ./build/bin/fake2d_hello --replay-test
+          ./build/bin/fake2d_hello --determinism-test
           ./build/bin/fake2d_hello --combat-test
           ./build/bin/fake2d_hello --shmup-test
           ./build/bin/fake2d_hello --art-test
@@ -933,6 +938,7 @@ jobs:
           ./build/bin/fake2d_hello.exe --platform-test
           ./build/bin/fake2d_hello.exe --gameplay-test
           ./build/bin/fake2d_hello.exe --replay-test
+          ./build/bin/fake2d_hello.exe --determinism-test
           ./build/bin/fake2d_hello.exe --combat-test
           ./build/bin/fake2d_hello.exe --shmup-test
           ./build/bin/fake2d_hello.exe --snooker-test

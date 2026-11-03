@@ -6,6 +6,11 @@
 #include "fake2d/demos.h"
 #include "fake2d/ease.h"
 #include "fake2d/engine.h"
+#include "fake2d/camera.h"
+#include "fake2d/entity_store.h"
+#include "fake2d/physics.h"
+#include "fake2d/rng.h"
+#include "fake2d/world_hash.h"
 #include "fake2d/input_recording.h"
 #include "fake2d/i18n.h"
 #include "fake2d/log.h"
@@ -4071,6 +4076,146 @@ int RunReplayTest(fake2d::Engine &engine) {
 
     fs::remove_all(root, ec);
     std::printf("[replay] %s: %d checks, %d failures\n",
+                failures == 0 ? "PASS" : "FAILED", checks, failures);
+    return failures == 0 ? 0 : 1;
+}
+
+
+int RunDeterminismTest(fake2d::Engine &engine) {
+    int checks = 0;
+    int failures = 0;
+    auto check = [&](bool cond, const char *name) {
+        ++checks;
+        if (!cond) {
+            ++failures;
+            std::printf("[determinism-test] FAIL: %s\n", name);
+        }
+    };
+
+    auto simulate = [](std::uint64_t seed) -> fake2d::WorldHashParts {
+        fake2d::Random rng(seed);
+        fake2d::PhysicsWorld physics;
+        fake2d::EntityStore entities;
+        fake2d::Camera2D camera(1280.0f, 720.0f);
+        physics.SetGravity({0.0f, 900.0f});
+
+        // Floor
+        fake2d::BodyConfig floor;
+        floor.type = fake2d::BodyType::Static;
+        floor.position = {400.0f, 500.0f};
+        floor.half_extents = {400.0f, 20.0f};
+        floor.user_id = 1;
+        physics.CreateBody(floor);
+
+        // Dynamic bodies whose initial pose comes from the pinned RNG.
+        for (int i = 0; i < 8; ++i) {
+            fake2d::BodyConfig dyn;
+            dyn.type = fake2d::BodyType::Dynamic;
+            dyn.position = {100.0f + rng.Range(0.0f, 200.0f),
+                            50.0f + rng.Range(0.0f, 80.0f)};
+            dyn.velocity = {rng.Range(-40.0f, 40.0f), rng.Range(0.0f, 20.0f)};
+            dyn.half_extents = {8.0f + rng.Range(0.0f, 4.0f),
+                                8.0f + rng.Range(0.0f, 4.0f)};
+            dyn.restitution = 0.4f;
+            dyn.user_id = 100 + i;
+            physics.CreateBody(dyn);
+        }
+
+        // Entity store slots seeded from the same stream.
+        for (int i = 0; i < 5; ++i) {
+            const auto id = entities.Create(10 + i);
+            entities.SetNumber(id, 0, static_cast<double>(rng.Range(0.0f, 1.0f)));
+            entities.SetNumber(id, 1, static_cast<double>(rng.Int(0, 1000)));
+            entities.SetString(id, 0, i % 2 == 0 ? "alpha" : "beta");
+        }
+
+        camera.SetPosition(rng.Range(0.0f, 50.0f), rng.Range(0.0f, 30.0f));
+        camera.SetZoom(1.0f + rng.Range(0.0f, 0.25f));
+        camera.SetRotation(rng.Range(-0.05f, 0.05f));
+
+        constexpr float kDt = 1.0f / 60.0f;
+        for (int step = 0; step < 90; ++step) {
+            physics.Step(kDt);
+            // Tiny script-like churn so entity + camera state evolve with the seed.
+            if (step % 15 == 0) {
+                const auto id = entities.At(static_cast<std::size_t>(step / 15) % entities.Count());
+                if (id != fake2d::EntityStore::kInvalid) {
+                    entities.SetNumber(id, 2, entities.GetNumber(id, 2) + rng.Float01());
+                }
+                camera.Move(rng.Range(-1.0f, 1.0f), 0.0f);
+            }
+        }
+
+        return fake2d::ComputeWorldHash(rng, physics, entities, camera);
+    };
+
+    const fake2d::WorldHashParts a = simulate(0xC0FFEEu);
+    const fake2d::WorldHashParts b = simulate(0xC0FFEEu);
+    check(a.rng == b.rng, "same seed: rng hash matches");
+    check(a.physics == b.physics, "same seed: physics hash matches");
+    check(a.entities == b.entities, "same seed: entities hash matches");
+    check(a.camera == b.camera, "same seed: camera hash matches");
+    check(a.combined == b.combined && a.combined != 0,
+          "same seed: combined world hash matches and is non-zero");
+
+    const fake2d::WorldHashParts c = simulate(0xC0FFEEu + 1);
+    check(c.combined != a.combined, "different seed: combined hash diverges");
+    check(c.rng != a.rng, "different seed: rng hash diverges");
+
+    // Mid-run divergence: same seed until a forced RNG advance then continue.
+    {
+        fake2d::Random r1(42);
+        fake2d::Random r2(42);
+        for (int i = 0; i < 16; ++i) {
+            (void)r1.Uint64();
+            (void)r2.Uint64();
+        }
+        check(fake2d::HashRng(r1) == fake2d::HashRng(r2),
+              "paired streams stay identical before diverge");
+        (void)r1.Uint64(); // desync
+        check(fake2d::HashRng(r1) != fake2d::HashRng(r2),
+              "extra draw desynchronises rng hash");
+    }
+
+    // EngineConfig pin: Init seeds GetRandom when pin_rng is set.
+    {
+        const std::uint64_t pinned = 0xDEADBEEF42ull;
+        const std::uint64_t before = engine.GetRandom().State();
+        engine.GetRandom().Seed(pinned);
+        check(engine.GetRandom().State() == pinned, "manual Seed pins state");
+        const auto parts = engine.WorldHash();
+        check(parts.rng == fake2d::HashRng(engine.GetRandom()),
+              "Engine::WorldHash rng part matches HashRng");
+        check(parts.combined == fake2d::ComputeWorldHash(engine).combined,
+              "Engine::WorldHash matches free ComputeWorldHash");
+        // Restore whatever Init left so later host tests are unaffected.
+        engine.GetRandom().Seed(before);
+    }
+
+    // Physics At() enumerates in slot order and survives a destroy+create.
+    {
+        fake2d::PhysicsWorld w;
+        fake2d::BodyConfig cfg;
+        cfg.type = fake2d::BodyType::Dynamic;
+        cfg.position = {10.0f, 20.0f};
+        cfg.half_extents = {4.0f, 4.0f};
+        const auto a_id = w.CreateBody(cfg);
+        cfg.position = {30.0f, 40.0f};
+        const auto b_id = w.CreateBody(cfg);
+        check(w.BodyCount() == 2, "two bodies alive");
+        check(w.At(0) == a_id && w.At(1) == b_id, "At enumerates creation slots");
+        w.DestroyBody(a_id);
+        check(w.BodyCount() == 1 && w.At(0) == b_id, "At skips destroyed slot");
+        check(w.At(1) == fake2d::kInvalidBody, "At out of range is invalid");
+        const auto h1 = fake2d::HashPhysics(w);
+        // Recreate a body in the freed slot — hash must still be computable.
+        cfg.position = {50.0f, 60.0f};
+        (void)w.CreateBody(cfg);
+        const auto h2 = fake2d::HashPhysics(w);
+        check(h1 != h2 && h2 != 0, "physics hash changes when bodies change");
+    }
+
+    std::printf("[determinism] %s: %d checks, %d failures\n",
                 failures == 0 ? "PASS" : "FAILED", checks, failures);
     return failures == 0 ? 0 : 1;
 }
@@ -11003,6 +11148,7 @@ int main(int argc, char **argv) {
     bool light_bench = false;
     bool skeleton_test = false;
     bool replay_test = false;
+    bool determinism_test = false;
     bool audio_test = false;
     bool combat_test = false;
     bool beat_demo = false;
@@ -11327,6 +11473,17 @@ int main(int argc, char **argv) {
             cfg.headless = true;
             cfg.script_entry.clear();
             cfg.vsync = false;
+        } else if (arg == "--determinism-test") {
+            // Headless gate: two seeded sessions must produce matching world hashes.
+            determinism_test = true;
+            cfg.headless = true;
+            cfg.script_entry.clear();
+            cfg.vsync = false;
+        } else if (arg == "--rng-seed" && i + 1 < argc) {
+            // Pin Engine::GetRandom() at Init for reproducible runs / replays.
+            cfg.pin_rng = true;
+            cfg.rng_seed = static_cast<std::uint64_t>(
+                std::strtoull(argv[++i], nullptr, 0));
         } else if (arg == "--fixed-hz" && i + 1 < argc) {
             // Physics rate; 0 (or --variable-step) restores variable stepping.
             const int hz = std::atoi(argv[++i]);
@@ -11400,6 +11557,9 @@ int main(int argc, char **argv) {
     }
     if (replay_test) {
         return RunReplayTest(engine);
+    }
+    if (determinism_test) {
+        return RunDeterminismTest(engine);
     }
     if (gameplay_test) {
         return RunGameplayTest(engine);

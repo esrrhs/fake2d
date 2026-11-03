@@ -7,7 +7,7 @@
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-brightgreen.svg)](https://en.cppreference.com/w/cpp/23)
 [![OpenGL](https://img.shields.io/badge/OpenGL-3.3%20Core%20%7C%202.1-orange.svg)](https://www.opengl.org/)
 [![FakeLua](https://img.shields.io/badge/Script-FakeLua-red.svg)](https://github.com/esrrhs/fakelua)
-[![Version](https://img.shields.io/badge/version-1.45.0-informational.svg)](include/fake2d/version.h)
+[![Version](https://img.shields.io/badge/version-1.46.0-informational.svg)](include/fake2d/version.h)
 
 **Fake2D** is a modern, lightweight, high-performance 2D game engine powered by [FakeLua](https://github.com/esrrhs/fakelua):
 - **C++23 Host Engine**: Controls window management, GPU rendering pipelines, 2D physics, multi-bus audio mixing, and native resource lifecycles;
@@ -328,6 +328,9 @@ xvfb-run ./build/bin/fake2d_hello --headless --ai --contra-demo --frames 2500
 ./build/bin/fake2d_hello --headless --ai --mario-demo --frames 120 --record /tmp/mario.f2ir
 ./build/bin/fake2d_hello --headless --mario-demo --frames 120 --replay /tmp/mario.f2ir
 ./build/bin/fake2d_hello --replay-test
+# Pin RNG + assert matching world hashes across two seeded sessions (Phase 53)
+./build/bin/fake2d_hello --determinism-test
+./build/bin/fake2d_hello --headless --frames 60 --rng-seed 42
 
 # Run the 29 built-in engine self-test suites (verified via exit codes)
 xvfb-run ./build/bin/fake2d_hello --phys-query-test    # Ray casts, overlaps, contact lifecycle
@@ -350,6 +353,7 @@ xvfb-run ./build/bin/fake2d_hello --audio-test         # Mixer buses, envelopes,
 xvfb-run ./build/bin/fake2d_hello --font-test          # UTF-8/CJK glyph atlas, wrapping, rotation, shrink
 xvfb-run ./build/bin/fake2d_hello --platform-test      # i18n packs, user paths, save v2, Steam stub, UI text
 xvfb-run ./build/bin/fake2d_hello --gameplay-test      # RNG, easing, entity snapshots, actions, window
+xvfb-run ./build/bin/fake2d_hello --determinism-test   # Seeded world-hash identity (Phase 53)
 xvfb-run ./build/bin/fake2d_hello --combat-test        # Time scale, hit-stop, 16-slot actors, clip pool
 xvfb-run ./build/bin/fake2d_hello --shmup-test         # Shooter sprite sheets, nearest filtering, missing files
 xvfb-run ./build/bin/fake2d_hello --snooker-test       # Shaded ball sprite, alpha/shading probes, loader rejection
