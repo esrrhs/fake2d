@@ -6878,6 +6878,203 @@ int RunSkeletonTest(fake2d::Engine &engine) {
     sk.RemoveAsset(soldier);
     check(sk.InstanceCount() == 0, "releasing a rig releases its instances");
 
+    // --- Phase 49: soft-skinned mesh deformation ----------------------------
+    // A tiny two-bone chain with one weighted quad: verts 0/1 split 50/50
+    // between root and arm, verts 2/3 locked to the arm tip. At the setup pose
+    // the skinned points match the authored bind; rotating the arm 90° moves a
+    // half-weighted vertex halfway between its two bone images.
+    {
+        fake2d::SkeletonSystem::Asset mesh_rig;
+        using Bone = fake2d::SkeletonSystem::Bone;
+        using Att = fake2d::SkeletonSystem::Attachment;
+        using Infl = fake2d::SkeletonSystem::MeshInfluence;
+        Bone root; root.name = "root";
+        Bone arm; arm.name = "arm"; arm.parent = 0; arm.position = {40.0f, 0.0f};
+        arm.length = 40.0f;
+        mesh_rig.bones = {root, arm};
+
+        Att mesh;
+        mesh.name = "cloth";
+        mesh.kind = fake2d::SkeletonSystem::AttachmentKind::Mesh;
+        mesh.src = {0.0f, 0.0f, 32.0f, 32.0f};
+        mesh.uvs = {0, 0, 1, 0, 1, 1, 0, 1};
+        mesh.triangles = {0, 1, 2, 0, 2, 3};
+        mesh.hull = 4;
+        // v0: 50/50 root@(0,0) and arm@(0,0); v1: 50/50 root@(0,20) arm@(0,20);
+        // v2: arm@(20,20); v3: arm@(20,0)
+        mesh.influences = {
+            Infl{0, 0.0f, 0.0f, 0.5f}, Infl{1, 0.0f, 0.0f, 0.5f},
+            Infl{0, 0.0f, 20.0f, 0.5f}, Infl{1, 0.0f, 20.0f, 0.5f},
+            Infl{1, 20.0f, 20.0f, 1.0f},
+            Infl{1, 20.0f, 0.0f, 1.0f},
+        };
+        mesh.weight_first = {0, 2, 4, 5};
+        mesh.weight_count = {2, 2, 1, 1};
+        mesh.bind_xy = {0, 0, 0, 20, 20, 20, 20, 0};
+        mesh.deform_floats = 12;
+        mesh_rig.attachments.push_back(mesh);
+
+        fake2d::SkeletonSystem::Slot slot;
+        slot.name = "cloth_slot";
+        slot.bone = 0;
+        slot.first_attachment = 0;
+        slot.attachment_count = 1;
+        mesh_rig.slots.push_back(slot);
+
+        fake2d::SkeletonSystem::Clip wave;
+        wave.name = "wave";
+        wave.loop = true;
+        wave.duration = 1.0f;
+        fake2d::SkeletonSystem::DeformTrack dt;
+        dt.slot = 0;
+        dt.attachment = 0;
+        dt.absolute = false;
+        // 12 floats (6 influences * xy). Push the tip verts at mid.
+        fake2d::SkeletonSystem::DeformKey k0;
+        k0.time = 0.0f;
+        k0.values.assign(12, 0.0f);
+        fake2d::SkeletonSystem::DeformKey k1;
+        k1.time = 0.5f;
+        k1.values.assign(12, 0.0f);
+        k1.values[8] = 0.0f;   // tip influence (index 4) dx
+        k1.values[9] = 10.0f;  // dy
+        k1.values[10] = 0.0f;
+        k1.values[11] = 10.0f;
+        fake2d::SkeletonSystem::DeformKey k2;
+        k2.time = 1.0f;
+        k2.values.assign(12, 0.0f);
+        dt.keys = {k0, k1, k2};
+        wave.deforms.push_back(dt);
+        // Also rotate the arm so deform mixes with bone tracks.
+        fake2d::SkeletonSystem::TrackData rot;
+        rot.bone = 1;
+        rot.kind = fake2d::SkeletonSystem::Track::Rotate;
+        rot.keys = {{0.0f, 0.0f, false}, {1.0f, 0.0f, false}};
+        wave.tracks.push_back(rot);
+        mesh_rig.clips.push_back(wave);
+
+        const int mesh_asset = sk.AddAsset(std::move(mesh_rig));
+        check(mesh_asset > 0, "a weighted mesh rig builds in code");
+        const int mid = sk.Create(mesh_asset);
+        check(mid > 0 && sk.AttachmentIsMesh(mid, 0), "the attachment is a mesh");
+        check(sk.MeshVertexCount(mid, 0) == 4 && sk.MeshTriangleCount(mid, 0) == 2,
+              "mesh reports vertex and triangle counts");
+        check(sk.MeshWeightCount(mid, 0, 0) == 2 && sk.MeshWeightCount(mid, 0, 2) == 1,
+              "weight counts match the authored influences");
+        int bone = -1;
+        float w = 0.0f;
+        check(sk.MeshWeight(mid, 0, 0, 0, bone, w) && bone == 0 && near(w, 0.5f),
+              "first influence of v0 is root at half weight");
+        check(sk.MeshWeight(mid, 0, 0, 1, bone, w) && bone == 1 && near(w, 0.5f),
+              "second influence of v0 is arm at half weight");
+
+        // Bind-pose identity: at setup, skinned v0 is at the origin (both bones
+        // map their local (0,0) there once the arm sits at (40,0) — wait: arm
+        // world origin is (40,0), so arm.Map({0,0}) = (40,0). Half of root(0,0)
+        // and arm(40,0) = (20,0).
+        fake2d::Vec2 p{};
+        check(sk.MeshVertexWorld(mid, 0, 0, p) && near(p.x, 20.0f) && near(p.y, 0.0f),
+              "bind-pose identity: half-weighted v0 sits between root and arm");
+        check(sk.MeshVertexWorld(mid, 0, 2, p) && near(p.x, 60.0f) && near(p.y, 20.0f),
+              "bind-pose identity: tip-locked v2 follows the arm tip");
+
+        // Known-weight lerp under a 90° bone: rotate arm so its +x points up.
+        // arm.Map({0,0}) stays (40,0); arm.Map({20,0}) becomes (40,-20) after
+        // +90° (y-down: +90° turns +x toward +y... FromTRS uses cos/sin of deg
+        // with standard math, y grows down in screen space but the matrix is
+        // still standard: +90° maps (20,0) -> (0,20)).
+        check(sk.SetBone(mid, 1, 40.0f, 0.0f, 90.0f, 1.0f, 1.0f),
+              "arm rotates to 90 degrees for the weight lerp");
+        check(sk.MeshVertexWorld(mid, 0, 0, p) && near(p.x, 20.0f) && near(p.y, 0.0f),
+              "90°: v0 still averages root(0,0) and arm origin(40,0)");
+        // v3 was arm-local (20,0); after +90° -> (40,20) in world.
+        check(sk.MeshVertexWorld(mid, 0, 3, p) && near(p.x, 40.0f) && near(p.y, 20.0f),
+              "90°: tip-locked v3 lerps with the rotated bone");
+
+        // Deform keys at t=0 / mid / end.
+        sk.ResetPose(mid);
+        check(sk.PlayIndex(mid, 1, 0.0f), "the deform clip starts");
+        check(sk.SampleDeformAt(mid, 0, 0.0f), "deform samples at t=0");
+        check(sk.MeshVertexWorld(mid, 0, 2, p) && near(p.y, 20.0f),
+              "deform t=0 leaves the tip vertex on its bind");
+        check(sk.SampleDeformAt(mid, 0, 0.5f), "deform samples at mid");
+        check(sk.MeshVertexWorld(mid, 0, 2, p) && near(p.y, 30.0f),
+              "deform mid pushes the tip vertex by the keyed delta");
+        check(sk.SampleDeformAt(mid, 0, 1.0f), "deform samples at end");
+        check(sk.MeshVertexWorld(mid, 0, 2, p) && near(p.y, 20.0f),
+              "deform end returns to the bind delta");
+
+        sk.Destroy(mid);
+        sk.RemoveAsset(mesh_asset);
+    }
+
+    // JSON soft-skin load + malformed rejection.
+    {
+        std::string err;
+        const int soft =
+            sk.LoadAsset(engine.GetResources(), "assets/skeleton/softskin.json", &err);
+        check(soft > 0, "softskin.json loads: " + err);
+        const int flag = sk.Create(soft);
+        check(flag > 0 && sk.AttachmentIsMesh(flag, 1),
+              "the flag slot's attachment is a mesh");
+        check(sk.Play(flag, "wave", 0.0f), "the wave clip with deform plays");
+        sk.SetTime(flag, 0.5f);
+        check(sk.MeshVertexCount(flag, 1) == 4, "softskin mesh has four verts");
+        sk.Destroy(flag);
+        sk.RemoveAsset(soft);
+
+        // Malformed: bad bone index in weights.
+        {
+            const char *bad_path = "assets/skeleton/_bad_weight.json";
+            std::ofstream out(bad_path);
+            out << R"({
+  "skeleton":{"texture":"softskin.png"},
+  "bones":[{"name":"root"}],
+  "regions":[{"name":"r","x":0,"y":0,"w":8,"h":8}],
+  "attachments":[{
+    "name":"m","type":"mesh","region":"r",
+    "uvs":[0,0,1,0,1,1],
+    "triangles":[0,1,2],
+    "vertices":[1, 9, 0, 0, 1.0, 1, 0, 0, 0, 1.0, 1, 0, 0, 0, 1.0]
+  }],
+  "slots":[{"name":"s","bone":"root","attachment":"m"}],
+  "animations":{}
+})";
+            out.close();
+            std::string why;
+            const int bad = sk.LoadAsset(engine.GetResources(), bad_path, &why);
+            check(bad == 0, "malformed weight bone index is rejected");
+            check(why.find("attachment") != std::string::npos ||
+                      why.find("mesh") != std::string::npos,
+                  "the rejection names the offending attachment: " + why);
+        }
+        {
+            const char *bad_path = "assets/skeleton/_bad_index.json";
+            std::ofstream out(bad_path);
+            out << R"({
+  "skeleton":{"texture":"softskin.png"},
+  "bones":[{"name":"root"}],
+  "regions":[{"name":"r","x":0,"y":0,"w":8,"h":8}],
+  "attachments":[{
+    "name":"m","type":"mesh","region":"r",
+    "uvs":[0,0,1,0,1,1],
+    "triangles":[0,1,9],
+    "vertices":[0,0, 8,0, 8,8]
+  }],
+  "slots":[{"name":"s","bone":"root","attachment":"m"}],
+  "animations":{}
+})";
+            out.close();
+            std::string why;
+            const int bad = sk.LoadAsset(engine.GetResources(), bad_path, &why);
+            check(bad == 0, "malformed triangle index is rejected");
+            check(why.find("'m'") != std::string::npos ||
+                      why.find("attachment 'm'") != std::string::npos ||
+                      why.find("mesh attachment 'm'") != std::string::npos,
+                  "triangle rejection names attachment 'm': " + why);
+        }
+    }
+
     std::printf("[skeleton] %s: %d checks, %d failures\n",
                 failures == 0 ? "PASS" : "FAILED", checks, failures);
     return failures == 0 ? 0 : 1;
