@@ -91,6 +91,8 @@ public:
     bool Init(const EngineConfig &config);
 
     /// Run until the window closes or max_frames is reached (0 = run indefinitely).
+    /// Returns 1 if any script update() threw (the loop still finishes so
+    /// headless frame budgets and screenshots can complete).
     int Run(int max_frames = 0);
 
     void Shutdown();

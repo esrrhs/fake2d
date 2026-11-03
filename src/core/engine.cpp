@@ -52,6 +52,9 @@ struct Engine::Impl {
     float interp_alpha = 1.0f;
     /// Demo the launcher asked to start next; consumed by the host entry point.
     std::string pending_relaunch;
+    /// Set when script update() throws; Run() still finishes the frame budget
+    /// (headless screenshots need that) but returns non-zero afterward.
+    bool update_failed = false;
 };
 
 Engine::Engine() : impl_(std::make_unique<Impl>()) {}
@@ -244,7 +247,11 @@ int Engine::Run(int max_frames) {
         impl_->renderer.BeginFrame(r, 0.10f, 0.14f);
 
         // Script update then arena reset — FakeLua per-frame contract.
-        impl_->script.CallUpdate(impl_->delta_time);
+        // Keep looping after a failure so --frames N / screenshots still run;
+        // remember it so Run() exits non-zero once the budget ends.
+        if (!impl_->script.CallUpdate(impl_->delta_time)) {
+            impl_->update_failed = true;
+        }
         impl_->script.ResetFrame();
 
         if (impl_->config.hot_reload) {
@@ -261,7 +268,7 @@ int Engine::Run(int max_frames) {
     }
 
     Shutdown();
-    return 0;
+    return impl_->update_failed ? 1 : 0;
 }
 
 double Engine::PhysicsDt() const {

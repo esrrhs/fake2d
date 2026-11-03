@@ -36,7 +36,8 @@ bool ScriptHost::PollHotReload() {
 
 bool ScriptHost::CallUpdate(double dt) {
     (void)dt;
-    return false;
+    // No FakeLua build: nothing to run, nothing failed.
+    return true;
 }
 
 void ScriptHost::ResetFrame() {}

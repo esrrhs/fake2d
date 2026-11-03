@@ -158,8 +158,10 @@ bool ScriptHost::PollHotReload() {
 }
 
 bool ScriptHost::CallUpdate(double dt) {
+    // No compiled entry is a no-op success: C++ self-tests and window-only
+    // hosts call Run() without a script, and false here means "update failed".
     if (!impl_->state || !impl_->script_ready) {
-        return false;
+        return true;
     }
     try {
         int code = 0;
