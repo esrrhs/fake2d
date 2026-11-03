@@ -11,6 +11,7 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iterator>
 #include <map>
 #include <utility>
@@ -711,58 +712,119 @@ int SkeletonSystem::LoadAsset(ResourceManager &resources, const std::string &jso
         }
     }
 
-    // Resolve linkedmesh copies — parent may live in the same skin, another
-    // skin (via optional "skin" field), or the flat attachments list.
+    // Resolve linkedmesh copies via a DFS over the parent graph. Parents may
+    // live in the same skin, another skin (optional "skin" field), or the flat
+    // list; a parent may itself be a linkedmesh (chain). Cycles are rejected
+    // with an error that names the loop (e.g. 'a' -> 'b' -> 'a').
     auto mesh_ready = [&](int idx) -> bool {
         return idx >= 0 && static_cast<size_t>(idx) < asset.attachments.size() &&
                asset.attachments[static_cast<size_t>(idx)].IsMesh() &&
                !asset.attachments[static_cast<size_t>(idx)].uvs.empty();
     };
-    auto find_mesh_parent = [&](const PendingLink &link) -> int {
+    std::map<size_t, const PendingLink *> link_by_index;
+    for (const PendingLink &link : pending_links) {
+        link_by_index[link.index] = &link;
+    }
+    // Accept a ready mesh *or* another pending linkedmesh so chains resolve
+    // regardless of declaration order.
+    auto usable_parent = [&](int idx) -> bool {
+        return mesh_ready(idx) ||
+               (idx >= 0 && link_by_index.count(static_cast<size_t>(idx)) > 0);
+    };
+    auto find_parent_index = [&](const PendingLink &link) -> int {
         if (!link.parent_skin.empty()) {
             const auto sit = skin_att_index.find(link.parent_skin);
             if (sit != skin_att_index.end()) {
                 const auto ait = sit->second.find(link.parent);
-                if (ait != sit->second.end() && mesh_ready(ait->second)) {
+                if (ait != sit->second.end() && usable_parent(ait->second)) {
                     return ait->second;
                 }
             }
-            // Explicit skin miss: only a *flat* top-level mesh of that name
+            // Explicit skin miss: only a *flat* top-level mesh/link of that name
             // may satisfy the link (not an attachment nested under another skin).
             for (size_t i = 0; i < top_level_attachment_count; ++i) {
                 if (asset.attachments[i].name == link.parent &&
-                    mesh_ready(static_cast<int>(i))) {
+                    usable_parent(static_cast<int>(i))) {
                     return static_cast<int>(i);
                 }
             }
             return -1;
         }
-        // No skin qualifier: prefer a skin-nested mesh, then the flat list.
+        // No skin qualifier: prefer a skin-nested mesh/link, then the flat list.
         for (const auto &kv : skin_att_index) {
             const auto ait = kv.second.find(link.parent);
-            if (ait != kv.second.end() && mesh_ready(ait->second)) {
+            if (ait != kv.second.end() && usable_parent(ait->second)) {
                 return ait->second;
             }
         }
         for (size_t i = 0; i < asset.attachments.size(); ++i) {
             if (asset.attachments[i].name == link.parent &&
-                mesh_ready(static_cast<int>(i))) {
+                usable_parent(static_cast<int>(i))) {
                 return static_cast<int>(i);
             }
         }
         return -1;
     };
-    for (const PendingLink &link : pending_links) {
-        const int src = find_mesh_parent(link);
-        if (src < 0 || !asset.attachments[static_cast<size_t>(src)].IsMesh() ||
-            asset.attachments[static_cast<size_t>(src)].uvs.empty()) {
-            return fail("linkedmesh attachment '" + link.name +
-                        "' references unknown mesh '" + link.parent + "'" +
-                        (link.parent_skin.empty()
-                             ? ""
-                             : (" in skin '" + link.parent_skin + "'")));
+    enum class LinkVisit : std::uint8_t { Unvisited, Visiting, Done };
+    std::vector<LinkVisit> link_visit(asset.attachments.size(), LinkVisit::Unvisited);
+    std::vector<std::string> link_stack;
+    std::string link_why;
+    std::function<bool(size_t)> resolve_link;
+    resolve_link = [&](size_t idx) -> bool {
+        const auto lit = link_by_index.find(idx);
+        if (lit == link_by_index.end()) {
+            return mesh_ready(static_cast<int>(idx));
         }
-        Attachment &dst = asset.attachments[link.index];
+        if (link_visit[idx] == LinkVisit::Done) {
+            return mesh_ready(static_cast<int>(idx));
+        }
+        if (link_visit[idx] == LinkVisit::Visiting) {
+            const std::string &cyc = lit->second->name;
+            std::string path;
+            bool started = false;
+            for (const std::string &n : link_stack) {
+                if (n == cyc) {
+                    started = true;
+                }
+                if (started) {
+                    if (!path.empty()) {
+                        path += " -> ";
+                    }
+                    path += "'" + n + "'";
+                }
+            }
+            if (!path.empty()) {
+                path += " -> ";
+            }
+            path += "'" + cyc + "'";
+            link_why = "linkedmesh cycle: " + path;
+            return false;
+        }
+        link_visit[idx] = LinkVisit::Visiting;
+        const PendingLink &link = *lit->second;
+        link_stack.push_back(link.name);
+        const int src = find_parent_index(link);
+        if (src < 0) {
+            link_why = "linkedmesh attachment '" + link.name +
+                       "' references unknown mesh '" + link.parent + "'" +
+                       (link.parent_skin.empty()
+                            ? ""
+                            : (" in skin '" + link.parent_skin + "'"));
+            return false;
+        }
+        if (link_by_index.count(static_cast<size_t>(src)) > 0) {
+            if (!resolve_link(static_cast<size_t>(src))) {
+                return false;
+            }
+        } else if (!mesh_ready(src)) {
+            link_why = "linkedmesh attachment '" + link.name +
+                       "' references unknown mesh '" + link.parent + "'" +
+                       (link.parent_skin.empty()
+                            ? ""
+                            : (" in skin '" + link.parent_skin + "'"));
+            return false;
+        }
+        Attachment &dst = asset.attachments[idx];
         const Attachment &parent = asset.attachments[static_cast<size_t>(src)];
         const std::string keep_name = dst.name;
         const Vec2 keep_off = dst.offset;
@@ -771,6 +833,14 @@ int SkeletonSystem::LoadAsset(ResourceManager &resources, const std::string &jso
         dst.name = keep_name;
         dst.offset = keep_off;
         dst.rotation = keep_rot;
+        link_visit[idx] = LinkVisit::Done;
+        link_stack.pop_back();
+        return true;
+    };
+    for (const PendingLink &link : pending_links) {
+        if (!resolve_link(link.index)) {
+            return fail(link_why);
+        }
     }
     auto attachment_of = [&](const std::string &name) {
         return IndexOfName(asset.attachments, name);
@@ -2142,6 +2212,86 @@ bool SkeletonSystem::SampleDeformAt(int id, int attachment, float time) {
         }
     }
     return hit;
+}
+
+int SkeletonSystem::MeshHullCount(int id, int attachment) const {
+    if (!Has(id)) {
+        return 0;
+    }
+    const Instance &inst = instances_[static_cast<size_t>(id) - 1];
+    const Attachment *att = AttachmentAt(inst, attachment);
+    if (att == nullptr || !att->IsMesh()) {
+        return 0;
+    }
+    const int verts = att->VertexCount();
+    if (att->hull > 0 && att->hull <= verts) {
+        return att->hull;
+    }
+    return verts;
+}
+
+bool SkeletonSystem::MeshHullVertex(int id, int attachment, int hi, Vec2 &out) const {
+    const int n = MeshHullCount(id, attachment);
+    if (hi < 0 || hi >= n) {
+        return false;
+    }
+    return MeshVertexWorld(id, attachment, hi, out);
+}
+
+int SkeletonSystem::MeshHullWorld(int id, int attachment, const Vec2 &position,
+                                  float scale, float facing, Vec2 *out,
+                                  int max_out) const {
+    if (out == nullptr || max_out <= 0 || !Has(id)) {
+        return 0;
+    }
+    const int n = MeshHullCount(id, attachment);
+    if (n <= 0) {
+        return 0;
+    }
+    const Instance &inst = instances_[static_cast<size_t>(id) - 1];
+    const Attachment *att = AttachmentAt(inst, attachment);
+    if (att == nullptr) {
+        return 0;
+    }
+    Affine2 root;
+    root.a = scale * (facing < 0.0f ? -1.0f : 1.0f);
+    root.d = scale;
+    root.tx = position.x;
+    root.ty = position.y;
+    const int write = std::min(n, max_out);
+    for (int i = 0; i < write; ++i) {
+        out[i] = root.Map(SkinVertex(inst, *att, i));
+    }
+    return write;
+}
+
+bool SkeletonSystem::BoundsWorld(int id, const Vec2 &position, float scale,
+                                 float facing, Rect &out) const {
+    Rect local{};
+    if (!Bounds(id, local)) {
+        return false;
+    }
+    Affine2 root;
+    root.a = scale * (facing < 0.0f ? -1.0f : 1.0f);
+    root.d = scale;
+    root.tx = position.x;
+    root.ty = position.y;
+    const Vec2 corners[4] = {
+        root.Map({local.x, local.y}),
+        root.Map({local.x + local.width, local.y}),
+        root.Map({local.x + local.width, local.y + local.height}),
+        root.Map({local.x, local.y + local.height}),
+    };
+    float min_x = corners[0].x, max_x = corners[0].x;
+    float min_y = corners[0].y, max_y = corners[0].y;
+    for (int i = 1; i < 4; ++i) {
+        min_x = std::min(min_x, corners[i].x);
+        max_x = std::max(max_x, corners[i].x);
+        min_y = std::min(min_y, corners[i].y);
+        max_y = std::max(max_y, corners[i].y);
+    }
+    out = {min_x, min_y, max_x - min_x, max_y - min_y};
+    return true;
 }
 
 // ---------------------------------------------------------------------------

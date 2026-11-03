@@ -1,0 +1,21 @@
+{
+  "skeleton":{"texture":"softskin.png"},
+  "regions":[{"name":"cloth","x":8,"y":8,"w":48,"h":48}],
+  "bones":[{"name":"root"}],
+  "attachments":[
+    {
+      "name":"base",
+      "type":"mesh",
+      "region":"cloth",
+      "hull":4,
+      "uvs":[0,0, 1,0, 1,1, 0,1],
+      "triangles":[0,1,2, 0,2,3],
+      "vertices":[0,-8, 16,-8, 16,8, 0,8]
+    },
+    {"name":"mid","type":"linkedmesh","parent":"base"},
+    {"name":"tip","type":"linkedmesh","parent":"mid"}
+  ],
+  "slots":[{"name":"s","bone":"root","attachment":"tip"}],
+  "skins":{},
+  "animations":{}
+}

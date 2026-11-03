@@ -384,6 +384,20 @@ public:
     /// no deform track targets it.
     bool SampleDeformAt(int id, int attachment, float time);
 
+    /// Hull vertex count for a mesh attachment: the authored `hull` when > 0,
+    /// otherwise every skinned vertex. 0 for regions / bad ids. Used to feed
+    /// light occluders from soft-skin silhouettes.
+    [[nodiscard]] int MeshHullCount(int id, int attachment) const;
+    /// Instance-local skinned position of hull vertex `hi`.
+    bool MeshHullVertex(int id, int attachment, int hi, Vec2 &out) const;
+    /// Hull verts in the same world space `Draw` uses (root at `position` with
+    /// `scale`/`facing`). Writes up to `max_out` points; returns how many.
+    int MeshHullWorld(int id, int attachment, const Vec2 &position, float scale,
+                      float facing, Vec2 *out, int max_out) const;
+    /// World-space AABB under the same root as Draw (Bounds composed with root).
+    bool BoundsWorld(int id, const Vec2 &position, float scale, float facing,
+                     Rect &out) const;
+
     // --- IK ------------------------------------------------------------------
     /// Two-bone analytic solver: aims root->mid->tip at `target` in world space
     /// and leaves `tip` pointing along the last segment. `bend` picks the
