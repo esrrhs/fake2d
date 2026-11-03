@@ -154,8 +154,11 @@ void SpriteBatch::Shutdown() {
     sorted_vertices_.clear();
     mesh_vertices_.clear();
     mesh_indices_.clear();
+    deferred_mesh_vertices_.clear();
+    deferred_mesh_indices_.clear();
     line_vertices_.clear();
     commands_.clear();
+    mesh_commands_.clear();
     current_quads_ = 0;
     current_mesh_verts_ = 0;
     current_mesh_indices_ = 0;
@@ -176,6 +179,9 @@ void SpriteBatch::Begin(const Mat4 &view_projection, Shader *shader) {
     current_texture_id_ = 0;
     mesh_texture_id_ = 0;
     commands_.clear();
+    mesh_commands_.clear();
+    deferred_mesh_vertices_.clear();
+    deferred_mesh_indices_.clear();
     next_sequence_ = 0;
     current_layer_ = 0;
     current_z_ = 0.0f;
@@ -248,12 +254,16 @@ void SpriteBatch::ApplyBlend(BlendMode mode) {
 }
 
 void SpriteBatch::Flush() {
-    if (current_quads_ > 0) {
-        if (sorted_) {
+    if (sorted_) {
+        // Quads and deferred meshes share one sort; always run when either is pending.
+        if (current_quads_ > 0 || !mesh_commands_.empty()) {
             FlushSorted();
-        } else {
-            FlushImmediate();
         }
+        FlushMesh();  // immediate stream should be empty in sorted mode
+        return;
+    }
+    if (current_quads_ > 0) {
+        FlushImmediate();
     }
     FlushMesh();
 }
@@ -312,88 +322,217 @@ void SpriteBatch::FlushImmediate() {
 }
 
 void SpriteBatch::FlushSorted() {
-    if (current_quads_ == 0 || commands_.empty() ||
-        (!glcaps::legacy_mode && !vao_) || !current_shader_) {
+    if ((!glcaps::legacy_mode && !vao_) || !current_shader_) {
         current_quads_ = 0;
+        commands_.clear();
+        mesh_commands_.clear();
+        deferred_mesh_vertices_.clear();
+        deferred_mesh_indices_.clear();
+        return;
+    }
+    if (current_quads_ == 0 && mesh_commands_.empty()) {
         return;
     }
 
-    // Multi-key order: layer -> z -> blend mode -> texture. Stable sort keeps
-    // submission sequence inside every fully-equal bucket, which preserves
-    // overlap order for quads sharing one texture.
-    std::stable_sort(commands_.begin(), commands_.end(), [](const Command &a, const Command &b) {
+    // Build a unified list so soft-skin triangles sort with quads by the same
+    // multi-key order: layer -> z -> blend -> texture -> sequence.
+    std::vector<SortItem> items;
+    items.reserve(commands_.size() + mesh_commands_.size());
+    for (size_t i = 0; i < commands_.size(); ++i) {
+        const Command &c = commands_[i];
+        SortItem it;
+        it.kind = SortItem::Kind::Quad;
+        it.index = i;
+        it.texture_id = c.texture_id;
+        it.sequence = c.sequence;
+        it.layer = c.layer;
+        it.z = c.z;
+        it.blend = c.blend;
+        items.push_back(it);
+    }
+    for (size_t i = 0; i < mesh_commands_.size(); ++i) {
+        const MeshCommand &c = mesh_commands_[i];
+        SortItem it;
+        it.kind = SortItem::Kind::Mesh;
+        it.index = i;
+        it.texture_id = c.texture_id;
+        it.sequence = c.sequence;
+        it.layer = c.layer;
+        it.z = c.z;
+        it.blend = c.blend;
+        items.push_back(it);
+    }
+    std::stable_sort(items.begin(), items.end(), [](const SortItem &a, const SortItem &b) {
         if (a.layer != b.layer) return a.layer < b.layer;
         if (a.z != b.z) return a.z < b.z;
-        if (a.blend != b.blend) return static_cast<std::uint8_t>(a.blend) < static_cast<std::uint8_t>(b.blend);
+        if (a.blend != b.blend)
+            return static_cast<std::uint8_t>(a.blend) < static_cast<std::uint8_t>(b.blend);
         if (a.texture_id != b.texture_id) return a.texture_id < b.texture_id;
         return a.sequence < b.sequence;
     });
 
-    // Compact the referenced quads into submission order; each contiguous
-    // (blend, texture) run becomes one instanced range of the static IBO.
-    for (size_t i = 0; i < commands_.size(); ++i) {
-        const Vertex2D *src = &vertices_[commands_[i].vertex_offset];
-        for (int k = 0; k < 4; ++k) {
-            sorted_vertices_[i * 4 + k] = src[k];
+    // Compact referenced quads into sorted_vertices_ in the order they appear
+    // inside the unified list (only quad items). Mesh draws interrupt runs.
+    size_t packed_quads = 0;
+    std::vector<size_t> quad_pack_index(commands_.size(), static_cast<size_t>(-1));
+    for (const SortItem &it : items) {
+        if (it.kind != SortItem::Kind::Quad) {
+            continue;
         }
+        const Command &c = commands_[it.index];
+        const Vertex2D *src = &vertices_[c.vertex_offset];
+        for (int k = 0; k < 4; ++k) {
+            sorted_vertices_[packed_quads * 4 + static_cast<size_t>(k)] = src[k];
+        }
+        quad_pack_index[it.index] = packed_quads;
+        ++packed_quads;
     }
 
     current_shader_->Bind();
     current_shader_->SetMat4("u_view_projection", current_view_projection_);
-
     glActiveTexture(GL_TEXTURE0);
-    glBindVertexArray(vao_);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo_);
-    glBufferSubData(GL_ARRAY_BUFFER, 0,
-                    static_cast<GLsizeiptr>(commands_.size() * 4 * sizeof(Vertex2D)),
-                    sorted_vertices_.data());
-    if (glcaps::legacy_mode) {
-        ConfigureQuadAttribs();
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo_);
-    }
 
-    size_t run_start = 0;
-    std::uint32_t run_texture = commands_[0].texture_id;
-    BlendMode run_blend = commands_[0].blend;
+    auto upload_quads = [&]() {
+        if (packed_quads == 0) {
+            return;
+        }
+        glBindVertexArray(vao_);
+        glBindBuffer(GL_ARRAY_BUFFER, vbo_);
+        glBufferSubData(GL_ARRAY_BUFFER, 0,
+                        static_cast<GLsizeiptr>(packed_quads * 4 * sizeof(Vertex2D)),
+                        sorted_vertices_.data());
+        if (glcaps::legacy_mode) {
+            ConfigureQuadAttribs();
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo_);
+        }
+    };
+    upload_quads();
+    bool quads_resident = packed_quads > 0;
 
     ApplyClip();
-    const auto draw_run = [&](size_t run_end) {
-        if (run_end == run_start) {
+    size_t run_start_pack = 0;
+    size_t run_count = 0;
+    std::uint32_t run_texture = 0;
+    BlendMode run_blend = BlendMode::Alpha;
+    bool run_open = false;
+
+    // Mesh draws overwrite the shared VBO; re-upload packed quads whenever a
+    // quad run resumes after a mesh.
+    bool quads_on_gpu = quads_resident;
+    const auto flush_quad_run = [&]() {
+        if (!run_open || run_count == 0) {
+            run_open = false;
+            run_count = 0;
             return;
         }
         ApplyBlend(run_blend);
         glBindTexture(GL_TEXTURE_2D, run_texture);
         current_shader_->SetInt("u_texture", 0);
+        glBindVertexArray(vao_);
+        glBindBuffer(GL_ARRAY_BUFFER, vbo_);
+        if (!quads_on_gpu && packed_quads > 0) {
+            glBufferSubData(GL_ARRAY_BUFFER, 0,
+                            static_cast<GLsizeiptr>(packed_quads * 4 * sizeof(Vertex2D)),
+                            sorted_vertices_.data());
+            quads_on_gpu = true;
+        }
+        if (glcaps::legacy_mode) {
+            ConfigureQuadAttribs();
+        }
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo_);
         const auto index_offset = reinterpret_cast<const void *>(
-            static_cast<std::uintptr_t>(run_start * 6 * sizeof(std::uint32_t)));
-        glDrawElements(GL_TRIANGLES,
-                       static_cast<GLsizei>((run_end - run_start) * 6),
-                       GL_UNSIGNED_INT, index_offset);
+            static_cast<std::uintptr_t>(run_start_pack * 6 * sizeof(std::uint32_t)));
+        glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(run_count * 6), GL_UNSIGNED_INT,
+                       index_offset);
         ++draw_call_count_;
+        run_open = false;
+        run_count = 0;
     };
 
-    for (size_t i = 1; i <= commands_.size(); ++i) {
-        const bool boundary = i == commands_.size() ||
-                              commands_[i].texture_id != run_texture ||
-                              commands_[i].blend != run_blend;
-        if (boundary) {
-            draw_run(i);
-            run_start = i;
-            if (i < commands_.size()) {
-                run_texture = commands_[i].texture_id;
-                run_blend = commands_[i].blend;
+    for (const SortItem &it : items) {
+        if (it.kind == SortItem::Kind::Quad) {
+            const size_t pack = quad_pack_index[it.index];
+            if (!run_open) {
+                run_open = true;
+                run_start_pack = pack;
+                run_count = 1;
+                run_texture = it.texture_id;
+                run_blend = it.blend;
+            } else if (it.texture_id == run_texture && it.blend == run_blend &&
+                       pack == run_start_pack + run_count) {
+                ++run_count;
+            } else {
+                flush_quad_run();
+                run_open = true;
+                run_start_pack = pack;
+                run_count = 1;
+                run_texture = it.texture_id;
+                run_blend = it.blend;
             }
+            continue;
         }
+        flush_quad_run();
+        const MeshCommand &mc = mesh_commands_[it.index];
+        DrawMeshRange(mc.texture_id, mc.blend,
+                      deferred_mesh_vertices_.data() + mc.vert_offset, mc.vert_count,
+                      deferred_mesh_indices_.data() + mc.index_offset, mc.index_count);
+        quads_on_gpu = false;  // DrawMeshRange clobbered the VBO
     }
+    flush_quad_run();
     RestoreClip();
 
     glBindVertexArray(0);
     glBindTexture(GL_TEXTURE_2D, 0);
 
-    total_quad_count_ += commands_.size();
+    total_quad_count_ += packed_quads;
     commands_.clear();
+    mesh_commands_.clear();
+    deferred_mesh_vertices_.clear();
+    deferred_mesh_indices_.clear();
     current_quads_ = 0;
     next_sequence_ = 0;
+}
+
+void SpriteBatch::DrawMeshRange(std::uint32_t texture_id, BlendMode blend,
+                                const Vertex2D *verts, size_t vert_count,
+                                const std::uint32_t *indices, size_t index_count) {
+    if (verts == nullptr || indices == nullptr || vert_count == 0 || index_count < 3 ||
+        !mesh_ibo_ || !current_shader_) {
+        return;
+    }
+    // Grow the upload scratch if a single deferred mesh exceeds it.
+    if (vert_count > max_mesh_verts_ || index_count > max_mesh_indices_) {
+        max_mesh_verts_ = std::max(max_mesh_verts_, vert_count);
+        max_mesh_indices_ = std::max(max_mesh_indices_, index_count);
+        mesh_vertices_.resize(max_mesh_verts_);
+        mesh_indices_.resize(max_mesh_indices_);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh_ibo_);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+                     static_cast<GLsizeiptr>(max_mesh_indices_ * sizeof(std::uint32_t)),
+                     nullptr, GL_DYNAMIC_DRAW);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+    }
+    ApplyBlend(blend);
+    current_shader_->Bind();
+    current_shader_->SetMat4("u_view_projection", current_view_projection_);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, texture_id);
+    current_shader_->SetInt("u_texture", 0);
+
+    glBindVertexArray(vao_);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo_);
+    glBufferSubData(GL_ARRAY_BUFFER, 0,
+                    static_cast<GLsizeiptr>(vert_count * sizeof(Vertex2D)), verts);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh_ibo_);
+    glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0,
+                    static_cast<GLsizeiptr>(index_count * sizeof(std::uint32_t)), indices);
+    if (glcaps::legacy_mode) {
+        ConfigureQuadAttribs();
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh_ibo_);
+    }
+    glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(index_count), GL_UNSIGNED_INT,
+                   nullptr);
+    ++draw_call_count_;
 }
 
 void SpriteBatch::DrawQuad(const Rect &dst, const Color &color) {
@@ -665,6 +804,7 @@ void SpriteBatch::DrawTriangles(const Texture2D &texture, const Vertex2D *verts,
     }
     // Fallback: if the dynamic mesh IBO never initialised, expand each triangle
     // into a degenerate quad through the legacy static-IBO path (GL2-safe).
+    // Those quads already participate in sorted mode via RecordCommand.
     if (!mesh_ibo_) {
         for (size_t t = 0; t + 2 < index_count; t += 3) {
             const Vertex2D &a = verts[indices[t]];
@@ -674,6 +814,29 @@ void SpriteBatch::DrawTriangles(const Texture2D &texture, const Vertex2D *verts,
             const Vec2 uvs[4] = {a.uv, b.uv, c.uv, c.uv};
             DrawVertices(texture, corners, uvs, a.color);
         }
+        return;
+    }
+    // Sorted mode: defer the mesh so FlushSorted can interleave it with quads
+    // by (layer, z, blend, texture, sequence). Do not flush pending quads.
+    if (sorted_) {
+        MeshCommand cmd;
+        cmd.texture_id = texture.Id();
+        cmd.sequence = next_sequence_++;
+        cmd.vert_offset = deferred_mesh_vertices_.size();
+        cmd.vert_count = vert_count;
+        cmd.index_offset = deferred_mesh_indices_.size();
+        cmd.index_count = index_count;
+        cmd.layer = current_layer_;
+        cmd.z = current_z_;
+        cmd.blend = current_blend_;
+        const auto base = static_cast<std::uint32_t>(cmd.vert_offset);
+        deferred_mesh_vertices_.insert(deferred_mesh_vertices_.end(), verts,
+                                       verts + vert_count);
+        deferred_mesh_indices_.reserve(deferred_mesh_indices_.size() + index_count);
+        for (size_t i = 0; i < index_count; ++i) {
+            deferred_mesh_indices_.push_back(base + indices[i]);
+        }
+        mesh_commands_.push_back(cmd);
         return;
     }
     EnsureMeshCapacity(vert_count, index_count, texture.Id());

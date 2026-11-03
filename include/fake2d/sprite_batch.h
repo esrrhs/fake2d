@@ -85,11 +85,14 @@ public:
     void DrawVertices(const Texture2D &texture, const Vec2 corners[4], const Vec2 uvs[4],
                       const Color &tint = Color::White());
 
-    /// Indexed triangle mesh using the same Vertex2D layout as quads. Pending
-    /// quads flush first (topology switch); consecutive same-texture/blend
-    /// meshes coalesce into one draw call. Region-only paths are unchanged.
-    /// Indices are 16-bit offsets into `verts`. Works on GL2 legacy (dynamic
-    /// element buffer rebound each flush) and GL3+.
+    /// Indexed triangle mesh using the same Vertex2D layout as quads. In
+    /// immediate mode, pending quads flush first (topology switch) and
+    /// consecutive same-texture/blend meshes coalesce into one draw call. In
+    /// sorted mode, meshes are deferred and sorted with quads by
+    /// (layer, z, blend, texture, sequence) so soft-skin respects layers.
+    /// Region-only paths are unchanged. Indices are 16-bit offsets into
+    /// `verts`. Works on GL2 legacy (dynamic element buffer rebound each
+    /// flush) and GL3+.
     void DrawTriangles(const Texture2D &texture, const Vertex2D *verts, size_t vert_count,
                        const std::uint16_t *indices, size_t index_count);
 
@@ -132,11 +135,39 @@ private:
         BlendMode blend = BlendMode::Alpha;
     };
 
+    /// One deferred indexed mesh (sorted mode only) with the same sort key.
+    struct MeshCommand {
+        std::uint32_t texture_id = 0;
+        std::uint32_t sequence = 0;
+        size_t vert_offset = 0;
+        size_t vert_count = 0;
+        size_t index_offset = 0;
+        size_t index_count = 0;
+        int layer = 0;
+        float z = 0.0f;
+        BlendMode blend = BlendMode::Alpha;
+    };
+
+    /// Unified sort key entry for FlushSorted (quads and deferred meshes).
+    struct SortItem {
+        enum class Kind : std::uint8_t { Quad = 0, Mesh = 1 };
+        Kind kind = Kind::Quad;
+        size_t index = 0;  ///< into commands_ or mesh_commands_
+        std::uint32_t texture_id = 0;
+        std::uint32_t sequence = 0;
+        int layer = 0;
+        float z = 0.0f;
+        BlendMode blend = BlendMode::Alpha;
+    };
+
     void EnsureCapacity(size_t quads_to_add, std::uint32_t texture_id);
     void RecordCommand(std::uint32_t texture_id);
     void FlushImmediate();
     void FlushSorted();
     void FlushMesh();
+    void DrawMeshRange(std::uint32_t texture_id, BlendMode blend,
+                       const Vertex2D *verts, size_t vert_count,
+                       const std::uint32_t *indices, size_t index_count);
     void EnsureMeshCapacity(size_t verts_to_add, size_t indices_to_add,
                             std::uint32_t texture_id);
     static void ApplyBlend(BlendMode mode);
@@ -154,6 +185,8 @@ private:
     std::uint32_t ibo_ = 0;
 
     /// Dynamic triangle mesh stream (separate topology from the static quad IBO).
+    /// Immediate mode coalesces into mesh_vertices_/mesh_indices_; sorted mode
+    /// records MeshCommands against deferred_mesh_* and flushes in FlushSorted.
     std::uint32_t mesh_ibo_ = 0;
     std::vector<Vertex2D> mesh_vertices_;
     std::vector<std::uint32_t> mesh_indices_;
@@ -163,6 +196,10 @@ private:
     size_t current_mesh_indices_ = 0;
     std::uint32_t mesh_texture_id_ = 0;
     BlendMode mesh_blend_ = BlendMode::Alpha;
+
+    std::vector<MeshCommand> mesh_commands_;
+    std::vector<Vertex2D> deferred_mesh_vertices_;
+    std::vector<std::uint32_t> deferred_mesh_indices_;
 
     std::uint32_t line_vao_ = 0;
     std::uint32_t line_vbo_ = 0;
