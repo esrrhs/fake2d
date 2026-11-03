@@ -755,11 +755,11 @@ region+mesh single-draw stay deferred.
       hull/bounds + light sync smoke; sorted-batch mesh smoke as appropriate
 - [x] Docs: SCRIPTING.md notes; version bump **1.43.0**
 
-### Deferred (still)
+### Deferred (still) — taken by Phase 51
 
-- [ ] GPU skinning / compute deform
-- [ ] Mixed region + mesh topology in a single draw call
-- [ ] Sharing deform tracks across attachments
+- [x] Mixed region + mesh topology coalesce (Phase 51)
+- [x] Sharing bind geometry / deform streams without duplicating mesh data (Phase 51)
+- [ ] GPU skinning / compute deform (Phase 51 deferred with rationale)
 
 ### Verification
 
@@ -770,6 +770,66 @@ region+mesh single-draw stay deferred.
 Phase 50 shipped as **1.43.0**: circular linkedmesh detection (named cycle path),
 parent-chain resolution, soft-skin meshes deferred into sorted SpriteBatch,
 mesh hull / `skel_sync_occluder` lighting hook, `--skeleton-light-demo`, and
-`--skeleton-test` grown to 144 checks. GPU skinning and mixed topology single-draw
-remain deferred.
+`--skeleton-test` grown to 144 checks. Soft-skin leftovers continued in Phase 51.
 
+
+## Phase 51 — Soft-skin draw unification & deform sharing (1.44.x)
+
+Phase 50 left three soft-skin leftovers: GPU skinning, mixed region+mesh
+single-draw, and sharing deform / bind data without duplicating mesh buffers.
+This phase finishes the CPU production path for (2) and (3). GPU skinning is
+explicitly deferred (see below) so the software-GL CI floor stays trustworthy.
+
+### Architectural intent
+
+- **Bind geometry is asset-owned and shareable.** Mesh UVs, triangles, weights,
+  and bind positions live in a `MeshGeometry` allocation. `linkedmesh` resolution
+  shares that allocation (`shared_ptr`) instead of deep-copying vertex buffers.
+  Many attachments may point at one bind; the asset (and any surviving
+  attachment refs) own the lifetime. Instances never own bind data.
+- **Deform samples stay per-instance and per-attachment.** Each instance keeps
+  its own float streams sized to `deform_floats`. Two instances of the same asset
+  (or two linked attachments on one instance) can sample independent deform
+  clocks without copying mesh bind buffers. Clip deform *tracks* remain on the
+  asset (already shared across instances).
+- **Mixed region + mesh draw coalesces.** A skeleton that mixes attachment kinds
+  on one sheet must not thrash the SpriteBatch topology every slot. When any
+  mesh is drawn, region slots on that draw submit as indexed triangle quads
+  through `DrawTriangles` so they coalesce with soft-skin into one mesh flush.
+  Region-only rigs keep the Phase 47 `DrawVertices` path and single-draw-call
+  rank checks.
+- **GPU skinning stays deferred.** Opt-in compute / SSBO skinning cannot be
+  validated on the software-GL runners that gate CI; a half path with no green
+  gate is worse than a documented deferral. CPU skinning remains the default
+  and only path in 1.44.x.
+
+### Deliverables
+
+- [x] `MeshGeometry` + shared bind for `linkedmesh`; document ownership in the
+      skeleton header / SCRIPTING.md
+- [x] Public bind-share queries (`MeshBindKey` / `MeshSharesBind`) for tests
+- [x] Mixed region+mesh coalesce via triangle-quad submit; region-only ranks green
+- [x] Draw skin scratch (no per-mesh heap alloc in `Draw`)
+- [x] `--skeleton-test` growth: two instances share bind / independent deform;
+      linkedmesh shares bind key; mixed softskin draw-call coalesce
+- [x] Docs: PLAN Phase 51 + SCRIPTING.md; version **1.44.0**
+- [x] GPU skinning: deferred with rationale (not shipped)
+
+### Deferred (still)
+
+- [ ] GPU skinning / compute deform (needs a real-GL validation path beyond
+      software rasterizers; revisit when CI can gate an opt-in CPU-fallback path)
+- [ ] Phase 11 packaging e2e (`[~]` — out of scope)
+
+### Verification
+
+- [x] Headless `--skeleton-test` green with new share / mixed-draw cases
+- [x] Demo smoke (`--skeleton-demo`, `--skeleton-mesh-demo`, `--skeleton-light-demo`)
+      under `--frames` with zero `update() failed`
+- [x] Region-only single-draw-call rank checks still hold
+
+Phase 51 shipped as **1.44.0**: linkedmesh shares `MeshGeometry` bind data
+(instances keep independent deform sample streams), mixed region+mesh draws
+coalesce through `DrawTriangles` without topology thrash, `--skeleton-test`
+covers bind-share / dual-instance deform / mixed draw-call gates. GPU skinning
+remains deferred for software-GL CI.

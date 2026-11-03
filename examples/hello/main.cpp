@@ -7266,6 +7266,86 @@ int RunSkeletonTest(fake2d::Engine &engine) {
         sk.Destroy(id);
     }
 
+    // --- Phase 51: shared bind geometry + mixed draw coalesce ----------------
+    {
+        // Two instances of softskin share MeshGeometry but keep independent
+        // deform sample streams.
+        std::string err;
+        const int soft =
+            sk.LoadAsset(engine.GetResources(), "assets/skeleton/softskin.json",
+                         &err);
+        check(soft > 0, "softskin reloads for Phase 51 share: " + err);
+        const int a = sk.Create(soft);
+        const int b = sk.Create(soft);
+        check(a > 0 && b > 0, "two softskin instances create");
+        // Attachment 1 is the flag mesh on softskin.json.
+        const auto key_a = sk.MeshBindKey(a, 1);
+        const auto key_b = sk.MeshBindKey(b, 1);
+        check(key_a != 0 && key_a == key_b,
+              "two instances share the same MeshGeometry bind key");
+        check(sk.Play(a, "wave", 0.0f) && sk.Play(b, "wave", 0.0f),
+              "both instances play wave");
+        check(sk.SampleDeformAt(a, 1, 0.5f), "instance A samples mid deform");
+        check(sk.SampleDeformAt(b, 1, 0.0f), "instance B samples t=0 deform");
+        fake2d::Vec2 pa{}, pb{};
+        check(sk.MeshVertexWorld(a, 1, 2, pa), "A skinned tip vert");
+        check(sk.MeshVertexWorld(b, 1, 2, pb), "B skinned tip vert");
+        // Same pose bones at create, but A has mid-wave deform and B has bind
+        // deform — the tip influence deltas differ so world positions diverge.
+        const float dx = pa.x - pb.x;
+        const float dy = pa.y - pb.y;
+        check(dx * dx + dy * dy > 0.01f,
+              "independent deform samples move A vs B");
+
+        // Mixed region (pole) + mesh (flag) must coalesce to one draw call on
+        // the shared sheet (no topology thrash).
+        fake2d::Renderer &r = engine.GetRenderer();
+        sk.Update(0.0f);
+        r.BeginFrame(0.0f, 0.0f, 0.0f, 1.0f);
+        const size_t calls_before = r.DrawCallCount();
+        sk.Draw(r, a, {320.0f, 240.0f}, 1.0f, 1.0f, fake2d::Color::White());
+        r.GetSpriteBatch().Flush();
+        const int mixed_calls = static_cast<int>(r.DrawCallCount() - calls_before);
+        r.EndFrame();
+        check(sk.GetStats().slots_drawn >= 2,
+              "mixed softskin draws pole region and flag mesh");
+        check(mixed_calls == 1,
+              "mixed region+mesh coalesces to one draw call, got " +
+                  std::to_string(mixed_calls));
+        sk.Destroy(a);
+        sk.Destroy(b);
+    }
+    {
+        // linkedmesh shares the parent's MeshGeometry (linkskin default/alt).
+        std::string err;
+        const int link =
+            sk.LoadAsset(engine.GetResources(), "assets/skeleton/linkskin.json",
+                         &err);
+        check(link > 0, "linkskin reloads for bind share: " + err);
+        const int id = sk.Create(link);
+        check(id > 0, "linkskin instance for bind share");
+        // default skin: attachment index of embedded flag; alt swaps to linked.
+        // Find two mesh attachments and assert they share when alt is active.
+        int mesh_a = -1, mesh_b = -1;
+        const int n = sk.AttachmentCount(id);
+        for (int i = 0; i < n; ++i) {
+            if (!sk.AttachmentIsMesh(id, i)) {
+                continue;
+            }
+            if (mesh_a < 0) {
+                mesh_a = i;
+            } else {
+                mesh_b = i;
+                break;
+            }
+        }
+        check(mesh_a >= 0 && mesh_b >= 0, "linkskin exposes two mesh attachments");
+        check(sk.MeshSharesBind(id, mesh_a, mesh_b),
+              "linkedmesh shares MeshGeometry with its parent");
+        check(sk.MeshBindKey(id, mesh_a) != 0, "shared bind key is non-zero");
+        sk.Destroy(id);
+    }
+
     std::printf("[skeleton] %s: %d checks, %d failures\n",
                 failures == 0 ? "PASS" : "FAILED", checks, failures);
     return failures == 0 ? 0 : 1;

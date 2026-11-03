@@ -689,17 +689,26 @@ end
 ```
 
 Meshes submit through `SpriteBatch::DrawTriangles` (indexed triangle stream with
-a dynamic IBO). In immediate mode, pending region quads flush on the topology
-switch and consecutive same-sheet meshes coalesce into one draw. In **sorted**
-mode (layers / z), meshes are deferred and sorted with quads by
-`(layer, z, blend, texture, sequence)` so soft-skin respects layer order. A
-region-only rig still measures as one draw call per sheet. If the mesh IBO is
-unavailable the batch falls back to degenerate quads via `DrawVertices` (those
-already participate in sorting).
+a dynamic IBO). In immediate mode, consecutive same-sheet meshes coalesce into
+one draw. **Phase 51:** when a skeleton mixes region and mesh attachments on one
+sheet, region slots are submitted as triangle quads on that same stream so the
+character does not thrash topology every slot (typically one draw call). A
+region-only rig still uses the static quad IBO and still measures as one draw
+call per sheet. In **sorted** mode (layers / z), meshes are deferred and sorted
+with quads by `(layer, z, blend, texture, sequence)` so soft-skin respects layer
+order. If the mesh IBO is unavailable the batch falls back to degenerate quads
+via `DrawVertices` (those already participate in sorting).
 
 `linkedmesh` parent chains (`tip -> mid -> base`) resolve in any declaration
 order; a circular link fails the load with a path such as
-`linkedmesh cycle: 'a' -> 'b' -> 'a'`.
+`linkedmesh cycle: 'a' -> 'b' -> 'a'`. **Phase 51:** a linkedmesh **shares** the
+parent's `MeshGeometry` (UVs, triangles, weights, bind positions) instead of
+duplicating those buffers. Ownership lifetime: the asset's attachments hold
+`shared_ptr`s to the geometry; destroying the asset (or the last attachment that
+references it) frees the bind data. Instances never own bind geometry — they
+only own per-attachment **deform sample** float streams, so two instances of the
+same asset (or two linked attachments) can sample independent deform clocks
+while sharing one bind.
 
 Hull / lighting helpers (Phase 50):
 
@@ -716,6 +725,9 @@ with a deform flutter; `scripts/skeleton_light_demo.lua`
 (`--skeleton-light-demo`) puts that flag under the Phase 46 lighting pass so the
 hull casts a shadow; `assets/skeleton/linkskin.json` covers skins-nested mesh +
 cross-skin linkedmesh; `assets/skeleton/linkchain.json` covers parent chains.
+`--skeleton-test` (Phase 51) also gates shared bind keys across linkedmesh /
+instances, independent deform samples on two instances, and mixed region+mesh
+draw-call coalesce on `softskin.json` (pole region + flag mesh).
 
 ### Audio
 
