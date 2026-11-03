@@ -98,6 +98,218 @@ float ParentAngle(const SkeletonSystem::Affine2 &parent) {
     return std::atan2(parent.b, parent.a);
 }
 
+int DeformFloatCount(const SkeletonSystem::Attachment &att) {
+    if (!att.IsMesh()) {
+        return 0;
+    }
+    // Weighted meshes deform every influence's xy; unweighted deform each vertex.
+    if (!att.influences.empty()) {
+        return static_cast<int>(att.influences.size()) * 2;
+    }
+    return static_cast<int>(att.bind_xy.size());
+}
+
+bool FinalizeMeshAttachment(SkeletonSystem::Attachment &att, int bone_count,
+                            std::string *why) {
+    auto fail = [&](const std::string &msg) {
+        if (why != nullptr) {
+            *why = msg;
+        }
+        return false;
+    };
+    if (att.uvs.size() < 2 || (att.uvs.size() % 2) != 0) {
+        return fail("needs an even non-empty 'uvs' array");
+    }
+    const int verts = static_cast<int>(att.uvs.size() / 2);
+    if (verts > SkeletonSystem::kMaxMeshVertices) {
+        return fail("has more than " + std::to_string(SkeletonSystem::kMaxMeshVertices) +
+                    " vertices");
+    }
+    if (att.triangles.empty() || (att.triangles.size() % 3) != 0) {
+        return fail("needs a 'triangles' array whose length is a multiple of 3");
+    }
+    if (static_cast<int>(att.triangles.size()) > SkeletonSystem::kMaxMeshIndices) {
+        return fail("has more than " + std::to_string(SkeletonSystem::kMaxMeshIndices) +
+                    " triangle indices");
+    }
+    for (std::uint16_t idx : att.triangles) {
+        if (static_cast<int>(idx) >= verts) {
+            return fail("triangle index " + std::to_string(idx) + " is out of range");
+        }
+    }
+    if (att.weight_first.size() != static_cast<size_t>(verts) ||
+        att.weight_count.size() != static_cast<size_t>(verts)) {
+        att.weight_first.assign(static_cast<size_t>(verts), 0);
+        att.weight_count.assign(static_cast<size_t>(verts), 0);
+    }
+    int cursor = 0;
+    for (int v = 0; v < verts; ++v) {
+        const int count = att.weight_count[static_cast<size_t>(v)];
+        if (count < 0 || count > SkeletonSystem::kMaxInfluencesPerVertex) {
+            return fail("vertex " + std::to_string(v) + " has a bad weight count");
+        }
+        if (count == 0) {
+            att.weight_first[static_cast<size_t>(v)] = 0;
+            continue;
+        }
+        if (att.weight_first[static_cast<size_t>(v)] != cursor) {
+            // Re-pack if the author left first unset; trust sequential layout.
+            att.weight_first[static_cast<size_t>(v)] = cursor;
+        }
+        if (cursor + count > static_cast<int>(att.influences.size())) {
+            return fail("vertex " + std::to_string(v) + " weights overrun the influence list");
+        }
+        for (int i = 0; i < count; ++i) {
+            const auto &inf = att.influences[static_cast<size_t>(cursor + i)];
+            if (inf.bone < 0 || inf.bone >= bone_count) {
+                return fail("vertex " + std::to_string(v) + " references bone index " +
+                            std::to_string(inf.bone) + " which is out of range");
+            }
+            if (!(inf.weight >= 0.0f)) {
+                return fail("vertex " + std::to_string(v) + " has a negative weight");
+            }
+        }
+        cursor += count;
+    }
+    if (att.influences.empty()) {
+        if (att.bind_xy.size() != static_cast<size_t>(verts) * 2) {
+            return fail("unweighted mesh needs 2 floats of 'vertices' per UV pair");
+        }
+    } else if (cursor != static_cast<int>(att.influences.size())) {
+        return fail("influence list length does not match the per-vertex weight counts");
+    }
+    if (att.hull < 0 || att.hull > verts) {
+        return fail("'hull' must be between 0 and the vertex count");
+    }
+    att.deform_floats = DeformFloatCount(att);
+    att.kind = SkeletonSystem::AttachmentKind::Mesh;
+    // A zero size would skip the region draw path; mesh uses its own path, but
+    // Bounds still wants a rough extent. Estimate from bind verts when empty.
+    if (att.size.x <= 0.0f || att.size.y <= 0.0f) {
+        float min_x = 0, min_y = 0, max_x = 0, max_y = 0;
+        bool any = false;
+        if (!att.bind_xy.empty()) {
+            for (size_t i = 0; i + 1 < att.bind_xy.size(); i += 2) {
+                const float x = att.bind_xy[i], y = att.bind_xy[i + 1];
+                if (!any) {
+                    min_x = max_x = x;
+                    min_y = max_y = y;
+                    any = true;
+                } else {
+                    min_x = std::min(min_x, x);
+                    max_x = std::max(max_x, x);
+                    min_y = std::min(min_y, y);
+                    max_y = std::max(max_y, y);
+                }
+            }
+        }
+        if (any) {
+            att.size = {std::max(1.0f, max_x - min_x), std::max(1.0f, max_y - min_y)};
+        } else {
+            att.size = {1.0f, 1.0f};
+        }
+    }
+    return true;
+}
+
+/// Parse Spine-style vertices: either flat [x,y,...] or weighted
+/// [boneCount, boneIndex, x, y, weight, ...].
+bool ParseMeshVertices(const json &verts_json, int bone_count,
+                       SkeletonSystem::Attachment &att, std::string *why) {
+    auto fail = [&](const std::string &msg) {
+        if (why != nullptr) {
+            *why = msg;
+        }
+        return false;
+    };
+    if (!verts_json.is_array() || verts_json.empty()) {
+        return fail("'vertices' must be a non-empty array");
+    }
+    std::vector<float> raw;
+    raw.reserve(verts_json.size());
+    for (const json &n : verts_json) {
+        if (!n.is_number()) {
+            return fail("'vertices' entries must be numbers");
+        }
+        raw.push_back(n.get<float>());
+    }
+    // Heuristic: weighted streams start with an integer boneCount in [1, max]
+    // and are not simply 2*uv_count long when uvs are already known... but uvs
+    // may arrive after. Detect weighted by: first value is an integer 1..max
+    // AND the stream is longer than a plain xy list matching an early guess,
+    // OR any entry after a boneCount looks like the Spine packed form.
+    // Practical rule used by Spine exporters: if vertices.length == uvs.length
+    // (both float counts) it is unweighted; otherwise weighted.
+    const int uv_floats = static_cast<int>(att.uvs.size());
+    const bool looks_unweighted =
+        uv_floats > 0 && static_cast<int>(raw.size()) == uv_floats;
+    if (looks_unweighted) {
+        att.bind_xy = std::move(raw);
+        att.influences.clear();
+        att.weight_first.assign(static_cast<size_t>(uv_floats / 2), 0);
+        att.weight_count.assign(static_cast<size_t>(uv_floats / 2), 0);
+        return true;
+    }
+
+    // Weighted parse. Walk Spine's packed format.
+    att.bind_xy.clear();
+    att.influences.clear();
+    const int verts = uv_floats > 0 ? uv_floats / 2 : 0;
+    // If UVs are not yet filled, count vertices by walking the stream.
+    std::vector<int> counts;
+    size_t i = 0;
+    while (i < raw.size()) {
+        const int bone_n = static_cast<int>(raw[i]);
+        if (bone_n < 1 || bone_n > SkeletonSystem::kMaxInfluencesPerVertex) {
+            return fail("weighted vertex has bone count " + std::to_string(bone_n) +
+                        " (allowed 1.." +
+                        std::to_string(SkeletonSystem::kMaxInfluencesPerVertex) + ")");
+        }
+        if (i + 1 + static_cast<size_t>(bone_n) * 4 > raw.size()) {
+            return fail("weighted 'vertices' stream is truncated");
+        }
+        ++i;
+        const int first = static_cast<int>(att.influences.size());
+        for (int b = 0; b < bone_n; ++b) {
+            SkeletonSystem::MeshInfluence inf;
+            inf.bone = static_cast<int>(raw[i++]);
+            inf.x = raw[i++];
+            inf.y = raw[i++];
+            inf.weight = raw[i++];
+            if (inf.bone < 0 || inf.bone >= bone_count) {
+                return fail("weighted vertex references bone index " +
+                            std::to_string(inf.bone) + " which is out of range");
+            }
+            att.influences.push_back(inf);
+        }
+        counts.push_back(bone_n);
+        att.weight_first.push_back(first);
+        att.weight_count.push_back(bone_n);
+        (void)first;
+    }
+    if (verts > 0 && static_cast<int>(counts.size()) != verts) {
+        return fail("weighted 'vertices' describe " + std::to_string(counts.size()) +
+                    " vertices but 'uvs' has " + std::to_string(verts));
+    }
+    // Placeholder bind_xy (centroid of influences) so Bounds / queries have something.
+    att.bind_xy.assign(counts.size() * 2, 0.0f);
+    for (size_t v = 0; v < counts.size(); ++v) {
+        float cx = 0, cy = 0, wsum = 0;
+        const int first = att.weight_first[v];
+        for (int k = 0; k < att.weight_count[v]; ++k) {
+            const auto &inf = att.influences[static_cast<size_t>(first + k)];
+            cx += inf.x * inf.weight;
+            cy += inf.y * inf.weight;
+            wsum += inf.weight;
+        }
+        if (wsum > 0.0f) {
+            att.bind_xy[v * 2] = cx / wsum;
+            att.bind_xy[v * 2 + 1] = cy / wsum;
+        }
+    }
+    return true;
+}
+
 }  // namespace
 
 SkeletonSystem::~SkeletonSystem() {
@@ -141,6 +353,15 @@ int SkeletonSystem::AddAsset(Asset asset) {
         static_cast<int>(asset.clips.size()) > kMaxClips) {
         return kInvalid;
     }
+    for (Attachment &att : asset.attachments) {
+        if (!att.IsMesh()) {
+            continue;
+        }
+        std::string why;
+        if (!FinalizeMeshAttachment(att, static_cast<int>(asset.bones.size()), &why)) {
+            return kInvalid;
+        }
+    }
     asset.in_use = true;
     assets_.push_back(std::move(asset));
     return static_cast<int>(assets_.size());  // 1-based
@@ -153,8 +374,6 @@ void SkeletonSystem::RemoveAsset(int asset_id) {
     if (resources_ != nullptr) {
         resources_->Release(assets_[static_cast<size_t>(asset_id) - 1].sheet);
     }
-    // Anything posing this rig goes with it: an instance whose asset vanished
-    // would have nothing left to sample.
     for (size_t i = 0; i < instances_.size(); ++i) {
         if (instances_[i].in_use && instances_[i].asset == asset_id) {
             instances_[i] = Instance{};
@@ -189,7 +408,6 @@ int SkeletonSystem::LoadAsset(ResourceManager &resources, const std::string &jso
 
     Asset asset;
 
-    // --- bones: listed parent-first, so a parent is always already there -----
     const json &bones = doc.value("bones", json::array());
     if (!bones.is_array() || bones.empty()) {
         return fail("needs a non-empty 'bones' array");
@@ -219,7 +437,6 @@ int SkeletonSystem::LoadAsset(ResourceManager &resources, const std::string &jso
         asset.bones.push_back(std::move(bone));
     }
 
-    // --- regions: named rectangles on the sheet ------------------------------
     struct Region {
         std::string name;
         Rect src;
@@ -254,31 +471,140 @@ int SkeletonSystem::LoadAsset(ResourceManager &resources, const std::string &jso
         return -1;
     };
 
-    // --- attachments: a region plus where it sits on its bone ----------------
     const json &atts = doc.value("attachments", json::array());
     if (!atts.is_array()) {
         return fail("'attachments' must be an array");
     }
-    for (const json &a : atts) {
+    // First pass: regions and meshes. linkedmesh is resolved in a second pass.
+    std::vector<std::string> link_parent(atts.size());
+    for (size_t ai = 0; ai < atts.size(); ++ai) {
+        const json &a = atts[ai];
         Attachment att;
         att.name = JStr(a, "name");
+        if (att.name.empty()) {
+            return fail("attachment at index " + std::to_string(ai) + " needs a 'name'");
+        }
+        const std::string type = JStr(a, "type", "region");
+        if (type == "linkedmesh") {
+            link_parent[ai] = JStr(a, "parent");
+            if (link_parent[ai].empty()) {
+                return fail("linkedmesh attachment '" + att.name +
+                            "' needs a 'parent' mesh name");
+            }
+            att.kind = AttachmentKind::Mesh;
+            att.offset = {JFloat(a, "ox", 0.0f), JFloat(a, "oy", 0.0f)};
+            att.rotation = JFloat(a, "rot", 0.0f);
+            asset.attachments.push_back(std::move(att));
+            continue;
+        }
+        if (type == "mesh") {
+            att.kind = AttachmentKind::Mesh;
+            att.offset = {JFloat(a, "ox", 0.0f), JFloat(a, "oy", 0.0f)};
+            att.rotation = JFloat(a, "rot", 0.0f);
+            att.hull = static_cast<int>(JFloat(a, "hull", 0.0f));
+            att.size = {JFloat(a, "w", 0.0f), JFloat(a, "h", 0.0f)};
+            const int ri = region_of(JStr(a, "region"));
+            if (ri >= 0) {
+                att.src = regions[static_cast<size_t>(ri)].src;
+            } else {
+                att.src = {JFloat(a, "x", 0.0f), JFloat(a, "y", 0.0f),
+                           JFloat(a, "w", 0.0f), JFloat(a, "h", 0.0f)};
+            }
+            const json uvs_json = a.value("uvs", json::array());
+            if (!uvs_json.is_array() || uvs_json.empty()) {
+                return fail("mesh attachment '" + att.name + "' needs a 'uvs' array");
+            }
+            att.uvs.reserve(uvs_json.size());
+            for (const json &u : uvs_json) {
+                if (!u.is_number()) {
+                    return fail("mesh attachment '" + att.name +
+                                "' has a non-numeric UV");
+                }
+                att.uvs.push_back(u.get<float>());
+            }
+            // UVs may be 0..1 within the region, or already sheet-normalized.
+            // If a region is named and every UV is in [0,1], map through src.
+            if (ri >= 0) {
+                bool unit = true;
+                for (float v : att.uvs) {
+                    if (v < -0.001f || v > 1.001f) {
+                        unit = false;
+                        break;
+                    }
+                }
+                if (unit && att.src.width > 0.0f && att.src.height > 0.0f) {
+                    // Defer sheet normalization to draw time via src; store as
+                    // unit UVs into the region by baking to sheet space now
+                    // once the sheet size is known — but sheet is not loaded
+                    // yet. Keep unit-in-region and flag by storing region in src;
+                    // Draw will treat mesh UVs as already sheet-normalized when
+                    // any component > 1, else as region-local.
+                    // Bake to "region-normalized" and convert at draw using src
+                    // / sheet size. Store as region-local 0..1 here; Draw maps.
+                }
+            }
+            const json tris = a.value("triangles", json::array());
+            if (!tris.is_array()) {
+                return fail("mesh attachment '" + att.name + "' needs 'triangles'");
+            }
+            for (const json &t : tris) {
+                if (!t.is_number()) {
+                    return fail("mesh attachment '" + att.name +
+                                "' has a non-numeric triangle index");
+                }
+                att.triangles.push_back(static_cast<std::uint16_t>(t.get<int>()));
+            }
+            std::string why;
+            if (!ParseMeshVertices(a.value("vertices", json::array()),
+                                   static_cast<int>(asset.bones.size()), att, &why)) {
+                return fail("mesh attachment '" + att.name + "': " + why);
+            }
+            if (!FinalizeMeshAttachment(att, static_cast<int>(asset.bones.size()), &why)) {
+                return fail("mesh attachment '" + att.name + "': " + why);
+            }
+            asset.attachments.push_back(std::move(att));
+            continue;
+        }
+        if (type != "region" && !type.empty()) {
+            return fail("attachment '" + att.name + "' has unsupported type '" + type +
+                        "' (supported: region, mesh, linkedmesh)");
+        }
         const int ri = region_of(JStr(a, "region"));
-        if (att.name.empty() || ri < 0) {
+        if (ri < 0) {
             return fail("attachment '" + att.name +
                         "' needs a name and a 'region' that exists");
         }
         att.src = regions[static_cast<size_t>(ri)].src;
-        // Size defaults to the region, so a plain cut-out needs no numbers.
         att.size = {JFloat(a, "w", att.src.width), JFloat(a, "h", att.src.height)};
         att.offset = {JFloat(a, "ox", 0.0f), JFloat(a, "oy", 0.0f)};
         att.rotation = JFloat(a, "rot", 0.0f);
+        att.kind = AttachmentKind::Region;
         asset.attachments.push_back(std::move(att));
+    }
+    // Resolve linkedmesh copies.
+    for (size_t ai = 0; ai < asset.attachments.size(); ++ai) {
+        if (link_parent[ai].empty()) {
+            continue;
+        }
+        const int src = IndexOfName(asset.attachments, link_parent[ai]);
+        if (src < 0 || !asset.attachments[static_cast<size_t>(src)].IsMesh()) {
+            return fail("linkedmesh attachment '" + asset.attachments[ai].name +
+                        "' references unknown mesh '" + link_parent[ai] + "'");
+        }
+        Attachment &dst = asset.attachments[ai];
+        const Attachment &parent = asset.attachments[static_cast<size_t>(src)];
+        const std::string keep_name = dst.name;
+        const Vec2 keep_off = dst.offset;
+        const float keep_rot = dst.rotation;
+        dst = parent;
+        dst.name = keep_name;
+        dst.offset = keep_off;
+        dst.rotation = keep_rot;
     }
     auto attachment_of = [&](const std::string &name) {
         return IndexOfName(asset.attachments, name);
     };
 
-    // --- slots: draw order, each hanging off one bone ------------------------
     const json &slots = doc.value("slots", json::array());
     if (!slots.is_array() || static_cast<int>(slots.size()) > kMaxSlots) {
         return fail("'slots' must be an array within " + std::to_string(kMaxSlots));
@@ -315,8 +641,6 @@ int SkeletonSystem::LoadAsset(ResourceManager &resources, const std::string &jso
         slot.attachment_count = static_cast<int>(grouped[s].size());
         asset.slots.push_back(std::move(slot));
     }
-    // Re-lay the attachments so each slot owns a contiguous run; that makes a
-    // skin swap an index change instead of a search.
     {
         std::vector<Attachment> laid;
         laid.reserve(asset.attachments.size());
@@ -326,10 +650,24 @@ int SkeletonSystem::LoadAsset(ResourceManager &resources, const std::string &jso
                 laid.push_back(asset.attachments[static_cast<size_t>(ai)]);
             }
         }
+        // Keep unreferenced attachments too (deform / query by global index still
+        // useful for tests that AddAsset; JSON path only draws slotted ones).
+        for (size_t ai = 0; ai < asset.attachments.size(); ++ai) {
+            bool used = false;
+            for (const auto &g : grouped) {
+                for (int x : g) {
+                    if (x == static_cast<int>(ai)) {
+                        used = true;
+                    }
+                }
+            }
+            if (!used) {
+                laid.push_back(asset.attachments[ai]);
+            }
+        }
         asset.attachments = std::move(laid);
     }
 
-    // --- skins ---------------------------------------------------------------
     const json &skins_json = doc.value("skins", json::object());
     if (skins_json.is_object()) {
         for (auto it = skins_json.begin(); it != skins_json.end(); ++it) {
@@ -346,7 +684,6 @@ int SkeletonSystem::LoadAsset(ResourceManager &resources, const std::string &jso
                     return fail("skin '" + it.key() + "' names an unknown slot '" +
                                 sit.key() + "'");
                 }
-                // Accept {slot: attachmentName} and Spine 4's {slot: {name: {}}}.
                 std::vector<std::string> wanted;
                 if (sit.value().is_string()) {
                     wanted.push_back(sit.value().get<std::string>());
@@ -375,7 +712,6 @@ int SkeletonSystem::LoadAsset(ResourceManager &resources, const std::string &jso
         }
     }
 
-    // --- clips ---------------------------------------------------------------
     const json &anims = doc.value("animations", json::object());
     if (!anims.is_object()) {
         return fail("'animations' must be an object");
@@ -468,6 +804,93 @@ int SkeletonSystem::LoadAsset(ResourceManager &resources, const std::string &jso
                 }
             }
         }
+        // Deform timelines: animations.deform.{slot}.{attachment} = [keys]
+        // Also accept a flat "deform": [ {slot, attachment, absolute, keys} ].
+        auto ingest_deform_keys = [&](int slot, int attachment, bool absolute,
+                                      const json &arr) -> bool {
+            if (!arr.is_array()) {
+                return false;
+            }
+            if (static_cast<int>(clip.deforms.size()) >= kMaxDeformTracksPerClip) {
+                return false;
+            }
+            DeformTrack dt;
+            dt.slot = slot;
+            dt.attachment = attachment;
+            dt.absolute = absolute;
+            for (const json &k : arr) {
+                if (static_cast<int>(dt.keys.size()) >= kMaxKeysPerTrack) {
+                    break;
+                }
+                DeformKey key;
+                key.time = JFloat(k, "time", 0.0f);
+                key.offset = static_cast<int>(JFloat(k, "offset", 0.0f));
+                key.stepped = JStr(k, "curve") == "stepped";
+                const json vals = k.value("vertices", json::array());
+                if (!vals.is_array()) {
+                    if (error != nullptr) {
+                        *error = json_path + ": animation '" + clip.name +
+                                 "' deform on attachment '" +
+                                 asset.attachments[static_cast<size_t>(attachment)].name +
+                                 "' has a key without a 'vertices' array";
+                    }
+                    return false;
+                }
+                for (const json &n : vals) {
+                    if (!n.is_number()) {
+                        if (error != nullptr) {
+                            *error = json_path + ": animation '" + clip.name +
+                                     "' deform on attachment '" +
+                                     asset.attachments[static_cast<size_t>(attachment)].name +
+                                     "' has a non-numeric deform value";
+                        }
+                        return false;
+                    }
+                    key.values.push_back(n.get<float>());
+                }
+                dt.keys.push_back(std::move(key));
+            }
+            std::sort(dt.keys.begin(), dt.keys.end(),
+                      [](const DeformKey &a, const DeformKey &b) { return a.time < b.time; });
+            clip.deforms.push_back(std::move(dt));
+            return true;
+        };
+        const json deform_json = body.value("deform", json::object());
+        if (deform_json.is_object()) {
+            for (auto sit = deform_json.begin(); sit != deform_json.end(); ++sit) {
+                const int slot = IndexOfName(asset.slots, sit.key());
+                if (slot < 0) {
+                    return fail("animation '" + clip.name +
+                                "' deform targets unknown slot '" + sit.key() + "'");
+                }
+                if (!sit.value().is_object()) {
+                    return fail("animation '" + clip.name + "' deform slot '" + sit.key() +
+                                "' must be an object of attachments");
+                }
+                for (auto ait = sit.value().begin(); ait != sit.value().end(); ++ait) {
+                    const int attachment = IndexOfName(asset.attachments, ait.key());
+                    if (attachment < 0 ||
+                        !asset.attachments[static_cast<size_t>(attachment)].IsMesh()) {
+                        return fail("animation '" + clip.name +
+                                    "' deform names unknown mesh attachment '" +
+                                    ait.key() + "'");
+                    }
+                    bool absolute = false;
+                    json keys = ait.value();
+                    if (ait.value().is_object() && ait.value().contains("keys")) {
+                        absolute = JBool(ait.value(), "absolute", false);
+                        keys = ait.value().value("keys", json::array());
+                    }
+                    if (!ingest_deform_keys(slot, attachment, absolute, keys)) {
+                        if (error != nullptr && error->empty()) {
+                            return fail("animation '" + clip.name +
+                                        "' has a bad deform track on '" + ait.key() + "'");
+                        }
+                        return kInvalid;
+                    }
+                }
+            }
+        }
         const json events_json = body.value("events", json::array());
         if (events_json.is_array()) {
             for (const json &e : events_json) {
@@ -492,11 +915,15 @@ int SkeletonSystem::LoadAsset(ResourceManager &resources, const std::string &jso
                       [](const Key &a, const Key &b) { return a.time < b.time; });
         }
 
-        // Duration is the last authored moment, unless the JSON says otherwise.
         float last = 0.0f;
         for (const TrackData &t : clip.tracks) {
             if (!t.keys.empty()) {
                 last = std::max(last, t.keys.back().time);
+            }
+        }
+        for (const DeformTrack &d : clip.deforms) {
+            if (!d.keys.empty()) {
+                last = std::max(last, d.keys.back().time);
             }
         }
         for (const Event &e : clip.events) {
@@ -506,7 +933,6 @@ int SkeletonSystem::LoadAsset(ResourceManager &resources, const std::string &jso
         asset.clips.push_back(std::move(clip));
     }
 
-    // --- sheet ---------------------------------------------------------------
     const std::string texture =
         JStr(doc.value("skeleton", json::object()), "texture");
     if (texture.empty()) {
@@ -515,8 +941,6 @@ int SkeletonSystem::LoadAsset(ResourceManager &resources, const std::string &jso
     std::string path = texture;
     const std::filesystem::path as_path(texture);
     if (!as_path.is_absolute() && as_path.parent_path().empty()) {
-        // A bare file name lives next to the skeleton JSON; anything with a
-        // path in it is already repo-relative, like every other asset here.
         path = std::filesystem::path(json_path).parent_path().string() + "/" + texture;
     }
     asset.sheet = resources.LoadTexture(path, TextureFilter::Linear, TextureWrap::Clamp);
@@ -525,9 +949,10 @@ int SkeletonSystem::LoadAsset(ResourceManager &resources, const std::string &jso
     }
     asset.texture_path = path;
     resources_ = &resources;
+    const TextureHandle sheet = asset.sheet;
     const int id = AddAsset(std::move(asset));
     if (id == kInvalid) {
-        resources.Release(asset.sheet);
+        resources.Release(sheet);
         return fail("the rig is over the asset limits");
     }
     return id;
@@ -567,6 +992,7 @@ int SkeletonSystem::Create(int asset_id) {
     slot->pose.assign(asset->bones.size(), Bone{});
     slot->world.assign(asset->bones.size(), Affine2{});
     slot->slots = asset->slots;
+    EnsureDeformBuffers(*asset, *slot);
     ResetPose(*slot);
     return static_cast<int>(&*slot - instances_.data()) + 1;
 }
@@ -598,6 +1024,14 @@ int SkeletonSystem::AssetOf(int id) const {
     return Has(id) ? instances_[static_cast<size_t>(id) - 1].asset : kInvalid;
 }
 
+void SkeletonSystem::EnsureDeformBuffers(const Asset &asset, Instance &inst) const {
+    inst.deform.resize(asset.attachments.size());
+    for (size_t i = 0; i < asset.attachments.size(); ++i) {
+        const int n = asset.attachments[i].deform_floats;
+        inst.deform[i].assign(static_cast<size_t>(std::max(n, 0)), 0.0f);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // posing
 // ---------------------------------------------------------------------------
@@ -613,6 +1047,7 @@ void SkeletonSystem::ResetPose(Instance &inst) const {
     for (size_t s = 0; s < inst.slots.size(); ++s) {
         inst.slots[s] = asset->slots[s];
     }
+    EnsureDeformBuffers(*asset, inst);
     ComposeWorld(inst);
 }
 
@@ -655,11 +1090,109 @@ float SkeletonSystem::SampleTrack(const TrackData &track, float time) {
     const Key &a = keys[hi - 1];
     const Key &b = keys[hi];
     if (b.stepped) {
-        return a.value;  // hold the previous pose until this key lands
+        return a.value;
     }
     const float span = b.time - a.time;
     const float u = span <= 0.0f ? 1.0f : (time - a.time) / span;
     return Lerp(a.value, b.value, u);
+}
+
+void SkeletonSystem::SampleDeformStream(const DeformTrack &track, float time,
+                                        std::vector<float> &out) {
+    out.clear();
+    if (track.keys.empty()) {
+        return;
+    }
+    auto apply_key = [&](const DeformKey &key) {
+        out.assign(static_cast<size_t>(std::max(key.offset, 0)) + key.values.size(), 0.0f);
+        for (size_t i = 0; i < key.values.size(); ++i) {
+            const size_t dst = static_cast<size_t>(std::max(key.offset, 0)) + i;
+            if (dst < out.size()) {
+                out[dst] = key.values[i];
+            }
+        }
+    };
+    if (time <= track.keys.front().time) {
+        apply_key(track.keys.front());
+        return;
+    }
+    if (time >= track.keys.back().time) {
+        apply_key(track.keys.back());
+        return;
+    }
+    size_t hi = 1;
+    while (hi < track.keys.size() && track.keys[hi].time < time) {
+        ++hi;
+    }
+    const DeformKey &a = track.keys[hi - 1];
+    const DeformKey &b = track.keys[hi];
+    if (b.stepped) {
+        apply_key(a);
+        return;
+    }
+    const float span = b.time - a.time;
+    const float u = span <= 0.0f ? 1.0f : (time - a.time) / span;
+    std::vector<float> va, vb;
+    apply_key(a);
+    va.swap(out);
+    apply_key(b);
+    vb.swap(out);
+    const size_t n = std::max(va.size(), vb.size());
+    out.assign(n, 0.0f);
+    for (size_t i = 0; i < n; ++i) {
+        const float av = i < va.size() ? va[i] : 0.0f;
+        const float bv = i < vb.size() ? vb[i] : 0.0f;
+        out[i] = Lerp(av, bv, u);
+    }
+}
+
+void SkeletonSystem::ApplyDeform(const Asset &asset, Instance &inst, const Clip &clip,
+                                 float time, float weight) const {
+    if (weight <= 0.0f || clip.deforms.empty()) {
+        return;
+    }
+    EnsureDeformBuffers(asset, inst);
+    std::vector<float> sampled;
+    for (const DeformTrack &dt : clip.deforms) {
+        if (dt.attachment < 0 ||
+            static_cast<size_t>(dt.attachment) >= asset.attachments.size() ||
+            static_cast<size_t>(dt.attachment) >= inst.deform.size()) {
+            continue;
+        }
+        const Attachment &att = asset.attachments[static_cast<size_t>(dt.attachment)];
+        if (!att.IsMesh() || att.deform_floats <= 0) {
+            continue;
+        }
+        SampleDeformStream(dt, time, sampled);
+        std::vector<float> &dst = inst.deform[static_cast<size_t>(dt.attachment)];
+        if (static_cast<int>(dst.size()) < att.deform_floats) {
+            dst.assign(static_cast<size_t>(att.deform_floats), 0.0f);
+        }
+        for (int i = 0; i < att.deform_floats; ++i) {
+            const float src = static_cast<size_t>(i) < sampled.size() ? sampled[static_cast<size_t>(i)]
+                                                                     : 0.0f;
+            if (dt.absolute) {
+                float bind = 0.0f;
+                if (att.influences.empty()) {
+                    if (static_cast<size_t>(i) < att.bind_xy.size()) {
+                        bind = att.bind_xy[static_cast<size_t>(i)];
+                    }
+                } else {
+                    const int inf = i / 2;
+                    const bool is_y = (i % 2) != 0;
+                    if (inf >= 0 && static_cast<size_t>(inf) < att.influences.size()) {
+                        bind = is_y ? att.influences[static_cast<size_t>(inf)].y
+                                    : att.influences[static_cast<size_t>(inf)].x;
+                    }
+                }
+                const float delta = src - bind;
+                dst[static_cast<size_t>(i)] =
+                    Lerp(dst[static_cast<size_t>(i)], delta, weight);
+            } else {
+                dst[static_cast<size_t>(i)] += src * weight;
+            }
+        }
+    }
 }
 
 void SkeletonSystem::ApplyClip(const Asset &asset, Instance &inst, const Clip &clip,
@@ -704,9 +1237,10 @@ void SkeletonSystem::ApplyClip(const Asset &asset, Instance &inst, const Clip &c
                 bone.scale.y = Lerp(bone.scale.y, v, weight);
                 break;
             case Track::SlotAlpha:
-                break;  // handled above
+                break;
         }
     }
+    ApplyDeform(asset, inst, clip, time, weight);
 }
 
 void SkeletonSystem::SamplePose(const Asset &asset, Instance &inst) const {
@@ -716,6 +1250,7 @@ void SkeletonSystem::SamplePose(const Asset &asset, Instance &inst) const {
     for (size_t s = 0; s < inst.slots.size(); ++s) {
         inst.slots[s].color.a = asset.slots[s].color.a;
     }
+    EnsureDeformBuffers(asset, inst);
     if (inst.clip != kInvalid && !asset.clips.empty()) {
         const float w_new = inst.mix_dur > 0.0f
                                 ? 1.0f - std::clamp(inst.mix_left / inst.mix_dur, 0.0f, 1.0f)
@@ -726,14 +1261,8 @@ void SkeletonSystem::SamplePose(const Asset &asset, Instance &inst) const {
         }
         if (inst.clip >= 1 && static_cast<size_t>(inst.clip - 1) < asset.clips.size()) {
             ApplyClip(asset, inst, asset.clips[static_cast<size_t>(inst.clip - 1)],
-                      inst.time, w_new * inst.weight + (1.0f - inst.weight) * 0.0f);
+                      inst.time, w_new * inst.weight);
         }
-    }
-    // A pose held below full weight is the same clip sampled at partial weight
-    // over the setup pose, which is what a hit-pose freeze looks like.
-    if (inst.weight < 1.0f && inst.clip != kInvalid &&
-        static_cast<size_t>(inst.clip - 1) < asset.clips.size()) {
-        // Re-apply is unnecessary: the weight was folded into the call above.
     }
 }
 
@@ -762,6 +1291,95 @@ bool SkeletonSystem::ValidSlot(const Instance &inst, int slot) const {
            static_cast<size_t>(slot) < inst.slots.size();
 }
 
+const SkeletonSystem::Attachment *SkeletonSystem::AttachmentAt(const Instance &inst,
+                                                               int attachment) const {
+    const Asset *asset = AssetOfInstance(inst);
+    if (asset == nullptr || attachment < 0 ||
+        static_cast<size_t>(attachment) >= asset->attachments.size()) {
+        return nullptr;
+    }
+    return &asset->attachments[static_cast<size_t>(attachment)];
+}
+
+Vec2 SkeletonSystem::SkinVertex(const Instance &inst, const Attachment &att,
+                                int vertex) const {
+    if (vertex < 0 || vertex >= att.VertexCount()) {
+        return {};
+    }
+    const size_t vi = static_cast<size_t>(vertex);
+    const std::vector<float> *deform = nullptr;
+    // Find attachment index for deform lookup.
+    const Asset *asset = AssetOfInstance(inst);
+    int att_index = -1;
+    if (asset != nullptr) {
+        for (size_t i = 0; i < asset->attachments.size(); ++i) {
+            if (&asset->attachments[i] == &att) {
+                att_index = static_cast<int>(i);
+                break;
+            }
+        }
+        if (att_index >= 0 && static_cast<size_t>(att_index) < inst.deform.size()) {
+            deform = &inst.deform[static_cast<size_t>(att_index)];
+        }
+    }
+
+    const int wcount =
+        vi < att.weight_count.size() ? att.weight_count[vi] : 0;
+    if (wcount <= 0) {
+        float bx = vi * 2 + 1 < att.bind_xy.size() ? att.bind_xy[vi * 2] : 0.0f;
+        float by = vi * 2 + 1 < att.bind_xy.size() ? att.bind_xy[vi * 2 + 1] : 0.0f;
+        if (deform != nullptr && att.deform_floats >= static_cast<int>(vi * 2 + 2)) {
+            bx += (*deform)[vi * 2];
+            by += (*deform)[vi * 2 + 1];
+        }
+        // Rigid to... we need the slot bone. Attachment does not store it; the
+        // caller passes world of the slot. For SkinVertex used from MeshVertexWorld
+        // we look up which slot owns this attachment.
+        int bone = 0;
+        if (asset != nullptr) {
+            for (const Slot &slot : inst.slots) {
+                if (att_index >= slot.first_attachment &&
+                    att_index < slot.first_attachment + slot.attachment_count) {
+                    bone = slot.bone;
+                    break;
+                }
+            }
+        }
+        const Affine2 local = Affine2::FromTRS(att.offset, att.rotation, {1.0f, 1.0f});
+        const Affine2 m =
+            (bone >= 0 && static_cast<size_t>(bone) < inst.world.size()
+                 ? inst.world[static_cast<size_t>(bone)]
+                 : Affine2{}) *
+            local;
+        return m.Map({bx, by});
+    }
+
+    const int first = att.weight_first[vi];
+    Vec2 out{0.0f, 0.0f};
+    for (int i = 0; i < wcount; ++i) {
+        const MeshInfluence &inf =
+            att.influences[static_cast<size_t>(first + i)];
+        float lx = inf.x;
+        float ly = inf.y;
+        // Weighted deform stream is 2 floats per influence, in influence order.
+        if (deform != nullptr) {
+            const int di = (first + i) * 2;
+            if (di + 1 < static_cast<int>(deform->size())) {
+                lx += (*deform)[static_cast<size_t>(di)];
+                ly += (*deform)[static_cast<size_t>(di + 1)];
+            }
+        }
+        if (inf.bone < 0 || static_cast<size_t>(inf.bone) >= inst.world.size()) {
+            continue;
+        }
+        const Vec2 p = inst.world[static_cast<size_t>(inf.bone)].Map({lx, ly});
+        out.x += p.x * inf.weight;
+        out.y += p.y * inf.weight;
+    }
+    return out;
+}
+
+
 // ---------------------------------------------------------------------------
 // playback
 // ---------------------------------------------------------------------------
@@ -769,7 +1387,7 @@ bool SkeletonSystem::ValidSlot(const Instance &inst, int slot) const {
 int SkeletonSystem::FindClip(const Asset &asset, const std::string &name) const {
     for (size_t i = 0; i < asset.clips.size(); ++i) {
         if (asset.clips[i].name == name) {
-            return static_cast<int>(i) + 1;  // 1-based
+            return static_cast<int>(i) + 1;
         }
     }
     return kInvalid;
@@ -859,7 +1477,7 @@ bool SkeletonSystem::Finished(int id) {
     if (!inst.done || inst.reported) {
         return false;
     }
-    inst.reported = true;  // one-shot semantics: the caller acts once
+    inst.reported = true;
     return true;
 }
 
@@ -923,8 +1541,10 @@ void SkeletonSystem::SetTime(int id, float seconds) {
         inst.time = std::min(inst.time,
                              asset->clips[static_cast<size_t>(inst.clip - 1)].duration);
     }
-    SamplePose(*asset, inst);  // re-pose immediately, without replaying events
-    ComposeWorld(inst);
+    if (asset != nullptr) {
+        SamplePose(*asset, inst);
+        ComposeWorld(inst);
+    }
 }
 
 float SkeletonSystem::Time(int id) const {
@@ -953,7 +1573,6 @@ void SkeletonSystem::SetPoseWeight(int id, float weight) {
 float SkeletonSystem::PoseWeight(int id) const {
     return Has(id) ? instances_[static_cast<size_t>(id) - 1].weight : 0.0f;
 }
-
 // ---------------------------------------------------------------------------
 // bones, slots, skins
 // ---------------------------------------------------------------------------
@@ -1162,6 +1781,183 @@ std::string SkeletonSystem::AttachmentName(int id, int attachment) const {
         return {};
     }
     return asset->attachments[static_cast<size_t>(attachment)].name;
+}
+
+// ---------------------------------------------------------------------------
+// mesh / soft-skin queries
+// ---------------------------------------------------------------------------
+
+bool SkeletonSystem::AttachmentIsMesh(int id, int attachment) const {
+    const Attachment *att =
+        Has(id) ? AttachmentAt(instances_[static_cast<size_t>(id) - 1], attachment)
+                : nullptr;
+    return att != nullptr && att->IsMesh();
+}
+
+int SkeletonSystem::MeshVertexCount(int id, int attachment) const {
+    const Attachment *att =
+        Has(id) ? AttachmentAt(instances_[static_cast<size_t>(id) - 1], attachment)
+                : nullptr;
+    return att == nullptr ? 0 : att->VertexCount();
+}
+
+int SkeletonSystem::MeshTriangleCount(int id, int attachment) const {
+    const Attachment *att =
+        Has(id) ? AttachmentAt(instances_[static_cast<size_t>(id) - 1], attachment)
+                : nullptr;
+    return att == nullptr ? 0 : static_cast<int>(att->triangles.size() / 3);
+}
+
+int SkeletonSystem::MeshWeightCount(int id, int attachment, int vertex) const {
+    const Attachment *att =
+        Has(id) ? AttachmentAt(instances_[static_cast<size_t>(id) - 1], attachment)
+                : nullptr;
+    if (att == nullptr || vertex < 0 ||
+        static_cast<size_t>(vertex) >= att->weight_count.size()) {
+        return 0;
+    }
+    return att->weight_count[static_cast<size_t>(vertex)];
+}
+
+bool SkeletonSystem::MeshWeight(int id, int attachment, int vertex, int wi,
+                                int &bone_out, float &weight_out) const {
+    const Attachment *att =
+        Has(id) ? AttachmentAt(instances_[static_cast<size_t>(id) - 1], attachment)
+                : nullptr;
+    if (att == nullptr || vertex < 0 ||
+        static_cast<size_t>(vertex) >= att->weight_count.size()) {
+        return false;
+    }
+    const int count = att->weight_count[static_cast<size_t>(vertex)];
+    if (wi < 0 || wi >= count) {
+        return false;
+    }
+    const int first = att->weight_first[static_cast<size_t>(vertex)];
+    const MeshInfluence &inf =
+        att->influences[static_cast<size_t>(first + wi)];
+    bone_out = inf.bone;
+    weight_out = inf.weight;
+    return true;
+}
+
+Vec2 SkeletonSystem::MeshBindVertex(int id, int attachment, int vertex) const {
+    const Attachment *att =
+        Has(id) ? AttachmentAt(instances_[static_cast<size_t>(id) - 1], attachment)
+                : nullptr;
+    if (att == nullptr || vertex < 0 || vertex >= att->VertexCount()) {
+        return {};
+    }
+    const size_t vi = static_cast<size_t>(vertex);
+    const Instance &inst = instances_[static_cast<size_t>(id) - 1];
+    const std::vector<float> *deform = nullptr;
+    if (static_cast<size_t>(attachment) < inst.deform.size()) {
+        deform = &inst.deform[static_cast<size_t>(attachment)];
+    }
+    const int wcount =
+        vi < att->weight_count.size() ? att->weight_count[vi] : 0;
+    if (wcount <= 0) {
+        float bx = vi * 2 + 1 < att->bind_xy.size() ? att->bind_xy[vi * 2] : 0.0f;
+        float by = vi * 2 + 1 < att->bind_xy.size() ? att->bind_xy[vi * 2 + 1] : 0.0f;
+        if (deform != nullptr && static_cast<int>(deform->size()) >= static_cast<int>(vi * 2 + 2)) {
+            bx += (*deform)[vi * 2];
+            by += (*deform)[vi * 2 + 1];
+        }
+        return {bx, by};
+    }
+    float cx = 0, cy = 0, wsum = 0;
+    const int first = att->weight_first[vi];
+    for (int i = 0; i < wcount; ++i) {
+        const MeshInfluence &inf =
+            att->influences[static_cast<size_t>(first + i)];
+        float lx = inf.x;
+        float ly = inf.y;
+        if (deform != nullptr) {
+            const int di = (first + i) * 2;
+            if (di + 1 < static_cast<int>(deform->size())) {
+                lx += (*deform)[static_cast<size_t>(di)];
+                ly += (*deform)[static_cast<size_t>(di + 1)];
+            }
+        }
+        cx += lx * inf.weight;
+        cy += ly * inf.weight;
+        wsum += inf.weight;
+    }
+    if (wsum > 0.0f) {
+        cx /= wsum;
+        cy /= wsum;
+    }
+    return {cx, cy};
+}
+
+bool SkeletonSystem::MeshVertexWorld(int id, int attachment, int vertex,
+                                     Vec2 &out) const {
+    if (!Has(id)) {
+        return false;
+    }
+    const Instance &inst = instances_[static_cast<size_t>(id) - 1];
+    const Attachment *att = AttachmentAt(inst, attachment);
+    if (att == nullptr || !att->IsMesh() || vertex < 0 ||
+        vertex >= att->VertexCount()) {
+        return false;
+    }
+    out = SkinVertex(inst, *att, vertex);
+    return true;
+}
+
+bool SkeletonSystem::SampleDeformAt(int id, int attachment, float time) {
+    if (!Has(id)) {
+        return false;
+    }
+    Instance &inst = instances_[static_cast<size_t>(id) - 1];
+    const Asset *asset = AssetOfInstance(inst);
+    if (asset == nullptr || attachment < 0 ||
+        static_cast<size_t>(attachment) >= asset->attachments.size() ||
+        !asset->attachments[static_cast<size_t>(attachment)].IsMesh()) {
+        return false;
+    }
+    EnsureDeformBuffers(*asset, inst);
+    // Zero this attachment's deform, then sample every clip deform track that
+    // targets it at the requested time (using the playing clip if any).
+    inst.deform[static_cast<size_t>(attachment)].assign(
+        static_cast<size_t>(asset->attachments[static_cast<size_t>(attachment)].deform_floats),
+        0.0f);
+    if (inst.clip < 1 ||
+        static_cast<size_t>(inst.clip - 1) >= asset->clips.size()) {
+        return false;
+    }
+    const Clip &clip = asset->clips[static_cast<size_t>(inst.clip - 1)];
+    bool hit = false;
+    std::vector<float> sampled;
+    for (const DeformTrack &dt : clip.deforms) {
+        if (dt.attachment != attachment) {
+            continue;
+        }
+        hit = true;
+        SampleDeformStream(dt, time, sampled);
+        std::vector<float> &dst = inst.deform[static_cast<size_t>(attachment)];
+        const Attachment &att = asset->attachments[static_cast<size_t>(attachment)];
+        for (size_t i = 0; i < dst.size(); ++i) {
+            const float src = i < sampled.size() ? sampled[i] : 0.0f;
+            if (dt.absolute) {
+                float bind = 0.0f;
+                if (att.influences.empty()) {
+                    if (i < att.bind_xy.size()) {
+                        bind = att.bind_xy[i];
+                    }
+                } else {
+                    const size_t inf = i / 2;
+                    const bool is_y = (i % 2) != 0;
+                    if (inf < att.influences.size()) {
+                        bind = is_y ? att.influences[inf].y : att.influences[inf].x;
+                    }
+                }
+                dst[i] = src - bind;
+            } else {
+                dst[i] += src;
+            }
+        }
+    }
+    return hit;
 }
 
 // ---------------------------------------------------------------------------
@@ -1419,14 +2215,8 @@ float SkeletonSystem::EventData(int id, int index) const {
         .data;
 }
 
-// ---------------------------------------------------------------------------
-// drawing
-// ---------------------------------------------------------------------------
-
 namespace {
 
-/// The root frame every attachment is measured against: where the character
-/// stands, how big it is, and which way it faces.
 SkeletonSystem::Affine2 RootMatrix(float x, float y, float scale, float facing) {
     SkeletonSystem::Affine2 m;
     m.a = scale * (facing < 0.0f ? -1.0f : 1.0f);
@@ -1434,6 +2224,20 @@ SkeletonSystem::Affine2 RootMatrix(float x, float y, float scale, float facing) 
     m.tx = x;
     m.ty = y;
     return m;
+}
+
+Vec2 SheetUv(const SkeletonSystem::Attachment &att, float u, float v,
+             float inv_w, float inv_h) {
+    // Mesh UVs are either unit-in-region (all in [0,1] and src is set) or already
+    // sheet-normalized. Region attachments never call this.
+    const bool unit =
+        u >= -0.001f && u <= 1.001f && v >= -0.001f && v <= 1.001f &&
+        att.src.width > 0.0f && att.src.height > 0.0f;
+    if (unit) {
+        return {(att.src.x + u * att.src.width) * inv_w,
+                (att.src.y + v * att.src.height) * inv_h};
+    }
+    return {u, v};
 }
 
 }  // namespace
@@ -1472,6 +2276,45 @@ void SkeletonSystem::Draw(Renderer &renderer, int id, const Vec2 &position, floa
             continue;
         }
         const Attachment &att = asset->attachments[static_cast<size_t>(ai)];
+        const Color c{tint.r * slot.color.r, tint.g * slot.color.g,
+                      tint.b * slot.color.b, tint.a * slot.color.a};
+        if (att.IsMesh()) {
+            if (att.triangles.size() < 3 || att.VertexCount() <= 0) {
+                continue;
+            }
+            // Skin every vertex once, then submit each triangle as a degenerate
+            // quad so the existing SpriteBatch path (and its single-sheet
+            // coalescing) stays intact for region-only and mixed rigs.
+            std::vector<Vec2> skinned(static_cast<size_t>(att.VertexCount()));
+            for (int v = 0; v < att.VertexCount(); ++v) {
+                const Vec2 local = SkinVertex(inst, att, v);
+                skinned[static_cast<size_t>(v)] = root.Map(local);
+            }
+            for (size_t t = 0; t + 2 < att.triangles.size(); t += 3) {
+                const int i0 = att.triangles[t];
+                const int i1 = att.triangles[t + 1];
+                const int i2 = att.triangles[t + 2];
+                const Vec2 corners[4] = {
+                    skinned[static_cast<size_t>(i0)],
+                    skinned[static_cast<size_t>(i1)],
+                    skinned[static_cast<size_t>(i2)],
+                    skinned[static_cast<size_t>(i2)],
+                };
+                const Vec2 uvs[4] = {
+                    SheetUv(att, att.uvs[static_cast<size_t>(i0) * 2],
+                            att.uvs[static_cast<size_t>(i0) * 2 + 1], inv_w, inv_h),
+                    SheetUv(att, att.uvs[static_cast<size_t>(i1) * 2],
+                            att.uvs[static_cast<size_t>(i1) * 2 + 1], inv_w, inv_h),
+                    SheetUv(att, att.uvs[static_cast<size_t>(i2) * 2],
+                            att.uvs[static_cast<size_t>(i2) * 2 + 1], inv_w, inv_h),
+                    SheetUv(att, att.uvs[static_cast<size_t>(i2) * 2],
+                            att.uvs[static_cast<size_t>(i2) * 2 + 1], inv_w, inv_h),
+                };
+                batch.DrawVertices(*sheet, corners, uvs, c);
+            }
+            ++stats_.slots_drawn;
+            continue;
+        }
         if (att.size.x <= 0.0f || att.size.y <= 0.0f) {
             continue;
         }
@@ -1487,8 +2330,6 @@ void SkeletonSystem::Draw(Renderer &renderer, int id, const Vec2 &position, floa
             {(att.src.x + att.src.width) * inv_w, att.src.y * inv_h},
             {(att.src.x + att.src.width) * inv_w, (att.src.y + att.src.height) * inv_h},
             {att.src.x * inv_w, (att.src.y + att.src.height) * inv_h}};
-        const Color c{tint.r * slot.color.r, tint.g * slot.color.g,
-                      tint.b * slot.color.b, tint.a * slot.color.a};
         batch.DrawVertices(*sheet, corners, uvs, c);
         ++stats_.slots_drawn;
     }
@@ -1539,6 +2380,17 @@ bool SkeletonSystem::Bounds(int id, Rect &out) const {
         const int ai = slot.first_attachment +
                        std::clamp(slot.active, 0, slot.attachment_count - 1);
         const Attachment &att = asset->attachments[static_cast<size_t>(ai)];
+        if (att.IsMesh()) {
+            for (int v = 0; v < att.VertexCount(); ++v) {
+                const Vec2 p = SkinVertex(inst, att, v);
+                min_x = std::min(min_x, p.x);
+                max_x = std::max(max_x, p.x);
+                min_y = std::min(min_y, p.y);
+                max_y = std::max(max_y, p.y);
+                any = true;
+            }
+            continue;
+        }
         const Affine2 m = inst.world[static_cast<size_t>(slot.bone)] *
                           Affine2::FromTRS(att.offset, att.rotation, {1.0f, 1.0f});
         const float hw = att.size.x * 0.5f;

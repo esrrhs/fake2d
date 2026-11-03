@@ -13,13 +13,20 @@ class Renderer;
 class SpriteBatch;
 
 /// 2D skeletal animation: a bone hierarchy posed by keyframed clips, with
-/// texture regions attached to bones and drawn in slot order.
+/// texture regions *or* soft-skinned meshes attached to bones and drawn in
+/// slot order.
 ///
 /// Where `AnimationSystem` swaps whole pre-drawn frames, a skeleton moves the
 /// parts. The rig is authored once as bones plus a setup pose; every clip
 /// stores only what changes from that pose, so a walk cycle is a list of
 /// angles rather than 200 pictures, and the same parts recombine for every
 /// action without redrawing them.
+///
+/// Soft-skinned mesh attachments (Phase 49) are another attachment kind on the
+/// same slots: vertices carry bone weights relative to the setup pose, deform
+/// timelines push absolute or additive deltas, and the CPU skins into the
+/// existing SpriteBatch so lighting and batching stay unchanged. Region-only
+/// rigs keep the Phase 47 single-draw-call property.
 ///
 /// A `SkeletonAsset` is the immutable rig: bones, slots, attachments, clips.
 /// A `SkeletonInstance` is one posed copy of it, with its own playback clock,
@@ -45,9 +52,11 @@ class SpriteBatch;
 /// ## Cost
 ///
 /// One asset load, then per frame per instance: `bones` matrix multiplies,
-/// `slots` quads. Every attachment comes off one sheet texture, so a whole
-/// character is a single draw call, and the batch coalesces identically-textured
-/// characters into one more. Nothing here allocates per frame.
+/// `slots` quads (or skinned mesh triangles submitted as batch quads). Every
+/// attachment comes off one sheet texture, so a whole character is a single
+/// draw call, and the batch coalesces identically-textured characters into one
+/// more. Nothing here allocates per frame on the region path; mesh deform
+/// reuses per-instance scratch.
 class SkeletonSystem {
 public:
     // --- limits --------------------------------------------------------------
@@ -61,6 +70,10 @@ public:
     static constexpr int kMaxKeysPerTrack = 128;
     static constexpr int kMaxEventsPerClip = 32;
     static constexpr int kMaxEventsPerFrame = 32;
+    static constexpr int kMaxMeshVertices = 256;
+    static constexpr int kMaxMeshIndices = 768;
+    static constexpr int kMaxInfluencesPerVertex = 8;
+    static constexpr int kMaxDeformTracksPerClip = 32;
     static constexpr int kInvalid = 0;
 
     /// A 2D affine transform, stored as the 2x3 of [a c tx; b d ty].
@@ -106,11 +119,16 @@ public:
         Clips = 7,
     };
 
+    enum class AttachmentKind : std::uint8_t {
+        Region = 0,
+        Mesh = 1,
+    };
+
     struct Stats {
         int assets = 0;
         int instances = 0;
         int bones_posed = 0;   ///< bone transforms composed last frame
-        int slots_drawn = 0;   ///< attachment quads submitted last frame
+        int slots_drawn = 0;   ///< attachment quads/meshes submitted last frame
         int draw_calls = 0;    ///< batch flushes the last frame's draws cost
         int events_fired = 0;  ///< events emitted last frame
         int clips = 0;         ///< clips across every asset
@@ -136,8 +154,27 @@ public:
         float data = 0.0f;
     };
 
+    /// One deform key: a float stream matching the attachment's deform layout
+    /// (2 floats per unweighted vertex, or 2 per influence when weighted).
+    /// `offset` skips the first N floats of the destination (Spine convention).
+    /// Additive (default) adds onto the bind pose; absolute replaces it.
+    struct DeformKey {
+        float time = 0.0f;
+        std::vector<float> values;
+        int offset = 0;
+        bool stepped = false;
+    };
+
+    struct DeformTrack {
+        int slot = 0;
+        int attachment = 0;  ///< index into Asset::attachments
+        bool absolute = false;
+        std::vector<DeformKey> keys;
+    };
+
     struct Clip {
         std::vector<TrackData> tracks;
+        std::vector<DeformTrack> deforms;
         std::vector<Event> events;
         float duration = 0.0f;
         bool loop = true;
@@ -153,14 +190,49 @@ public:
         std::string name;
     };
 
-    /// A texture region hung off a bone. `offset`/`rotation` are relative to
-    /// the bone, so art is placed against the bone it follows.
+    /// One bone's contribution to a mesh vertex, stored in that bone's local
+    /// space at the setup pose (Spine soft-bind). Soft skinning at runtime is
+    /// `sum(weight_i * boneWorld_i.Map({x,y}))`.
+    struct MeshInfluence {
+        int bone = 0;
+        float x = 0.0f;
+        float y = 0.0f;
+        float weight = 1.0f;
+    };
+
+    /// A texture region or soft-skinned mesh hung off a bone. Region
+    /// `offset`/`rotation` are relative to the bone. Mesh attachments carry
+    /// vertices, UVs, triangle indices, optional hull, and bone weights; an
+    /// empty weight list means the vertex is rigid to the slot's bone using
+    /// `bind_xy`.
     struct Attachment {
-        Rect src{};           ///< sub-rect of the asset sheet
+        Rect src{};           ///< sub-rect of the asset sheet (UV basis for meshes too)
         Vec2 offset{};
         float rotation = 0.0f;
         Vec2 size{0.0f, 0.0f};
         std::string name;
+        AttachmentKind kind = AttachmentKind::Region;
+
+        /// Bind-pose local xy (2 * vertex_count). Used when a vertex has no
+        /// weights; ignored for the skinned sum when weights are present, but
+        /// still the baseline deform target for unweighted meshes.
+        std::vector<float> bind_xy;
+        std::vector<float> uvs;  ///< 2 * vertex_count, sheet-normalized 0..1
+        std::vector<std::uint16_t> triangles;
+        int hull = 0;
+
+        std::vector<MeshInfluence> influences;
+        std::vector<int> weight_first;  ///< per vertex; into influences
+        std::vector<int> weight_count;  ///< 0 = rigid to slot bone via bind_xy
+        /// Length of a deform float stream for this mesh (0 for regions).
+        int deform_floats = 0;
+
+        [[nodiscard]] int VertexCount() const {
+            return kind == AttachmentKind::Mesh
+                       ? static_cast<int>(uvs.size() / 2)
+                       : 0;
+        }
+        [[nodiscard]] bool IsMesh() const { return kind == AttachmentKind::Mesh; }
     };
 
     struct Slot {
@@ -289,6 +361,29 @@ public:
     [[nodiscard]] int AttachmentCount(int id) const;
     [[nodiscard]] std::string AttachmentName(int id, int attachment) const;
 
+    // --- mesh / soft-skin ----------------------------------------------------
+    [[nodiscard]] bool AttachmentIsMesh(int id, int attachment) const;
+    [[nodiscard]] int MeshVertexCount(int id, int attachment) const;
+    [[nodiscard]] int MeshTriangleCount(int id, int attachment) const;
+    /// Bone-count for one vertex (0 = rigid to the slot bone).
+    [[nodiscard]] int MeshWeightCount(int id, int attachment, int vertex) const;
+    /// Influence `wi` of vertex `vertex`: bone index and weight. False on bad
+    /// indices.
+    bool MeshWeight(int id, int attachment, int vertex, int wi, int &bone_out,
+                    float &weight_out) const;
+    /// Bind-pose local (or post-deform local) xy for an unweighted vertex, or
+    /// the weighted influence centroid when weights are present. Useful for
+    /// tests; prefer `MeshVertexWorld` for drawing checks.
+    [[nodiscard]] Vec2 MeshBindVertex(int id, int attachment, int vertex) const;
+    /// Skinned world position of a mesh vertex under the current pose (and any
+    /// active deform). Instance-local (no Draw root). False on bad indices.
+    bool MeshVertexWorld(int id, int attachment, int vertex, Vec2 &out) const;
+    /// Force-sample the playing clip's deform for `attachment` at `time`
+    /// (seconds into the clip), clearing bone tracks' effect on deform only.
+    /// Intended for tests. Returns false when the attachment is not a mesh or
+    /// no deform track targets it.
+    bool SampleDeformAt(int id, int attachment, float time);
+
     // --- IK ------------------------------------------------------------------
     /// Two-bone analytic solver: aims root->mid->tip at `target` in world space
     /// and leaves `tip` pointing along the last segment. `bend` picks the
@@ -350,6 +445,10 @@ private:
         std::vector<Affine2> world;
         std::vector<Slot> slots;   ///< per-instance slot state (colour, skin)
         std::vector<int> fired;    ///< indices into the playing clip's events
+        /// Per-attachment deform float stream (zeros = bind pose). Sized to
+        /// match Asset::attachments[i].deform_floats when that attachment is a
+        /// mesh; empty for regions.
+        std::vector<std::vector<float>> deform;
     };
 
     [[nodiscard]] const Asset *AssetOfInstance(const Instance &inst) const;
@@ -359,10 +458,21 @@ private:
     void ComposeWorld(Instance &inst) const;
     void ApplyClip(const Asset &asset, Instance &inst, const Clip &clip, float time,
                    float weight) const;
+    void ApplyDeform(const Asset &asset, Instance &inst, const Clip &clip, float time,
+                     float weight) const;
+    void EnsureDeformBuffers(const Asset &asset, Instance &inst) const;
     [[nodiscard]] static float SampleTrack(const TrackData &track, float time);
+    static void SampleDeformStream(const DeformTrack &track, float time,
+                                                 std::vector<float> &out);
     void ResetPose(Instance &inst) const;
     bool ValidBone(const Instance &inst, int bone) const;
     bool ValidSlot(const Instance &inst, int slot) const;
+    [[nodiscard]] const Attachment *AttachmentAt(const Instance &inst,
+                                                 int attachment) const;
+    /// Skin one mesh vertex into instance world space (no Draw root), applying
+    /// the instance's current deform stream.
+    [[nodiscard]] Vec2 SkinVertex(const Instance &inst, const Attachment &att,
+                                  int vertex) const;
 
     /// Where sheets are resolved from, taken from the first load. Handles are
     /// looked up at draw time rather than cached, so a released texture can
