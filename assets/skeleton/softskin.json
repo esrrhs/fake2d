@@ -1,0 +1,69 @@
+{
+  "skeleton": { "texture": "softskin.png", "author": "fake2d", "height": 64 },
+  "regions": [
+    { "name": "cloth", "x": 8, "y": 8, "w": 48, "h": 48 },
+    { "name": "pole", "x": 0, "y": 0, "w": 8, "h": 64 }
+  ],
+  "bones": [
+    { "name": "root" },
+    { "name": "mast", "parent": "root", "x": 0, "y": -32, "length": 32 },
+    { "name": "tip", "parent": "mast", "x": 32, "y": 0, "length": 16 }
+  ],
+  "attachments": [
+    {
+      "name": "pole_att",
+      "region": "pole",
+      "w": 8, "h": 64, "ox": 0, "oy": 0
+    },
+    {
+      "name": "flag",
+      "type": "mesh",
+      "region": "cloth",
+      "hull": 4,
+      "uvs": [0,0, 1,0, 1,1, 0,1],
+      "triangles": [0,1,2, 0,2,3],
+      "vertices": [
+        2, 1, 0, -8, 0.5, 2, 0, -8, 0.5,
+        2, 1, 0,  8, 0.5, 2, 0,  8, 0.5,
+        1, 2, 16, 8, 1.0,
+        1, 2, 16,-8, 1.0
+      ]
+    }
+  ],
+  "slots": [
+    { "name": "pole_slot", "bone": "mast", "attachment": "pole_att" },
+    { "name": "flag_slot", "bone": "mast", "attachment": "flag" }
+  ],
+  "skins": {},
+  "animations": {
+    "wave": {
+      "loop": true,
+      "duration": 1.0,
+      "bones": {
+        "tip": {
+          "rotate": [
+            {"time": 0.0, "angle": 0},
+            {"time": 0.5, "angle": 25},
+            {"time": 1.0, "angle": 0}
+          ]
+        }
+      },
+      "deform": {
+        "flag_slot": {
+          "flag": [
+            {"time": 0.0, "vertices": [0,0, 0,0, 0,0, 0,0, 0,0, 0,0]},
+            {"time": 0.5, "vertices": [0,0, 0,0, 0,0, 0,0, 0,6, 0,-6]},
+            {"time": 1.0, "vertices": [0,0, 0,0, 0,0, 0,0, 0,0, 0,0]}
+          ]
+        }
+      }
+    },
+    "idle": {
+      "loop": true,
+      "duration": 0.5,
+      "bones": {
+        "tip": { "rotate": [ {"time": 0.0, "angle": 0}, {"time": 0.5, "angle": 0} ] }
+      }
+    }
+  }
+}
