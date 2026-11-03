@@ -689,12 +689,33 @@ end
 ```
 
 Meshes submit through `SpriteBatch::DrawTriangles` (indexed triangle stream with
-a dynamic IBO). Pending region quads flush on the topology switch, then consecutive
-same-sheet meshes coalesce into one draw; a region-only rig still measures as one
-draw call per sheet. If the mesh IBO is unavailable the batch falls back to
-degenerate quads via `DrawVertices`. `scripts/skeleton_mesh_demo.lua`
-(`--skeleton-mesh-demo`) flies a weighted flag with a deform flutter;
-`assets/skeleton/linkskin.json` covers skins-nested mesh + cross-skin linkedmesh.
+a dynamic IBO). In immediate mode, pending region quads flush on the topology
+switch and consecutive same-sheet meshes coalesce into one draw. In **sorted**
+mode (layers / z), meshes are deferred and sorted with quads by
+`(layer, z, blend, texture, sequence)` so soft-skin respects layer order. A
+region-only rig still measures as one draw call per sheet. If the mesh IBO is
+unavailable the batch falls back to degenerate quads via `DrawVertices` (those
+already participate in sorting).
+
+`linkedmesh` parent chains (`tip -> mid -> base`) resolve in any declaration
+order; a circular link fails the load with a path such as
+`linkedmesh cycle: 'a' -> 'b' -> 'a'`.
+
+Hull / lighting helpers (Phase 50):
+
+```lua
+local n = skel_hull_count(id, att)          -- authored hull, or all verts
+local hx = skel_hull_x(id, att, 0)          -- instance-local skinned
+local bx = skel_bounds_x(id)               -- instance-local AABB
+-- Push the mesh hull into a LightSystem occluder under the same root as draw:
+skel_sync_occluder(id, occ, att, x, y, scale, facing)
+```
+
+`scripts/skeleton_mesh_demo.lua` (`--skeleton-mesh-demo`) flies a weighted flag
+with a deform flutter; `scripts/skeleton_light_demo.lua`
+(`--skeleton-light-demo`) puts that flag under the Phase 46 lighting pass so the
+hull casts a shadow; `assets/skeleton/linkskin.json` covers skins-nested mesh +
+cross-skin linkedmesh; `assets/skeleton/linkchain.json` covers parent chains.
 
 ### Audio
 

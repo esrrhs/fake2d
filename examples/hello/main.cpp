@@ -7164,6 +7164,106 @@ int RunSkeletonTest(fake2d::Engine &engine) {
             check(why.find("link") != std::string::npos,
                   "bad skin-qualified linkedmesh names the attachment: " + why);
         }
+
+        // Circular linkedmesh: must name the cycle path, not just "unknown".
+        {
+            const char *bad_path = "assets/skeleton/_bad_cycle.json";
+            std::ofstream out(bad_path);
+            out << R"({
+  "skeleton":{"texture":"softskin.png"},
+  "bones":[{"name":"root"}],
+  "attachments":[
+    {"name":"a","type":"linkedmesh","parent":"b"},
+    {"name":"b","type":"linkedmesh","parent":"a"}
+  ],
+  "slots":[{"name":"s","bone":"root","attachment":"a"}],
+  "skins":{},
+  "animations":{}
+})";
+            out.close();
+            std::string why;
+            const int bad = sk.LoadAsset(engine.GetResources(), bad_path, &why);
+            check(bad == 0, "circular linkedmesh is rejected");
+            check(why.find("cycle") != std::string::npos,
+                  "cycle rejection mentions cycle: " + why);
+            check(why.find("'a'") != std::string::npos &&
+                      why.find("'b'") != std::string::npos,
+                  "cycle rejection names both attachments: " + why);
+        }
+
+        // Parent chain tip -> mid -> base resolves regardless of order.
+        {
+            std::string err;
+            const int chain =
+                sk.LoadAsset(engine.GetResources(), "assets/skeleton/linkchain.json",
+                             &err);
+            check(chain > 0, "linkchain.json loads: " + err);
+            const int id = sk.Create(chain);
+            check(id > 0, "linkchain instance creates");
+            check(sk.AttachmentIsMesh(id, 2), "chained tip resolved to a mesh");
+            check(sk.MeshVertexCount(id, 2) == 4, "chained tip inherits 4 verts");
+            check(sk.MeshHullCount(id, 2) == 4, "chained tip hull is 4");
+            sk.Destroy(id);
+        }
+    }
+
+    // Soft-skin hull + world bounds feed light occluders.
+    {
+        std::string err;
+        const int soft =
+            sk.LoadAsset(engine.GetResources(), "assets/skeleton/softskin.json", &err);
+        check(soft > 0, "softskin reloads for hull/light: " + err);
+        const int id = sk.Create(soft);
+        check(id > 0, "softskin instance for hull");
+        sk.Update(0.0f);
+        check(sk.MeshHullCount(id, 1) == 4, "softskin flag hull count is 4");
+        fake2d::Vec2 h0{};
+        check(sk.MeshHullVertex(id, 1, 0, h0), "hull vertex 0 reads");
+        fake2d::Vec2 world[4];
+        const int nw =
+            sk.MeshHullWorld(id, 1, {400.0f, 300.0f}, 2.0f, 1.0f, world, 4);
+        check(nw == 4, "MeshHullWorld writes 4 verts");
+        fake2d::Rect local{}, world_b{};
+        check(sk.Bounds(id, local), "instance-local Bounds");
+        check(sk.BoundsWorld(id, {400.0f, 300.0f}, 2.0f, 1.0f, world_b),
+              "BoundsWorld under Draw root");
+        check(world_b.width > 0.0f && world_b.height > 0.0f, "BoundsWorld non-empty");
+
+        fake2d::LightSystem &L = engine.GetRenderer().Lights();
+        if (L.IsReady()) {
+            const int occ = L.AddOccluder(world, 4);
+            check(occ > 0, "hull verts accepted as an occluder");
+            // Nudge the pose and rewrite the caster — production sync path.
+            sk.SetBoneByName(id, "tip", 32.0f, 0.0f, 25.0f, 1.0f, 1.0f);
+            sk.Update(0.0f);
+            const int nw2 =
+                sk.MeshHullWorld(id, 1, {400.0f, 300.0f}, 2.0f, 1.0f, world, 4);
+            check(nw2 == 4, "hull still 4 after tip rotate");
+            L.SetOccluderPoly(occ, world, 4);
+            check(L.HasOccluder(occ), "occluder survives hull rewrite");
+            L.RemoveOccluder(occ);
+        } else {
+            check(false, "LightSystem ready for soft-skin occluder gate");
+        }
+
+        // Sorted SpriteBatch + soft-skin: deferred meshes must not crash and
+        // must still submit the flag triangles.
+        {
+            fake2d::Renderer &r = engine.GetRenderer();
+            fake2d::SpriteBatch &batch = r.GetSpriteBatch();
+            const bool was_sorted = batch.IsSorted();
+            batch.SetSorted(true);
+            r.BeginFrame(0.0f, 0.0f, 0.0f, 1.0f);
+            batch.SetLayer(0);
+            sk.Draw(r, id, {200.0f, 200.0f}, 1.0f, 1.0f, fake2d::Color::White());
+            batch.SetLayer(1);
+            batch.DrawQuad({0.0f, 0.0f, 16.0f, 16.0f}, fake2d::Color::White());
+            r.EndFrame();
+            check(sk.GetStats().slots_drawn >= 1,
+                  "sorted batch still draws soft-skin slots");
+            batch.SetSorted(was_sorted);
+        }
+        sk.Destroy(id);
     }
 
     std::printf("[skeleton] %s: %d checks, %d failures\n",

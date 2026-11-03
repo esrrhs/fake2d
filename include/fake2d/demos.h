@@ -35,6 +35,7 @@ inline constexpr DemoInfo kDemos[] = {
     // --- engine feature showcases ----------------------------------------
     {"skeleton", "scripts/skeleton_demo.lua", "engine"},
     {"skeleton-mesh", "scripts/skeleton_mesh_demo.lua", "engine"},
+    {"skeleton-light", "scripts/skeleton_light_demo.lua", "engine"},
     {"light", "scripts/light_demo.lua", "engine"},
     {"scene", "scripts/scene_demo.lua", "engine"},
     {"slope", "scripts/slope_demo.lua", "engine"},

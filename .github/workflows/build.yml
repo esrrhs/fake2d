@@ -279,6 +279,14 @@ jobs:
           test -s skeleton_mesh.png
           grep -q "update() failed" skeleton_mesh_demo.log
           [ "$?" -ne 0 ] || rc_skeleton_mesh_demo=1
+          # Soft-skin + lighting: hull occluder under the Phase 46 pass.
+          run_xvfb ./build/bin/fake2d_hello --headless --frames 240 \
+            --skeleton-light-demo --screenshot skeleton_light.png --shot-frame 150 \
+            --shot-min-colors 8 > skeleton_light_demo.log 2>&1
+          rc_skeleton_light_demo=$?
+          test -s skeleton_light.png
+          grep -q "update() failed" skeleton_light_demo.log
+          [ "$?" -ne 0 ] || rc_skeleton_light_demo=1
           # Inverse gate: intentional update() failure must exit non-zero
           # (Phase 47 exit-code work). Keep it short and reliable.
           # (This step already runs under set +e so a non-zero child is fine.)
@@ -439,7 +447,7 @@ jobs:
             --entry scripts/phys_test.lua > phys_test.log 2>&1
           rc_lua=$?
           set -e
-          echo "exit codes: query=$rc_query filter=$rc_filter rigid=$rc_rigid extended=$rc_extended birds=$rc_birds limbo=$rc_limbo limbowalk=$rc_limbo_walk timestep=$rc_timestep path=$rc_path rt=$rc_rt ui=$rc_ui post=$rc_post fx=$rc_fx fog=$rc_fog light=$rc_light lightbench=$rc_light_bench lightdemo=$rc_light_demo skeleton=$rc_skeleton skeldemo=$rc_skeleton_demo skelmesh=$rc_skeleton_mesh_demo updatefail=$rc_update_fail audio=$rc_audio mapobj=$rc_mapobj tile=$rc_tile font=$rc_font platform=$rc_platform gameplay=$rc_gameplay combat=$rc_combat shmup=$rc_shmup art=$rc_art launcher=$rc_launcher snooker=$rc_snooker contra=$rc_contra city=$rc_city rts=$rc_rts vn=$rc_vn beat=$rc_beat shmupdemo=$rc_shmup_demo snookerdemo=$rc_snooker_demo contrademo=$rc_contra_demo citydemo=$rc_city_demo rtsdemo=$rc_rts_demo vndemo=$rc_vn_demo lua=$rc_lua"
+          echo "exit codes: query=$rc_query filter=$rc_filter rigid=$rc_rigid extended=$rc_extended birds=$rc_birds limbo=$rc_limbo limbowalk=$rc_limbo_walk timestep=$rc_timestep path=$rc_path rt=$rc_rt ui=$rc_ui post=$rc_post fx=$rc_fx fog=$rc_fog light=$rc_light lightbench=$rc_light_bench lightdemo=$rc_light_demo skeleton=$rc_skeleton skeldemo=$rc_skeleton_demo skelmesh=$rc_skeleton_mesh_demo skellight=$rc_skeleton_light_demo updatefail=$rc_update_fail audio=$rc_audio mapobj=$rc_mapobj tile=$rc_tile font=$rc_font platform=$rc_platform gameplay=$rc_gameplay combat=$rc_combat shmup=$rc_shmup art=$rc_art launcher=$rc_launcher snooker=$rc_snooker contra=$rc_contra city=$rc_city rts=$rc_rts vn=$rc_vn beat=$rc_beat shmupdemo=$rc_shmup_demo snookerdemo=$rc_snooker_demo contrademo=$rc_contra_demo citydemo=$rc_city_demo rtsdemo=$rc_rts_demo vndemo=$rc_vn_demo lua=$rc_lua"
           [ "$rc_query" -eq 0 ]
           [ "$rc_filter" -eq 0 ]
           [ "$rc_rigid" -eq 0 ]
@@ -460,6 +468,7 @@ jobs:
           [ "$rc_skeleton" -eq 0 ]
           [ "$rc_skeleton_demo" -eq 0 ]
           [ "$rc_skeleton_mesh_demo" -eq 0 ]
+          [ "$rc_skeleton_light_demo" -eq 0 ]
           [ "$rc_update_fail" -eq 0 ]
           [ "$rc_audio" -eq 0 ]
           [ "$rc_mapobj" -eq 0 ]

@@ -4586,6 +4586,97 @@ void RegisterSkeletonApi(fakelua::State *state, Engine *engine) {
                                               static_cast<int>(att),
                                               static_cast<float>(time));
             }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_hull_count", false,
+        std::function<std::int64_t(fakelua::State *, double, double)>(
+            [skels](fakelua::State *, double id, double att) -> std::int64_t {
+                return skels().MeshHullCount(static_cast<int>(id),
+                                             static_cast<int>(att));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_hull_x", false,
+        std::function<double(fakelua::State *, double, double, double)>(
+            [skels](fakelua::State *, double id, double att, double hi) {
+                fake2d::Vec2 p{};
+                if (!skels().MeshHullVertex(static_cast<int>(id), static_cast<int>(att),
+                                            static_cast<int>(hi), p)) {
+                    return 0.0;
+                }
+                return static_cast<double>(p.x);
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_hull_y", false,
+        std::function<double(fakelua::State *, double, double, double)>(
+            [skels](fakelua::State *, double id, double att, double hi) {
+                fake2d::Vec2 p{};
+                if (!skels().MeshHullVertex(static_cast<int>(id), static_cast<int>(att),
+                                            static_cast<int>(hi), p)) {
+                    return 0.0;
+                }
+                return static_cast<double>(p.y);
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_bounds_x", false,
+        std::function<double(fakelua::State *, double)>(
+            [skels](fakelua::State *, double id) {
+                fake2d::Rect r{};
+                if (!skels().Bounds(static_cast<int>(id), r)) {
+                    return 0.0;
+                }
+                return static_cast<double>(r.x);
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_bounds_y", false,
+        std::function<double(fakelua::State *, double)>(
+            [skels](fakelua::State *, double id) {
+                fake2d::Rect r{};
+                if (!skels().Bounds(static_cast<int>(id), r)) {
+                    return 0.0;
+                }
+                return static_cast<double>(r.y);
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_bounds_w", false,
+        std::function<double(fakelua::State *, double)>(
+            [skels](fakelua::State *, double id) {
+                fake2d::Rect r{};
+                if (!skels().Bounds(static_cast<int>(id), r)) {
+                    return 0.0;
+                }
+                return static_cast<double>(r.width);
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "skel_bounds_h", false,
+        std::function<double(fakelua::State *, double)>(
+            [skels](fakelua::State *, double id) {
+                fake2d::Rect r{};
+                if (!skels().Bounds(static_cast<int>(id), r)) {
+                    return 0.0;
+                }
+                return static_cast<double>(r.height);
+            }));
+    /// Push a mesh hull into a light occluder under the same root as skel_draw.
+    /// Returns how many hull verts were written (0 on failure / empty).
+    fakelua::RegisterNativeFunction(
+        state, "skel_sync_occluder", false,
+        std::function<std::int64_t(fakelua::State *, double, double, double, double,
+                                   double, double, double)>(
+            [skels, engine](fakelua::State *, double id, double occ, double att,
+                            double x, double y, double scale,
+                            double facing) -> std::int64_t {
+                fake2d::Vec2 hull[fake2d::LightSystem::kMaxOccluderVerts];
+                const int n = skels().MeshHullWorld(
+                    static_cast<int>(id), static_cast<int>(att),
+                    fake2d::Vec2{static_cast<float>(x), static_cast<float>(y)},
+                    static_cast<float>(scale), static_cast<float>(facing), hull,
+                    fake2d::LightSystem::kMaxOccluderVerts);
+                if (n < 3) {
+                    return 0;
+                }
+                engine->GetRenderer().Lights().SetOccluderPoly(static_cast<int>(occ),
+                                                               hull, n);
+                return n;
+            }));
 
     // --- drawing ------------------------------------------------------------
     fakelua::RegisterNativeFunction(
