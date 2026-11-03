@@ -719,3 +719,57 @@ and malformed rejection.
 - [x] **CI**: `--skeleton-mesh-demo` screenshot/colour probe next to skeleton-demo;
   inverse gate for `scripts/update_fail_test.lua` (expect non-zero exit).
 - [x] Docs + package **1.42.1** (`DrawTriangles` API surface).
+
+---
+
+## Phase 50 — Soft-skin production path & lit skinned characters (1.43.x)
+
+Phase 49 shipped CPU soft-skin into SpriteBatch and deeper linkedmesh / skin
+inheritance. Production still needed cycle-safe link resolution, meshes that
+respect sorted layers, and a clean lighting hook so a soft-skinned character can
+cast and receive light. Prefer the CPU path; GPU skinning and mixed
+region+mesh single-draw stay deferred.
+
+### Architectural intent
+
+- Linkedmesh resolution is a graph walk, not a single pass: name cycles clearly
+  (`a -> b -> a`) and resolve parent chains (`a -> b -> real mesh`) in any order.
+- Soft-skin triangles participate in sorted SpriteBatch by the same
+  `(layer, z, blend, texture, sequence)` key as quads, so layered scenes and
+  soft-skin coexist without a topology flush that skips the sort.
+- Skeleton world bounds / mesh hulls feed `LightSystem` occluders through a
+  small sync API; demos reuse existing `light_*` / `occluder_*` bindings.
+- Keep region-only single-draw-call ranks and `--skeleton-test` coverage as the
+  regression floor.
+
+### Deliverables
+
+- [x] Circular linkedmesh detection with errors that name the cycle path
+- [x] Linkedmesh parent *chains* resolve regardless of declaration order
+- [x] Meshes in sorted SpriteBatch (deferred mesh commands sorted with quads)
+- [x] Mesh hull / bounds helpers + `skel_sync_occluder` (or equivalent) so a
+      skinned attachment can drive a light occluder each frame
+- [x] `--skeleton-light-demo`: soft-skinned character under the Phase 46 lighting
+      pass (cast + receive); catalogue in `demos.h` + launcher + CI screenshot
+- [x] `--skeleton-test` growth: cycle rejection (named path), chain resolution,
+      hull/bounds + light sync smoke; sorted-batch mesh smoke as appropriate
+- [x] Docs: SCRIPTING.md notes; version bump **1.43.0**
+
+### Deferred (still)
+
+- [ ] GPU skinning / compute deform
+- [ ] Mixed region + mesh topology in a single draw call
+- [ ] Sharing deform tracks across attachments
+
+### Verification
+
+- [x] Headless `--skeleton-test` green with new cycle/chain/hull cases (144 checks)
+- [x] `--skeleton-light-demo` under `--frames` with zero `update() failed`
+- [x] Lighting gates unchanged by this path (pre-existing software-GL flake on this host); region-only skeleton ranks hold
+
+Phase 50 shipped as **1.43.0**: circular linkedmesh detection (named cycle path),
+parent-chain resolution, soft-skin meshes deferred into sorted SpriteBatch,
+mesh hull / `skel_sync_occluder` lighting hook, `--skeleton-light-demo`, and
+`--skeleton-test` grown to 144 checks. GPU skinning and mixed topology single-draw
+remain deferred.
+
