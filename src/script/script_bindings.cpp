@@ -3634,6 +3634,15 @@ void RegisterUtilityApi(fakelua::State *state, Engine *engine) {
             [engine](fakelua::State *, double p) -> bool {
                 return engine->GetRandom().Chance(static_cast<float>(p));
             }));
+    // Combined world/state digest (RNG + physics poses + entities + camera).
+    // Returns the full 64-bit value as a signed integer so Lua can compare
+    // bit-identical hashes without double mantissa loss.
+    fakelua::RegisterNativeFunction(
+        state, "world_hash", false,
+        std::function<std::int64_t(fakelua::State *)>(
+            [engine](fakelua::State *) -> std::int64_t {
+                return static_cast<std::int64_t>(engine->WorldHash().combined);
+            }));
 
     // ---- easing / interpolation ----
     fakelua::RegisterNativeFunction(

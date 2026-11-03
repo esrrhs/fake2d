@@ -367,6 +367,10 @@ public:
 
     void Clear();
     [[nodiscard]] std::size_t BodyCount() const { return live_; }
+    /// Alive body at 0-based enumeration index, ordered by slot; kInvalidBody
+    /// when out of range. Slot order keeps world hashes stable across free-list
+    /// reuse timing.
+    [[nodiscard]] BodyId At(std::size_t index) const;
 
 private:
     struct Body {

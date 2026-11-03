@@ -1,4 +1,5 @@
 #include "fake2d/engine.h"
+#include "fake2d/world_hash.h"
 #include "fake2d/app_paths.h"
 #include "fake2d/renderer.h"
 #include "fake2d/script_host.h"
@@ -72,6 +73,9 @@ bool Engine::Init(const EngineConfig &config) {
     if (impl_->config.save_dir.empty()) {
         // Platform-correct default instead of a CWD-relative "saves" folder.
         impl_->config.save_dir = AppPaths::SavesDir();
+    }
+    if (impl_->config.pin_rng) {
+        impl_->random.Seed(impl_->config.rng_seed);
     }
 
     platform::WindowDesc desc;
@@ -464,6 +468,11 @@ bool Engine::IsRecordingInput() const {
 
 bool Engine::IsReplayingInput() const {
     return impl_ && impl_->replaying_input;
+}
+
+
+WorldHashParts Engine::WorldHash() const {
+    return ComputeWorldHash(*this);
 }
 
 Renderer &Engine::GetRenderer() {

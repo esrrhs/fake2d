@@ -1468,6 +1468,21 @@ BodyId PhysicsWorld::PointTest(const Vec2 &p) const {
     return kInvalidBody;
 }
 
+BodyId PhysicsWorld::At(std::size_t index) const {
+    std::size_t seen = 0;
+    for (std::size_t i = 0; i < bodies_.size(); ++i) {
+        if (!bodies_[i].alive) {
+            continue;
+        }
+        if (seen == index) {
+            return static_cast<BodyId>(Encode(static_cast<std::uint32_t>(i),
+                                              bodies_[i].generation));
+        }
+        ++seen;
+    }
+    return kInvalidBody;
+}
+
 void PhysicsWorld::Clear() {
     bodies_.clear();
     free_list_.clear();

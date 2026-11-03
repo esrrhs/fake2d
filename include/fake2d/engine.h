@@ -18,6 +18,7 @@
 #include "fake2d/tilemap.h"
 #include "fake2d/ui.h"
 #include "fake2d/version.h"
+#include "fake2d/world_hash.h"
 
 #include <cstdint>
 #include <functional>
@@ -82,6 +83,11 @@ struct EngineConfig {
     /// When non-empty, feed Input from this F2IR recording instead of the
     /// device. Mutually exclusive with record_path.
     std::string replay_path;
+    /// When true, `Init` seeds `GetRandom()` with `rng_seed` so a run (or a
+    /// replay) starts from a pinned stream. Scripts may still call
+    /// `rng_seed` later; this only sets the starting state.
+    bool pin_rng = false;
+    std::uint64_t rng_seed = 0;
 };
 
 /// Host-owned engine: window + renderer + FakeLua state.
@@ -148,6 +154,11 @@ public:
     [[nodiscard]] bool IsRecordingInput() const;
     /// True when this run feeds Input from `replay_path`.
     [[nodiscard]] bool IsReplayingInput() const;
+
+    /// FNV-1a digest over RNG state, physics body poses, entity-store slots,
+    /// and camera pose. Cheap probe for determinism gates — not called on the
+    /// hot path.
+    [[nodiscard]] WorldHashParts WorldHash() const;
 
     // --- gameplay time control ---
     /// Global gameplay time multiplier (0 = frozen, 1 = real time, 2 = double).

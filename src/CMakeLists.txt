@@ -11,6 +11,7 @@ set(FAKE2D_SOURCES
     core/achievements.cpp
     core/mod.cpp
     core/rng.cpp
+    core/world_hash.cpp
     render/renderer.cpp
     render/shader.cpp
     render/texture.cpp
