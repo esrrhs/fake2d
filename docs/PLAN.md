@@ -183,7 +183,7 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 - [x] Nine-slice panels: `SpriteBatch::DrawNineSlice` (corners keep source pixel size, edges stretch on one axis, center on both; degenerate rects shrink instead of drawing inside-out) drawn as 9 ordinary quads, so batching/sorting/shaders behave unchanged; `draw_nine_slice[_white]` bindings
 - [x] Text layout: `Font::DrawTextEx` with 0/1/2 left/center/right alignment and greedy word wrap (long words hard-place on their own line, `\n` honored), returning the y below the last line for block stacking; `draw_text_ex` binding
 - [x] Visual verification via headless screenshot probes: stretched dialog frame with wrapped/aligned text inside, a quad clipped to an exact sub-rect, and `end_y`-stacked text — pixel-checked on the Apple software renderer
-- [ ] Remaining scope for a later pass: render targets / FBO (post-processing, minimaps, split-screen), more UI widgets (slider / checkbox / text input / scroll container)
+- [x] Remaining scope (render targets / FBO, more UI widgets) superseded by Phases 19–28
 
 ## Phase 18 — Tilemap A* path finding & maze chase demo (1.12.x)
 
@@ -665,3 +665,34 @@ A 2D game can still have light sources: they move, the objects in the scene answ
 - [x] **Gates on work submitted, not wall clock**: the bench asserts draw calls and geometry, which hold on any machine, and prints the milliseconds. CI runners use software GL, where a ceiling loose enough to pass would also let a real regression through.
 - [x] **One source of truth for the demo catalogue**: wiring the new demo exposed that `--<flag>-demo` was a hand-written chain of 27 branches duplicating the paths already in `demos.h` — and an unlisted flag was *silently ignored*, so `--light-demo` had been launching Breakout. The chain is now one branch that resolves through `FindDemo()`, unknown flags are a hard error, and `--launcher-test` (110 → 173 checks) proves every catalogued row is startable through the same parser the launcher's re-exec string goes through.
 - [x] Verification: `--light-test` and `--light-bench` green, `--launcher-test` 173 checks green, all 28 demos sweep headless with no script error, lighting wired into the Linux/macOS/Windows CI lists with a colour-probed screenshot, `docs/SCRIPTING.md` gains a Lighting section.
+
+---
+
+## Phase 49 — Soft-skinned mesh deformation & deeper Spine compatibility (1.42.x)
+
+Phase 47 shipped rigid attachments on bones. The next step is weighted mesh deformation so a character can bend instead of only rotate parts, and enough Spine JSON to load meshes, weights, and deform timelines without a second tooling chain.
+
+### Architectural intent
+
+- Keep `SkeletonSystem` as the single clocked owner of pose + draw: soft-skinned attachments are another attachment kind on the same slots, not a parallel animation system.
+- Deform in CPU (or a small compute path later) into the existing `SpriteBatch` / custom-mesh submit so batching and lighting stay unchanged.
+- Prefer a Spine-compatible subset over inventing a new mesh format: regions already parse; extend the loader for `mesh` attachments (UVs, triangles, hull), bone weights, and deform / weighted timelines when present.
+- Lua keeps degrees and stable ids; new bindings mirror the rigid API shape (`skel_mesh_*` / deform weight queries) so demos do not special-case attachment kinds.
+
+### Deliverables
+
+- [ ] Mesh attachments: vertices, UVs, triangle indices, optional hull; bound to a slot like a region
+- [ ] Weighted skinning: per-vertex bone indices + weights composed from the current pose; soft bind relative to the setup pose
+- [ ] Deform timeline support in the clip player (absolute or additive deltas on mesh vertices), mixed with rotate/translate/scale tracks
+- [ ] Spine JSON loader extensions: `mesh` / `linkedmesh` (or documented subset), `vertices` with bone weights, deform keys; clear error strings naming the offending attachment
+- [ ] Draw path that submits deformed triangles through the batch (one sheet per skin still preferred) without breaking the Phase 47 single-draw-call rank measurement for region-only rigs
+- [ ] Lua bindings for mesh create/query, weight inspection, and forcing a deform sample for tests
+- [ ] Extend `assets/skeleton/` (or a new soft-skin demo sheet) with at least one weighted mesh part; grow `scripts/skeleton_demo.lua` or add `scripts/skeleton_mesh_demo.lua`
+- [ ] `--skeleton-test` growth: bind-pose identity, known-weight lerp under a 90° bone, deform key at t=0/mid/end, malformed weight / index rejection
+- [ ] Docs: `SCRIPTING.md` skeletal section + PLAN verification notes; version bump suggestion **1.42.x**
+
+### Verification
+
+- [ ] Headless `--skeleton-test` green with the new mesh/weight/deform cases
+- [ ] Demo smoke (`--skeleton-demo` or mesh demo) under `--frames` with zero `update() failed` and exit 0
+- [ ] Region-only rigs from Phase 47 unchanged (batch counter + IK / events still hold)
