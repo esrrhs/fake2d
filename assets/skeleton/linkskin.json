@@ -1,0 +1,48 @@
+{
+  "skeleton": { "texture": "softskin.png", "author": "fake2d", "height": 64 },
+  "regions": [
+    { "name": "cloth", "x": 8, "y": 8, "w": 48, "h": 48 }
+  ],
+  "bones": [
+    { "name": "root" },
+    { "name": "mast", "parent": "root", "x": 0, "y": -32, "length": 32 }
+  ],
+  "attachments": [],
+  "slots": [
+    { "name": "flag_slot", "bone": "mast" }
+  ],
+  "skins": {
+    "default": {
+      "flag_slot": {
+        "flag": {
+          "type": "mesh",
+          "region": "cloth",
+          "hull": 4,
+          "uvs": [0,0, 1,0, 1,1, 0,1],
+          "triangles": [0,1,2, 0,2,3],
+          "vertices": [0,0, 32,0, 32,32, 0,32]
+        }
+      }
+    },
+    "alt": {
+      "flag_slot": {
+        "flag_alt": {
+          "type": "linkedmesh",
+          "parent": "flag",
+          "skin": "default",
+          "ox": 2,
+          "oy": -1
+        }
+      }
+    }
+  },
+  "animations": {
+    "idle": {
+      "loop": true,
+      "duration": 0.5,
+      "bones": {
+        "mast": { "rotate": [ {"time": 0.0, "angle": 0}, {"time": 0.5, "angle": 0} ] }
+      }
+    }
+  }
+}

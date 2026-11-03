@@ -113,3 +113,6 @@ __pycache__/
 
 # Raw ImageGen output kept locally for reproducible bakes
 vibe_images/
+
+# Ephemeral malformed fixtures written by --skeleton-test
+assets/skeleton/_bad*.json

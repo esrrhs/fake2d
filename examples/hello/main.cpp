@@ -7075,6 +7075,97 @@ int RunSkeletonTest(fake2d::Engine &engine) {
         }
     }
 
+    // Linkedmesh + skins-nested attachment inheritance (Phase 49 polish).
+    {
+        std::string err;
+        const int link =
+            sk.LoadAsset(engine.GetResources(), "assets/skeleton/linkskin.json", &err);
+        check(link > 0, "linkskin.json loads: " + err);
+        const auto *asset = sk.GetAsset(link);
+        check(asset != nullptr && asset->skins.size() >= 2,
+              "linkskin exposes default and alt skins");
+        int flag_i = -1, alt_i = -1;
+        if (asset != nullptr) {
+            for (size_t i = 0; i < asset->attachments.size(); ++i) {
+                if (asset->attachments[i].name == "flag") {
+                    flag_i = static_cast<int>(i);
+                }
+                if (asset->attachments[i].name == "flag_alt") {
+                    alt_i = static_cast<int>(i);
+                }
+            }
+        }
+        check(flag_i >= 0 && asset->attachments[static_cast<size_t>(flag_i)].IsMesh(),
+              "skins-nested mesh 'flag' was embedded");
+        check(alt_i >= 0 && asset->attachments[static_cast<size_t>(alt_i)].IsMesh(),
+              "linkedmesh 'flag_alt' resolved to a mesh");
+        check(asset->attachments[static_cast<size_t>(flag_i)].VertexCount() == 4 &&
+                  asset->attachments[static_cast<size_t>(alt_i)].VertexCount() == 4,
+              "linkedmesh inherits parent vertex count");
+        check(asset->attachments[static_cast<size_t>(flag_i)].triangles.size() ==
+                  asset->attachments[static_cast<size_t>(alt_i)].triangles.size(),
+              "linkedmesh inherits parent triangles");
+        const int id = sk.Create(link);
+        check(id > 0, "linkskin instance creates");
+        check(sk.SlotAttachmentCount(id, 0) >= 2,
+              "both skin attachments land on the slot");
+        sk.SetSkin(id, "default");
+        check(sk.SetSlotAttachment(id, 0, "flag"), "default skin can select flag");
+        check(sk.AttachmentIsMesh(id, flag_i) && sk.MeshVertexCount(id, flag_i) == 4,
+              "embedded mesh queries work");
+        sk.SetSkin(id, "alt");
+        check(sk.SetSlotAttachment(id, 0, "flag_alt"), "alt skin can select linkedmesh");
+        check(sk.AttachmentIsMesh(id, alt_i) && sk.MeshTriangleCount(id, alt_i) == 2,
+              "resolved linkedmesh queries work");
+        sk.Destroy(id);
+        sk.RemoveAsset(link);
+
+        // Malformed linkedmesh: missing parent must name the attachment.
+        {
+            const char *bad_path = "assets/skeleton/_bad_link.json";
+            std::ofstream out(bad_path);
+            out << R"({
+  "skeleton":{"texture":"softskin.png"},
+  "bones":[{"name":"root"}],
+  "regions":[{"name":"r","x":0,"y":0,"w":8,"h":8}],
+  "attachments":[{
+    "name":"orphan_link","type":"linkedmesh","parent":"no_such_mesh"
+  }],
+  "slots":[{"name":"s","bone":"root","attachment":"orphan_link"}],
+  "animations":{}
+})";
+            out.close();
+            std::string why;
+            const int bad = sk.LoadAsset(engine.GetResources(), bad_path, &why);
+            check(bad == 0, "malformed linkedmesh parent is rejected");
+            check(why.find("orphan_link") != std::string::npos,
+                  "linkedmesh rejection names the attachment: " + why);
+        }
+        // Malformed: linkedmesh pointing at a skin that does not hold the parent.
+        {
+            const char *bad_path = "assets/skeleton/_bad_link_skin.json";
+            std::ofstream out(bad_path);
+            out << R"({
+  "skeleton":{"texture":"softskin.png"},
+  "bones":[{"name":"root"}],
+  "regions":[{"name":"r","x":0,"y":0,"w":8,"h":8}],
+  "attachments":[],
+  "slots":[{"name":"s","bone":"root"}],
+  "skins":{
+    "default":{"s":{"base":{"type":"mesh","region":"r","uvs":[0,0,1,0,1,1],"triangles":[0,1,2],"vertices":[0,0,8,0,8,8]}}},
+    "other":{"s":{"link":{"type":"linkedmesh","parent":"base","skin":"missing"}}}
+  },
+  "animations":{}
+})";
+            out.close();
+            std::string why;
+            const int bad = sk.LoadAsset(engine.GetResources(), bad_path, &why);
+            check(bad == 0, "linkedmesh with unknown parent skin is rejected");
+            check(why.find("link") != std::string::npos,
+                  "bad skin-qualified linkedmesh names the attachment: " + why);
+        }
+    }
+
     std::printf("[skeleton] %s: %d checks, %d failures\n",
                 failures == 0 ? "PASS" : "FAILED", checks, failures);
     return failures == 0 ? 0 : 1;
