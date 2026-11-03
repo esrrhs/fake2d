@@ -703,3 +703,19 @@ weighted vertices and deform timelines, CPU skinning into the existing SpriteBat
 `skel_mesh_*` bindings, `assets/skeleton/softskin.*` + `--skeleton-mesh-demo`, and
 extended `--skeleton-test` coverage for bind-pose identity, weight lerp, deform keys,
 and malformed rejection.
+
+### Phase 49 polish (1.42.1)
+
+- [x] **True triangle IBO path**: `SpriteBatch::DrawTriangles` (dynamic mesh IBO,
+  same `Vertex2D` layout) coalesces consecutive same-texture/blend meshes; flushes
+  on topology switch so region-only single-draw-call ranks stay unchanged. Soft-skin
+  draw uses it; degenerate-quad fallback remains if the mesh IBO never initialised
+  (GL2-safe).
+- [x] **Deeper linkedmesh / skin inheritance**: skins may embed attachment defs
+  (object map or Spine `skins[]` array form); `linkedmesh` resolves `parent` in the
+  same or another skin (`skin` field), with flat top-level as fallback; malformed
+  links error with the attachment name. `assets/skeleton/linkskin.json` +
+  `--skeleton-test` cases (happy path + bad parent / bad skin).
+- [x] **CI**: `--skeleton-mesh-demo` screenshot/colour probe next to skeleton-demo;
+  inverse gate for `scripts/update_fail_test.lua` (expect non-zero exit).
+- [x] Docs + package **1.42.1** (`DrawTriangles` API surface).

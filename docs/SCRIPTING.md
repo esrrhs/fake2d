@@ -656,8 +656,12 @@ the rig steering the art, N swaps the skin. With nobody at the keyboard it works
 through the whole clip set on its own.
 
 **Soft-skinned meshes (Phase 49).** An attachment may be `"type": "mesh"` (or
-`linkedmesh` referencing another mesh by `parent`) instead of a region. Mesh
-fields:
+`linkedmesh` referencing another mesh by `parent`, optionally `"skin": "otherSkin"`
+when the parent lives under a different skin) instead of a region. Skins may also
+**embed** attachment objects (Spine-style `skins[name][slot][att] = {type:...}` or
+a `skins: [{name, attachments}]` array); embedded meshes and linkedmeshes join the
+slot's attachment list so `skel_skin` can select them. A broken link fails the load
+with the linked attachment's name in the error. Mesh fields:
 
 | field | meaning |
 | --- | --- |
@@ -684,10 +688,13 @@ if skel_mesh(id, att) then
 end
 ```
 
-Meshes submit as degenerate quads through the existing `SpriteBatch`, so a
-region-only rig still measures as one draw call per sheet, and a soft-skinned
-flag on the same sheet stays in the same batch. `scripts/skeleton_mesh_demo.lua`
-(`--skeleton-mesh-demo`) flies a weighted flag with a deform flutter.
+Meshes submit through `SpriteBatch::DrawTriangles` (indexed triangle stream with
+a dynamic IBO). Pending region quads flush on the topology switch, then consecutive
+same-sheet meshes coalesce into one draw; a region-only rig still measures as one
+draw call per sheet. If the mesh IBO is unavailable the batch falls back to
+degenerate quads via `DrawVertices`. `scripts/skeleton_mesh_demo.lua`
+(`--skeleton-mesh-demo`) flies a weighted flag with a deform flutter;
+`assets/skeleton/linkskin.json` covers skins-nested mesh + cross-skin linkedmesh.
 
 ### Audio
 
