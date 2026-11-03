@@ -908,6 +908,32 @@ has typed for a second: the idle-takeover timers this replaced read the host's
 injected keys as a player arriving, which handed the demo straight back to an
 empty chair.
 
+#### Deterministic input recording & replay (`--record` / `--replay`)
+
+Phase 52 adds a fixture-driven path for the same Input snapshot scripts already
+read. Samples are keyed by `Engine::FrameIndex()` (one per loop iteration under
+the fixed-dt accumulator) and stored in a versioned binary container (`F2IR`,
+format version 1). Unknown versions are rejected on load.
+
+```bash
+# Capture whatever the device / `--ai` overlay produced for N frames:
+./build/bin/fake2d_hello --headless --ai --mario-demo --frames 120 \
+    --record /tmp/mario_attract.f2ir
+
+# Drive the same demo from the fixture (device poll skipped):
+./build/bin/fake2d_hello --headless --mario-demo --frames 120 \
+    --replay /tmp/mario_attract.f2ir
+
+# Self-test: synthetic record → save → load → identical reads + hash
+./build/bin/fake2d_hello --replay-test
+```
+
+`--record` and `--replay` are mutually exclusive. Past the last sample the last
+one is held, so a short fixture can keep an attract loop alive. The recorder
+pre-reserves its sample buffer so Capture does not heap-allocate on the hot
+path while capacity remains. CI attract modes can check in an `.f2ir` next to a
+demo and pass `--replay` instead of relying on a live policy.
+
 #### Gamepad
 
 Polled every frame through GLFW's standard gamepad mapping (Xbox layout);

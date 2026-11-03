@@ -7,7 +7,7 @@
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-brightgreen.svg)](https://en.cppreference.com/w/cpp/23)
 [![OpenGL](https://img.shields.io/badge/OpenGL-3.3%20Core%20%7C%202.1-orange.svg)](https://www.opengl.org/)
 [![FakeLua](https://img.shields.io/badge/Script-FakeLua-red.svg)](https://github.com/esrrhs/fakelua)
-[![Version](https://img.shields.io/badge/version-1.36.0-informational.svg)](include/fake2d/version.h)
+[![Version](https://img.shields.io/badge/version-1.45.0-informational.svg)](include/fake2d/version.h)
 
 **Fake2D** is a modern, lightweight, high-performance 2D game engine powered by [FakeLua](https://github.com/esrrhs/fakelua):
 - **C++23 Host Engine**: Controls window management, GPU rendering pipelines, 2D physics, multi-bus audio mixing, and native resource lifecycles;
@@ -50,7 +50,7 @@ Fake2D is a fully battery-included engine, not just a bare graphics library:
 
 ### 5. Developer Experience & Automated Testing
 - **JIT Script Hot-Reload**: GCC JIT backend with automatic interpreter fallback; edit Lua scripts live and see changes reflected instantly without restarting;
-- **Headless & CI-Ready**: First-class `--headless`, `--frames N`, `--screenshot` and `--ai` CLI flags allow visual regression tests and automated smoke validation in headless Linux/macOS/Windows environments;
+- **Headless & CI-Ready**: First-class `--headless`, `--frames N`, `--screenshot`, `--ai`, and `--record`/`--replay` CLI flags allow visual regression tests and automated smoke validation in headless Linux/macOS/Windows environments;
 - **29 Built-in Self-Test Suites**: 1393 assertions covering rigid-body dynamics, joints, sleeping, anti-tunneling, physics queries, filters, timesteps, tilemap objects, A\* pathfinding, render targets, UI widgets, post-FX, fog of war, 2D lighting and shadow containment, bone hierarchy and clip playback with cross-fade, IK and timeline events, audio mixing, animated tiles, UTF-8/CJK text with fallback faces, the platform layer, deterministic RNG, easing, entity snapshots, input actions, window controls, gameplay time scale / hit-stop, 16-slot entity actors, the 128-clip animation pool, the shmup sprite/background asset pipeline, the city-builder tileset/building atlas/base map, the RTS terrain/unit/building/map pipeline and the visual-novel background/portrait art (all mutation-tested);
 - **Standalone Packaging**: Bundling scripts under `tools/` generate self-contained archives on Linux, macOS, and Windows with all dependencies, shaders, and assets included.
 
@@ -323,6 +323,11 @@ xvfb-run ./build/bin/fake2d_hello --headless --text-demo --screenshot text.png -
 # works in a window too -- start a demo and watch it play itself.
 ./build/bin/fake2d_hello --ai --mario-demo
 xvfb-run ./build/bin/fake2d_hello --headless --ai --contra-demo --frames 2500
+
+# Record / replay the Input snapshot stream (Phase 52, F2IR fixtures)
+./build/bin/fake2d_hello --headless --ai --mario-demo --frames 120 --record /tmp/mario.f2ir
+./build/bin/fake2d_hello --headless --mario-demo --frames 120 --replay /tmp/mario.f2ir
+./build/bin/fake2d_hello --replay-test
 
 # Run the 29 built-in engine self-test suites (verified via exit codes)
 xvfb-run ./build/bin/fake2d_hello --phys-query-test    # Ray casts, overlaps, contact lifecycle

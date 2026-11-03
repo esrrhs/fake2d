@@ -6,6 +6,7 @@
 #include "fake2d/demos.h"
 #include "fake2d/ease.h"
 #include "fake2d/engine.h"
+#include "fake2d/input_recording.h"
 #include "fake2d/i18n.h"
 #include "fake2d/log.h"
 #include "fake2d/save_store.h"
@@ -3905,6 +3906,175 @@ int RunPlatformTest(fake2d::Engine &engine) {
 
 // Gameplay self-test (Phase 35): deterministic RNG, easing, entity snapshot,
 // input actions, window controls and the text shadow/outline helpers.
+
+int RunReplayTest(fake2d::Engine &engine) {
+    int checks = 0;
+    int failures = 0;
+    auto check = [&](bool cond, const char *name) {
+        ++checks;
+        if (!cond) {
+            ++failures;
+            std::printf("[replay-test] FAIL: %s\n", name);
+        }
+    };
+
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    const fs::path root = fs::temp_directory_path(ec) / "fake2d_replay_test";
+    fs::remove_all(root, ec);
+    fs::create_directories(root, ec);
+    const fs::path rec_path = root / "synth.f2ir";
+    const fs::path bad_ver_path = root / "bad_ver.f2ir";
+    const fs::path bad_magic_path = root / "bad_magic.f2ir";
+
+    fake2d::InputRecorder recorder;
+    recorder.Begin(64, 1.0f / 60.0f);
+
+    fake2d::Input &input = engine.GetInput();
+    input.AiClear();
+    input.ClearActions();
+
+    // Frame 0: space + left mouse + wheel + a couple of typed codepoints.
+    input.InjectFrame({100.0f, 200.0f}, {"space", "a"}, {0}, 1.5,
+                      {static_cast<unsigned>('H'), static_cast<unsigned>('i')});
+    recorder.Capture(0, input);
+    check(input.KeyDown("space") && input.KeyPressed("space"),
+          "synthetic frame 0 space pressed");
+    check(input.MouseDown(0) && input.MousePressed(0),
+          "synthetic frame 0 LMB pressed");
+    check(input.MouseWheel() == 1.5, "synthetic frame 0 wheel");
+    check(input.TextCodepoints().size() == 2, "synthetic frame 0 text");
+
+    // Frame 1: hold space, move mouse, release button.
+    input.InjectFrame({110.0f, 205.0f}, {"space"}, {}, 0.0);
+    recorder.Capture(1, input);
+    check(input.KeyDown("space") && !input.KeyPressed("space"),
+          "held space is not pressed again");
+    check(!input.MouseDown(0) && input.MouseReleased(0),
+          "mouse release edge");
+    check(std::fabs(input.MouseDelta().x - 10.0f) < 1e-5f &&
+              std::fabs(input.MouseDelta().y - 5.0f) < 1e-5f,
+          "mouse delta recorded");
+
+    // Frame 2: release space; inject a gamepad-bearing snapshot via Apply.
+    {
+        fake2d::InputFrameSnapshot pad_snap;
+        input.CaptureSnapshot(pad_snap, 2);
+        pad_snap.Clear();
+        pad_snap.step_index = 2;
+        pad_snap.mouse_x = 110.0f;
+        pad_snap.mouse_y = 205.0f;
+        pad_snap.pad_connected[0] = 1;
+        pad_snap.SetPadButton(0, 0, true); // GLFW A
+        pad_snap.pad_axes[0][0] = 0.75f;   // left_x raw
+        pad_snap.pad_axes[0][1] = 0.0f;
+        input.ApplySnapshot(pad_snap);
+        recorder.Capture(2, input);
+        check(input.GamepadConnected(0), "pad 0 connected after ApplySnapshot");
+        check(input.GamepadButtonDown(0, "a") && input.GamepadButtonPressed(0, "a"),
+              "pad A pressed on first applied frame");
+        check(input.GamepadAxis(0, "left_x") > 0.5f,
+              "pad left_x above deadzone after remap");
+    }
+
+    check(recorder.Size() == 3, "recorder captured 3 samples");
+    const std::uint64_t hash = recorder.ContentHash();
+    check(hash != 0, "content hash is non-zero");
+    check(recorder.Save(rec_path.string()), "recorder saved F2IR file");
+    check(fs::exists(rec_path, ec), "recording file exists");
+
+    // Round-trip through InputReplay.
+    fake2d::InputReplay replay;
+    check(replay.Load(rec_path.string()), "replay loads recording");
+    check(replay.Size() == 3, "replay sample count");
+    check(replay.ContentHash() == hash, "replay hash matches recorder");
+    check(std::fabs(replay.FixedDt() - (1.0f / 60.0f)) < 1e-6f,
+          "fixed_dt round-trips");
+
+    fake2d::Input replayed;
+    check(replay.Apply(0, replayed), "apply step 0");
+    check(replayed.KeyDown("space") && replayed.KeyPressed("space"),
+          "replay step 0 space pressed");
+    check(replayed.KeyDown("a"), "replay step 0 letter a");
+    check(replayed.MouseDown(0) && replayed.MousePressed(0),
+          "replay step 0 LMB");
+    check(std::fabs(replayed.MousePosition().x - 100.0f) < 1e-5f &&
+              std::fabs(replayed.MousePosition().y - 200.0f) < 1e-5f,
+          "replay step 0 mouse pos");
+    check(replayed.MouseWheel() == 1.5, "replay step 0 wheel");
+    check(replayed.TextCodepoints().size() == 2 &&
+              replayed.TextCodepoints()[0] == static_cast<unsigned>('H'),
+          "replay step 0 text");
+
+    check(replay.Apply(1, replayed), "apply step 1");
+    check(replayed.KeyDown("space") && !replayed.KeyPressed("space"),
+          "replay step 1 space held");
+    check(!replayed.MouseDown(0) && replayed.MouseReleased(0),
+          "replay step 1 mouse released");
+    check(std::fabs(replayed.MouseDelta().x - 10.0f) < 1e-5f,
+          "replay step 1 mouse dx");
+
+    check(replay.Apply(2, replayed), "apply step 2");
+    check(!replayed.KeyDown("space") && replayed.KeyReleased("space"),
+          "replay step 2 space released");
+    check(replayed.GamepadConnected(0) && replayed.GamepadButtonDown(0, "a"),
+          "replay step 2 pad A");
+    check(replayed.GamepadAxis(0, "left_x") > 0.5f, "replay step 2 pad axis");
+
+    // Past the end: last sample is held (edges settle).
+    check(replay.Apply(99, replayed), "apply past end holds last sample");
+    check(replayed.GamepadConnected(0) && replayed.GamepadButtonDown(0, "a") &&
+              !replayed.GamepadButtonPressed(0, "a"),
+          "held last sample no longer reads as pressed");
+
+    // Unknown version must be rejected clearly (Load returns false).
+    {
+        std::ofstream out(bad_ver_path, std::ios::binary);
+        const char magic[4] = {'F', '2', 'I', 'R'};
+        const std::uint32_t version = 99;
+        const std::uint32_t flags = 0;
+        const float fixed_dt = 1.0f / 60.0f;
+        const std::uint32_t reserved = 0;
+        const std::uint64_t count = 0;
+        out.write(magic, 4);
+        out.write(reinterpret_cast<const char *>(&version), 4);
+        out.write(reinterpret_cast<const char *>(&flags), 4);
+        out.write(reinterpret_cast<const char *>(&fixed_dt), 4);
+        out.write(reinterpret_cast<const char *>(&reserved), 4);
+        out.write(reinterpret_cast<const char *>(&count), 8);
+    }
+    fake2d::InputReplay bad_ver;
+    check(!bad_ver.Load(bad_ver_path.string()), "unknown version rejected");
+
+    {
+        std::ofstream out(bad_magic_path, std::ios::binary);
+        const char magic[4] = {'X', 'X', 'X', 'X'};
+        const std::uint32_t version = 1;
+        const std::uint32_t flags = 0;
+        const float fixed_dt = 1.0f / 60.0f;
+        const std::uint32_t reserved = 0;
+        const std::uint64_t count = 0;
+        out.write(magic, 4);
+        out.write(reinterpret_cast<const char *>(&version), 4);
+        out.write(reinterpret_cast<const char *>(&flags), 4);
+        out.write(reinterpret_cast<const char *>(&fixed_dt), 4);
+        out.write(reinterpret_cast<const char *>(&reserved), 4);
+        out.write(reinterpret_cast<const char *>(&count), 8);
+    }
+    fake2d::InputReplay bad_magic;
+    check(!bad_magic.Load(bad_magic_path.string()), "bad magic rejected");
+
+    // Engine wiring smoke: IsRecording / IsReplaying stay false for this
+    // stand-alone Init (no --record/--replay on the host config).
+    check(!engine.IsRecordingInput() && !engine.IsReplayingInput(),
+          "default engine is neither recording nor replaying");
+
+    fs::remove_all(root, ec);
+    std::printf("[replay] %s: %d checks, %d failures\n",
+                failures == 0 ? "PASS" : "FAILED", checks, failures);
+    return failures == 0 ? 0 : 1;
+}
+
 int RunGameplayTest(fake2d::Engine &engine) {
     int failures = 0;
     int checks = 0;
@@ -10832,6 +11002,7 @@ int main(int argc, char **argv) {
     bool light_test = false;
     bool light_bench = false;
     bool skeleton_test = false;
+    bool replay_test = false;
     bool audio_test = false;
     bool combat_test = false;
     bool beat_demo = false;
@@ -11144,6 +11315,18 @@ int main(int argc, char **argv) {
             cfg.headless = true;
             cfg.script_entry.clear();
             cfg.vsync = false;
+        } else if (arg == "--record" && i + 1 < argc) {
+            // Capture the Input snapshot stream to an F2IR fixture.
+            cfg.record_path = argv[++i];
+        } else if (arg == "--replay" && i + 1 < argc) {
+            // Drive Input from an F2IR fixture instead of the device.
+            cfg.replay_path = argv[++i];
+        } else if (arg == "--replay-test") {
+            // Headless self-test of deterministic input record/replay.
+            replay_test = true;
+            cfg.headless = true;
+            cfg.script_entry.clear();
+            cfg.vsync = false;
         } else if (arg == "--fixed-hz" && i + 1 < argc) {
             // Physics rate; 0 (or --variable-step) restores variable stepping.
             const int hz = std::atoi(argv[++i]);
@@ -11214,6 +11397,9 @@ int main(int argc, char **argv) {
     }
     if (platform_test) {
         return RunPlatformTest(engine);
+    }
+    if (replay_test) {
+        return RunReplayTest(engine);
     }
     if (gameplay_test) {
         return RunGameplayTest(engine);
