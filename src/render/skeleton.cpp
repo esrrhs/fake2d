@@ -14,6 +14,7 @@
 #include <functional>
 #include <iterator>
 #include <map>
+#include <memory>
 #include <utility>
 
 namespace fake2d {
@@ -101,15 +102,83 @@ float ParentAngle(const SkeletonSystem::Affine2 &parent) {
     return std::atan2(parent.b, parent.a);
 }
 
+
+/// Read mesh bind data from shared geom when present, else staging fields.
+struct MeshView {
+    const std::vector<float> *bind_xy = nullptr;
+    const std::vector<float> *uvs = nullptr;
+    const std::vector<std::uint16_t> *triangles = nullptr;
+    const std::vector<SkeletonSystem::MeshInfluence> *influences = nullptr;
+    const std::vector<int> *weight_first = nullptr;
+    const std::vector<int> *weight_count = nullptr;
+    int hull = 0;
+    int deform_floats = 0;
+
+    [[nodiscard]] bool Ok() const { return uvs != nullptr; }
+    [[nodiscard]] int VertexCount() const {
+        return uvs == nullptr ? 0 : static_cast<int>(uvs->size() / 2);
+    }
+};
+
+MeshView ViewMesh(const SkeletonSystem::Attachment &att) {
+    MeshView v;
+    if (att.geom) {
+        v.bind_xy = &att.geom->bind_xy;
+        v.uvs = &att.geom->uvs;
+        v.triangles = &att.geom->triangles;
+        v.influences = &att.geom->influences;
+        v.weight_first = &att.geom->weight_first;
+        v.weight_count = &att.geom->weight_count;
+        v.hull = att.geom->hull;
+        v.deform_floats = att.geom->deform_floats;
+        return v;
+    }
+    v.bind_xy = &att.bind_xy;
+    v.uvs = &att.uvs;
+    v.triangles = &att.triangles;
+    v.influences = &att.influences;
+    v.weight_first = &att.weight_first;
+    v.weight_count = &att.weight_count;
+    v.hull = att.hull;
+    v.deform_floats = att.deform_floats;
+    return v;
+}
+
+/// Move staging buffers into a shared MeshGeometry. Idempotent when geom set.
+void PromoteMeshGeometry(SkeletonSystem::Attachment &att) {
+    if (!att.IsMesh() || att.geom) {
+        return;
+    }
+    auto g = std::make_shared<SkeletonSystem::MeshGeometry>();
+    g->bind_xy = std::move(att.bind_xy);
+    g->uvs = std::move(att.uvs);
+    g->triangles = std::move(att.triangles);
+    g->hull = att.hull;
+    g->influences = std::move(att.influences);
+    g->weight_first = std::move(att.weight_first);
+    g->weight_count = std::move(att.weight_count);
+    g->deform_floats = att.deform_floats;
+    att.bind_xy.clear();
+    att.uvs.clear();
+    att.triangles.clear();
+    att.influences.clear();
+    att.weight_first.clear();
+    att.weight_count.clear();
+    att.hull = g->hull;
+    att.deform_floats = g->deform_floats;
+    att.geom = std::move(g);
+}
+
 int DeformFloatCount(const SkeletonSystem::Attachment &att) {
     if (!att.IsMesh()) {
         return 0;
     }
+    const MeshView v = ViewMesh(att);
     // Weighted meshes deform every influence's xy; unweighted deform each vertex.
-    if (!att.influences.empty()) {
-        return static_cast<int>(att.influences.size()) * 2;
+    if (v.influences != nullptr && !v.influences->empty()) {
+        return static_cast<int>(v.influences->size()) * 2;
     }
-    return static_cast<int>(att.bind_xy.size());
+    return v.bind_xy == nullptr ? 0 : static_cast<int>(v.bind_xy->size());
 }
 
 bool FinalizeMeshAttachment(SkeletonSystem::Attachment &att, int bone_count,
@@ -191,9 +260,10 @@ bool FinalizeMeshAttachment(SkeletonSystem::Attachment &att, int bone_count,
     if (att.size.x <= 0.0f || att.size.y <= 0.0f) {
         float min_x = 0, min_y = 0, max_x = 0, max_y = 0;
         bool any = false;
-        if (!att.bind_xy.empty()) {
-            for (size_t i = 0; i + 1 < att.bind_xy.size(); i += 2) {
-                const float x = att.bind_xy[i], y = att.bind_xy[i + 1];
+        const MeshView bv = ViewMesh(att);
+        if (bv.bind_xy != nullptr && !bv.bind_xy->empty()) {
+            for (size_t i = 0; i + 1 < bv.bind_xy->size(); i += 2) {
+                const float x = (*bv.bind_xy)[i], y = (*bv.bind_xy)[i + 1];
                 if (!any) {
                     min_x = max_x = x;
                     min_y = max_y = y;
@@ -212,6 +282,7 @@ bool FinalizeMeshAttachment(SkeletonSystem::Attachment &att, int bone_count,
             att.size = {1.0f, 1.0f};
         }
     }
+    PromoteMeshGeometry(att);
     return true;
 }
 
@@ -358,6 +429,12 @@ int SkeletonSystem::AddAsset(Asset asset) {
     }
     for (Attachment &att : asset.attachments) {
         if (!att.IsMesh()) {
+            continue;
+        }
+        // Already-shared linkedmesh geom only needs deform_floats mirrored.
+        if (att.geom) {
+            att.deform_floats = att.geom->deform_floats;
+            att.hull = att.geom->hull;
             continue;
         }
         std::string why;
@@ -717,9 +794,15 @@ int SkeletonSystem::LoadAsset(ResourceManager &resources, const std::string &jso
     // list; a parent may itself be a linkedmesh (chain). Cycles are rejected
     // with an error that names the loop (e.g. 'a' -> 'b' -> 'a').
     auto mesh_ready = [&](int idx) -> bool {
-        return idx >= 0 && static_cast<size_t>(idx) < asset.attachments.size() &&
-               asset.attachments[static_cast<size_t>(idx)].IsMesh() &&
-               !asset.attachments[static_cast<size_t>(idx)].uvs.empty();
+        if (idx < 0 || static_cast<size_t>(idx) >= asset.attachments.size()) {
+            return false;
+        }
+        const auto &a = asset.attachments[static_cast<size_t>(idx)];
+        if (!a.IsMesh()) {
+            return false;
+        }
+        const MeshView v = ViewMesh(a);
+        return v.uvs != nullptr && !v.uvs->empty();
     };
     std::map<size_t, const PendingLink *> link_by_index;
     for (const PendingLink &link : pending_links) {
@@ -825,11 +908,27 @@ int SkeletonSystem::LoadAsset(ResourceManager &resources, const std::string &jso
             return false;
         }
         Attachment &dst = asset.attachments[idx];
-        const Attachment &parent = asset.attachments[static_cast<size_t>(src)];
+        Attachment &parent = asset.attachments[static_cast<size_t>(src)];
+        // Promote parent bind into a shared MeshGeometry, then alias it — do not
+        // deep-copy vertex / weight buffers for every linkedmesh.
+        if (!parent.geom) {
+            PromoteMeshGeometry(parent);
+        }
         const std::string keep_name = dst.name;
         const Vec2 keep_off = dst.offset;
         const float keep_rot = dst.rotation;
-        dst = parent;
+        dst.kind = AttachmentKind::Mesh;
+        dst.src = parent.src;
+        dst.size = parent.size;
+        dst.geom = parent.geom;
+        dst.deform_floats = parent.DeformFloats();
+        dst.hull = parent.geom ? parent.geom->hull : parent.hull;
+        dst.bind_xy.clear();
+        dst.uvs.clear();
+        dst.triangles.clear();
+        dst.influences.clear();
+        dst.weight_first.clear();
+        dst.weight_count.clear();
         dst.name = keep_name;
         dst.offset = keep_off;
         dst.rotation = keep_rot;
@@ -1281,7 +1380,7 @@ int SkeletonSystem::AssetOf(int id) const {
 void SkeletonSystem::EnsureDeformBuffers(const Asset &asset, Instance &inst) const {
     inst.deform.resize(asset.attachments.size());
     for (size_t i = 0; i < asset.attachments.size(); ++i) {
-        const int n = asset.attachments[i].deform_floats;
+        const int n = asset.attachments[i].DeformFloats();
         inst.deform[i].assign(static_cast<size_t>(std::max(n, 0)), 0.0f);
     }
 }
@@ -1414,29 +1513,31 @@ void SkeletonSystem::ApplyDeform(const Asset &asset, Instance &inst, const Clip 
             continue;
         }
         const Attachment &att = asset.attachments[static_cast<size_t>(dt.attachment)];
-        if (!att.IsMesh() || att.deform_floats <= 0) {
+        const int df = att.DeformFloats();
+        if (!att.IsMesh() || df <= 0) {
             continue;
         }
+        const MeshView mv = ViewMesh(att);
         SampleDeformStream(dt, time, sampled);
         std::vector<float> &dst = inst.deform[static_cast<size_t>(dt.attachment)];
-        if (static_cast<int>(dst.size()) < att.deform_floats) {
-            dst.assign(static_cast<size_t>(att.deform_floats), 0.0f);
+        if (static_cast<int>(dst.size()) < df) {
+            dst.assign(static_cast<size_t>(df), 0.0f);
         }
-        for (int i = 0; i < att.deform_floats; ++i) {
+        for (int i = 0; i < df; ++i) {
             const float src = static_cast<size_t>(i) < sampled.size() ? sampled[static_cast<size_t>(i)]
                                                                      : 0.0f;
             if (dt.absolute) {
                 float bind = 0.0f;
-                if (att.influences.empty()) {
-                    if (static_cast<size_t>(i) < att.bind_xy.size()) {
-                        bind = att.bind_xy[static_cast<size_t>(i)];
+                if (mv.influences == nullptr || mv.influences->empty()) {
+                    if (mv.bind_xy != nullptr && static_cast<size_t>(i) < mv.bind_xy->size()) {
+                        bind = (*mv.bind_xy)[static_cast<size_t>(i)];
                     }
                 } else {
                     const int inf = i / 2;
                     const bool is_y = (i % 2) != 0;
-                    if (inf >= 0 && static_cast<size_t>(inf) < att.influences.size()) {
-                        bind = is_y ? att.influences[static_cast<size_t>(inf)].y
-                                    : att.influences[static_cast<size_t>(inf)].x;
+                    if (inf >= 0 && static_cast<size_t>(inf) < mv.influences->size()) {
+                        bind = is_y ? (*mv.influences)[static_cast<size_t>(inf)].y
+                                    : (*mv.influences)[static_cast<size_t>(inf)].x;
                     }
                 }
                 const float delta = src - bind;
@@ -1560,6 +1661,7 @@ Vec2 SkeletonSystem::SkinVertex(const Instance &inst, const Attachment &att,
     if (vertex < 0 || vertex >= att.VertexCount()) {
         return {};
     }
+    const MeshView mv = ViewMesh(att);
     const size_t vi = static_cast<size_t>(vertex);
     const std::vector<float> *deform = nullptr;
     // Find attachment index for deform lookup.
@@ -1578,11 +1680,17 @@ Vec2 SkeletonSystem::SkinVertex(const Instance &inst, const Attachment &att,
     }
 
     const int wcount =
-        vi < att.weight_count.size() ? att.weight_count[vi] : 0;
+        (mv.weight_count != nullptr && vi < mv.weight_count->size())
+            ? (*mv.weight_count)[vi]
+            : 0;
     if (wcount <= 0) {
-        float bx = vi * 2 + 1 < att.bind_xy.size() ? att.bind_xy[vi * 2] : 0.0f;
-        float by = vi * 2 + 1 < att.bind_xy.size() ? att.bind_xy[vi * 2 + 1] : 0.0f;
-        if (deform != nullptr && att.deform_floats >= static_cast<int>(vi * 2 + 2)) {
+        float bx = (mv.bind_xy != nullptr && vi * 2 + 1 < mv.bind_xy->size())
+                       ? (*mv.bind_xy)[vi * 2]
+                       : 0.0f;
+        float by = (mv.bind_xy != nullptr && vi * 2 + 1 < mv.bind_xy->size())
+                       ? (*mv.bind_xy)[vi * 2 + 1]
+                       : 0.0f;
+        if (deform != nullptr && att.DeformFloats() >= static_cast<int>(vi * 2 + 2)) {
             bx += (*deform)[vi * 2];
             by += (*deform)[vi * 2 + 1];
         }
@@ -1608,11 +1716,11 @@ Vec2 SkeletonSystem::SkinVertex(const Instance &inst, const Attachment &att,
         return m.Map({bx, by});
     }
 
-    const int first = att.weight_first[vi];
+    const int first = (*mv.weight_first)[vi];
     Vec2 out{0.0f, 0.0f};
     for (int i = 0; i < wcount; ++i) {
         const MeshInfluence &inf =
-            att.influences[static_cast<size_t>(first + i)];
+            (*mv.influences)[static_cast<size_t>(first + i)];
         float lx = inf.x;
         float ly = inf.y;
         // Weighted deform stream is 2 floats per influence, in influence order.
@@ -2059,18 +2167,26 @@ int SkeletonSystem::MeshTriangleCount(int id, int attachment) const {
     const Attachment *att =
         Has(id) ? AttachmentAt(instances_[static_cast<size_t>(id) - 1], attachment)
                 : nullptr;
-    return att == nullptr ? 0 : static_cast<int>(att->triangles.size() / 3);
+    if (att == nullptr) {
+        return 0;
+    }
+    const MeshView mv = ViewMesh(*att);
+    return mv.triangles == nullptr ? 0 : static_cast<int>(mv.triangles->size() / 3);
 }
 
 int SkeletonSystem::MeshWeightCount(int id, int attachment, int vertex) const {
     const Attachment *att =
         Has(id) ? AttachmentAt(instances_[static_cast<size_t>(id) - 1], attachment)
                 : nullptr;
-    if (att == nullptr || vertex < 0 ||
-        static_cast<size_t>(vertex) >= att->weight_count.size()) {
+    if (att == nullptr || vertex < 0) {
         return 0;
     }
-    return att->weight_count[static_cast<size_t>(vertex)];
+    const MeshView mv = ViewMesh(*att);
+    if (mv.weight_count == nullptr ||
+        static_cast<size_t>(vertex) >= mv.weight_count->size()) {
+        return 0;
+    }
+    return (*mv.weight_count)[static_cast<size_t>(vertex)];
 }
 
 bool SkeletonSystem::MeshWeight(int id, int attachment, int vertex, int wi,
@@ -2078,17 +2194,22 @@ bool SkeletonSystem::MeshWeight(int id, int attachment, int vertex, int wi,
     const Attachment *att =
         Has(id) ? AttachmentAt(instances_[static_cast<size_t>(id) - 1], attachment)
                 : nullptr;
-    if (att == nullptr || vertex < 0 ||
-        static_cast<size_t>(vertex) >= att->weight_count.size()) {
+    if (att == nullptr || vertex < 0) {
         return false;
     }
-    const int count = att->weight_count[static_cast<size_t>(vertex)];
+    const MeshView mv = ViewMesh(*att);
+    if (mv.weight_count == nullptr || mv.weight_first == nullptr ||
+        mv.influences == nullptr ||
+        static_cast<size_t>(vertex) >= mv.weight_count->size()) {
+        return false;
+    }
+    const int count = (*mv.weight_count)[static_cast<size_t>(vertex)];
     if (wi < 0 || wi >= count) {
         return false;
     }
-    const int first = att->weight_first[static_cast<size_t>(vertex)];
+    const int first = (*mv.weight_first)[static_cast<size_t>(vertex)];
     const MeshInfluence &inf =
-        att->influences[static_cast<size_t>(first + wi)];
+        (*mv.influences)[static_cast<size_t>(first + wi)];
     bone_out = inf.bone;
     weight_out = inf.weight;
     return true;
@@ -2101,6 +2222,7 @@ Vec2 SkeletonSystem::MeshBindVertex(int id, int attachment, int vertex) const {
     if (att == nullptr || vertex < 0 || vertex >= att->VertexCount()) {
         return {};
     }
+    const MeshView mv = ViewMesh(*att);
     const size_t vi = static_cast<size_t>(vertex);
     const Instance &inst = instances_[static_cast<size_t>(id) - 1];
     const std::vector<float> *deform = nullptr;
@@ -2108,10 +2230,16 @@ Vec2 SkeletonSystem::MeshBindVertex(int id, int attachment, int vertex) const {
         deform = &inst.deform[static_cast<size_t>(attachment)];
     }
     const int wcount =
-        vi < att->weight_count.size() ? att->weight_count[vi] : 0;
+        (mv.weight_count != nullptr && vi < mv.weight_count->size())
+            ? (*mv.weight_count)[vi]
+            : 0;
     if (wcount <= 0) {
-        float bx = vi * 2 + 1 < att->bind_xy.size() ? att->bind_xy[vi * 2] : 0.0f;
-        float by = vi * 2 + 1 < att->bind_xy.size() ? att->bind_xy[vi * 2 + 1] : 0.0f;
+        float bx = (mv.bind_xy != nullptr && vi * 2 + 1 < mv.bind_xy->size())
+                       ? (*mv.bind_xy)[vi * 2]
+                       : 0.0f;
+        float by = (mv.bind_xy != nullptr && vi * 2 + 1 < mv.bind_xy->size())
+                       ? (*mv.bind_xy)[vi * 2 + 1]
+                       : 0.0f;
         if (deform != nullptr && static_cast<int>(deform->size()) >= static_cast<int>(vi * 2 + 2)) {
             bx += (*deform)[vi * 2];
             by += (*deform)[vi * 2 + 1];
@@ -2119,10 +2247,10 @@ Vec2 SkeletonSystem::MeshBindVertex(int id, int attachment, int vertex) const {
         return {bx, by};
     }
     float cx = 0, cy = 0, wsum = 0;
-    const int first = att->weight_first[vi];
+    const int first = (*mv.weight_first)[vi];
     for (int i = 0; i < wcount; ++i) {
         const MeshInfluence &inf =
-            att->influences[static_cast<size_t>(first + i)];
+            (*mv.influences)[static_cast<size_t>(first + i)];
         float lx = inf.x;
         float ly = inf.y;
         if (deform != nullptr) {
@@ -2172,8 +2300,9 @@ bool SkeletonSystem::SampleDeformAt(int id, int attachment, float time) {
     EnsureDeformBuffers(*asset, inst);
     // Zero this attachment's deform, then sample every clip deform track that
     // targets it at the requested time (using the playing clip if any).
+    const Attachment &target = asset->attachments[static_cast<size_t>(attachment)];
     inst.deform[static_cast<size_t>(attachment)].assign(
-        static_cast<size_t>(asset->attachments[static_cast<size_t>(attachment)].deform_floats),
+        static_cast<size_t>(target.DeformFloats()),
         0.0f);
     if (inst.clip < 1 ||
         static_cast<size_t>(inst.clip - 1) >= asset->clips.size()) {
@@ -2189,20 +2318,20 @@ bool SkeletonSystem::SampleDeformAt(int id, int attachment, float time) {
         hit = true;
         SampleDeformStream(dt, time, sampled);
         std::vector<float> &dst = inst.deform[static_cast<size_t>(attachment)];
-        const Attachment &att = asset->attachments[static_cast<size_t>(attachment)];
+        const MeshView mv = ViewMesh(target);
         for (size_t i = 0; i < dst.size(); ++i) {
             const float src = i < sampled.size() ? sampled[i] : 0.0f;
             if (dt.absolute) {
                 float bind = 0.0f;
-                if (att.influences.empty()) {
-                    if (i < att.bind_xy.size()) {
-                        bind = att.bind_xy[i];
+                if (mv.influences == nullptr || mv.influences->empty()) {
+                    if (mv.bind_xy != nullptr && i < mv.bind_xy->size()) {
+                        bind = (*mv.bind_xy)[i];
                     }
                 } else {
                     const size_t inf = i / 2;
                     const bool is_y = (i % 2) != 0;
-                    if (inf < att.influences.size()) {
-                        bind = is_y ? att.influences[inf].y : att.influences[inf].x;
+                    if (inf < mv.influences->size()) {
+                        bind = is_y ? (*mv.influences)[inf].y : (*mv.influences)[inf].x;
                     }
                 }
                 dst[i] = src - bind;
@@ -2223,11 +2352,29 @@ int SkeletonSystem::MeshHullCount(int id, int attachment) const {
     if (att == nullptr || !att->IsMesh()) {
         return 0;
     }
+    const MeshView mv = ViewMesh(*att);
     const int verts = att->VertexCount();
-    if (att->hull > 0 && att->hull <= verts) {
-        return att->hull;
+    if (mv.hull > 0 && mv.hull <= verts) {
+        return mv.hull;
     }
     return verts;
+}
+
+std::uintptr_t SkeletonSystem::MeshBindKey(int id, int attachment) const {
+    const Attachment *att =
+        Has(id) ? AttachmentAt(instances_[static_cast<size_t>(id) - 1], attachment)
+                : nullptr;
+    if (att == nullptr || !att->IsMesh() || !att->geom) {
+        return 0;
+    }
+    return reinterpret_cast<std::uintptr_t>(att->geom.get());
+}
+
+bool SkeletonSystem::MeshSharesBind(int id, int attachment_a,
+                                    int attachment_b) const {
+    const std::uintptr_t a = MeshBindKey(id, attachment_a);
+    const std::uintptr_t b = MeshBindKey(id, attachment_b);
+    return a != 0 && a == b;
 }
 
 bool SkeletonSystem::MeshHullVertex(int id, int attachment, int hi, Vec2 &out) const {
@@ -2599,6 +2746,31 @@ void SkeletonSystem::Draw(Renderer &renderer, int id, const Vec2 &position, floa
         draw_calls_baseline_ = static_cast<int>(batch.DrawCallCount());
         last_batch_ = &batch;
     }
+
+    // Detect mixed region+mesh so regions can ride the triangle stream and
+    // avoid a topology flush between every slot. Region-only stays on the
+    // static quad IBO (Phase 47 single-draw-call ranks).
+    bool draw_has_mesh = false;
+    bool draw_has_region = false;
+    for (const Slot &slot : inst.slots) {
+        if (!slot.visible || slot.attachment_count <= 0) {
+            continue;
+        }
+        const int ai = slot.first_attachment +
+                       std::clamp(slot.active, 0, slot.attachment_count - 1);
+        if (ai < 0 || static_cast<size_t>(ai) >= asset->attachments.size()) {
+            continue;
+        }
+        const Attachment &probe = asset->attachments[static_cast<size_t>(ai)];
+        if (probe.IsMesh()) {
+            draw_has_mesh = true;
+        } else if (probe.size.x > 0.0f && probe.size.y > 0.0f) {
+            draw_has_region = true;
+        }
+    }
+    const bool unify_regions_as_tris = draw_has_mesh && draw_has_region;
+    static const std::uint16_t kQuadTris[6] = {0, 1, 2, 0, 2, 3};
+
     for (const Slot &slot : inst.slots) {
         if (!slot.visible || slot.attachment_count <= 0 || slot.bone < 0 ||
             static_cast<size_t>(slot.bone) >= inst.world.size()) {
@@ -2613,23 +2785,24 @@ void SkeletonSystem::Draw(Renderer &renderer, int id, const Vec2 &position, floa
         const Color c{tint.r * slot.color.r, tint.g * slot.color.g,
                       tint.b * slot.color.b, tint.a * slot.color.a};
         if (att.IsMesh()) {
-            if (att.triangles.size() < 3 || att.VertexCount() <= 0) {
+            const MeshView mv = ViewMesh(att);
+            if (mv.triangles == nullptr || mv.triangles->size() < 3 ||
+                att.VertexCount() <= 0 || mv.uvs == nullptr) {
                 continue;
             }
-            // Skin once, then submit as a true indexed triangle mesh so shared
-            // verts are not duplicated. Same-sheet meshes coalesce in the
-            // SpriteBatch mesh stream; region quads still use the static IBO
-            // and region-only single-draw-call ranks are unchanged.
-            std::vector<Vertex2D> mesh_verts(static_cast<size_t>(att.VertexCount()));
-            for (int v = 0; v < att.VertexCount(); ++v) {
+            // Skin into reusable scratch so soft-skin Draw does not allocate.
+            const int vc = att.VertexCount();
+            skin_vert_scratch_.resize(static_cast<size_t>(vc));
+            for (int v = 0; v < vc; ++v) {
                 const Vec2 local = SkinVertex(inst, att, v);
-                const Vec2 uv = SheetUv(att, att.uvs[static_cast<size_t>(v) * 2],
-                                       att.uvs[static_cast<size_t>(v) * 2 + 1], inv_w,
+                const Vec2 uv = SheetUv(att, (*mv.uvs)[static_cast<size_t>(v) * 2],
+                                       (*mv.uvs)[static_cast<size_t>(v) * 2 + 1], inv_w,
                                        inv_h);
-                mesh_verts[static_cast<size_t>(v)] = {root.Map(local), uv, c};
+                skin_vert_scratch_[static_cast<size_t>(v)] = {root.Map(local), uv, c};
             }
-            batch.DrawTriangles(*sheet, mesh_verts.data(), mesh_verts.size(),
-                                att.triangles.data(), att.triangles.size());
+            batch.DrawTriangles(*sheet, skin_vert_scratch_.data(),
+                                skin_vert_scratch_.size(), mv.triangles->data(),
+                                mv.triangles->size());
             ++stats_.slots_drawn;
             continue;
         }
@@ -2648,7 +2821,17 @@ void SkeletonSystem::Draw(Renderer &renderer, int id, const Vec2 &position, floa
             {(att.src.x + att.src.width) * inv_w, att.src.y * inv_h},
             {(att.src.x + att.src.width) * inv_w, (att.src.y + att.src.height) * inv_h},
             {att.src.x * inv_w, (att.src.y + att.src.height) * inv_h}};
-        batch.DrawVertices(*sheet, corners, uvs, c);
+        if (unify_regions_as_tris) {
+            // Same sheet as the meshes: submit as two triangles so the mesh
+            // stream coalesces the whole character into one draw call.
+            skin_vert_scratch_.resize(4);
+            for (int i = 0; i < 4; ++i) {
+                skin_vert_scratch_[static_cast<size_t>(i)] = {corners[i], uvs[i], c};
+            }
+            batch.DrawTriangles(*sheet, skin_vert_scratch_.data(), 4, kQuadTris, 6);
+        } else {
+            batch.DrawVertices(*sheet, corners, uvs, c);
+        }
         ++stats_.slots_drawn;
     }
 }

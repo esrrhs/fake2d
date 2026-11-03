@@ -2,8 +2,10 @@
 
 #include "fake2d/math.h"
 #include "fake2d/resource_manager.h"
+#include "fake2d/sprite_batch.h"
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -22,11 +24,15 @@ class SpriteBatch;
 /// angles rather than 200 pictures, and the same parts recombine for every
 /// action without redrawing them.
 ///
-/// Soft-skinned mesh attachments (Phase 49) are another attachment kind on the
+/// Soft-skinned mesh attachments (Phase 49+) are another attachment kind on the
 /// same slots: vertices carry bone weights relative to the setup pose, deform
 /// timelines push absolute or additive deltas, and the CPU skins into the
 /// existing SpriteBatch so lighting and batching stay unchanged. Region-only
-/// rigs keep the Phase 47 single-draw-call property.
+/// rigs keep the Phase 47 single-draw-call property. Phase 51 shares bind
+/// geometry across linkedmesh attachments (and across instances of one asset)
+/// via `MeshGeometry`; deform sample buffers stay per-instance. Mixed
+/// region+mesh draws coalesce through the triangle stream so topology does not
+/// thrash every slot.
 ///
 /// A `SkeletonAsset` is the immutable rig: bones, slots, attachments, clips.
 /// A `SkeletonInstance` is one posed copy of it, with its own playback clock,
@@ -55,8 +61,9 @@ class SpriteBatch;
 /// `slots` quads (or skinned mesh triangles via SpriteBatch::DrawTriangles). Every
 /// attachment comes off one sheet texture, so a whole character is a single
 /// draw call, and the batch coalesces identically-textured characters into one
-/// more. Nothing here allocates per frame on the region path; mesh deform
-/// reuses per-instance scratch.
+/// more. Nothing here allocates per frame on the region path; mesh deform and
+/// skinned vertex scratch reuse per-instance buffers. Bind mesh data lives on
+/// the asset (`MeshGeometry`) and is shared by linkedmesh / instances.
 class SkeletonSystem {
 public:
     // --- limits --------------------------------------------------------------
@@ -200,11 +207,34 @@ public:
         float weight = 1.0f;
     };
 
+    /// Immutable mesh bind data owned by an asset. Many attachments (and every
+    /// instance of that asset) may share one allocation — that is how linkedmesh
+    /// avoids duplicating vertex / weight buffers. Lifetime: kept alive by
+    /// `shared_ptr` from each Attachment that references it; destroyed when the
+    /// last attachment (and thus usually the Asset) releases it. Instances never
+    /// own bind data; they only own deform *sample* streams.
+    struct MeshGeometry {
+        /// Bind-pose local xy (2 * vertex_count). Used when a vertex has no
+        /// weights; ignored for the skinned sum when weights are present, but
+        /// still the baseline deform target for unweighted meshes.
+        std::vector<float> bind_xy;
+        std::vector<float> uvs;  ///< 2 * vertex_count, sheet-normalized 0..1
+        std::vector<std::uint16_t> triangles;
+        int hull = 0;
+        std::vector<MeshInfluence> influences;
+        std::vector<int> weight_first;  ///< per vertex; into influences
+        std::vector<int> weight_count;  ///< 0 = rigid to slot bone via bind_xy
+        /// Length of a deform float stream for this mesh (0 for regions).
+        int deform_floats = 0;
+    };
+
     /// A texture region or soft-skinned mesh hung off a bone. Region
-    /// `offset`/`rotation` are relative to the bone. Mesh attachments carry
-    /// vertices, UVs, triangle indices, optional hull, and bone weights; an
-    /// empty weight list means the vertex is rigid to the slot's bone using
-    /// `bind_xy`.
+    /// `offset`/`rotation` are relative to the bone. Mesh attachments hold a
+    /// `geom` pointer into shared bind data (see MeshGeometry); an empty weight
+    /// list means the vertex is rigid to the slot's bone using `bind_xy`.
+    /// Staging vectors below are filled while parsing / building a mesh and
+    /// promoted into `geom` by Finalize / linkedmesh share; after promote they
+    /// are empty and readers use `geom`.
     struct Attachment {
         Rect src{};           ///< sub-rect of the asset sheet (UV basis for meshes too)
         Vec2 offset{};
@@ -213,26 +243,36 @@ public:
         std::string name;
         AttachmentKind kind = AttachmentKind::Region;
 
-        /// Bind-pose local xy (2 * vertex_count). Used when a vertex has no
-        /// weights; ignored for the skinned sum when weights are present, but
-        /// still the baseline deform target for unweighted meshes.
+        /// Shared bind geometry. Non-null for finalized meshes; linkedmesh
+        /// copies the pointer instead of the buffers.
+        std::shared_ptr<MeshGeometry> geom;
+
+        /// Staging only (pre-promote). Prefer geom->* after load / AddAsset.
         std::vector<float> bind_xy;
-        std::vector<float> uvs;  ///< 2 * vertex_count, sheet-normalized 0..1
+        std::vector<float> uvs;
         std::vector<std::uint16_t> triangles;
         int hull = 0;
-
         std::vector<MeshInfluence> influences;
-        std::vector<int> weight_first;  ///< per vertex; into influences
-        std::vector<int> weight_count;  ///< 0 = rigid to slot bone via bind_xy
-        /// Length of a deform float stream for this mesh (0 for regions).
+        std::vector<int> weight_first;
+        std::vector<int> weight_count;
         int deform_floats = 0;
 
         [[nodiscard]] int VertexCount() const {
-            return kind == AttachmentKind::Mesh
-                       ? static_cast<int>(uvs.size() / 2)
-                       : 0;
+            if (kind != AttachmentKind::Mesh) {
+                return 0;
+            }
+            if (geom) {
+                return static_cast<int>(geom->uvs.size() / 2);
+            }
+            return static_cast<int>(uvs.size() / 2);
         }
         [[nodiscard]] bool IsMesh() const { return kind == AttachmentKind::Mesh; }
+        [[nodiscard]] int DeformFloats() const {
+            if (geom) {
+                return geom->deform_floats;
+            }
+            return deform_floats;
+        }
     };
 
     struct Slot {
@@ -384,6 +424,15 @@ public:
     /// no deform track targets it.
     bool SampleDeformAt(int id, int attachment, float time);
 
+    /// Opaque key for the shared MeshGeometry behind an attachment (pointer
+    /// identity). 0 when the attachment is missing or not a finalized mesh.
+    /// Two attachments (or the same attachment on two instances of one asset)
+    /// share bind data iff their keys are equal and non-zero.
+    [[nodiscard]] std::uintptr_t MeshBindKey(int id, int attachment) const;
+    /// True when both attachments are meshes that share one MeshGeometry.
+    [[nodiscard]] bool MeshSharesBind(int id, int attachment_a,
+                                      int attachment_b) const;
+
     /// Hull vertex count for a mesh attachment: the authored `hull` when > 0,
     /// otherwise every skinned vertex. 0 for regions / bad ids. Used to feed
     /// light occluders from soft-skin silhouettes.
@@ -460,8 +509,9 @@ private:
         std::vector<Slot> slots;   ///< per-instance slot state (colour, skin)
         std::vector<int> fired;    ///< indices into the playing clip's events
         /// Per-attachment deform float stream (zeros = bind pose). Sized to
-        /// match Asset::attachments[i].deform_floats when that attachment is a
-        /// mesh; empty for regions.
+        /// match the attachment's DeformFloats() (from shared MeshGeometry when
+        /// present). Independent per instance even when bind geometry is shared.
+        /// Empty for regions.
         std::vector<std::vector<float>> deform;
     };
 
@@ -507,6 +557,8 @@ private:
     /// "last frame" basis every other Stats field uses.
     SpriteBatch *last_batch_ = nullptr;
     int settled_draw_calls_ = 0;
+    /// Reused by Draw() when skinning meshes (avoids per-slot heap traffic).
+    mutable std::vector<Vertex2D> skin_vert_scratch_;
 };
 
 }  // namespace fake2d
