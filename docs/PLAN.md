@@ -681,18 +681,25 @@ Phase 47 shipped rigid attachments on bones. The next step is weighted mesh defo
 
 ### Deliverables
 
-- [ ] Mesh attachments: vertices, UVs, triangle indices, optional hull; bound to a slot like a region
-- [ ] Weighted skinning: per-vertex bone indices + weights composed from the current pose; soft bind relative to the setup pose
-- [ ] Deform timeline support in the clip player (absolute or additive deltas on mesh vertices), mixed with rotate/translate/scale tracks
-- [ ] Spine JSON loader extensions: `mesh` / `linkedmesh` (or documented subset), `vertices` with bone weights, deform keys; clear error strings naming the offending attachment
-- [ ] Draw path that submits deformed triangles through the batch (one sheet per skin still preferred) without breaking the Phase 47 single-draw-call rank measurement for region-only rigs
-- [ ] Lua bindings for mesh create/query, weight inspection, and forcing a deform sample for tests
-- [ ] Extend `assets/skeleton/` (or a new soft-skin demo sheet) with at least one weighted mesh part; grow `scripts/skeleton_demo.lua` or add `scripts/skeleton_mesh_demo.lua`
-- [ ] `--skeleton-test` growth: bind-pose identity, known-weight lerp under a 90° bone, deform key at t=0/mid/end, malformed weight / index rejection
-- [ ] Docs: `SCRIPTING.md` skeletal section + PLAN verification notes; version bump suggestion **1.42.x**
+- [x] Mesh attachments: vertices, UVs, triangle indices, optional hull; bound to a slot like a region
+- [x] Weighted skinning: per-vertex bone indices + weights composed from the current pose; soft bind relative to the setup pose
+- [x] Deform timeline support in the clip player (absolute or additive deltas on mesh vertices), mixed with rotate/translate/scale tracks
+- [x] Spine JSON loader extensions: `mesh` / `linkedmesh` (or documented subset), `vertices` with bone weights, deform keys; clear error strings naming the offending attachment
+- [x] Draw path that submits deformed triangles through the batch (one sheet per skin still preferred) without breaking the Phase 47 single-draw-call rank measurement for region-only rigs
+- [x] Lua bindings for mesh create/query, weight inspection, and forcing a deform sample for tests
+- [x] Extend `assets/skeleton/` (or a new soft-skin demo sheet) with at least one weighted mesh part; grow `scripts/skeleton_demo.lua` or add `scripts/skeleton_mesh_demo.lua`
+- [x] `--skeleton-test` growth: bind-pose identity, known-weight lerp under a 90° bone, deform key at t=0/mid/end, malformed weight / index rejection
+- [x] Docs: `SCRIPTING.md` skeletal section + PLAN verification notes; version bump suggestion **1.42.x**
 
 ### Verification
 
-- [ ] Headless `--skeleton-test` green with the new mesh/weight/deform cases
-- [ ] Demo smoke (`--skeleton-demo` or mesh demo) under `--frames` with zero `update() failed` and exit 0
-- [ ] Region-only rigs from Phase 47 unchanged (batch counter + IK / events still hold)
+- [x] Headless `--skeleton-test` green with the new mesh/weight/deform cases
+- [x] Demo smoke (`--skeleton-demo` or mesh demo) under `--frames` with zero `update() failed` and exit 0
+- [x] Region-only rigs from Phase 47 unchanged (batch counter + IK / events still hold)
+
+Phase 49 shipped as **1.42.0**: soft-skinned mesh attachments with Spine-compatible
+weighted vertices and deform timelines, CPU skinning into the existing SpriteBatch
+(degenerate-quad submit so region-only single-draw-call ranks still hold), Lua
+`skel_mesh_*` bindings, `assets/skeleton/softskin.*` + `--skeleton-mesh-demo`, and
+extended `--skeleton-test` coverage for bind-pose identity, weight lerp, deform keys,
+and malformed rejection.

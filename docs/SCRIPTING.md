@@ -588,10 +588,10 @@ are in). Positions are pixels, y down, with the root usually at the feet.
 | `skeleton.texture` | the sheet every region is cut from, resolved next to the JSON |
 | `bones` | `{name, parent, x, y, rot, scaleX, scaleY, length}` — **parent first** |
 | `regions` | named rectangles on the sheet |
-| `attachments` | a region plus `w, h, ox, oy, rot`: where it sits on its bone |
+| `attachments` | a region plus `w, h, ox, oy, rot`, or a `type: mesh` / `linkedmesh` with `uvs`, `triangles`, weighted `vertices` |
 | `slots` | draw order, one bone each, plus the alternate attachments a skin picks between |
 | `skins` | `{slot = attachment}` substitutions applied in one call |
-| `animations` | per bone `rotate`/`translate`/`scale` key lists, per slot `color`, and `events` |
+| `animations` | per bone `rotate`/`translate`/`scale` key lists, per slot `color`, mesh `deform`, and `events` |
 
 A key is `{time, angle}` / `{time, x, y}` and may carry `"curve": "stepped"` to
 hold the previous pose until it lands instead of easing into it. A clip's
@@ -637,14 +637,17 @@ prints the live numbers: 1 assets, 2 instances, 3 bones posed, 4 parts drawn,
 5 draw calls, 6 events fired, 7 clips. The draw-call figure is the last completed
 frame's, because a quad still sitting in the batch has not cost a call yet.
 
-`--skeleton-test` (82 checks) builds a rig in code whose expected numbers are
-known exactly, then loads the shipped soldier and checks the same shapes through
-the JSON path: hierarchy composition through a rotated parent, linear versus
-stepped keys, a cross-fade that keeps the outgoing clip running while it fades,
-one-shot `Finished()` reporting exactly once, events fired once per pass, IK
-landing on the target and straightening when it cannot reach, `ResetPose`
-returning every bone to its authored setup values, and the draw-call numbers
-above measured against the renderer's own counter.
+`--skeleton-test` builds a rig in code whose expected numbers are known exactly,
+then loads the shipped soldier and checks the same shapes through the JSON path:
+hierarchy composition through a rotated parent, linear versus stepped keys, a
+cross-fade that keeps the outgoing clip running while it fades, one-shot
+`Finished()` reporting exactly once, events fired once per pass, IK landing on
+the target and straightening when it cannot reach, `ResetPose` returning every
+bone to its authored setup values, and the draw-call numbers above measured
+against the renderer's own counter. Phase 49 adds bind-pose identity for a
+weighted mesh, a known-weight lerp under a 90° bone, deform keys at t=0/mid/end,
+and rejection of malformed weight / triangle indices with an error that names
+the offending attachment.
 
 `scripts/skeleton_demo.lua` (`--skeleton-demo`) is a soldier on a wall with a
 rank of six more instances of the same rig marching behind him: LEFT/RIGHT walk,
@@ -652,6 +655,39 @@ SPACE shoot, H take a hit, K die, R revive, B overlays the bones so you can see
 the rig steering the art, N swaps the skin. With nobody at the keyboard it works
 through the whole clip set on its own.
 
+**Soft-skinned meshes (Phase 49).** An attachment may be `"type": "mesh"` (or
+`linkedmesh` referencing another mesh by `parent`) instead of a region. Mesh
+fields:
+
+| field | meaning |
+| --- | --- |
+| `uvs` | interleaved floats, either 0..1 inside a named `region` or already sheet-normalized |
+| `triangles` | index triples into the UV / vertex list |
+| `vertices` | Spine-compatible: flat `[x,y,...]` for an unweighted mesh in the slot bone's space, or packed `[boneCount, boneIndex, x, y, weight, ...]` per vertex for soft bind relative to the setup pose |
+| `hull` | optional outline vertex count (stored, not required to draw) |
+
+Deform timelines live under `animations.<clip>.deform.<slot>.<attachment>` as a
+key list `{time, vertices, offset?, curve?}`. Keys are **additive** onto the
+bind stream by default; wrap them in `{ "absolute": true, "keys": [...] }` to
+replace bind positions. Deform mixes with rotate/translate/scale on the same
+clip and across a cross-fade the same way bone tracks do.
+
+Lua mirrors the rigid API shape:
+
+```lua
+if skel_mesh(id, att) then
+    local n = skel_mesh_vertex_count(id, att)
+    local w = skel_mesh_weight_count(id, att, 0)
+    local bone = skel_mesh_weight_bone(id, att, 0, 0)
+    local wx = skel_mesh_x(id, att, 0)   -- skinned world
+    skel_mesh_deform(id, att, 0.5)       -- force-sample for tests
+end
+```
+
+Meshes submit as degenerate quads through the existing `SpriteBatch`, so a
+region-only rig still measures as one draw call per sheet, and a soft-skinned
+flag on the same sheet stays in the same batch. `scripts/skeleton_mesh_demo.lua`
+(`--skeleton-mesh-demo`) flies a weighted flag with a deform flutter.
 
 ### Audio
 

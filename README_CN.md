@@ -111,6 +111,7 @@ Fake2D 仓库自带 29 个可直接运行的高质量 Demo，并提供一个引�
 | `--tile-demo` | **Tiled 动画瓦片** | 引擎统一时钟推进 tileset 动画；池塘水面波光涟漪与跳动火把循环播放，碰撞网格与显示画面解耦 |
 | `--fog-demo` | **战争迷雾与小地图** | 过程化大世界；Multiply 混合模式遮罩、探索区域跨帧累积擦除、无视差小地图联动与 `rt_sample` 探索度采样 |
 | `--light-demo` | **2D 光照与投影阴影** | 会移动的光源与随之扫动的投影阴影：手提灯、闪烁火把、环绕光球、无阴影补光、滑动的木箱与一个由物理模拟驱动的木箱都拖着自己的阴影；一键点亮 24 个额外光源，整个光照通道仅 4 个 Draw Call |
+| `--skeleton-mesh-demo` | **软蒙皮网格** | 带权重的旗帜：尖端顶点跟随骨骼，根边在两骨之间软绑定，变形时间轴提供飘动 |
 | `--skeleton-demo` | **2D 骨骼动画** | 一个挂在 15 根骨骼上的武装士兵：以关键帧角度写出的走路循环、会呼吸的待机、手臂两骨 IK 让枪口始终指向鼠标、枪口火光与后坐、从当前姿态交叉淡入的受击与死亡一击、在撰写帧精确触发的时间轴事件（尘土、火光、弹壳）、皮肤切换与骨骼叠加视图，身后还有 6 个共用同一套骨架的士兵一起行军 |
 | `--fx-demo` | **多趟后处理与 Bloom 辉光** | 程序化赛博天际线；FBO 降采样、双趟可分离高斯模糊、Bloom 阈值提取、波浪动态扭曲与分屏（Split-screen）对比 |
 | `--post-demo` | **全屏调色与烘焙小地图** | 调色着色器（灰度、对比度拉伸、暗角 Vignette、扫描线 Scanlines）与即时渲染视口烘焙小地图 |
@@ -179,7 +180,7 @@ cmake --install build
 其他工程从此无需引用 fake2d 源码，`find_package` 一行接入：
 
 ```cmake
-find_package(fake2d 1.41 REQUIRED CONFIG)
+find_package(fake2d 1.42 REQUIRED CONFIG)
 add_executable(my_game main.cpp)
 target_link_libraries(my_game PRIVATE fake2d::fake2d)   # GLFW/OpenGL/FakeLua 随之自动链上
 ```
@@ -440,6 +441,7 @@ fake2d/
 │   ├── fog_demo.lua         # 战争迷雾与动态遮罩
 │   ├── light_demo.lua       # 实时 2D 光照与投影阴影
 │   ├── skeleton_demo.lua    # 2D 骨骼动画与骨架姿态
+│   ├── skeleton_mesh_demo.lua # 软蒙皮网格变形
 │   ├── fx_demo.lua          # Bloom 后处理与分屏渲染
 │   ├── post_demo.lua        # 全屏调色与小地图
 │   ├── rt_demo.lua          # 离屏渲染与运动拖尾

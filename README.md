@@ -93,7 +93,7 @@ Fake2D comes with 29 rich, self-contained demos plus an in-engine launcher for p
 
 | Demo Flag | Topic | Key Highlighted Features |
 |---|---|---|
-| `--launcher` | **Demo Launcher (default)** | Cover-art picker for all 29 demos: category filter, mouse and keyboard navigation, and the exact command line behind each entry; picking one starts it as a child process, so closing the game returns here |
+| `--launcher` | **Demo Launcher (default)** | Cover-art picker for all 30 demos: category filter, mouse and keyboard navigation, and the exact command line behind each entry; picking one starts it as a child process, so closing the game returns here |
 | `--breakout-demo` | **Breakout** | Ball physics reflections, brick destruction, particle debris, HUD text, and procedural audio chirps |
 | `--mario-demo` | **Super Mario Bros 1-1** | Faithful SMB 1-1 recreation; small/big Mario forms, Goomba patrols & squashing, ? blocks, brick shatter particles, flag pole sequence, attract AI |
 | `--angry-birds-demo` | **Angry Birds Sandbox** | Slingshot impulse launch, stacked towers that sleep and wake, contact-driven pig pops, camera follow, synthesized SFX |
@@ -111,6 +111,7 @@ Fake2D comes with 29 rich, self-contained demos plus an in-engine launcher for p
 | `--tile-demo` | **Animated Tiles** | Tiled tileset animations driven by a single engine clock; rippling pond water and torch flames |
 | `--fog-demo` | **Fog of War** | Procedural world; multiply blend mask, cumulative exploration reveal, clickable minimap, and `rt_sample` probes |
 | `--light-demo` | **2D Lighting & Projected Shadows** | Moving light sources with hard projected shadows: a carried lantern, a flickering torch, an orbiting orb, a shadowless fill, sliding crates and a physics-simulated crate that drag their shadows; 24 lights burst on one keypress, whole pass in 4 draw calls |
+| `--skeleton-mesh-demo` | **Soft-skinned Mesh** | A weighted flag: tip verts follow a bone, the root edge soft-binds across two bones, and a deform timeline adds a flutter without a second tooling chain |
 | `--skeleton-demo` | **2D Skeletal Animation** | A rigged soldier on a 15-bone hierarchy: a walk cycle authored as keyframed angles, an idle that breathes, aim at the cursor through two-bone arm IK, muzzle-flash and recoil, hit and death one-shots cross-faded from whatever pose was running, timeline events that spawn dust, flash and a casing at the exact frame they were authored for, skin swaps, a bone overlay, and a rank of six more soldiers marching behind him off the same asset |
 | `--fx-demo` | **Multi-Pass Post-FX & Bloom** | Procedural skyline; FBO downsampling, separable 9-tap Gaussian blur, bloom thresholding, wave wobble, split-screen |
 | `--post-demo` | **Post-Grade & Baked Minimap** | Presentation-grade shaders (desaturation, lift, vignette, scanlines) and camera-baked tilemap minimap |
@@ -165,7 +166,7 @@ cmake --install build
 Other projects no longer need the fake2d sources; `find_package` is enough:
 
 ```cmake
-find_package(fake2d 1.41 REQUIRED CONFIG)
+find_package(fake2d 1.42 REQUIRED CONFIG)
 add_executable(my_game main.cpp)
 target_link_libraries(my_game PRIVATE fake2d::fake2d)   # GLFW/OpenGL/FakeLua come along automatically
 ```
@@ -463,6 +464,7 @@ fake2d/
 │   ├── fog_demo.lua         # Fog of war & exploration mask
 │   ├── light_demo.lua       # 2D lighting & projected shadows
 │   ├── skeleton_demo.lua    # Skeletal animation & rig posing
+│   ├── skeleton_mesh_demo.lua # Soft-skinned mesh deformation
 │   ├── fx_demo.lua          # Bloom post-processing & split-screen
 │   ├── post_demo.lua        # Color grading & minimap bake
 │   ├── rt_demo.lua          # Offscreen FBO trails
