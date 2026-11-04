@@ -61,6 +61,14 @@ bool SpriteBatch::Init(size_t max_quads) {
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo_);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLsizeiptr>(indices.size() * sizeof(std::uint32_t)), indices.data(), GL_STATIC_DRAW);
 
+    // ELEMENT_ARRAY_BUFFER is VAO state. Leave the quad VAO before allocating
+    // the mesh IBO; otherwise mesh_ibo_ replaces ibo_ on vao_ and every
+    // immediate Flush draws with an empty index buffer (clear-colour frames,
+    // which is what --shot-min-colors rejects in CI).
+    if (!legacy) {
+        glBindVertexArray(0);
+    }
+
     // Dynamic mesh IBO (and shared VBO capacity): triangle submit path.
     max_mesh_verts_ = max_quads_ * 4;
     max_mesh_indices_ = max_quads_ * 6;
@@ -72,9 +80,6 @@ bool SpriteBatch::Init(size_t max_quads) {
                  static_cast<GLsizeiptr>(max_mesh_indices_ * sizeof(std::uint32_t)),
                  nullptr, GL_DYNAMIC_DRAW);
 
-    if (!legacy) {
-        glBindVertexArray(0);
-    }
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 
@@ -303,11 +308,13 @@ void SpriteBatch::FlushImmediate() {
                     static_cast<GLsizeiptr>(current_quads_ * 4 * sizeof(Vertex2D)),
                     vertices_.data());
     if (glcaps::legacy_mode) {
-        // No VAO: re-point attributes and rebind the element buffer (the
-        // element binding is global state outside a VAO).
+        // No VAO: re-point attributes (element binding is global outside a VAO).
         ConfigureQuadAttribs();
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo_);
     }
+    // Always rebind the static quad IBO. FlushMesh / DrawMeshRange attach
+    // mesh_ibo_ to the shared VAO; without this, the next immediate Flush
+    // would draw with an empty (or stale mesh) index buffer.
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo_);
 
     ApplyClip();
     glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(current_quads_ * 6), GL_UNSIGNED_INT, nullptr);
