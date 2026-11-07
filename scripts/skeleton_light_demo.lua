@@ -30,7 +30,12 @@ local function reset_state()
 end
 
 local function build()
-    light_set_ambient(0.07, 0.08, 0.12, 1.0)
+    -- Night-room exposure. The room's own albedo is dark (0.12-0.16), so the
+    -- ambient is a multiplier here, not a flat wash: 0.07 left the flag's
+    -- unlit side at RGB ~17 and only readable while the orbiting lantern was
+    -- close. This keeps the room moody but makes the hull and its shadow
+    -- readable on every frame.
+    light_set_ambient(0.30, 0.34, 0.44, 1.0)
     light_set_shadow_darkness(0.0)
     light_set_core(0.18, 0.65)
 
@@ -46,7 +51,7 @@ local function build()
 
     S.fill = light_create()
     light_set_position(S.fill, W * 0.5, H * 0.35)
-    light_set_color(S.fill, 0.35, 0.45, 0.7, 0.35)
+    light_set_color(S.fill, 0.55, 0.65, 0.95, 0.7)
     light_set_radius(S.fill, 520.0)
     light_set_shadows(S.fill, 0)
 
