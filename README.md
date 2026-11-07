@@ -22,7 +22,7 @@ Engineered around modern industry standards (aligned with Raylib, MonoGame, and 
 ### 1. Deterministic Zero-GC Per-Frame Architecture
 - **Eliminates GC Stutter**: Traditional game engines running Lua, JavaScript, or C# suffer from frame drops and unpredictable GC spikes when creating high-frequency temporary objects;
 - **Linear Arena Reset**: Fake2D scripts can freely allocate frame-local tables, vectors, and closures. At the end of each frame, the engine resets the linear memory arena via `fakelua::inter::Reset(state)` in microseconds—delivering rock-solid 60 / 120+ FPS with zero GC stalls;
-- **Native Cross-Frame Storage**: Persistent data is strictly managed through the C++ `EntityStore` (256 native handle-based entity slots) and `SaveStore` (JSON key-value persistence plus CRC-checked binary save containers with metadata headers), maintaining a clear separation between transient frame calculations and long-lived game state.
+- **Native Cross-Frame Storage**: Persistent data is strictly managed through the C++ `EntityStore` (512 native handle-based entity slots) and `SaveStore` (JSON key-value persistence plus CRC-checked binary save containers with metadata headers), maintaining a clear separation between transient frame calculations and long-lived game state.
 
 ### 2. Data-Oriented Streaming SpriteBatch
 - **Dynamic Streaming VBO**: Backed by a pre-allocated static index buffer (standard `0-1-2-2-3-0` quad pattern);
@@ -51,7 +51,7 @@ Fake2D is a fully battery-included engine, not just a bare graphics library:
 ### 5. Developer Experience & Automated Testing
 - **JIT Script Hot-Reload**: GCC JIT backend with automatic interpreter fallback; edit Lua scripts live and see changes reflected instantly without restarting;
 - **Headless & CI-Ready**: First-class `--headless`, `--frames N`, `--screenshot`, `--ai`, and `--record`/`--replay` CLI flags allow visual regression tests and automated smoke validation in headless Linux/macOS/Windows environments;
-- **29 Built-in Self-Test Suites**: 1393 assertions covering rigid-body dynamics, joints, sleeping, anti-tunneling, physics queries, filters, timesteps, tilemap objects, A\* pathfinding, render targets, UI widgets, post-FX, fog of war, 2D lighting and shadow containment, bone hierarchy and clip playback with cross-fade, IK and timeline events, audio mixing, animated tiles, UTF-8/CJK text with fallback faces, the platform layer, deterministic RNG, easing, entity snapshots, input actions, window controls, gameplay time scale / hit-stop, 16-slot entity actors, the 128-clip animation pool, the shmup sprite/background asset pipeline, the city-builder tileset/building atlas/base map, the RTS terrain/unit/building/map pipeline and the visual-novel background/portrait art (all mutation-tested);
+- **30 Built-in Self-Test Suites**: 1535 assertions covering rigid-body dynamics, joints, sleeping, anti-tunneling, physics queries, filters, timesteps, tilemap objects, A\* pathfinding, render targets, UI widgets, post-FX, fog of war, 2D lighting and shadow containment, bone hierarchy and clip playback with cross-fade, IK and timeline events, audio mixing, animated tiles, UTF-8/CJK text with fallback faces, the platform layer, deterministic RNG, easing, entity snapshots, input actions, window controls, gameplay time scale / hit-stop, 16-slot entity actors, the 128-clip animation pool, the shmup sprite/background asset pipeline, the city-builder tileset/building atlas/base map, the RTS terrain/unit/building/map pipeline and the visual-novel background/portrait art (all mutation-tested);
 - **Standalone Packaging**: Bundling scripts under `tools/` generate self-contained archives on Linux, macOS, and Windows with all dependencies, shaders, and assets included.
 
 ---
@@ -89,11 +89,11 @@ Fake2D is a fully battery-included engine, not just a bare graphics library:
 
 ## 🎮 Runnable Demos Matrix
 
-Fake2D comes with 29 rich, self-contained demos plus an in-engine launcher for picking between them, demonstrating platformer mechanics, retro brawler and run-and-gun gameplay, cue-sport physics, city simulation, real-time strategy, dating-sim storytelling, real-time 2D lighting with projected shadows, keyframed 2D skeletal animation with IK, spatial audio, immediate UI, and graphical post-processing:
+Fake2D comes with 31 rich, self-contained demos plus an in-engine launcher for picking between them, demonstrating platformer mechanics, retro brawler and run-and-gun gameplay, cue-sport physics, city simulation, real-time strategy, dating-sim storytelling, real-time 2D lighting with projected shadows, keyframed 2D skeletal animation with IK, spatial audio, immediate UI, and graphical post-processing:
 
 | Demo Flag | Topic | Key Highlighted Features |
 |---|---|---|
-| `--launcher` | **Demo Launcher (default)** | Cover-art picker for all 30 demos: category filter, mouse and keyboard navigation, and the exact command line behind each entry; picking one starts it as a child process, so closing the game returns here |
+| `--launcher` | **Demo Launcher (default)** | Cover-art picker for all 31 demos: category filter, mouse and keyboard navigation, and the exact command line behind each entry; picking one starts it as a child process, so closing the game returns here |
 | `--breakout-demo` | **Breakout** | Ball physics reflections, brick destruction, particle debris, HUD text, and procedural audio chirps |
 | `--mario-demo` | **Super Mario Bros 1-1** | Faithful SMB 1-1 recreation; small/big Mario forms, Goomba patrols & squashing, ? blocks, brick shatter particles, flag pole sequence, attract AI |
 | `--angry-birds-demo` | **Angry Birds Sandbox** | Slingshot impulse launch, stacked towers that sleep and wake, contact-driven pig pops, camera follow, synthesized SFX |
@@ -332,7 +332,8 @@ xvfb-run ./build/bin/fake2d_hello --headless --ai --contra-demo --frames 2500
 ./build/bin/fake2d_hello --determinism-test
 ./build/bin/fake2d_hello --headless --frames 60 --rng-seed 42
 
-# Run the 29 built-in engine self-test suites (verified via exit codes)
+# Run the 30 built-in engine self-test suites (verified via exit codes)
+ctest --test-dir build --output-on-failure   # all 30 registered suites
 xvfb-run ./build/bin/fake2d_hello --phys-query-test    # Ray casts, overlaps, contact lifecycle
 xvfb-run ./build/bin/fake2d_hello --phys-filter-test   # 16-bit category/mask collision filtering
 xvfb-run ./build/bin/fake2d_hello --phys-rigid-test    # Rotational inertia, friction, resting stacks

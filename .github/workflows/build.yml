@@ -185,6 +185,15 @@ jobs:
           # and ctest reports the failing suite's own output.
           ctest --test-dir build --output-on-failure
 
+      - name: Docs counts match the code
+        run: |
+          export LD_LIBRARY_PATH="$FLINSTALL/lib:${LD_LIBRARY_PATH:-}"
+          # Re-count the suites' assertions and compare every headline number
+          # (demo count, suite count, assertion total, entity slots) against
+          # demos.h / entity_store.h / the CMake suite list. Editing the code
+          # without updating README fails here instead of drifting silently.
+          python3 tools/check-docs.py
+
       - name: Demo smoke + screenshot gates
         run: |
           export LD_LIBRARY_PATH="$FLINSTALL/lib:${LD_LIBRARY_PATH:-}"
