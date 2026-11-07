@@ -8,12 +8,17 @@ on:
 permissions:
   contents: write
 
-# Same pinned fakelua as build.yml. The shipped game engine disables the TCC
-# backend and falls back to its interpreter when no GCC is present, so the
-# release packages need no compiler or tinycc support tree -- only the
-# libfakelua shared library and OpenSSL, which the packaging scripts bundle.
+# Same pinned fakelua as build.yml, and keep it that way: a release must ship
+# the engine that CI actually builds and verifies on Linux, macOS and Windows.
+# That commit is post-v2.0.0 master with fakelua #33 (`flua --once`) and it
+# permits native table mutation -- the demos keep cross-frame state in a
+# new_global_obj NativeObject, which older revisions reject with "attempt to
+# modify a const table". The shipped game engine disables the TCC backend and
+# falls back to its interpreter when no GCC is present, so the release
+# packages need no compiler or tinycc support tree -- only the libfakelua
+# shared library and OpenSSL, which the packaging scripts bundle.
 env:
-  FAKELUA_REF: 608154182155ab34216d20ad3fad624ae65004cf
+  FAKELUA_REF: 9f7216e0e9904d7cd05bbc4109fc22caf6ca57da
 
 jobs:
   # Produce the demo maps with a real build once (plain JSON, portable across
