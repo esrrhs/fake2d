@@ -9381,13 +9381,32 @@ constexpr std::uint32_t kGSlopeUp = 7;
 constexpr std::uint32_t kGSlopeDown = 8;
 
 void PaintPlayer(std::uint8_t *px, int w, int h) {
+    // A ball that fills the 20x30 frame (radius 9.5 of a 15px half-height),
+    // so the sprite reads at the same scale as the 20x30 physics box. A
+    // vertical shade plus two eyes keep it a character rather than a dot.
+    const float cx = w * 0.5f;
+    const float cy = h * 0.5f;
     for (int y = 0; y < h; ++y) {
         for (int x = 0; x < w; ++x) {
             const float a = std::clamp(9.0f - std::sqrt(
-                (x - w * 0.5f) * (x - w * 0.5f) +
-                (y - h * 0.5f) * (y - h * 0.5f)) + 0.5f, 0.0f, 1.0f);
+                (x - cx) * (x - cx) + (y - cy) * (y - cy)) + 0.5f, 0.0f, 1.0f);
+            const float t = std::clamp((y - (cy - 9.0f)) / 18.0f, 0.0f, 1.0f);
             std::uint8_t *p = px + (static_cast<size_t>(y) * w + x) * 4;
-            p[0] = 90; p[1] = 200; p[2] = 235; p[3] = static_cast<std::uint8_t>(a * 255);
+            p[0] = static_cast<std::uint8_t>(110 - 55 * t);
+            p[1] = static_cast<std::uint8_t>(215 - 60 * t);
+            p[2] = static_cast<std::uint8_t>(245 - 55 * t);
+            p[3] = static_cast<std::uint8_t>(a * 255);
+        }
+    }
+    const int eye_y = static_cast<int>(cy) - 3;
+    for (int e = 0; e < 2; ++e) {
+        const int eye_x = static_cast<int>(cx) + (e == 0 ? -3 : 1);
+        for (int yy = eye_y; yy < eye_y + 2; ++yy) {
+            for (int xx = eye_x; xx < eye_x + 2; ++xx) {
+                if (xx < 0 || xx >= w || yy < 0 || yy >= h) continue;
+                std::uint8_t *p = px + (static_cast<size_t>(yy) * w + xx) * 4;
+                p[0] = 24; p[1] = 52; p[2] = 86; p[3] = 255;
+            }
         }
     }
 }

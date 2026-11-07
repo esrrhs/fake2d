@@ -461,8 +461,11 @@ function update(dt)
         local phase = math.floor(S.walk_t) - math.floor(math.floor(S.walk_t) / 4.0) * 4.0
         if phase == 0.0 or phase == 2.0 then pframe = 1 else pframe = 2 end
     end
+    -- Native 20x30 draw: the art fills its frame and the frame matches the
+    -- physics box exactly, so the blob reads at the right size with no
+    -- filtering or speculative upscale.
     anim_set_frame(S.player_anim, pframe)
-    anim_draw_flip(S.player_anim, S.px - 2.0, S.py - 2.0, 24.0, 34.0,
+    anim_draw_flip(S.player_anim, S.px, S.py, 20.0, 30.0,
                    S.facing < 0, false)
     draw_debug(cam_x, cam_y, vw, vh)
 
