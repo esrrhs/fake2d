@@ -26,6 +26,7 @@ local S = new_global_obj("path_demo", "state")
 
 local function reset_state()
     S.map_id = 0 + 0
+    S.nav_id = 0 + 0       -- separate Tilemap instance for the player's path
     S.inited = false
     S.spawns_read = false
     S.px = 0.0 + 0.0         -- player (world pixels, centre)
@@ -115,6 +116,8 @@ end
 -- Walk `count` waypoints toward (tx, ty); returns true when the last one is
 -- reached (or there is no path at all).
 local function follow_path(id, tx, ty, speed, dt)
+    local nav = to_int(ent_num(id, 7))
+    if nav <= 0.0 then nav = S.map_id end
     local count = ent_num(id, 4)
     if count < 1.0 then
         return true
@@ -123,8 +126,8 @@ local function follow_path(id, tx, ty, speed, dt)
     if idx >= count then
         return true
     end
-    local wx = map_path_x(S.map_id, idx)
-    local wy = map_path_y(S.map_id, idx)
+    local wx = map_path_x(nav, idx)
+    local wy = map_path_y(nav, idx)
     local dx = wx - tx
     local dy = wy - ty
     local dist = math.sqrt(dx * dx + dy * dy)
@@ -134,13 +137,23 @@ local function follow_path(id, tx, ty, speed, dt)
     end
     local step = speed * dt
     if step > dist then step = dist end
+    -- A* returns cell centres, so a straight diagonal step can clip a wall
+    -- corner. Move each axis independently: this slides along the free axis
+    -- instead of re-pathing into the same blocked corner every frame.
+    local moved = false
     local nx = tx + dx / dist * step
-    local ny = ty + dy / dist * step
-    if not blocked(nx, ny) then
+    if not blocked(nx, ty) then
+        tx = nx
         ent_set_num(id, 0, nx)
+        moved = true
+    end
+    local ny = ty + dy / dist * step
+    if not blocked(tx, ny) then
         ent_set_num(id, 1, ny)
-    else
-        -- Bumped a wall mid-segment: force a fresh search next frame.
+        moved = true
+    end
+    if not moved then
+        -- Fully wedged (both axes blocked): ask for a fresh search next frame.
         ent_set_num(id, 2, 0.0)
     end
     return false
@@ -153,11 +166,13 @@ local function step_chasers(dt)
         local id = ent_at(i, TAG_CHASER)
         local cx = ent_num(id, 0)
         local cy = ent_num(id, 1)
+        local nav = to_int(ent_num(id, 7))
+        if nav <= 0.0 then nav = S.map_id end
         local t = ent_num(id, 2) - dt
         if t <= 0.0 then
             t = 0.35 + i * 0.05 -- staggered so they do not sync up
-            if map_find_path(S.map_id, cx, cy, S.px, S.py, true) then
-                ent_set_num(id, 4, map_path_count(S.map_id))
+            if map_find_path(nav, cx, cy, S.px, S.py, true) then
+                ent_set_num(id, 4, map_path_count(nav))
                 ent_set_num(id, 3, 1.0)
             else
                 ent_set_num(id, 4, 0.0)
@@ -198,7 +213,7 @@ local function step_player(dt)
         if not blocked(nx, S.py) then S.px = nx end
         local ny = S.py + my / len * player_speed * dt
         if not blocked(S.px, ny) then S.py = ny end
-        map_clear_path(S.map_id)
+        map_clear_path(S.nav_id)
         return 0
     end
 
@@ -210,9 +225,9 @@ local function step_player(dt)
     S.repath_t = S.repath_t - dt
     if S.repath_t <= 0.0 then
         S.repath_t = 0.5
-        if map_find_path(S.map_id, S.px, S.py, S.gx, S.gy, true) then
+        if map_find_path(S.nav_id, S.px, S.py, S.gx, S.gy, true) then
             S.player_wp = 1.0
-            S.player_wp_n = map_path_count(S.map_id)
+            S.player_wp_n = map_path_count(S.nav_id)
         else
             S.player_wp_n = 0.0
         end
@@ -223,8 +238,8 @@ end
 local function step_autopilot(dt)
     if S.idle_t < 1.0 or S.player_wp_n < 1.0 then return 0 end
     if S.player_wp >= S.player_wp_n then return 0 end
-    local wx = map_path_x(S.map_id, S.player_wp)
-    local wy = map_path_y(S.map_id, S.player_wp)
+    local wx = map_path_x(S.nav_id, S.player_wp)
+    local wy = map_path_y(S.nav_id, S.player_wp)
     local dx = wx - S.px
     local dy = wy - S.py
     local dist = math.sqrt(dx * dx + dy * dy)
@@ -234,12 +249,23 @@ local function step_autopilot(dt)
     end
     local step = player_speed * 0.85 * dt
     if step > dist then step = dist end
+    -- Same axis-separated move as the chasers: A* waypoints are cell centres,
+    -- so a combined diagonal step clips wall corners on a 14px box. Sliding
+    -- along the free axis lets the player make progress instead of re-pathing
+    -- into the same corner forever.
+    local moved = false
     local nx = S.px + dx / dist * step
-    local ny = S.py + dy / dist * step
-    if not blocked(nx, ny) then
+    if not blocked(nx, S.py) then
         S.px = nx
+        moved = true
+    end
+    local ny = S.py + dy / dist * step
+    if not blocked(S.px, ny) then
         S.py = ny
-    else
+        moved = true
+    end
+    if not moved then
+        -- Fully wedged: force a fresh search on the next update.
         S.repath_t = 0.0
     end
     return 0
@@ -255,12 +281,14 @@ local function draw_path_overlay()
     local i = 0
     while i < n do
         local id = ent_at(i, TAG_CHASER)
+        local nav = to_int(ent_num(id, 7))
+        if nav <= 0.0 then nav = S.map_id end
         local count = ent_num(id, 4)
         if count >= 2.0 then
             local k = 0.0
             while k + 1.0 < count do
-                draw_line(map_path_x(S.map_id, k), map_path_y(S.map_id, k),
-                          map_path_x(S.map_id, k + 1.0), map_path_y(S.map_id, k + 1.0),
+                draw_line(map_path_x(nav, k), map_path_y(nav, k),
+                          map_path_x(nav, k + 1.0), map_path_y(nav, k + 1.0),
                           0.95, 0.35, 0.35, 0.55)
                 k = k + 1.0
             end
@@ -270,8 +298,8 @@ local function draw_path_overlay()
     if S.player_wp_n >= 2.0 then
         local k = 0.0
         while k + 1.0 < S.player_wp_n do
-            draw_line(map_path_x(S.map_id, k), map_path_y(S.map_id, k),
-                      map_path_x(S.map_id, k + 1.0), map_path_y(S.map_id, k + 1.0),
+            draw_line(map_path_x(S.nav_id, k), map_path_y(S.nav_id, k),
+                      map_path_x(S.nav_id, k + 1.0), map_path_y(S.nav_id, k + 1.0),
                       0.35, 0.95, 0.55, 0.65)
             k = k + 1.0
         end
@@ -312,6 +340,11 @@ function update(dt)
             draw_text("PATH MAP LOAD FAILED", 20.0, 20.0, 0.8, 1.0, 0.4, 0.4, 1.0)
             return 0
         end
+        -- A Tilemap owns exactly one A* result buffer, so give the player and
+        -- every chaser their own instance; otherwise each search overwrites
+        -- the waypoints the other actors are currently following.
+        S.nav_id = map_load("assets/path.json")
+        if S.nav_id == 0 then S.nav_id = S.map_id end
         read_spawns()
         S.spawns_read = true
         -- remember each chaser's spawn cell for resets
@@ -321,6 +354,7 @@ function update(dt)
             local id = ent_at(i, TAG_CHASER)
             ent_set_num(id, 5, ent_num(id, 0))
             ent_set_num(id, 6, ent_num(id, 1))
+            ent_set_num(id, 7, map_load("assets/path.json"))
             i = i + 1
         end
         S.px = S.sx
