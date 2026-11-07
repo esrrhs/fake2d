@@ -378,7 +378,7 @@ jobs:
           grep -F "launcher: starting platformer" launcher_demo.log
           grep -F "would restart with --platformer-demo" launcher_demo.log
           grep -F "launcher: filter engine" launcher_filter.log
-          grep -F "launcher: starting scene" launcher_filter.log
+          grep -F "launcher: starting skeleton" launcher_filter.log
           grep -F "launcher: starting beat-em-up" launcher_click.log
           ! grep -F "beat-em-up: game over" beat.log
           grep -F "snooker: shot 1 resolved" snooker_demo.log
