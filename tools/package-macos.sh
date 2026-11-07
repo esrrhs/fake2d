@@ -10,8 +10,8 @@
 # Every file under assets/ is staged, not a hand-picked list: the demos load
 # their shipped art from assets/art, assets/city, assets/vn and the other
 # subdirectories, and a package that omits one silently falls back to the
-# host's procedural painters. tools/verify-package.sh runs the staged copy
-# with --strict-assets to prove nothing is missing.
+# host's procedural painters. The staged launcher defaults to --strict-assets
+# and tools/verify-package.sh runs it to prove nothing is missing.
 #
 # The script discovers every non-system dylib the binary pulls in (libfakelua
 # and its OpenSSL dependency) directly from `otool -L`, so it works whether
@@ -96,11 +96,13 @@ rewrite_refs "$BIN"
 codesign --force --sign - "$LIB_DIR"/*.dylib "$BIN"
 
 # Double-clickable launcher that runs from the package root (all in-engine
-# paths are relative to the working directory).
+# paths are relative to the working directory). Strict loading is on by
+# default: the package ships every asset, so a missing texture must be an
+# error rather than a procedural substitute.
 cat > "$STAGE/run.command" <<'EOF'
 #!/bin/bash
 cd "$(dirname "$0")"
-exec ./bin/fake2d_hello "$@"
+exec ./bin/fake2d_hello --strict-assets "$@"
 EOF
 chmod +x "$STAGE/run.command"
 

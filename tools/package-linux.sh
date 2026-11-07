@@ -10,9 +10,9 @@
 # ld-linux) stay provided by the host.
 #
 # Every file under assets/ is staged, not a hand-picked list, so the demo art
-# subdirectories travel with the package. tools/verify-package.sh runs the
-# staged copy from another working directory with --strict-assets, which turns
-# a missing texture into a failure instead of a procedural fallback.
+# subdirectories travel with the package. The staged launcher defaults to
+# --strict-assets, and tools/verify-package.sh runs it from another working
+# directory, so a missing texture fails instead of falling back to a painter.
 set -euxo pipefail
 
 BIN_IN="$1"; shift
@@ -85,7 +85,9 @@ cat > "$STAGE/run.sh" <<'EOF'
 #!/bin/bash
 cd "$(dirname "$0")"
 export LD_LIBRARY_PATH="$(pwd)/lib:${LD_LIBRARY_PATH:-}"
-exec ./bin/fake2d_hello "$@"
+# A shipped package carries every asset, so a missing texture is a defect:
+# strict mode reports it and exits non-zero instead of painting a substitute.
+exec ./bin/fake2d_hello --strict-assets "$@"
 EOF
 chmod +x "$STAGE/run.sh"
 

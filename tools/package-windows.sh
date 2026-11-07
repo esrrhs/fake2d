@@ -68,7 +68,7 @@ done
 cat > "$STAGE/run.bat" <<'EOF'
 @echo off
 cd /d "%~dp0"
-bin\fake2d_hello.exe %*
+bin\fake2d_hello.exe --strict-assets %*
 EOF
 
 cp -f README.md LICENSE "$STAGE/" 2>/dev/null || true

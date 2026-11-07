@@ -11,10 +11,13 @@
 #      the first-run artifacts the host normally generates (maps, sheets,
 #      clips, language packs);
 #   2. --art-test passes in the package, started from an unrelated directory;
-#   3. mario, snooker and contra render non-blank screenshots with
-#      --strict-assets, so a missing texture is an error rather than a quiet
-#      fall back to the procedural painters;
-#   4. the demo runs did not create any asset files (no first-run generation).
+#   3. mario, snooker and contra render non-blank screenshots through the
+#      package's own launcher, whose default --strict-assets makes a missing
+#      texture an error rather than a quiet fall back to the procedural
+#      painters;
+#   4. removing a shipped texture makes that launcher exit non-zero and name
+#      the missing file (the negative proof that the default is really strict);
+#   5. the demo runs did not create any asset files (no first-run generation).
 #
 # Linux runners need xvfb; on macOS the package's CGL headless path is used.
 # Windows packages only get the static check (no GL fixture here).
@@ -55,24 +58,42 @@ done
 [ "$missing" -eq 0 ] || fail "package is missing shipped files"
 say "static asset tree complete"
 
-# Runtime checks need the Unix launcher; Windows packages stop here.
-if [ ! -x "$STAGE/run.sh" ]; then
-    say "no run.sh (non-Unix package); static check only"
+# Every shipped launcher must turn on strict loading. The runtime proof below
+# can only drive the Unix launchers, so the Windows script is checked here.
+for launcher in run.sh run.command run.bat; do
+    if [ -f "$STAGE/$launcher" ]; then
+        grep -F -- '--strict-assets' "$STAGE/$launcher" >/dev/null \
+            || fail "$launcher does not pass --strict-assets"
+    fi
+done
+
+# Runtime checks need a Unix launcher; Windows packages stop here.
+if [ -x "$STAGE/run.sh" ]; then
+    LAUNCHER="$STAGE/run.sh"
+elif [ -x "$STAGE/run.command" ]; then
+    LAUNCHER="$STAGE/run.command"
+else
+    say "no Unix launcher (Windows package); static check only"
     exit 0
 fi
 
 run_pkg() {
     if [ -z "${DISPLAY:-}" ] && command -v xvfb-run >/dev/null 2>&1; then
         xvfb-run -a -s '-screen 0 1024x768x24' \
-            env LIBGL_ALWAYS_SOFTWARE=1 "$STAGE/run.sh" "$@"
+            env LIBGL_ALWAYS_SOFTWARE=1 "$LAUNCHER" "$@"
     else
-        env LIBGL_ALWAYS_SOFTWARE=1 "$STAGE/run.sh" "$@"
+        env LIBGL_ALWAYS_SOFTWARE=1 "$LAUNCHER" "$@"
     fi
 }
 
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/fake2d-verify.XXXXXX")
-trap 'rm -rf "$TMP"' EXIT
-# Start somewhere unrelated: run.sh must relocate to the package root itself.
+restore_neg() {
+    if [ -f "$TMP/white.png" ]; then
+        mv "$TMP/white.png" "$STAGE/assets/white.png"
+    fi
+}
+trap 'restore_neg; rm -rf "$TMP"' EXIT
+# Start somewhere unrelated: the launcher must relocate to the package root.
 cd "$TMP"
 
 snapshot() { (cd "$STAGE/assets" && find . -type f -print | sort); }
@@ -96,22 +117,39 @@ run_check() {
     say "$name ok"
 }
 
-run_check art --strict-assets --art-test
+run_check art --art-test
 grep -F '[art] PASS' "$TMP/art.log" >/dev/null || fail "art test not PASS"
 
-run_check mario --headless --strict-assets --ai --frames 180 \
+run_check mario --headless --ai --frames 180 \
     --mario-demo --screenshot "$TMP/mario.png" --shot-min-colors 12
 [ -s "$TMP/mario.png" ] || fail "mario screenshot missing"
 
-run_check snooker --headless --strict-assets --ai --frames 900 \
+run_check snooker --headless --ai --frames 900 \
     --snooker-demo --screenshot "$TMP/snooker.png" --shot-frame 500 \
     --shot-min-colors 12
 [ -s "$TMP/snooker.png" ] || fail "snooker screenshot missing"
 
-run_check contra --headless --strict-assets --ai --frames 2500 \
+run_check contra --headless --ai --frames 2500 \
     --contra-demo --screenshot "$TMP/contra.png" --shot-frame 1800 \
     --shot-min-colors 12
 [ -s "$TMP/contra.png" ] || fail "contra screenshot missing"
+
+# ---- 4. the launcher's default is strict -----------------------------------
+# The runs above would pass even if the launcher omitted --strict-assets, since
+# every asset ships. Hide one texture and require the launcher itself -- with
+# no flag supplied here -- to fail and name the file instead of drawing a
+# procedural substitute.
+mv "$STAGE/assets/white.png" "$TMP/white.png"
+if run_pkg --headless --ai --frames 120 --snooker-demo > "$TMP/strict.log" 2>&1; then
+    cat "$TMP/strict.log"
+    fail "the launcher ran without strict loading; a missing texture went unnoticed"
+fi
+grep -F 'texture load failed: assets/white.png' "$TMP/strict.log" >/dev/null || {
+    cat "$TMP/strict.log"
+    fail "a missing texture did not report 'texture load failed'"
+}
+restore_neg
+say "launcher fails on a missing texture"
 
 AFTER=$(snapshot)
 if [ "$BEFORE" != "$AFTER" ]; then
