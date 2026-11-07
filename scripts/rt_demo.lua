@@ -23,8 +23,14 @@ local BAKE_W = 256 + 0
 local BAKE_H = 256 + 0
 local TRAIL_W = 480 + 0
 local TRAIL_H = 320 + 0
-local COMP_W = 300 + 0
-local COMP_H = 200 + 0
+
+-- On-screen sizes of the trail and immediate-mode panes. The logical canvas
+-- is 960x540, so the three columns are laid out at 40 / 328 / 672 and both
+-- panes are scaled from their render-target sizes (same 3:2 aspect).
+local TRAIL_DW = 320 + 0
+local TRAIL_DH = 213 + 0
+local COMP_DW = 232 + 0
+local COMP_DH = 155 + 0
 
 
 
@@ -175,31 +181,31 @@ function update(dt)
               40, 52, 0.7, 0.55, 0.66, 0.75, 1.0)
 
     -- Left: the baked surface, blitted at two sizes from one texture.
-    draw_text("BAKE ONCE", 60, 82, 0.75, 0.55, 0.92, 0.94, 1.0)
-    rt_draw(S.bake_id, 60, 100, BAKE_W, BAKE_H)
-    draw_rect_outline(60, 100, BAKE_W, BAKE_H, 0.30, 0.45, 0.55, 1.0)
-    draw_text("same texture at half size", 60, 372, 0.65, 0.45, 0.62, 0.72, 1.0)
-    rt_draw(S.bake_id, 60, 392, 128, 128)
-    draw_rect_outline(60, 392, 128, 128, 0.30, 0.45, 0.55, 1.0)
+    draw_text("BAKE ONCE", 40, 74, 0.75, 0.55, 0.92, 0.94, 1.0)
+    rt_draw(S.bake_id, 40, 96, BAKE_W, BAKE_H)
+    draw_rect_outline(40, 96, BAKE_W, BAKE_H, 0.30, 0.45, 0.55, 1.0)
+    draw_text("same texture at half size", 40, 362, 0.65, 0.45, 0.62, 0.72, 1.0)
+    rt_draw(S.bake_id, 40, 380, 128, 128)
+    draw_rect_outline(40, 380, 128, 128, 0.30, 0.45, 0.55, 1.0)
 
     -- Middle: the accumulating trail.
-    draw_text("FEEDBACK TRAIL (accumulating)", 400, 82, 0.75, 1.0, 0.80, 0.35, 1.0)
+    draw_text("FEEDBACK TRAIL (accumulating)", 328, 74, 0.75, 1.0, 0.80, 0.35, 1.0)
     if S.show_trail then
-        rt_draw(S.trail_id, 400, 100, TRAIL_W, TRAIL_H)
+        rt_draw(S.trail_id, 328, 96, TRAIL_DW, TRAIL_DH)
     else
-        draw_quad(400, 100, TRAIL_W, TRAIL_H, 0.02, 0.03, 0.06, 1.0)
+        draw_quad(328, 96, TRAIL_DW, TRAIL_DH, 0.02, 0.03, 0.06, 1.0)
     end
-    draw_rect_outline(400, 100, TRAIL_W, TRAIL_H, 0.55, 0.45, 0.20, 1.0)
+    draw_rect_outline(328, 96, TRAIL_DW, TRAIL_DH, 0.55, 0.45, 0.20, 1.0)
 
     -- Right: identical motion, drawn straight to the screen (no history).
-    draw_text("IMMEDIATE MODE (no history)", 900, 82, 0.75, 0.62, 0.86, 0.98, 1.0)
-    draw_quad(900, 100, COMP_W, COMP_H, 0.02, 0.03, 0.06, 1.0)
-    local cx = 900 + S.px / TRAIL_W * COMP_W
-    local cy = 100 + S.py / TRAIL_H * COMP_H
+    draw_text("IMMEDIATE MODE (no history)", 672, 74, 0.75, 0.62, 0.86, 0.98, 1.0)
+    draw_quad(672, 96, COMP_DW, COMP_DH, 0.02, 0.03, 0.06, 1.0)
+    local cx = 672 + S.px / TRAIL_W * COMP_DW
+    local cy = 96 + S.py / TRAIL_H * COMP_DH
     draw_quad(cx - 5.0, cy - 5.0, 10, 10, 1.0, 0.78, 0.25, 1.0)
-    draw_rect_outline(900, 100, COMP_W, COMP_H, 0.30, 0.45, 0.55, 1.0)
+    draw_rect_outline(672, 96, COMP_DW, COMP_DH, 0.30, 0.45, 0.55, 1.0)
 
     draw_text("WASD / arrows steer   SPACE toggle trail   C clear   R respawn",
-              40, 660, 0.7, 0.5, 0.6, 0.7, 1.0)
+              40, 520, 0.7, 0.5, 0.6, 0.7, 1.0)
     return 0
 end
