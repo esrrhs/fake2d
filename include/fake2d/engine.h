@@ -71,6 +71,12 @@ struct EngineConfig {
     /// results never depend on the frame rate. `<= 0` restores the legacy
     /// single variable-dt step per frame.
     float fixed_dt = 1.0f / 60.0f;
+    /// Headless only: advance the whole simulation (scripts, camera, particles,
+    /// tiles, shader time) by exactly `fixed_dt` per frame instead of the
+    /// measured frame delta. A `--frames N` budget then means N * fixed_dt
+    /// seconds of gameplay on every host, so a frame-count gate cannot flip
+    /// when CI renders slower (llvmpipe + Xvfb) than a local machine (CGL).
+    bool fixed_sim_dt = false;
     /// Upper bound of fixed steps simulated in one frame (spiral-of-death
     /// guard). Leftover backlog is dropped, never carried over.
     int max_physics_steps = 5;

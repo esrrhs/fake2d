@@ -11500,6 +11500,10 @@ int main(int argc, char **argv) {
             cfg.fixed_dt = hz > 0 ? 1.0f / static_cast<float>(hz) : 0.0f;
         } else if (arg == "--variable-step") {
             cfg.fixed_dt = 0.0f;
+        } else if (arg == "--fixed-sim-dt") {
+            // Headless: advance one fixed_dt of gameplay per frame, so a
+            // `--frames N` budget is a host-independent time budget.
+            cfg.fixed_sim_dt = true;
         } else if (arg == "--entry" && i + 1 < argc) {
             // Dev/test hook: run an arbitrary script instead of a demo.
             cfg.script_entry = argv[++i];

@@ -195,9 +195,19 @@ int Engine::Run(int max_frames) {
         // the configured time scale multiplies the frame delta. Everything that
         // auto-advances (physics, animations, particles, tiles, camera effects,
         // scripts) reads this value, so the whole world freezes together.
-        double scaled_dt = real_dt * static_cast<double>(impl_->time_scale);
+        //
+        // A headless run can opt into a fixed simulation clock: then one frame
+        // is exactly `fixed_dt` seconds of gameplay no matter how fast the host
+        // renders, so `--frames N` is a deterministic time budget and frame-count
+        // CI gates behave the same on llvmpipe and CGL.
+        const bool use_fixed_sim =
+            impl_->config.headless && impl_->config.fixed_sim_dt &&
+            impl_->config.fixed_dt > 0.0f;
+        const double base_dt =
+            use_fixed_sim ? static_cast<double>(impl_->config.fixed_dt) : real_dt;
+        double scaled_dt = base_dt * static_cast<double>(impl_->time_scale);
         if (impl_->hitstop_remaining > 0.0) {
-            impl_->hitstop_remaining -= real_dt;
+            impl_->hitstop_remaining -= base_dt;
             if (impl_->hitstop_remaining < 0.0) {
                 impl_->hitstop_remaining = 0.0;
             }
