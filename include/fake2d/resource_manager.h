@@ -68,6 +68,16 @@ public:
     [[nodiscard]] std::size_t AtlasCount() const { return atlases_.live; }
     void Clear();
 
+    /// Strict loading (used by the packaged-build gate): a texture that cannot
+    /// be read is reported on stderr and counted instead of silently becoming
+    /// handle 0, so a demo can no longer degrade to its host-painted fallback
+    /// without anyone noticing. Off by default; checkout runs still allow
+    /// scripts to fall back on purpose.
+    void SetStrictLoads(bool strict) { strict_loads_ = strict; }
+    [[nodiscard]] bool StrictLoads() const { return strict_loads_; }
+    /// Number of failed file-backed texture loads since construction.
+    [[nodiscard]] std::size_t FailedLoads() const { return failed_loads_; }
+
 private:
     template <typename T>
     struct Slot {
@@ -132,6 +142,8 @@ private:
 
     Pool<Texture2D> textures_;
     Pool<Atlas> atlases_;
+    bool strict_loads_ = false;
+    std::size_t failed_loads_ = 0;
 };
 
 } // namespace fake2d

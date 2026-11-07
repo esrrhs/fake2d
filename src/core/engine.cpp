@@ -77,6 +77,7 @@ bool Engine::Init(const EngineConfig &config) {
     if (impl_->config.pin_rng) {
         impl_->random.Seed(impl_->config.rng_seed);
     }
+    impl_->resources.SetStrictLoads(impl_->config.strict_assets);
 
     platform::WindowDesc desc;
     desc.title = impl_->config.title.c_str();
@@ -489,6 +490,10 @@ ResourceManager &Engine::GetResources() {
 
 const ResourceManager &Engine::GetResources() const {
     return impl_->resources;
+}
+
+std::size_t Engine::FailedAssetLoads() const {
+    return impl_->resources.FailedLoads();
 }
 
 AudioEngine &Engine::GetAudio() {

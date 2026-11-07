@@ -73,22 +73,22 @@ jobs:
 
       - name: Generate demo assets
         run: |
+          # One pass materializes every asset the demos load (maps, sheets,
+          # clips, language packs). Packages ship the whole tree instead of
+          # letting the demos fill gaps in at first run.
           export LD_LIBRARY_PATH="$FLINSTALL/lib:${LD_LIBRARY_PATH:-}"
-          for demo in mario platformer slope; do
-            xvfb-run -a -s '-screen 0 1024x768x24' \
-              env LIBGL_ALWAYS_SOFTWARE=1 \
-              ./build/bin/fake2d_hello --headless --frames 1 "--$demo-demo"
+          ./build/bin/fake2d_hello --generate-assets
+          for f in assets/mario.json assets/platformer.json assets/slope.json \
+                   assets/white.png assets/vn/bg/gate.png assets/lang/en.tsv; do
+            test -s "$f"
           done
-          for f in mario.json platformer.json slope.json; do test -s "assets/$f"; done
+          tar -C assets -czf "$RUNNER_TEMP/assets.tar.gz" .
 
       - uses: actions/upload-artifact@v4
         with:
           name: release-assets
           retention-days: 5
-          path: |
-            assets/mario.json
-            assets/platformer.json
-            assets/slope.json
+          path: ${{ runner.temp }}/assets.tar.gz
 
   build:
     name: package ${{ matrix.label }}
@@ -121,7 +121,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build pkg-config ccache \
+            build-essential cmake ninja-build pkg-config ccache xvfb \
             libssl-dev libgl1-mesa-dev libx11-dev libxrandr-dev libxi-dev \
             libxcursor-dev libxinerama-dev patchelf
 
@@ -240,7 +240,15 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: release-assets
-          path: assets
+          path: ${{ runner.temp }}
+
+      - name: Unpack demo assets
+        shell: bash
+        run: |
+          set -eux
+          tar -C assets -xzf "$RUNNER_TEMP/assets.tar.gz"
+          test -s assets/mario.json
+          test -s assets/vn/bg/gate.png
 
       - name: (linux) stage self-contained package
         if: runner.os == 'Linux'
@@ -249,8 +257,8 @@ jobs:
           set -eux
           STAGE="stage/fake2d-${VER}-linux-x64"
           tools/package-linux.sh \
-            build/bin/fake2d_hello "$FLINSTALL/lib" "$STAGE" \
-            assets/mario.json assets/platformer.json assets/slope.json
+            build/bin/fake2d_hello "$FLINSTALL/lib" "$STAGE"
+          tools/verify-package.sh "$STAGE"
 
       - name: (macos) stage self-contained package
         if: runner.os == 'macOS'
@@ -259,12 +267,12 @@ jobs:
           set -eux
           STAGE="stage/fake2d-${VER}-macos-arm64"
           tools/package-macos.sh \
-            build/bin/fake2d_hello "$STAGE" \
-            assets/mario.json assets/platformer.json assets/slope.json
+            build/bin/fake2d_hello "$STAGE"
           # Verify every non-system reference now resolves inside the bundle.
           if otool -L "$STAGE/bin/fake2d_hello" | grep -vE '@executable_path|/usr/lib|/System' | grep -q dylib; then
             echo "Unresolved external dylib reference" >&2; exit 1
           fi
+          tools/verify-package.sh "$STAGE"
 
       - name: (windows) stage self-contained package
         if: runner.os == 'Windows'
@@ -274,8 +282,8 @@ jobs:
           FLBIN="$(cygpath -u "$FLINSTALL")/bin"
           STAGE="stage/fake2d-${VER}-windows-x64"
           tools/package-windows.sh \
-            build/bin/fake2d_hello.exe "$FLBIN" "$STAGE" \
-            assets/mario.json assets/platformer.json assets/slope.json
+            build/bin/fake2d_hello.exe "$FLBIN" "$STAGE"
+          tools/verify-package.sh "$STAGE"
 
       - name: Show staged tree
         shell: bash

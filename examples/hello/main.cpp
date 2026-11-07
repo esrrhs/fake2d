@@ -11170,6 +11170,7 @@ int main(int argc, char **argv) {
     int shot_min_colors = 0;
     std::string screenshot;
     bool regen_assets = false;
+    bool generate_assets = false;
     bool launcher_mode = false;
     bool launcher_test = false;
     // Script backend: -1 lets the run decide (see the note where
@@ -11262,6 +11263,15 @@ int main(int argc, char **argv) {
             // Rewrite the generated sheets/levels even if they exist, so
             // painter or layout edits actually reach the screen.
             regen_assets = true;
+        } else if (arg == "--strict-assets") {
+            // Packaged-build gate: missing textures are errors, and the host
+            // must not paint or synthesize replacements at first run.
+            cfg.strict_assets = true;
+        } else if (arg == "--generate-assets") {
+            // One pass that materializes the whole first-run asset tree.
+            // Packaging needs every file up front instead of relying on the
+            // demos to fill gaps in when they first run.
+            generate_assets = true;
         } else if (arg == "--bench") {
             bench = true;
             cfg.script_entry.clear();
@@ -11496,6 +11506,29 @@ int main(int argc, char **argv) {
         }
     }
 
+    if (generate_assets) {
+        // Materialize every generated sheet, map, language pack and clip the
+        // demos look for before they start. No engine or GL context needed:
+        // these painters only write files, which keeps the packaging job
+        // cheap and lets every platform ship the same tree.
+        EnsureGameAssets();
+        EnsureMarioAssets(false);
+        EnsureSlopeAssets(false);
+        EnsurePathAssets(false);
+        EnsureMapAssets();
+        EnsureTileAnimAssets();
+        EnsurePlatformerAssets();
+        EnsureBeatEmUpAssets();
+        EnsureSnookerAssets();
+        EnsureContraAssets();
+        EnsureCityAssets(false);
+        EnsureRtsAssets(false);
+        EnsureVnAssets(false);
+        EnsureI18nAssets();
+        std::printf("fake2d_hello: generated assets under assets/\n");
+        return 0;
+    }
+
     if (launcher_test) {
         return RunLauncherTest();
     }
@@ -11519,7 +11552,7 @@ int main(int argc, char **argv) {
 
     // The engine auto-loads <resource root>/assets/lang at Init, so the demo
     // language packs must exist before the engine starts.
-    if (text_demo) {
+    if (text_demo && !cfg.strict_assets) {
         EnsureI18nAssets();
     }
 
@@ -11629,55 +11662,73 @@ int main(int argc, char **argv) {
     }
 
     // All gameplay is pure Lua below; C++ only guarantees the binary asset
-    // scaffolding exists before the script's first frame.
-    EnsureGameAssets();
+    // scaffolding exists before the script's first frame. A packaged run
+    // passes --strict-assets: the package must ship every file, so generating
+    // a missing one here would mask exactly the defect the gate catches.
+    if (!cfg.strict_assets) {
+        EnsureGameAssets();
 
-    if (mario_demo) {
-        EnsureMarioAssets(regen_assets);
-    }
-    if (slope_demo) {
-        EnsureSlopeAssets(regen_assets);
-    }
-    if (path_demo) {
-        EnsurePathAssets(regen_assets);
-    }
-    if (map_demo) {
-        EnsureMapAssets();
-    }
-    if (tile_demo) {
-        EnsureTileAnimAssets();
+        if (mario_demo) {
+            EnsureMarioAssets(regen_assets);
+        }
+        if (slope_demo) {
+            EnsureSlopeAssets(regen_assets);
+        }
+        if (path_demo) {
+            EnsurePathAssets(regen_assets);
+        }
+        if (map_demo) {
+            EnsureMapAssets();
+        }
+        if (tile_demo) {
+            EnsureTileAnimAssets();
+        }
+        if (platformer_demo) {
+            EnsurePlatformerAssets();
+        }
+        if (beat_demo) {
+            EnsureBeatEmUpAssets();
+        }
+        if (snooker_demo) {
+            EnsureSnookerAssets();
+        }
+        if (contra_demo) {
+            EnsureContraAssets();
+        }
+        if (city_demo) {
+            EnsureCityAssets(regen_assets);
+        }
+        if (rts_demo) {
+            EnsureRtsAssets(regen_assets);
+        }
+        if (vn_demo) {
+            // The AI-illustrated VN art ships under assets/vn; only fill in a
+            // missing file with the procedural fallback (never overwrite it).
+            EnsureVnAssets(false);
+        }
     }
     if (platformer_demo) {
-        EnsurePlatformerAssets();
         engine.GetAudio().AddClipWav("music", "assets/music.wav");
     }
     if (beat_demo) {
-        EnsureBeatEmUpAssets();
         EnsureBeatEmUpAudio(engine.GetAudio());
     }
     if (shmup_demo) {
         EnsureShmupAudio(engine.GetAudio());
     }
     if (snooker_demo) {
-        EnsureSnookerAssets();
         EnsureSnookerAudio(engine.GetAudio());
     }
     if (contra_demo) {
-        EnsureContraAssets();
         EnsureContraAudio(engine.GetAudio());
     }
     if (city_demo) {
-        EnsureCityAssets(regen_assets);
         EnsureCityAudio(engine.GetAudio());
     }
     if (rts_demo) {
-        EnsureRtsAssets(regen_assets);
         EnsureRtsAudio(engine.GetAudio());
     }
     if (vn_demo) {
-        // The AI-illustrated VN art ships under assets/vn; only fill in a
-        // missing file with the procedural fallback (never overwrite it).
-        EnsureVnAssets(false);
         EnsureVnAudio(engine.GetAudio());
     }
     if (angry_demo) {
@@ -11725,7 +11776,22 @@ int main(int argc, char **argv) {
         });
     }
 
-    const int rc = engine.Run(max_frames);
+    int rc = engine.Run(max_frames);
+
+    // Strict package gate: a run that could not load a shipped texture is a
+    // failure even if the demo script painted a substitute and exited cleanly.
+    if (cfg.strict_assets) {
+        const std::size_t failed = engine.FailedAssetLoads();
+        if (failed > 0) {
+            std::fprintf(stderr,
+                         "fake2d_hello: strict assets: %zu texture load(s) "
+                         "failed\n",
+                         failed);
+            if (rc == 0) {
+                rc = 3;
+            }
+        }
+    }
 
     // The launcher picked a demo: run it in a child, wait for it to close, then
     // come back to a fresh picker. A headless run only reports the request, so

@@ -2,11 +2,16 @@
 #
 # Assemble a self-contained Fake2D distribution folder on macOS.
 #
-#   package-macos.sh <binary> <stage-root> [extra-asset ...]
+#   package-macos.sh <binary> <stage-root>
 #
 # <binary>       path to the built fake2d_hello executable
 # <stage-root>   final package directory, e.g. fake2d-1.5.0-macos-arm64
-# extra-asset    generated asset files to ship (mario.json, ...); optional
+#
+# Every file under assets/ is staged, not a hand-picked list: the demos load
+# their shipped art from assets/art, assets/city, assets/vn and the other
+# subdirectories, and a package that omits one silently falls back to the
+# host's procedural painters. tools/verify-package.sh runs the staged copy
+# with --strict-assets to prove nothing is missing.
 #
 # The script discovers every non-system dylib the binary pulls in (libfakelua
 # and its OpenSSL dependency) directly from `otool -L`, so it works whether
@@ -27,13 +32,10 @@ BIN="$BIN_DIR/fake2d_hello"
 cp -f "$BIN_IN" "$BIN"
 chmod u+w "$BIN"
 
-# Copy the script tree and the shader sources that live in assets/.
+# Copy the script tree and the complete asset tree (shaders, generated maps,
+# sprite art subdirectories included).
 cp -R scripts/. "$STAGE/scripts/"
-cp -f assets/*.vert assets/*.frag "$STAGE/assets/" 2>/dev/null || true
-# Pre-generated demo maps / media, when the caller provides them.
-for asset in "$@"; do
-    [ -e "$asset" ] && cp -f "$asset" "$STAGE/assets/"
-done
+cp -R assets/. "$STAGE/assets/"
 
 # Seed with the libfakelua the executable links against (de-reference any
 # symlink: we store the physical file under its soname basename).

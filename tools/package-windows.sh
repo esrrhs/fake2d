@@ -3,13 +3,16 @@
 # Assemble a self-contained Fake2D distribution folder on Windows, run from
 # an MSYS2 MINGW64 shell (the same environment CI builds in).
 #
-#   package-windows.sh <binary.exe> <fl-bin-dir> <stage-root> [extra-asset ...]
+#   package-windows.sh <binary.exe> <fl-bin-dir> <stage-root>
 #
 # <fl-bin-dir> holds libfakelua.dll (the fakelua install "bin" directory).
 # Every MinGW-runtime DLL the executable needs (libfakelua, OpenSSL,
 # libwinpthread, libgcc/libstdc++) is copied next to it; Windows system DLLs
 # and the software-GL Mesa override are intentionally left out so the host's
 # real OpenGL32 is used.
+#
+# The complete assets/ tree is staged (demo art subdirectories, generated maps
+# and shaders), because a demos run without them falls back to host painters.
 set -euxo pipefail
 
 BIN_IN="$1"; shift
@@ -23,10 +26,7 @@ BIN="$BIN_DIR/fake2d_hello.exe"
 cp -f "$BIN_IN" "$BIN"
 
 cp -R scripts/. "$STAGE/scripts/"
-cp -f assets/*.vert assets/*.frag "$STAGE/assets/" 2>/dev/null || true
-for asset in "$@"; do
-    [ -e "$asset" ] && cp -f "$asset" "$STAGE/assets/"
-done
+cp -R assets/. "$STAGE/assets/"
 
 # Seed libfakelua.dll, then pull every MinGW-provided dependency to a
 # fixed point. System32/Windows DLLs are never copied.

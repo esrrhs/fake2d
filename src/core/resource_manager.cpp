@@ -1,6 +1,7 @@
 #include "fake2d/resource_manager.h"
 
 #include <cstdint>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -34,6 +35,14 @@ TextureHandle ResourceManager::LoadTexture(const std::string &path, TextureFilte
 
     auto texture = std::make_shared<Texture2D>();
     if (!texture->LoadFromFile(path, filter, wrap)) {
+        if (strict_loads_) {
+            // Strict runs (the packaged-build gate) must not fall back to the
+            // host painters: a missing file is a packaging defect, not a
+            // supported configuration.
+            std::fprintf(stderr, "fake2d: ERROR: texture load failed: %s\n",
+                         path.c_str());
+            ++failed_loads_;
+        }
         return kInvalidTextureHandle;
     }
     const std::uint32_t index = textures_.Acquire();

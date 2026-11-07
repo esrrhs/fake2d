@@ -88,6 +88,11 @@ struct EngineConfig {
     /// `rng_seed` later; this only sets the starting state.
     bool pin_rng = false;
     std::uint64_t rng_seed = 0;
+    /// Report (and count) file-backed texture loads that fail instead of
+    /// silently handing scripts handle 0. The host's packaged-build gate turns
+    /// this on so a missing shipped asset is visible in CI, not a quiet
+    /// fallback to the procedural painters.
+    bool strict_assets = false;
 };
 
 /// Host-owned engine: window + renderer + FakeLua state.
@@ -188,6 +193,10 @@ public:
     /// Shared handle-based texture/atlas pool.
     ResourceManager &GetResources();
     [[nodiscard]] const ResourceManager &GetResources() const;
+
+    /// Number of texture loads that failed under `strict_assets`. Zero when
+    /// strict loading is off, because only strict runs count them.
+    [[nodiscard]] std::size_t FailedAssetLoads() const;
 
     /// Per-frame input snapshot, refreshed after event polling each frame.
     const Input &GetInput() const;

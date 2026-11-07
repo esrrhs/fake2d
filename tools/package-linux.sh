@@ -2,12 +2,17 @@
 #
 # Assemble a self-contained Fake2D distribution folder on Linux.
 #
-#   package-linux.sh <binary> <fakelua-lib-dir> <stage-root> [extra-asset ...]
+#   package-linux.sh <binary> <fakelua-lib-dir> <stage-root>
 #
 # Bundles libfakelua plus its OpenSSL runtime (resolved from `ldd`, so this
 # works across distro sonames), re-points everything at $ORIGIN/../lib with
 # patchelf, and emits a run.sh launcher. System libraries (glibc, GL/X11,
 # ld-linux) stay provided by the host.
+#
+# Every file under assets/ is staged, not a hand-picked list, so the demo art
+# subdirectories travel with the package. tools/verify-package.sh runs the
+# staged copy from another working directory with --strict-assets, which turns
+# a missing texture into a failure instead of a procedural fallback.
 set -euxo pipefail
 
 BIN_IN="$1"; shift
@@ -31,10 +36,7 @@ chmod u+w "$BIN"
 export LD_LIBRARY_PATH="$FLLIB:${LD_LIBRARY_PATH:-}"
 
 cp -R scripts/. "$STAGE/scripts/"
-cp -f assets/*.vert assets/*.frag "$STAGE/assets/" 2>/dev/null || true
-for asset in "$@"; do
-    [ -e "$asset" ] && cp -f "$asset" "$STAGE/assets/"
-done
+cp -R assets/. "$STAGE/assets/"
 
 # Copy the libfakelua the executable actually resolves, as a real file named
 # by its SONAME (avoid globbing in both the .so.2 symlink and .so.2.0.0).

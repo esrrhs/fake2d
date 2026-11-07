@@ -35,7 +35,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build pkg-config ccache xvfb \
             libssl-dev libgl1-mesa-dev libx11-dev libxrandr-dev libxi-dev \
-            libxcursor-dev libxinerama-dev
+            libxcursor-dev libxinerama-dev patchelf
 
       - uses: hendrikmuhs/ccache-action@v1.2
         with:
@@ -98,14 +98,12 @@ jobs:
 
       - name: Generate demo assets
         run: |
+          # One pass materializes the whole first-run asset tree, so packages
+          # and the demo runs below never rely on the host filling gaps in.
           export LD_LIBRARY_PATH="$FLINSTALL/lib:${LD_LIBRARY_PATH:-}"
-          for demo in mario platformer slope; do
-            xvfb-run -a -s '-screen 0 1024x768x24' \
-              env LIBGL_ALWAYS_SOFTWARE=1 \
-              ./build/bin/fake2d_hello --headless --frames 1 "--$demo-demo"
-          done
+          ./build/bin/fake2d_hello --generate-assets
           test -s assets/mario.json && test -s assets/platformer.json \
-            && test -s assets/slope.json
+            && test -s assets/slope.json && test -s assets/vn/bg/gate.png
 
       - name: Every demo script runs
         run: |
@@ -590,6 +588,17 @@ jobs:
           cmake --build "$CONSUMER/build" -j 4
           export LD_LIBRARY_PATH="$FLINSTALL/lib:${LD_LIBRARY_PATH:-}"
           "$CONSUMER/build/consumer" | grep -F "consumer: 1.46"
+
+      - name: Staged package ships every demo asset
+        run: |
+          # Gate the actual release artifact, not just the in-tree build: stage
+          # the same layout the release workflow ships, then run it from an
+          # unrelated working directory with --strict-assets. A missing art file
+          # now fails here instead of quietly falling back to a host painter.
+          STAGE="$RUNNER_TEMP/fake2d-stage"
+          tools/package-linux.sh \
+            build/bin/fake2d_hello "$FLINSTALL/lib" "$STAGE"
+          tools/verify-package.sh "$STAGE"
 
   # macOS and Windows build the full fakelua-enabled engine and run the 24
   # Lua logic cases against Linux-produced maps. GitHub macOS VMs have no
