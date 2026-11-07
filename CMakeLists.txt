@@ -24,6 +24,8 @@ option(FAKE2D_WITH_STEAM "Build the Steamworks adapter (needs the Steam SDK)" OF
 option(FAKE2D_TEST_STEAM_HEADERS "Compile-check the Steam backend with stub headers" OFF)
 # Generate install rules so other projects consume fake2d via find_package.
 option(FAKE2D_INSTALL "Generate install rules for fake2d" ON)
+# Register the headless self-test suites with CTest (needs the example app).
+option(FAKE2D_BUILD_TESTS "Register headless test suites with CTest" ON)
 
 if (FAKE2D_WITH_FAKELUA)
     find_package(fakelua REQUIRED)
@@ -53,6 +55,10 @@ CPMAddPackage(
 find_package(OpenGL REQUIRED)
 
 add_subdirectory(src)
+
+if (FAKE2D_BUILD_TESTS)
+    enable_testing()
+endif ()
 
 if (FAKE2D_BUILD_EXAMPLES)
     add_subdirectory(examples/hello)

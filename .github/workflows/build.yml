@@ -177,7 +177,15 @@ jobs:
           run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --spatial-demo
           run_xvfb ./build/bin/fake2d_hello --headless --phys-bench
 
-      - name: Physics query self-test + Lua binding test
+      - name: Headless test suites (ctest)
+        run: |
+          export LD_LIBRARY_PATH="$FLINSTALL/lib:${LD_LIBRARY_PATH:-}"
+          # Single entry point for the 30 --<suite>-test binaries. On Linux the
+          # CMake test registration wraps every case in xvfb-run when available,
+          # and ctest reports the failing suite's own output.
+          ctest --test-dir build --output-on-failure
+
+      - name: Demo smoke + screenshot gates
         run: |
           export LD_LIBRARY_PATH="$FLINSTALL/lib:${LD_LIBRARY_PATH:-}"
           # Headless still glfwInit()s on Linux, so every engine invocation
@@ -185,20 +193,7 @@ jobs:
           run_xvfb() {
             xvfb-run -a -s '-screen 0 1024x768x24' env LIBGL_ALWAYS_SOFTWARE=1 "$@"
           }
-          # Pure CPU: ray casts / overlaps / contact lifecycle, exit code gate.
           set +e
-          run_xvfb ./build/bin/fake2d_hello --phys-query-test
-          rc_query=$?
-          # Category/mask collision filtering (exit code gate; the summary
-          # line pins the assertion count).
-          run_xvfb ./build/bin/fake2d_hello --phys-filter-test > phys_filter.log 2>&1
-          rc_filter=$?
-          # Rigid-body solver: rotation, inertia, friction, stacks (exit code gate).
-          run_xvfb ./build/bin/fake2d_hello --phys-rigid-test > phys_rigid.log 2>&1
-          rc_rigid=$?
-          # Kinematic bodies, sleeping, joints and anti-tunneling (exit code gate).
-          run_xvfb ./build/bin/fake2d_hello --phys-extended-test > phys_extended.log 2>&1
-          rc_extended=$?
           # Angry Birds demo smoke: slingshot, stacks, contact-driven scoring.
           run_xvfb ./build/bin/fake2d_hello --headless --angry-birds-demo --frames 240 > birds.log 2>&1
           rc_birds=$?
@@ -216,49 +211,13 @@ jobs:
             --shot-frame 180 --shot-min-colors 12 > limbo_walk.log 2>&1
           rc_limbo_walk=$?
           test -s limbo_walk.png
-          grep -F "limbo: walk PASS" limbo_walk.log
-          # Fixed-step accumulator + camera tools (exit code gate).
-          run_xvfb ./build/bin/fake2d_hello --timestep-test > timestep.log 2>&1
-          rc_timestep=$?
-          # Tilemap A* (exit code gate; the summary line pins the assertion count).
-          run_xvfb ./build/bin/fake2d_hello --path-test > path.log 2>&1
-          rc_path=$?
-          # Offscreen render targets (exit code gate; the summary line pins
-          # the assertion count).
-          run_xvfb ./build/bin/fake2d_hello --rt-test > rt.log 2>&1
-          rc_rt=$?
-          # Immediate-mode UI widgets (exit code gate; the summary line pins
-          # the assertion count).
-          run_xvfb ./build/bin/fake2d_hello --ui-test > ui.log 2>&1
-          rc_ui=$?
-          # Post pass + minimap bake (exit code gate; the summary line pins
-          # the assertion count).
-          run_xvfb ./build/bin/fake2d_hello --post-test > post.log 2>&1
-          rc_post=$?
-          # Multi-pass chain (exit code gate; the summary line pins the
-          # assertion count).
-          run_xvfb ./build/bin/fake2d_hello --fx-test > fx.log 2>&1
-          rc_fx=$?
-          # Mask compositing (exit code gate; the summary line pins the
-          # assertion count).
-          run_xvfb ./build/bin/fake2d_hello --fog-test > fog.log 2>&1
-          rc_fog=$?
-          # 2D lighting (exit code gate): pools, projected shadows, shadow
-          # containment inside the light circle, culling and the quad budget,
-          # all read back out of the light buffer.
-          run_xvfb ./build/bin/fake2d_hello --light-test > light.log 2>&1
-          rc_light=$?
           # Lighting performance gate (exit code gate): the pass must stay
           # batched -- draw calls flat in the light count -- and must hold its
           # geometry to the budget. Gated on work submitted, not wall clock,
-          # because these runners use software GL.
+          # because these runners use software GL. Not a --test suite, so it
+          # stays out of ctest.
           run_xvfb ./build/bin/fake2d_hello --light-bench > light_bench.log 2>&1
           rc_light_bench=$?
-          # Skeletal animation (exit code gate): hierarchy composition, key
-          # interpolation, cross-fade, event timing, IK reach and the shipped
-          # rig, all checked against a rig built in code with known numbers.
-          run_xvfb ./build/bin/fake2d_hello --skeleton-test > skeleton.log 2>&1
-          rc_skeleton=$?
           # Rigged soldier demo: clip switching, IK aim, event-driven effects.
           run_xvfb ./build/bin/fake2d_hello --headless --frames 240 \
             --skeleton-demo --screenshot skeleton.png --shot-frame 150 \
@@ -307,64 +266,6 @@ jobs:
             --shot-min-colors 12 > light_demo.log 2>&1
           rc_light_demo=$?
           test -s light.png
-          grep -q "lighting: " light_demo.log
-          # Mixer self-test driving Mix() directly, no device (exit code
-          # gate; the summary line pins the assertion count).
-          run_xvfb ./build/bin/fake2d_hello --audio-test > audio.log 2>&1
-          rc_audio=$?
-          # Tiled objectgroup parsing + object/property readers (exit code
-          # gate; the summary line pins the assertion count).
-          run_xvfb ./build/bin/fake2d_hello --map-object-test > map_object.log 2>&1
-          rc_mapobj=$?
-          # Tiled tileset animation (exit code gate; the summary line pins
-          # the assertion count).
-          run_xvfb ./build/bin/fake2d_hello --tile-test > tile.log 2>&1
-          rc_tile=$?
-          # UTF-8/CJK glyph atlas, wrapping, rotation and shrink-to-fit (exit
-          # code gate; SKIPs CJK cases on runners without a CJK font).
-          run_xvfb ./build/bin/fake2d_hello --font-test > font.log 2>&1
-          rc_font=$?
-          # i18n, app paths, save containers v2, Steam stub, UI text tools
-          # (exit code gate; the summary line pins the assertion count).
-          run_xvfb ./build/bin/fake2d_hello --platform-test > platform.log 2>&1
-          rc_platform=$?
-          # RNG, easing, entity snapshots, input actions, window/text helpers
-          # (exit code gate; the summary line pins the assertion count).
-          run_xvfb ./build/bin/fake2d_hello --gameplay-test > gameplay.log 2>&1
-          rc_gameplay=$?
-          # Deterministic input record/replay (F2IR) identity + version reject.
-          run_xvfb ./build/bin/fake2d_hello --replay-test > replay.log 2>&1
-          rc_replay=$?
-          # Seeded world-hash identity (RNG pin + physics/entities/camera).
-          run_xvfb ./build/bin/fake2d_hello --determinism-test > determinism.log 2>&1
-          rc_determinism=$?
-          # Time scale/hit-stop, 16-slot actors and the 128-clip pool.
-          run_xvfb ./build/bin/fake2d_hello --combat-test > combat.log 2>&1
-          rc_combat=$?
-          # Shooter sprite sheets and nearest-filter loading.
-          run_xvfb ./build/bin/fake2d_hello --shmup-test > shmup.log 2>&1
-          rc_shmup=$?
-          # Shipped art tree: every committed PNG the game demos render from.
-          run_xvfb ./build/bin/fake2d_hello --art-test > art.log 2>&1
-          rc_art=$?
-          # Demo launcher catalogue: unique flags, known categories, real scripts.
-          run_xvfb ./build/bin/fake2d_hello --launcher-test > launcher.log 2>&1
-          rc_launcher=$?
-          # Snooker ball sprite: shading/alpha probes and loader rejection.
-          run_xvfb ./build/bin/fake2d_hello --snooker-test > snooker.log 2>&1
-          rc_snooker=$?
-          # Run-and-gun art: soldier strips, blast sheet, moon/glow probes.
-          run_xvfb ./build/bin/fake2d_hello --contra-test > contra.log 2>&1
-          rc_contra=$?
-          # City builder scaffolding: tileset/building atlas and base map.
-          run_xvfb ./build/bin/fake2d_hello --city-test > city.log 2>&1
-          rc_city=$?
-          # RTS scaffolding: terrain/unit/building sprites and battle map.
-          run_xvfb ./build/bin/fake2d_hello --rts-test > rts.log 2>&1
-          rc_rts=$?
-          # Visual-novel art: backgrounds, portraits, alpha probes.
-          run_xvfb ./build/bin/fake2d_hello --vn-test > vn.log 2>&1
-          rc_vn=$?
           # Launcher: the menu renders from shipped art, and a picked demo
           # requests the relaunch the host would honour with a fresh process.
           LAUNCHER_TEST_PICK=3 run_xvfb ./build/bin/fake2d_hello --headless --frames 40 \
@@ -372,17 +273,14 @@ jobs:
             > launcher_demo.log 2>&1
           rc_launcher_demo=$?
           test -s launcher.png
-          grep -q "launcher: starting platformer" launcher_demo.log
-          grep -q "would restart with --platformer-demo" launcher_demo.log
           # Filtering narrows the list, and a row click commits what it covers.
           LAUNCHER_TEST_CAT=2 LAUNCHER_TEST_PICK=0 run_xvfb ./build/bin/fake2d_hello \
             --headless --frames 40 --launcher > launcher_filter.log 2>&1
-          grep -q "launcher: filter engine" launcher_filter.log
-          grep -q "launcher: starting scene" launcher_filter.log
+          rc_launcher_filter=$?
           LAUNCHER_TEST_MX=100 LAUNCHER_TEST_MY=241 LAUNCHER_TEST_CLICK=10 run_xvfb \
             ./build/bin/fake2d_hello --headless --frames 40 --launcher \
             > launcher_click.log 2>&1
-          grep -q "launcher: starting beat-em-up" launcher_click.log
+          rc_launcher_click=$?
           # Brawler demo: waves, hit detection and a full headless stage run.
           run_xvfb ./build/bin/fake2d_hello --headless --ai --frames 240 \
             --beat-em-up-demo --screenshot beat.png --shot-min-colors 12 \
@@ -411,9 +309,7 @@ jobs:
             --shot-min-colors 12 > contra_demo.log 2>&1
           rc_contra_demo=$?
           test -s contra.png
-          grep -F "contra: fortress core destroyed" contra_demo.log
           if grep -q "update() failed" contra_demo.log; then rc_contra_demo=1; fi
-          grep -F "snooker: shot 1 resolved" snooker_demo.log
           if grep -q "update() failed" snooker_demo.log; then rc_snooker_demo=1; fi
           # City builder: the attract mayor paves, zones and powers a town; a
           # population milestone proves the monthly simulation is developing it.
@@ -422,7 +318,6 @@ jobs:
             --shot-min-colors 12 > city_demo.log 2>&1
           rc_city_demo=$?
           test -s city.png
-          grep -F "city: population milestone 250" city_demo.log
           if grep -q "update() failed" city_demo.log; then rc_city_demo=1; fi
           # RTS: the attract commander and enemy AI fight a full match; the
           # logs prove combat, losses and a decisive command-yard kill.
@@ -431,9 +326,7 @@ jobs:
             --shot-min-colors 12 > rts_demo.log 2>&1
           rc_rts_demo=$?
           test -s rts.png
-          grep -F "rts: first blood" rts_demo.log
           if grep -q "update() failed" rts_demo.log; then rc_rts_demo=1; fi
-          grep -F "rts: player victory" rts_demo.log
           # Visual novel: the attract player advances the calendar, chats,
           # reaches the festival and finishes a confession ending.
           run_xvfb ./build/bin/fake2d_hello --headless --ai --frames 2400 \
@@ -441,9 +334,7 @@ jobs:
             --shot-min-colors 12 > vn_demo.log 2>&1
           rc_vn_demo=$?
           test -s vn.png
-          grep -F "vn: day 7" vn_demo.log
           if grep -q "update() failed" vn_demo.log; then rc_vn_demo=1; fi
-          grep -F "vn: ending" vn_demo.log
           # Same surface through the Lua bindings; PASS is the [script] 0 line.
           # Capture BOTH streams: under xvfb-run the child's stderr is not
           # reliably caught by a bare `2>` redirection.
@@ -451,46 +342,19 @@ jobs:
             --entry scripts/phys_test.lua > phys_test.log 2>&1
           rc_lua=$?
           set -e
-          echo "exit codes: query=$rc_query filter=$rc_filter rigid=$rc_rigid extended=$rc_extended birds=$rc_birds limbo=$rc_limbo limbowalk=$rc_limbo_walk timestep=$rc_timestep path=$rc_path rt=$rc_rt ui=$rc_ui post=$rc_post fx=$rc_fx fog=$rc_fog light=$rc_light lightbench=$rc_light_bench lightdemo=$rc_light_demo skeleton=$rc_skeleton skeldemo=$rc_skeleton_demo skelmesh=$rc_skeleton_mesh_demo skellight=$rc_skeleton_light_demo updatefail=$rc_update_fail audio=$rc_audio mapobj=$rc_mapobj tile=$rc_tile font=$rc_font platform=$rc_platform gameplay=$rc_gameplay replay=$rc_replay determinism=$rc_determinism combat=$rc_combat shmup=$rc_shmup art=$rc_art launcher=$rc_launcher snooker=$rc_snooker contra=$rc_contra city=$rc_city rts=$rc_rts vn=$rc_vn beat=$rc_beat shmupdemo=$rc_shmup_demo snookerdemo=$rc_snooker_demo contrademo=$rc_contra_demo citydemo=$rc_city_demo rtsdemo=$rc_rts_demo vndemo=$rc_vn_demo lua=$rc_lua"
-          [ "$rc_query" -eq 0 ]
-          [ "$rc_filter" -eq 0 ]
-          [ "$rc_rigid" -eq 0 ]
-          [ "$rc_extended" -eq 0 ]
+          echo "exit codes: birds=$rc_birds limbo=$rc_limbo limbowalk=$rc_limbo_walk lightbench=$rc_light_bench lightdemo=$rc_light_demo skeldemo=$rc_skeleton_demo skelmesh=$rc_skeleton_mesh_demo skellight=$rc_skeleton_light_demo updatefail=$rc_update_fail launcher=$rc_launcher_demo launcherfilter=$rc_launcher_filter launcherclick=$rc_launcher_click beat=$rc_beat shmupdemo=$rc_shmup_demo snookerdemo=$rc_snooker_demo contrademo=$rc_contra_demo citydemo=$rc_city_demo rtsdemo=$rc_rts_demo vndemo=$rc_vn_demo lua=$rc_lua"
           [ "$rc_birds" -eq 0 ]
           [ "$rc_limbo" -eq 0 ]
           [ "$rc_limbo_walk" -eq 0 ]
-          [ "$rc_timestep" -eq 0 ]
-          [ "$rc_path" -eq 0 ]
-          [ "$rc_rt" -eq 0 ]
-          [ "$rc_ui" -eq 0 ]
-          [ "$rc_post" -eq 0 ]
-          [ "$rc_fx" -eq 0 ]
-          [ "$rc_fog" -eq 0 ]
-          [ "$rc_light" -eq 0 ]
           [ "$rc_light_bench" -eq 0 ]
           [ "$rc_light_demo" -eq 0 ]
-          [ "$rc_skeleton" -eq 0 ]
           [ "$rc_skeleton_demo" -eq 0 ]
           [ "$rc_skeleton_mesh_demo" -eq 0 ]
           [ "$rc_skeleton_light_demo" -eq 0 ]
           [ "$rc_update_fail" -eq 0 ]
-          [ "$rc_audio" -eq 0 ]
-          [ "$rc_mapobj" -eq 0 ]
-          [ "$rc_tile" -eq 0 ]
-          [ "$rc_font" -eq 0 ]
-          [ "$rc_platform" -eq 0 ]
-          [ "$rc_gameplay" -eq 0 ]
-          [ "$rc_replay" -eq 0 ]
-          [ "$rc_determinism" -eq 0 ]
-          [ "$rc_combat" -eq 0 ]
-          [ "$rc_shmup" -eq 0 ]
-          [ "$rc_art" -eq 0 ]
-          [ "$rc_launcher" -eq 0 ]
-          [ "$rc_snooker" -eq 0 ]
-          [ "$rc_contra" -eq 0 ]
-          [ "$rc_city" -eq 0 ]
-          [ "$rc_rts" -eq 0 ]
-          [ "$rc_vn" -eq 0 ]
+          [ "$rc_launcher_demo" -eq 0 ]
+          [ "$rc_launcher_filter" -eq 0 ]
+          [ "$rc_launcher_click" -eq 0 ]
           [ "$rc_beat" -eq 0 ]
           [ "$rc_shmup_demo" -eq 0 ]
           [ "$rc_snooker_demo" -eq 0 ]
@@ -499,34 +363,22 @@ jobs:
           [ "$rc_rts_demo" -eq 0 ]
           [ "$rc_vn_demo" -eq 0 ]
           [ "$rc_lua" -eq 0 ]
-          grep -F "[phys-filter] PASS" phys_filter.log
-          grep -F "[phys-rigid] PASS" phys_rigid.log
-          grep -F "[phys-extended] PASS" phys_extended.log
-          grep -F "[timestep] PASS" timestep.log
-          grep -F "[path] PASS" path.log
-          grep -F "[map-obj] PASS" map_object.log
-          grep -F "[tile] PASS" tile.log
-          grep -F "[rt] PASS" rt.log
-          grep -F "[ui] PASS" ui.log
-          grep -F "[post] PASS" post.log
-          grep -F "[fx] PASS" fx.log
-          grep -F "[fog] PASS" fog.log
-          grep -F "[light] PASS" light.log
+          grep -F "limbo: walk PASS" limbo_walk.log
           grep -F "[light-bench] PASS" light_bench.log
-          grep -F "[skeleton] PASS" skeleton.log
-          grep -F "[audio] PASS" audio.log
-          grep -F "[font] PASS" font.log
-          grep -F "[platform] PASS" platform.log
-          grep -F "[gameplay] PASS" gameplay.log
-          grep -F "[replay] PASS" replay.log
-          grep -F "[combat] PASS" combat.log
-          grep -F "[shmup] PASS" shmup.log
-          grep -F "[snooker] PASS" snooker.log
-          grep -F "[contra] PASS" contra.log
-          grep -F "[city] PASS" city.log
-          grep -F "[rts] PASS" rts.log
-          grep -F "[vn] PASS" vn.log
+          grep -F "lighting: " light_demo.log
+          grep -F "launcher: starting platformer" launcher_demo.log
+          grep -F "would restart with --platformer-demo" launcher_demo.log
+          grep -F "launcher: filter engine" launcher_filter.log
+          grep -F "launcher: starting scene" launcher_filter.log
+          grep -F "launcher: starting beat-em-up" launcher_click.log
           ! grep -F "beat-em-up: game over" beat.log
+          grep -F "snooker: shot 1 resolved" snooker_demo.log
+          grep -F "contra: fortress core destroyed" contra_demo.log
+          grep -F "city: population milestone 250" city_demo.log
+          grep -F "rts: first blood" rts_demo.log
+          grep -F "rts: player victory" rts_demo.log
+          grep -F "vn: day 7" vn_demo.log
+          grep -F "vn: ending" vn_demo.log
           grep -F "[script] 0" phys_test.log
           ! grep -E "\[script] (10[0-9][0-9]|200[0-9])" phys_test.log
 
