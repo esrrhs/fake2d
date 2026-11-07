@@ -253,6 +253,9 @@ function update(dt)
     draw_text("POST PROCESSING", 40, 24, 1.2, 0.94, 0.96, 1.0, 1.0)
     draw_text("the world is drawn into a target, then presented through a shader",
               40, 54, 0.7, 0.55, 0.66, 0.75, 1.0)
+    -- Bottom-left status sits on top of the bright brick floor in the graded
+    -- picture, so it gets the same dark backing panel as the sliders above.
+    draw_quad(28, 464, 632, 60, 0.04, 0.06, 0.11, 0.88)
     local where = "world: procedural skyline"
     if S.map_id > 0 then
         where = "world: assets/mario.json (" .. istr(map_cols(S.map_id)) .. "x"
