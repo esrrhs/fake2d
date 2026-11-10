@@ -1520,6 +1520,12 @@ void RegisterUiApi(fakelua::State *state, Engine *engine) {
             result = s.tree_steps;
         else if (name == "measured_rows")
             result = s.measured_rows;
+        else if (name == "rich_batches")
+            result = s.rich_batches;
+        else if (name == "rich_glyphs")
+            result = s.rich_glyphs;
+        else if (name == "premeasured_rows")
+            result = s.premeasured_rows;
         else if (name == "layout_ms")
             result = s.layout_ms;
         else if (name == "interaction_ms")
@@ -1540,6 +1546,15 @@ void RegisterUiApi(fakelua::State *state, Engine *engine) {
             from = to + 1;
         }
         return a.Bool(ui.ConfigureVariableList(a.S(0), ids, a.N(2, 24), a.S(3)));
+    });
+    add("ui_vlist_text", 3, [](UISystem &ui, const Args &a) {
+        return a.Bool(ui.SetVariableRowText(a.S(0), a.S(1), a.S(2), a.N(3), a.N(4)));
+    });
+    add("ui_vlist_budget", 1, [](UISystem &ui, const Args &a) {
+        const float rows = a.N(0);
+        if (std::isfinite(rows))
+            ui.SetVariableMeasureBudget(static_cast<std::size_t>(std::clamp(rows, 0.0f, 4096.0f)));
+        return a.Nil();
     });
     add("ui_vlist_invalidate", 1, [](UISystem &ui, const Args &a) {
         ui.InvalidateVariableList(a.S(0), a.S(1));

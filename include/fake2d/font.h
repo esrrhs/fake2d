@@ -74,13 +74,13 @@ public:
     [[nodiscard]] const Texture2D &GetTexture() const { return texture_; }
 
     /// UTF-8 aware width of a single line, at 1.0 scale.
-    [[nodiscard]] float MeasureText(std::string_view text) const;
+    [[nodiscard]] float MeasureText(std::string_view text, bool kerning = true) const;
 
     /// Submit glyph quads into the batch. (x, y) is the top-left of the line
     /// box; scale multiplies the rasterized pixel height. Returns the end pen x.
     float DrawText(SpriteBatch &batch, std::string_view text,
                    float x, float y, float scale = 1.0f,
-                   const Color &tint = Color::White()) const;
+                   const Color &tint = Color::White(), bool kerning = true) const;
 
     /// Alignment for DrawTextEx: 0 = left, 1 = centered, 2 = right.
     enum TextAlign { AlignLeft = 0, AlignCenter = 1, AlignRight = 2 };

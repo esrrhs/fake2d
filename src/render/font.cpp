@@ -516,7 +516,7 @@ bool Font::HasVectorFont() const {
     return impl_ && impl_->has_font;
 }
 
-float Font::MeasureText(std::string_view text) const {
+float Font::MeasureText(std::string_view text, bool kerning) const {
     float width = 0.0f;
     std::size_t i = 0;
     const Glyph *previous = nullptr;
@@ -526,7 +526,7 @@ float Font::MeasureText(std::string_view text) const {
             continue;
         }
         if (const Glyph *glyph = GetGlyph(cp)) {
-            width += KernAdvance(previous, glyph);
+            width += kerning ? KernAdvance(previous, glyph) : 0;
             width += glyph->advance;
             previous = glyph;
         }
@@ -535,7 +535,7 @@ float Font::MeasureText(std::string_view text) const {
 }
 
 float Font::DrawText(SpriteBatch &batch, std::string_view text,
-                     float x, float y, float scale, const Color &tint) const {
+                     float x, float y, float scale, const Color &tint, bool kerning) const {
     if (!texture_.IsValid()) {
         return x;
     }
@@ -555,7 +555,7 @@ float Font::DrawText(SpriteBatch &batch, std::string_view text,
         if (!glyph) {
             continue;
         }
-        pen_x += KernAdvance(previous, glyph);
+        pen_x += kerning ? KernAdvance(previous, glyph) : 0;
         if (glyph->atlas.width > 0.0f && glyph->atlas.height > 0.0f) {
             const Vec2 corners[4] = {
                 {pen_x + glyph->offset.x * scale, y + glyph->offset.y * scale},

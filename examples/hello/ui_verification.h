@@ -1,5 +1,172 @@
 // Shared by --ui-test, --ui-stress and --ui-bench; this is not a second test runner.
 // Included inside main.cpp's anonymous namespace, after engine headers.
+void RunUI150Checks(fake2d::Engine &engine, const std::function<void(bool, const char *)> &check) {
+    auto &renderer = engine.GetRenderer();
+    fake2d::Input input;
+    fake2d::Camera2D camera;
+    camera.SetViewport(640, 480);
+    fake2d::UISystem ui;
+    ui.Bind(&input, &camera, &renderer);
+    const int target = renderer.GetRenderTargets().Create(640, 480);
+    // Pixel parity with the original independently-positioned glyph path, including
+    // kerning-prone pairs. Batching must not silently change rich-text advances.
+    const std::string parity_text = "AVATAR";
+    const fake2d::Color red{1, 0, 0, 1};
+    ui.NewFrame();
+    renderer.BeginFrame(0, 0, 0, 1);
+    renderer.BeginRenderTarget(target);
+    renderer.ClearActiveTarget({0, 0, 0, 1});
+    ui.BeginFrameUI();
+    ui.Push(10, 10, 300, 100);
+    ui.RichText("[color=#ff0000][b][link=parity]AVATAR[/link][/b][/color]", .7f);
+    ui.Pop();
+    ui.EndFrameUI();
+    renderer.EndRenderTarget();
+    renderer.EndFrame();
+    auto *parity_target = renderer.GetRenderTargets().Get(target);
+    std::vector<fake2d::Color> rich_pixels;
+    fake2d::Color sampled;
+    if (parity_target)
+        for (int y = 10; y < 40; ++y)
+            for (int x = 10; x < 150; ++x) {
+                parity_target->ReadPixel(x, y, sampled);
+                rich_pixels.push_back(sampled);
+            }
+    renderer.BeginFrame(0, 0, 0, 1);
+    renderer.BeginRenderTarget(target);
+    renderer.ClearActiveTarget({0, 0, 0, 1});
+    float pen = 10;
+    const float line_h = renderer.GetFont().LineHeight() * .7f;
+    for (std::size_t i = 0; i < parity_text.size(); ++i) {
+        const auto ch = std::string_view(parity_text).substr(i, 1);
+        const float advance = renderer.MeasureText(ch, .7f);
+        renderer.DrawQuad({pen, 10 + line_h - 2, advance, 1}, red);
+        renderer.DrawText(ch, pen, 10, .7f, red);
+        renderer.DrawText(ch, pen + .7f, 10, .7f, red);
+        pen += advance;
+    }
+    renderer.EndRenderTarget();
+    renderer.EndFrame();
+    bool parity = parity_target != nullptr;
+    std::size_t pixel_index = 0;
+    if (parity_target)
+        for (int y = 10; y < 40; ++y)
+            for (int x = 10; x < 150; ++x) {
+                parity_target->ReadPixel(x, y, sampled);
+                const auto expected = rich_pixels[pixel_index++];
+                parity = parity && std::abs(sampled.r - expected.r) < .01f &&
+                         std::abs(sampled.g - expected.g) < .01f;
+            }
+    check(parity, "150: batched bold/color/link pixels preserve original unkerned glyph positions");
+    std::vector<std::string> ids, texts;
+    const std::string chinese = "能吏抚恤百姓修复水利田亩营制长句自动换行国朝纪事";
+    for (int i = 0; i < 1200; ++i) {
+        ids.push_back("converge/" + std::to_string(i));
+        texts.push_back(i % 3 == 0 ? chinese + chinese + chinese :
+                        i % 3 == 1 ? "English mixed-height wrapped paragraph with population 12345678901234567890" :
+                                     "田 short");
+    }
+    check(ui.ConfigureVariableList("converge", ids, 24, "text"), "150: configure 1200 mixed rows");
+    for (int i = 0; i < 1200; ++i)
+        check(ui.SetVariableRowText("converge", ids[i], texts[i], .55f), "150: text metadata accepted");
+    float width = 300;
+    bool pin = false;
+    auto frame = [&] {
+        input.InjectFrame({630, 470}, {}, {});
+        ui.NewFrame();
+        renderer.BeginFrame(0, 0, 0, 1);
+        renderer.BeginRenderTarget(target);
+        check(ui.BeginFrameUI(), "150: scoped frame begins");
+        ui.Push(10, 10, width, 400);
+        check(ui.VariableListBegin("converge", 260, pin), "150: list begins");
+        for (int i = ui.VariableListNext(); i >= 0; i = ui.VariableListNext()) {
+            ui.Text(texts[i], .55f);
+            ui.VariableListRowEnd();
+        }
+        ui.VariableListEnd();
+        ui.Button("scoped150", 20, "Scoped");
+        ui.Pop();
+        check(ui.EndFrameUI(), "150: frame ends");
+        renderer.EndRenderTarget();
+        renderer.EndFrame();
+        check(ui.Stats().premeasured_rows <= 64, "150: bounded premeasurement");
+    };
+    frame();
+    check(!ui.VariableListMeasured("converge", ids.back()), "150: unseen far tail initially estimated");
+    ui.SetScrollOffset("converge", 15000);
+    frame();
+    const auto anchor = ui.VariableListAnchor("converge");
+    auto inset = [&] {
+        float prefix = 0;
+        for (const auto &id : ids) {
+            if (id == anchor)
+                break;
+            prefix += ui.VariableListHeight("converge", id);
+        }
+        return ui.ScrollOffset("converge") - prefix;
+    };
+    const float initial_inset = inset();
+    float jump = 0;
+    for (int i = 0; i < 24; ++i) {
+        frame();
+        check(ui.VariableListAnchor("converge") == anchor, "150: background convergence preserves visible ID");
+        jump = std::max(jump, std::abs(inset() - initial_inset));
+    }
+    check(jump < .1f, "150: background convergence anchor displacement below 0.1 pixel");
+    for (const auto &id : ids)
+        check(ui.VariableListMeasured("converge", id), "150: all 1200 estimates converge");
+    std::printf("UI_CONVERGENCE rows=1200 budget=64 max_anchor_displacement=%.6f pixels\n", jump);
+    ui.SetScrollOffset("converge", 0);
+    frame();
+    check(ui.ScrollOffset("converge") == 0, "150: scroll back without drift");
+    width = 190;
+    frame();
+    check(!ui.VariableListMeasured("converge", ids.back()), "150: width invalidates distant cached height");
+    ui.SetThemeMetric("font_scale", .8f);
+    frame();
+    check(!ui.VariableListMeasured("converge", ids.back()), "150: theme font scale invalidation");
+    const auto short_h = ui.VariableListHeight("converge", ids[0]);
+    texts[0] += texts[0] + texts[0];
+    ui.SetVariableRowText("converge", ids[0], texts[0], .55f);
+    frame();
+    check(ui.VariableListHeight("converge", ids[0]) > short_h, "150: short to long metadata updates height");
+    texts[0] = "short";
+    ui.SetVariableRowText("converge", ids[0], texts[0], .55f);
+    frame();
+    check(ui.VariableListHeight("converge", ids[0]) < short_h, "150: long to short height shrinks");
+    ids.insert(ids.begin(), "inserted150");
+    texts.insert(texts.begin(), "new row");
+    ui.ConfigureVariableList("converge", ids, 24, "text");
+    ui.SetVariableRowText("converge", ids[0], texts[0], .55f);
+    frame();
+    ids.erase(ids.begin()); texts.erase(texts.begin());
+    ui.ConfigureVariableList("converge", ids, 24, "text");
+    pin = true;
+    frame();
+    check(std::abs(ui.ScrollOffset("converge") - (ui.VariableListTotal("converge") - 260)) < .1f,
+          "150: pin bottom survives estimates and insertion/deletion");
+    ids.resize(3); texts.assign(3, "short");
+    ui.ConfigureVariableList("converge", ids, 24, "shrunk");
+    for (int i = 0; i < 3; ++i)
+        ui.SetVariableRowText("converge", ids[i], texts[i], .55f);
+    frame();
+    check(ui.VariableListTotal("converge") < 260 && ui.ScrollOffset("converge") == 0,
+          "150: shrink removes blank tail and stale scroll offset");
+    check(ui.UnscopedWarnings() == 0, "150: scoped interactive calls are silent");
+    // Interactive declarations after End are unscoped too.
+    ui.Push(0, 0, 100, 100);
+    ui.Button("legacy150", 20, "Legacy");
+    ui.Button("legacy150b", 20, "Legacy");
+    ui.Pop();
+    check(ui.UnscopedWarnings() == 1, "150: unscoped use warns once, not per widget");
+    ui.NewFrame();
+    ui.Push(0, 0, 100, 100); ui.Button("legacy150", 20, "Legacy"); ui.Pop();
+    check(ui.UnscopedWarnings() == 1, "150: legacy diagnostic remains rate limited");
+    input.SetClipboard("田 clipboard\nEnglish");
+    check(input.Clipboard() == "田 clipboard\nEnglish", "150: portable headless clipboard roundtrip");
+    renderer.GetRenderTargets().Destroy(target);
+}
+
 void RunUI149Checks(fake2d::Engine &engine, const std::function<void(bool, const char *)> &check) {
     using fake2d::UISystem;
     auto &renderer = engine.GetRenderer();
@@ -517,6 +684,11 @@ void RunUI149Checks(fake2d::Engine &engine, const std::function<void(bool, const
           "149: password cut deletes without leaking clipboard");
     check(ui.Undo("edit149") && ui.TextValue("edit149") == "secret田",
           "149: password history restores raw value, never masking data");
+    input.SetClipboard("paste田");
+    edit_frame({"left_control", "a"}, {}, {}, {25, 25}, true);
+    edit_frame({"left_control", "v"}, {}, {}, {25, 25}, true);
+    check(ui.TextValue("edit149") == "paste田" && input.Clipboard() == "paste田",
+          "150: password paste accepts clipboard without exporting secret");
     ui.SetTextValue("edit149", "A田B");
     edit_frame({}, {}, {}, {250, 250}, true);
     std::vector<fake2d::Color> masked;
@@ -799,6 +971,7 @@ int RunUIBenchmark(fake2d::Engine &engine) {
         ui.ConfigureVariableList("rows", ids, 32, "bench");
         std::vector<double> layout, interaction, total, draw_calls, quads;
         std::size_t max_nodes = 0, max_visible = 0, max_commands = 0, max_steps = 0;
+        std::size_t max_rich_batches = 0, max_rich_glyphs = 0;
         int min_rows = 100000, max_rows = 0;
         for (int frame = -warmup; frame < samples; ++frame) {
             const auto start = std::chrono::steady_clock::now();
@@ -879,7 +1052,10 @@ int RunUIBenchmark(fake2d::Engine &engine) {
                      ? rows > 0 && rows < 20 &&
                            stats.measured_rows == static_cast<std::size_t>(rows) &&
                            stats.tree_steps < 2000
-                     : rows == 64);
+                     : scenario == "rich_64_links"
+                         ? rows == 64 && stats.rich_batches <= 320 &&
+                               renderer.DrawCallCount() <= 400 && stats.nodes == 64
+                         : rows == 64);
             if (!workload) {
                 ++failures;
                 std::printf(
@@ -902,6 +1078,8 @@ int RunUIBenchmark(fake2d::Engine &engine) {
             max_visible = std::max(max_visible, stats.visible);
             max_commands = std::max(max_commands, stats.draw_commands);
             max_steps = std::max(max_steps, stats.tree_steps);
+            max_rich_batches = std::max(max_rich_batches, stats.rich_batches);
+            max_rich_glyphs = std::max(max_rich_glyphs, stats.rich_glyphs);
         }
         auto mean = [](const std::vector<double> &values) {
             double sum = 0;
@@ -917,10 +1095,10 @@ int RunUIBenchmark(fake2d::Engine &engine) {
             "UI_BENCH scenario=%s layout_ms_mean=%.6f layout_ms_p50=%.6f layout_ms_p95=%.6f "
             "interaction_ms_mean=%.6f total_cpu_ms_mean=%.6f submitted_rows_min=%d "
             "submitted_rows_max=%d nodes_max=%zu visible_max=%zu draw_commands_max=%zu "
-            "draw_calls_mean=%.1f quads_mean=%.1f tree_steps_max=%zu\n",
+            "draw_calls_mean=%.1f quads_mean=%.1f tree_steps_max=%zu rich_batches_max=%zu rich_glyphs_max=%zu\n",
             scenario.c_str(), mean(layout), percentile(layout, .5), percentile(layout, .95),
             mean(interaction), mean(total), min_rows, max_rows, max_nodes, max_visible,
-            max_commands, mean(draw_calls), mean(quads), max_steps);
+            max_commands, mean(draw_calls), mean(quads), max_steps, max_rich_batches, max_rich_glyphs);
         renderer.GetRenderTargets().Destroy(target);
     }
     std::printf("[ui-bench] %s: 4 workloads, %d counter failures\n", failures ? "FAIL" : "PASS",

@@ -2313,3 +2313,124 @@ branches:
   `camera_shake(math.min(0.5, impact / 1200.0))` and
   `map_solid(map_id, ahead, feet_row - 1)` both compile fine again.
 
+
+
+#### 1.50 rich batching, convergence and migration (Phases 68–72)
+
+`RichText` now submits consecutive same-style glyphs as a run, split at markup,
+line wraps and icons. A link has one hit rectangle/underline per style/line run,
+not one per character. Color, bold overdraw, image textures, clip intersection and
+text audit still apply; texture/shader/clip changes remain SpriteBatch boundaries.
+Glyph advances are reused at the same scale/font revision (bounded cache), while
+markup/layout is still evaluated every declaration. `ui_frame_stat("rich_batches")`
+and `rich_glyphs` expose logical runs and decoded glyphs, not GPU batches.
+Rich runs preserve the original independently positioned glyph advances (no new
+cross-glyph kerning). Font/Renderer `DrawText` and `MeasureText` accept an optional
+`kerning` flag (default true); ordinary text behavior is unchanged.
+`--ui-bench` also prints quads/draw calls and rejects the fixed 64-link fixture
+above 320 logical runs or 400 draw calls; there is **no wall-clock gate**.
+
+Optional exact-text variable-list metadata:
+
+```cpp
+ui.ConfigureVariableList("history", ids, 24, "content-revision");
+for (std::size_t i = 0; i < ids.size(); ++i)
+    ui.SetVariableRowText("history", ids[i], paragraphs[i], .55f, 22);
+ui.SetVariableMeasureBudget(64); // candidate rows/frame/list; default 64, 0 disables
+// At the resolved ListView position, declare rows normally:
+ui.VariableListBegin("history", 260);
+for (int i = ui.VariableListNext(); i >= 0; i = ui.VariableListNext()) {
+    ui.Text(paragraphs[i], .55f); // same wrap width/scale as metadata
+    ui.Button(ids[i], 22, "Open");
+    ui.VariableListRowEnd();
+}
+ui.VariableListEnd();
+```
+
+FakeLua: `ui_vlist_text(key, stable_id, text, scale=0, extra_height=0)` returns
+success; `ui_vlist_budget(candidate_rows)` selects a global per-list budget.
+Lua budgets are clamped to 0–4096; non-finite values leave the budget unchanged.
+Set metadata after `ui_vlist_configure`, outside open list scopes, **only when
+content changes**, not for every row every frame. Scale 0 follows theme font scale.
+The extra height is fixed adornment height, not a second variable paragraph.
+`ui_frame_stat("premeasured_rows")` reports background exact measurements.
+The cyclic cursor visits at most budget candidates per frame (including cached
+candidates), so 1200 text rows settle within 19 passes with budget 64. Width,
+theme/font revision, content revision and explicit invalidation invalidate heights;
+stable IDs preserve metadata across insertion/deletion. Changed text metadata
+invalidates that row automatically. Deleted metadata is removed. Visible-row
+measurement remains authoritative. Arbitrary custom control rows **without this
+metadata still use estimates**; this is not automatic replay of caller code.
+
+The existing visible ID + intra-row anchor is restored after background updates.
+The 1200-row mixed Chinese/English fixture measured **0.022461 logical pixels**
+maximum anchor displacement during convergence (floating-point prefix rounding),
+not an exact-zero promise. Unmeasured jumps to an arbitrary scrollbar fraction may
+still land on a different *semantic* row than a fully measured list; clamping when
+the anchor shrinks/deletes or the whole content becomes shorter than the viewport
+is intentional. Pin-bottom follows the changing total; short content clamps to 0.
+`--ui-variable-demo` shows the background count and changing total/anchor.
+
+**Caller order and warning.** A UISystem emits `[UI_UNSCOPED]` once per instance on
+its first unscoped interactive widget. It explains that legacy unscoped calls keep
+old discovery semantics and asks for `BeginFrameUI/EndFrameUI` (`ui_begin/ui_end`).
+It is not emitted once per widget/frame and does not change legacy behavior.
+`UnscopedWarnings()` is diagnostic-only. Properly scoped calls remain silent.
+Read `Clicked`, `ResultNumber`, `ClickedLink`, `ActivatedWidget` only after End:
+
+```cpp
+// BEFORE (unscoped discovery; unsafe for current-frame dynamic geometry)
+if (ui.Button("save", 24, "Save")) Save();
+// AFTER: one declaration, then one resolution, then business effects
+ui.BeginFrameUI();
+ui.Push(10, 10, 300, 200);
+ui.Button("save", 24, "Save");
+ui.Slider("volume", 24, volume, 0, 1);
+ui.Pop();
+ui.EndFrameUI();
+if (ui.Clicked("save")) Save();
+volume = ui.ResultNumber("volume", volume);
+const auto link = ui.ClickedLink();
+const auto activated = ui.ActivatedWidget();
+```
+
+```lua
+-- BEFORE: if ui_button("save", 24, "Save") then save() end
+ui_begin()
+ui_push(10, 10, 300, 200)
+ui_button("save", 24, "Save")
+ui_slider("volume", 24, S.volume, 0, 1)
+ui_pop()
+ui_end()
+if ui_clicked("save") then save() end
+S.volume = ui_result("volume", S.volume)
+local link = ui_link_clicked()
+local activated = ui_activated()
+```
+
+For 国朝纪事 / immediate-mode `Gui` wrappers: own Begin/End at the outer frame,
+not once per widget; defer business side effects and value write-back until End;
+keep stable IDs; declare dynamic text before later siblings; use resolved ListView
+slots for scrolling; do not rely on widget return values inside declaration. No
+changes to the game repository are included.
+
+**Cross-platform verification / IME evidence (1.50):** Linux/macOS/Windows CI runs
+`--ui-test`, seeded stress, `--ui-bench` and variable/features demo smokes. Headless
+`Input` clipboard tests use the engine's in-memory path and cover UTF-8 roundtrip,
+password copy suppression, cut-without-export and paste. These are portable and
+not evidence that an OS desktop clipboard or a physical gamepad was exercised on
+Mac/Windows; neither was physically tested in this work.
+
+CPM remains pinned to GLFW **3.4** (`CMakeLists.txt`, `GIT_TAG 3.4`). Its public
+`glfw3.h`/`glfw3native.h` expose character callbacks/native handles but **no preedit
+callback, composition-range or candidate-window/caret-position API**. Checked the
+actual CPM source: Cocoa `setMarkedText` stores internal marked text and
+`firstRectForCharacterRange` has no engine caret hook; X11 creates its input context
+with `XIMPreeditNothing | XIMStatusNothing`; Win32 handles committed `WM_CHAR` /
+`WM_UNICHAR`, with no `WM_IME_COMPOSITION` handler. Fake2d registers
+`glfwSetCharCallback` for committed codepoints only. Native handles alone cannot
+supply one portable maintained composition contract; adding all three requires
+platform event-hook/fork ownership and separate IME validation. Therefore
+composition preview/underline/caret and candidate positioning remain **explicitly
+unsupported**. Committed Chinese input is not preedit. No vendor fork or misleading
+synthetic preview was added.

@@ -229,13 +229,14 @@ public:
     /// Draw text with its top-left at (x, y); scale multiplies the rasterized
     /// pixel height. Returns the pen x after the last glyph.
     float DrawText(std::string_view text, float x, float y, float scale = 1.0f,
-                   const Color &tint = Color::White());
+                   const Color &tint = Color::White(), bool kerning = true);
     /// Aligned, word-wrapped text (see Font::DrawTextEx). Returns the y just
     /// below the last line.
     float DrawTextEx(std::string_view text, float x, float y, float scale,
                      int align, float wrap_width, const Color &tint = Color::White());
     /// Width of text at the given scale.
-    [[nodiscard]] float MeasureText(std::string_view text, float scale = 1.0f) const;
+    [[nodiscard]] float MeasureText(std::string_view text, float scale = 1.0f,
+                                    bool kerning = true) const;
 
     /// Read the current framebuffer and write it as a top-left-origin PNG.
     /// Call after a batch Flush (e.g. inside a frame callback) and before

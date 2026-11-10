@@ -32,6 +32,13 @@ BINARY = ROOT / "build/bin/fake2d_hello"
 
 errors: list[str] = []
 
+# 1.50 additions must remain discoverable to both C++ and FakeLua callers.
+for symbol in ("SetVariableRowText", "SetVariableMeasureBudget", "ui_vlist_text",
+               "ui_vlist_budget", "UI_UNSCOPED", "rich_batches"):
+    if symbol not in (ROOT / "docs/SCRIPTING.md").read_text():
+        errors.append(f"SCRIPTING.md: missing 1.50 migration/API term {symbol}")
+
+
 
 def check(label: str, source: str, pattern: str, expected: int) -> None:
     text = (ROOT / source).read_text()
@@ -59,7 +66,8 @@ def assertion_total(suites: list[str]) -> int | None:
             [*prefix, str(BINARY), "--headless", f"--{suite}-test"],
             cwd=ROOT, capture_output=True, text=True)
         if proc.returncode != 0:
-            errors.append(f"suite {suite} failed while counting assertions")
+            errors.append(f"suite {suite} failed while counting assertions (exit {proc.returncode})\n"
+                          f"{proc.stdout}{proc.stderr}")
             continue
         match = re.search(r"PASS: (\d+) checks", proc.stdout + proc.stderr)
         if not match:

@@ -33,7 +33,7 @@ local function update_body(dt)
     if S.skin_on then ui_panel_slice(S.skin, 0, 0, 32, 32, 6, 6) else ui_panel_slice(0, 0, 0, 0, 0, 0, 0) end
     ui_push(24, 18, 752, 584, 12)
         ui_panel()
-        ui_text("UI CAPABILITIES / 1.49", 0.75)
+        ui_text("UI CAPABILITIES / 1.50", 0.75)
         ui_text("1 containers | 2 text/theme | 3 interaction/list | SPACE auto", 0.45)
         if ui_page_begin("features", 0) then
             ui_text("Auto-height + flow + fixed/flex grid", 0.6)
@@ -134,6 +134,9 @@ function update(dt)
         ui_list_view_end()
     end
     ui_end()
+    ui_push(26, 604, 650, 14)
+    ui_text("Rich glyphs=" .. string.format("%d", ui_frame_stat("rich_glyphs")) .. " style/line batches=" .. string.format("%d", ui_frame_stat("rich_batches")), 0.4, "ellipsis")
+    ui_pop()
     if ui_clicked("theme") then S.theme = not S.theme end
     if ui_clicked("skin") then S.skin_on = not S.skin_on end
     if ui_clicked("disable") then S.disabled = not S.disabled end

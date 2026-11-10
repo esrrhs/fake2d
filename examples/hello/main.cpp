@@ -6675,6 +6675,7 @@ int RunUITest(fake2d::Engine &engine) {
     }
 
     RunUI149Checks(engine, check);
+    RunUI150Checks(engine, check);
     RunUIStressChecks(engine, 1492026, 90, check);
     std::printf("[ui] %s: %d checks, %d failures\n", failures == 0 ? "PASS" : "FAIL",
                 checks, failures);

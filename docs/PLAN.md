@@ -1267,3 +1267,59 @@ Release policy: local commits only, author and committer both
 `esrrhs <esrrhs@163.com>`; no push. Commit SHA is reported with the delivery.
 
 Native Windows/macOS runs are CI-wired, not claimed as executed on this Linux host.
+
+
+## Phase 68 — Rich-text submission complexity (1.50.x)
+- [x] Style/line glyph runs, per-run links/underlines, bounded revision-aware advances.
+- [x] Logical glyph/run counters, fixed-fixture draw/run gates, measured before/after
+      host record in `UI_BENCH_1_50.md`; no brittle timing threshold.
+
+## Phase 69 — Budgeted variable text-row convergence (1.50.x)
+- [x] Optional stable-ID wrapped-text metadata and fixed adornment height; cyclic
+      candidate budget, automatic cache invalidation and anchored background updates.
+- [x] 1200 mixed CJK/English rows, unseen-region/back, width/font invalidation,
+      insertion/deletion, short/long/short, pin-bottom and no blank-tail regressions.
+- [x] Runnable variable demo uses exact metadata; residual displacement quantified.
+- Boundary: custom rows without text metadata still estimate; arbitrary fractional
+  jumps before convergence do not guarantee a semantic target row.
+
+## Phase 70 — Portable verification, honest desktop boundary (1.50.x)
+- [x] Existing Linux ctest and macOS/Windows direct test workflows include the new
+      UI fixtures, complexity gates, seeded stress and demo smokes.
+- [x] Headless clipboard UTF-8 and password copy/cut/paste rules covered portably.
+- [~] macOS/Windows 1.50 remote runs await push; real desktop clipboard and physical
+      gamepad were not exercised on those platforms. Do not call them verified.
+
+## Phase 71 — Caller migration diagnostics (1.50.x)
+- [x] Once-per-UISystem UI_UNSCOPED diagnostic, with scoped-silent regression.
+- [x] C++/Lua post-End event order examples and immediate-mode Gui wrapper checklist.
+- [x] Existing demos retained/updated; no edits to 国朝纪事 or other repositories.
+
+## Phase 72 — IME composition feasibility recheck (1.50.x)
+- [x] Rechecked pinned GLFW 3.4 public/native headers and actual Cocoa/X11/Win32
+      implementation; evidence and unsupported API contract in SCRIPTING.md.
+- [ ] Native composition preview and candidate placement: **unsupported/deferred**,
+      not shipped. No public portable preedit callback/caret hook; X11 explicitly
+      requests XIMPreeditNothing. No vendor fork or faux committed-text preview.
+
+Phases 68–72 share public version **1.50.0**. Phase 72 completes investigation,
+not IME implementation. Visual editor remains excluded. See `UI_BENCH_1_50.md`
+for measured Linux results and platform limitations.
+
+
+### 1.50.0 Linux verification record
+
+- `cmake --build build -j 4`: passes (Debug).
+- `ctest --test-dir build --output-on-failure`: **33/33**; UI **3955** checks,
+  stress seeds 42 / 1492026 **2110** checks each, rich benchmark 4 workloads /
+  zero complexity failures. Includes the bold/color/link pixel-parity fixture.
+- `env -u DISPLAY python3 tools/check-docs.py`: **35 demos**, 30 self-test suites,
+  **5438 assertions**, all dynamic transitions and migrated caller smokes pass.
+- `cmake --install build --prefix ...` + exact workflow consumer: builds/links/runs
+  against exported 1.50 APIs, prints **consumer: 1.50.0**.
+- `tools/package-linux.sh ...` and `tools/verify-package.sh ...`: **PASS**, strict
+  assets, UI/dynamic demo screenshots, stress/benchmark and negative asset proof.
+- Mac/Windows remote 1.50 checks cannot run before a push; physical desktop
+  clipboard/gamepad and IME composition remain unverified/unsupported as above.
+- The inherited box desktop rejects the gameplay resize assertion; the complete
+  docs gate above uses isolated Xvfb and exercises it successfully (no skip).

@@ -81,6 +81,8 @@ std::size_t Utf8Length(std::string_view s) {
 void UISystem::Bind(const Input *input, const Camera2D *camera, Renderer *renderer) {
     input_ = input;
     camera_ = camera;
+    if (renderer_ != renderer)
+        rich_advances_.clear();
     renderer_ = renderer;
 }
 
@@ -1362,14 +1364,14 @@ void UISystem::Quad(const Rect &rect, const Color &color) {
 }
 
 float UISystem::String(std::string_view text, float x, float y, float scale, const Color &color,
-                       bool clipped) {
+                       bool clipped, bool kerning) {
     Color tint =
         (color.r == 1 && color.g == 1 && color.b == 1 && color.a == 1) ? ThemeColor("text") : color;
     if (IsDisabled())
         tint.a *= .4f;
     if (!renderer_)
         return x;
-    const float width = renderer_->MeasureText(text, scale);
+    const float width = renderer_->MeasureText(text, scale, kerning);
     Rect glyph_bounds{x, y, width, renderer_->GetFont().MeasureTextEx(text, scale, 0)};
     if (clipped) {
         const float right =
@@ -1388,16 +1390,16 @@ float UISystem::String(std::string_view text, float x, float y, float scale, con
     if (scrolls_.empty() && deferred_ == 0) {
         ApplyLayoutClip(clips);
         renderer_->DrawText(text, x * scale_ + scale_offset_.x, y * scale_ + scale_offset_.y,
-                            scale * scale_, tint);
+                            scale * scale_, tint, kerning);
         ApplyLayoutClip(boxes_.empty() ? std::vector<LayoutClip>{} : boxes_.back().clips);
         return x + width;
     }
     const auto ids = active_scrolls_;
-    pending_draws_.push_back([this, text = std::string(text), x, y, scale, tint, clips, ids]() {
+    pending_draws_.push_back([this, text = std::string(text), x, y, scale, tint, clips, ids, kerning]() {
         ApplyLayoutClip(clips);
         renderer_->DrawText(text, x * scale_ + scale_offset_.x,
                             (y - ScrollTranslation(ids)) * scale_ + scale_offset_.y, scale * scale_,
-                            tint);
+                            tint, kerning);
     });
     return x + width;
 }
@@ -1910,6 +1912,13 @@ bool UISystem::CanInteract() const {
            !IsDisabled() && (modal_.empty() || in_modal_) && (popup_.empty() || in_popup_);
 }
 bool UISystem::FocusWidget(std::string_view key, const Rect &r, bool text, bool adjustable) {
+    if (!recording_ && !resolving_ && !unscoped_warned_) {
+        unscoped_warned_ = true;
+        ++unscoped_warnings_;
+        std::fprintf(stderr, "[UI_UNSCOPED] Interactive UI without BeginFrameUI/EndFrameUI "
+                     "(ui_begin/ui_end): legacy unscoped calls keep old discovery semantics; "
+                     "wrap a frame and read events after ui_end().\n");
+    }
     if (resolving_)
         return CanInteract() && nav_focus_ == key && nav_activate_ && !text;
     if (!CanInteract() || !input_) {
@@ -2581,12 +2590,60 @@ std::string UISystem::RichText(std::string_view markup, float scale) {
     Color color = ThemeColor("text");
     std::vector<Color> colors;
     paint_bounds_ = {ox, oy, width, boxes_.back().content.height};
+    std::string run;
+    float run_x = 0, run_y = 0, run_width = 0;
+    std::size_t run_end = 0;
+    auto flush = [&](bool image_run = false) {
+        if (run.empty())
+            return;
+        const Rect r{ox + run_x, oy + run_y, std::min(run_width, width), lh};
+        if (!link.empty()) {
+            const std::string key = "rich/" + link;
+            const std::string state_key = key + "/" + std::to_string(run_end);
+            if (recording_ && !resolving_) {
+                QueueInteraction(key, r, [this, key, state_key, r, link] {
+                    auto &state = widgets_[state_key];
+                    const bool hover = MouseVisible() && r.Contains(Mouse());
+                    if ((nav_focus_ == key && nav_activate_) ||
+                        (hover && pointer_active_ == key && state.pressed && input_ &&
+                         input_->MouseReleased(0)))
+                        clicked_link_ = link;
+                    state.pressed = hover && input_ && CanInteract() && input_->MouseDown(0);
+                    FocusIndicator(key, r);
+                });
+            } else {
+                const bool activate = FocusWidget(key, r);
+                auto &state = widgets_[state_key];
+                const bool hover = MouseVisible() && r.Contains(Mouse());
+                if (activate || (hover && state.pressed && input_ && input_->MouseReleased(0)))
+                    clicked = link;
+                state.pressed = hover && input_ && CanInteract() && input_->MouseDown(0);
+            }
+            Quad({r.x, r.y + lh - 2, r.width, 1}, color);
+        }
+        if (!image_run) {
+            String(run, r.x, r.y, scale, color, false, false);
+            if (bold)
+                String(run, r.x + .7f, r.y, scale, color, false, false);
+            ++frame_stats_.rich_batches;
+        }
+        run.clear();
+        run_width = 0;
+    };
+    const auto font_revision = renderer_->GetFont().Revision();
+    if (rich_advance_scale_ != scale || rich_advance_revision_ != font_revision ||
+        rich_advances_.size() > 4096) {
+        rich_advances_.clear();
+        rich_advance_scale_ = scale;
+        rich_advance_revision_ = font_revision;
+    }
     for (std::size_t i = 0; i < markup.size();) {
         bool image = false;
         Slice icon;
         float w = 0;
         std::string_view ch;
         if (markup[i] == '[') {
+            flush();
             const auto end = markup.find(']', i);
             if (end != std::string_view::npos) {
                 const auto tag = markup.substr(i + 1, end - i - 1);
@@ -2639,50 +2696,49 @@ std::string UISystem::RichText(std::string_view markup, float scale) {
             ch = markup.substr(i, next - i);
             i = next;
             if (ch == "\n") {
+                flush();
                 x = 0;
                 y += lh;
                 continue;
             }
-            w = renderer_->MeasureText(ch, scale);
+            if (rich_advances_.size() >= 4096)
+                rich_advances_.clear();
+            auto entry = rich_advances_.emplace(std::string(ch), 0);
+            if (entry.second)
+                entry.first->second = renderer_->MeasureText(ch, scale);
+            w = entry.first->second;
+            ++frame_stats_.rich_glyphs;
         }
         if (x > 0 && x + w > width) {
+            flush();
             x = 0;
             y += lh;
         }
         const Rect r{ox + x, oy + y, std::min(w, width), lh};
-        if (!link.empty()) {
-            const std::string key = "rich/" + link;
-            const std::string state_key = key + "/" + std::to_string(i);
-            if (recording_ && !resolving_) {
-                QueueInteraction(key, r, [this, key, state_key, r, link] {
-                    auto &state = widgets_[state_key];
-                    const bool hover = MouseVisible() && r.Contains(Mouse());
-                    if ((nav_focus_ == key && nav_activate_) ||
-                        (hover && pointer_active_ == key && state.pressed && input_ &&
-                         input_->MouseReleased(0)))
-                        clicked_link_ = link;
-                    state.pressed = hover && input_ && CanInteract() && input_->MouseDown(0);
-                    FocusIndicator(key, r);
-                });
-            } else {
-                const bool activate = FocusWidget(key, r);
-                auto &state = widgets_[state_key];
-                const bool hover = MouseVisible() && r.Contains(Mouse());
-                if (activate || (hover && state.pressed && input_ && input_->MouseReleased(0)))
-                    clicked = link;
-                state.pressed = hover && input_ && CanInteract() && input_->MouseDown(0);
+        if (image) {
+            flush();
+            if (!link.empty()) {
+                // Icons retain their own hit target and underline.
+                run_x = x;
+                run_y = y;
+                run_width = w;
+                run_end = i;
+                run = " ";
+                flush(true);
             }
-            Quad({r.x, r.y + lh - 2, r.width, 1}, color);
-        }
-        if (image)
             Sprite(icon.texture, icon.source, r, color);
-        else {
-            String(ch, r.x, r.y, scale, color);
-            if (bold)
-                String(ch, r.x + .7f, r.y, scale, color);
+        } else {
+            if (run.empty()) {
+                run_x = x;
+                run_y = y;
+            }
+            run.append(ch);
+            run_width += w;
+            run_end = i;
         }
         x += w;
     }
+    flush();
     const float h = markup.empty() ? 0 : y + lh;
     boxes_.back().cursor += h;
     last_rect_ = {ox, oy, width, h};
@@ -3131,8 +3187,10 @@ bool UISystem::ConfigureVariableList(std::string_view name, const std::vector<st
         s.anchor = replacement;
         s.anchor_inset = 0;
     }
-    if (s.revision != revision)
+    if (s.revision != revision) {
         s.measured.clear();
+        s.measure_cursor = 0;
+    }
     s.ids = ids;
     s.estimate = estimate;
     s.revision = revision;
@@ -3142,9 +3200,31 @@ bool UISystem::ConfigureVariableList(std::string_view name, const std::vector<st
             it = s.measured.erase(it);
         else
             ++it;
+    for (auto it = s.texts.begin(); it != s.texts.end();)
+        if (!seen.count(it->first))
+            it = s.texts.erase(it);
+        else
+            ++it;
     RebuildVariable(s);
     s.anchor_pending = !s.anchor.empty() && !s.measured.count(s.anchor);
     RestoreVariableAnchor(key, s, 0);
+    return true;
+}
+bool UISystem::SetVariableRowText(std::string_view name, std::string_view id,
+                                  std::string_view text, float scale, float extra_h) {
+    auto it = variable_lists_.find(std::string(name));
+    if (it == variable_lists_.end() || !it->second.positions.count(std::string(id)) ||
+        !std::isfinite(scale) || scale < 0 || !std::isfinite(extra_h) || extra_h < 0 ||
+        !variable_scopes_.empty())
+        return false;
+    auto &s = it->second;
+    auto old = s.texts.find(std::string(id));
+    if (old != s.texts.end() && old->second.text == text && old->second.scale == scale &&
+        old->second.extra == extra_h)
+        return true;
+    if (s.measured.count(std::string(id)))
+        InvalidateVariableList(name, id);
+    s.texts[std::string(id)] = {std::string(text), scale, extra_h};
     return true;
 }
 void UISystem::InvalidateVariableList(std::string_view name, std::string_view row_id) {
@@ -3183,6 +3263,33 @@ bool UISystem::VariableListBegin(std::string_view name, float view_h, bool pin_b
         s.font_revision = font_revision;
         RebuildVariable(s);
         s.anchor_pending = !s.anchor.empty() && !s.measured.count(s.anchor);
+        RestoreVariableAnchor(key, s, view_h);
+    }
+    // Bounded exact work, no callback replay or interaction side effects. Visible rows
+    // remain authoritative; text metadata must describe the same wrapped Text call.
+    if (renderer_ && !s.ids.empty() && !s.texts.empty()) {
+        SaveVariableAnchor(key, s);
+        for (std::size_t scanned = 0; scanned < std::min(s.ids.size(), variable_measure_budget_);
+             ++scanned) {
+            const auto index = s.measure_cursor++ % s.ids.size();
+            const auto &id = s.ids[index];
+            auto text = s.texts.find(id);
+            if (s.measured.count(id) || text == s.texts.end())
+                continue;
+            const auto &m = text->second;
+            const float scale = m.scale > 0 ? m.scale : fs;
+            const float height = std::max(1.0f, m.extra +
+                (width <= 0 || m.text.empty() ? 0 :
+                 renderer_->GetFont().MeasureTextEx(m.text, scale, width)));
+            const float delta = height - s.heights[index];
+            s.heights[index] = height;
+            s.measured[id] = height;
+            for (std::size_t n = index + 1; n < s.fenwick.size(); n += n & (~n + 1)) {
+                s.fenwick[n] += delta;
+                ++frame_stats_.tree_steps;
+            }
+            ++frame_stats_.premeasured_rows;
+        }
         RestoreVariableAnchor(key, s, view_h);
     }
     auto &saved = scroll_states_[key];

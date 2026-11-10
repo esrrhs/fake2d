@@ -508,8 +508,9 @@ float Renderer::DrawTextShadow(std::string_view text, float x, float y,
     return font_.DrawText(batch_, text, x, y, scale, tint);
 }
 
-float Renderer::DrawText(std::string_view text, float x, float y, float scale, const Color &tint) {
-    return font_.DrawText(batch_, text, x, y, scale, tint);
+float Renderer::DrawText(std::string_view text, float x, float y, float scale, const Color &tint,
+                         bool kerning) {
+    return font_.DrawText(batch_, text, x, y, scale, tint, kerning);
 }
 
 float Renderer::DrawTextEx(std::string_view text, float x, float y, float scale,
@@ -553,8 +554,8 @@ void Renderer::ClearClipRect() {
     batch_.ClearClipRect();
 }
 
-float Renderer::MeasureText(std::string_view text, float scale) const {
-    return font_.MeasureText(text) * scale;
+float Renderer::MeasureText(std::string_view text, float scale, bool kerning) const {
+    return font_.MeasureText(text, kerning) * scale;
 }
 
 bool Renderer::SaveScreenshot(const std::string &path) const {

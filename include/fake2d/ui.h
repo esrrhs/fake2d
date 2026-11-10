@@ -48,7 +48,9 @@ class UISystem {
     [[nodiscard]] std::string_view ClickedLink() const { return clicked_link_; }
     [[nodiscard]] std::string_view ActivatedWidget() const { return activated_widget_; }
     [[nodiscard]] Rect WidgetRect(std::string_view key) const;
+    [[nodiscard]] int UnscopedWarnings() const { return unscoped_warnings_; }
     struct FrameStats {
+        std::size_t rich_batches = 0, rich_glyphs = 0, premeasured_rows = 0;
         std::size_t nodes = 0, visible = 0, draw_commands = 0, tree_steps = 0, measured_rows = 0;
         double layout_ms = 0, interaction_ms = 0;
     };
@@ -65,6 +67,10 @@ class UISystem {
 
     bool ConfigureVariableList(std::string_view key, const std::vector<std::string> &ids,
                                float estimate = 24, std::string_view revision = {});
+    // Optional exact wrapped-text premeasurement; extra_h covers fixed row adornments.
+    bool SetVariableRowText(std::string_view key, std::string_view id, std::string_view text,
+                            float scale = 0, float extra_h = 0);
+    void SetVariableMeasureBudget(std::size_t rows) { variable_measure_budget_ = rows; }
     void InvalidateVariableList(std::string_view key, std::string_view row_id = {});
     bool VariableListBegin(std::string_view key, float view_h, bool pin_bottom = false);
     int VariableListNext(); // opens an auto-height row; -1 when viewport filled
@@ -247,7 +253,7 @@ class UISystem {
     Rect Allocate(float height, std::string_view kind);
     void Quad(const Rect &rect, const Color &tint);
     float String(std::string_view text, float x, float y, float scale, const Color &tint,
-                 bool clipped = false);
+                 bool clipped = false, bool kerning = true);
     /// One state record serves every widget kind; the fields a given kind
     /// ignores simply stay at their default.
     struct WidgetState {
@@ -372,12 +378,23 @@ class UISystem {
     std::string saved_nav_focus_, saved_text_focus_;
     bool saved_stick_ = false;
     std::string clicked_link_, activated_widget_, resolving_key_, pointer_owner_, pointer_active_;
+    std::unordered_map<std::string, float> rich_advances_;
+    float rich_advance_scale_ = -1;
+    std::uint64_t rich_advance_revision_ = 0;
+    bool unscoped_warned_ = false;
+    int unscoped_warnings_ = 0;
     FrameStats frame_stats_;
     std::chrono::steady_clock::time_point frame_started_;
     struct VariableListState {
         std::vector<std::string> ids;
         std::unordered_map<std::string, std::size_t> positions;
         std::unordered_map<std::string, float> measured;
+        struct TextMeasure {
+            std::string text;
+            float scale = 0, extra = 0;
+        };
+        std::unordered_map<std::string, TextMeasure> texts;
+        std::size_t measure_cursor = 0;
         std::vector<float> heights, fenwick;
         std::string revision, anchor;
         float estimate = 24, anchor_inset = 0, width = -1, font_scale = -1;
@@ -405,6 +422,7 @@ class UISystem {
     void RestoreVariableAnchor(const std::string &key, VariableListState &state, float view_h);
     std::unordered_map<std::string, VariableListState> variable_lists_;
     std::vector<VariableListScope> variable_scopes_;
+    std::size_t variable_measure_budget_ = 64;
     void FlushDraws();
     bool CanInteract() const;
     bool FocusWidget(std::string_view key, const Rect &r, bool text = false,

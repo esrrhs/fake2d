@@ -12,9 +12,27 @@ local function ids_csv(count, inserted)
     end
     return ids
 end
+local function row_text(id, row)
+    if S.expanded or S.open_id == id then
+        if S.chinese then return S.chinese_text .. S.chinese_text .. S.chinese_text .. S.chinese_text end
+        return S.english_text .. S.english_text .. S.english_text
+    end
+    if not S.compact and row % 3 == 0 then return S.chinese_text .. S.chinese_text end
+    if not S.compact and row % 3 == 1 then return S.english_text .. S.english_text end
+    return "田 English / " .. id
+end
 local function change_layout()
     S.revision = S.revision + 1
     ui_vlist_configure("variable", ids_csv(S.count, S.inserted), 36, string.format("%d", S.revision))
+    local row = 0 + 0
+    local total = S.count
+    if S.inserted then total = total + 1 end
+    while row < total do
+        local id = ui_vlist_id("variable", row)
+        -- Exactly the same wrapped text and 22px button as the visible declaration.
+        ui_vlist_text("variable", id, row_text(id, row), 0.55, 22)
+        row = row + 1
+    end
     return 0
 end
 function update(dt)
@@ -61,7 +79,7 @@ function update(dt)
     ui_begin()
     ui_push(18, 14, 724, 650, 10)
         ui_panel()
-        ui_text("UI 1.49 / variable-height rows + UTF-8 editor", 0.75)
+        ui_text("UI 1.50 / converging text rows + UTF-8 editor", 0.75)
         ui_text("SPACE auto | L language | E expand | W resize/ref | I insert | D shrink | B bottom | A audit", 0.42)
         ui_row(6, -1, -1, -1, -1)
             ui_col() ui_button("language", 25, "Language") ui_col_end()
@@ -95,16 +113,7 @@ function update(dt)
     local row = ui_vlist_next()
     while row >= 0 do
         local id = ui_vlist_id("variable", row)
-        ui_text("Row " .. id .. " / population " .. string.format("%d", row * 1234567), 0.44, "ellipsis")
-        if S.expanded or S.open_id == id then
-            if S.chinese then ui_text(S.chinese_text .. S.chinese_text .. S.chinese_text .. S.chinese_text, 0.55) else ui_text(S.english_text .. S.english_text .. S.english_text, 0.55) end
-        elseif not S.compact and row % 3 == 0 then
-            ui_text(S.chinese_text .. S.chinese_text, 0.55)
-        elseif not S.compact and row % 3 == 1 then
-            ui_text(S.english_text .. S.english_text, 0.55)
-        else
-            ui_text("田 English / " .. id, 0.5)
-        end
+        ui_text(row_text(id, row), 0.55)
         ui_button("row/" .. id, 22, "Expand / collapse " .. id, 0.44)
         ui_vlist_row_end()
         row = ui_vlist_next()
@@ -124,7 +133,7 @@ function update(dt)
     if string.sub(activated, 1, 4) == "row/" then
         local id = string.sub(activated, 5)
         if S.open_id == id then S.open_id = "" else S.open_id = id end
-        ui_vlist_invalidate("variable", id) S.auto = false
+        change_layout() S.auto = false
     end
     local edited = ui_text_get("variable-editor")
     if edited ~= S.sample then S.sample = edited S.auto = false end
@@ -133,7 +142,7 @@ function update(dt)
     end
     -- Diagnostics are intentionally after the interaction boundary.
     ui_push(28, 632, 700, 22)
-        ui_text("visible=" .. string.format("%d", ui_frame_stat("measured_rows")) .. " total=" .. string.format("%.0f", ui_vlist_total("variable")) .. " offset=" .. string.format("%.0f", ui_scroll_offset("variable")) .. " anchor=" .. ui_vlist_anchor("variable"), 0.42, "ellipsis")
+        ui_text("pre=" .. string.format("%d", ui_frame_stat("premeasured_rows")) .. " visible=" .. string.format("%d", ui_frame_stat("measured_rows")) .. " total=" .. string.format("%.0f", ui_vlist_total("variable")) .. " offset=" .. string.format("%.0f", ui_scroll_offset("variable")) .. " anchor=" .. ui_vlist_anchor("variable"), 0.42, "ellipsis")
     ui_pop()
     return 0
 end

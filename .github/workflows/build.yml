@@ -187,6 +187,7 @@ jobs:
           # Single entry point for the 30 --<suite>-test binaries. On Linux the
           # CMake test registration wraps every case in xvfb-run when available,
           # and ctest reports the failing suite's own output.
+          # Includes 1.50 portable UI tests and rich batch complexity regression gate.
           ctest --test-dir build --output-on-failure
 
       - name: Docs counts match the code
@@ -427,7 +428,7 @@ jobs:
           cat > "$CONSUMER/CMakeLists.txt" <<'EOF'
           cmake_minimum_required(VERSION 3.16)
           project(fake2d_consumer CXX)
-          find_package(fake2d 1.49 REQUIRED CONFIG)
+          find_package(fake2d 1.50 REQUIRED CONFIG)
           add_executable(consumer main.cpp)
           target_link_libraries(consumer PRIVATE fake2d::fake2d)
           EOF
@@ -440,6 +441,9 @@ jobs:
               fake2d::Engine engine;
               auto &ui = engine.GetUI();
               if (!ui.ConfigureVariableList("api", {"stable-a", "stable-b"}, 24, "v1")) return 2;
+              if (!ui.SetVariableRowText("api", "stable-a", "UTF-8 田", .6f)) return 5;
+              ui.SetVariableMeasureBudget(64);
+              if (ui.UnscopedWarnings() != 0) return 6;
               ui.SetTextValue("edit", "UTF-8 田");
               ui.NewFrame();
               if (!ui.BeginFrameUI() || !ui.EndFrameUI()) return 3;
@@ -464,7 +468,7 @@ jobs:
             -DCMAKE_PREFIX_PATH="$PREFIX;$FLINSTALL"
           cmake --build "$CONSUMER/build" -j 4
           export LD_LIBRARY_PATH="$FLINSTALL/lib:${LD_LIBRARY_PATH:-}"
-          "$CONSUMER/build/consumer" | grep -F "consumer: 1.49"
+          "$CONSUMER/build/consumer" | grep -F "consumer: 1.50"
 
       - name: Staged package ships every demo asset
         run: |
@@ -699,6 +703,7 @@ jobs:
           ./build/bin/fake2d_hello --timestep-test
           ./build/bin/fake2d_hello --path-test
           ./build/bin/fake2d_hello --rt-test
+          # Includes portable 1.50 convergence, password clipboard and warning tests.
           ./build/bin/fake2d_hello --ui-test
           ./build/bin/fake2d_hello --headless --ui-stress --frames 300 --ui-stress-seed 42
           ./build/bin/fake2d_hello --headless --ui-bench
@@ -815,6 +820,7 @@ jobs:
           ./build/bin/fake2d_hello.exe --timestep-test
           ./build/bin/fake2d_hello.exe --path-test
           ./build/bin/fake2d_hello.exe --rt-test
+          # Includes portable 1.50 convergence, password clipboard and warning tests.
           ./build/bin/fake2d_hello.exe --ui-test
           ./build/bin/fake2d_hello.exe --headless --ui-stress --frames 300 --ui-stress-seed 42
           ./build/bin/fake2d_hello.exe --headless --ui-bench
