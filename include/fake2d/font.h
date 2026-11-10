@@ -17,6 +17,22 @@
 // ... and DrawTextEx -> DrawTextExA/W, which masks the aligned-text API.
 #undef DrawTextEx
 #endif
+// windef.h leaves these as empty macros (16-bit near/far pointers). They
+// break identifiers such as `auto near =` and `Vec2 far` once windows.h
+// has been included. Not gated on _WIN32 so the compat test can inject
+// the same macros on Linux/macOS.
+#ifdef near
+#undef near
+#endif
+#ifdef far
+#undef far
+#endif
+#ifdef NEAR
+#undef NEAR
+#endif
+#ifdef FAR
+#undef FAR
+#endif
 
 namespace fake2d {
 

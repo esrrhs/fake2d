@@ -81,6 +81,7 @@ target_link_libraries(fake2d
 target_compile_definitions(fake2d
     PUBLIC
         $<$<NOT:$<PLATFORM_ID:Darwin>>:GL_GLEXT_PROTOTYPES>
+        $<$<PLATFORM_ID:Windows>:NOMINMAX>
 )
 
 if (FAKE2D_WITH_FAKELUA)

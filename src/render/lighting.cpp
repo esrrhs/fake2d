@@ -16,8 +16,8 @@ namespace {
 /// One entry per polygon vertex, shared by the two edges that touch it, so a
 /// caster costs `count` normalisations rather than `count * 4`.
 struct ShadowPoint {
-    Vec2 near;     ///< the caster's corner, pulled inside the light circle
-    Vec2 far;      ///< where the ray from the light meets the circle
+    Vec2 inner;    ///< the caster's corner, pulled inside the light circle
+    Vec2 outer;    ///< where the ray from the light meets the circle
     bool outside;  ///< the corner sits past the circle, so it casts nothing
 };
 
@@ -448,10 +448,10 @@ void LightSystem::Render() {
                 }
                 // Skip the degenerate sliver where an edge is tangential: it
                 // would only cost a quad and add nothing to the darkness.
-                if (std::abs(a.far.x - b.far.x) + std::abs(a.far.y - b.far.y) < 0.5f) {
+                if (std::abs(a.outer.x - b.outer.x) + std::abs(a.outer.y - b.outer.y) < 0.5f) {
                     continue;
                 }
-                const Vec2 corners[4] = {a.near, b.near, b.far, a.far};
+                const Vec2 corners[4] = {a.inner, b.inner, b.outer, a.outer};
                 const Vec2 uvs[4] = {{0.0f, 0.0f}, {1.0f, 0.0f}, {1.0f, 1.0f}, {0.0f, 1.0f}};
                 batch.DrawVertices(solid_, corners, uvs, cut);
                 ++stats_.shadow_quads;

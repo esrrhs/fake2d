@@ -2,6 +2,9 @@
 // This binary only provides: engine bootstrap, procedural asset generation
 // (PNG/Tiled JSON/WAV, since scripts cannot encode binary files), and the
 // micro-benchmarks that measure engine internals.
+#if defined(_WIN32) && !defined(NOMINMAX)
+#define NOMINMAX
+#endif
 #include "fake2d/version.h"
 #include "fake2d/app_paths.h"
 #include "fake2d/demos.h"
@@ -17,9 +20,6 @@
 #include "fake2d/log.h"
 #include "fake2d/save_store.h"
 #include "fake2d/steam.h"
-#if defined(_WIN32) && !defined(NOMINMAX)
-#define NOMINMAX
-#endif
 #include "render/gl.h" // benchmark reports the actual current GL driver/context
 
 #include <algorithm>
