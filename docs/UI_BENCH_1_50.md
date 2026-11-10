@@ -78,13 +78,14 @@ the cursor reaches a row, unless visible measurement resolves it sooner. Custom
 rows lacking text metadata still use estimates. A fractional scrollbar jump
 before convergence is not a semantic-row positioning API.
 
-The 1.49 GitHub Build run observed during this work was **42824486063**, initially
-`in_progress`: https://github.com/esrrhs/fake2d/actions/runs/42824486063 . This is
-not a 1.50 result. 1.50 is local-only, so remote Mac/Windows results await push.
-CI already runs portable UI, benchmark and stress suites and relevant demos on
-all three OSes; 1.50 fixtures are part of those suites. In-memory clipboard UTF-8
-and password copy/cut/paste are tested, not a real Mac/Windows desktop clipboard
-or physical gamepad. Those interactions remain unverified here.
+1.50.0 is at `2c3f6a8`, with the Windows `near`/`far` compile fix at `b35f8aa`.
+The Build workflow now requires the shared CTest set (including both stress
+seeds and `win_macro_compat`), `tools/check_ui_demos.py`, the catalog
+script-error scan, JIT/GL smoke and the 1.50 `find_package` consumer on
+Linux, macOS and Windows. macOS CGL UI acceptance is a blocking gate, not
+`continue-on-error`. In-memory clipboard UTF-8 and password copy/cut/paste
+are tested, not a real Mac/Windows desktop clipboard or physical gamepad.
+Those interactions remain unverified here.
 
 IME: pinned GLFW 3.4 public/native headers have no preedit callback/caret
 position API. Cocoa's internal markedText does not reach fake2d; X11 requests
@@ -111,7 +112,10 @@ window/clipboard behavior. No GUI behavior was claimed from the headless pass.
   against exported 1.50 APIs, prints **consumer: 1.50.0**.
 - `tools/package-linux.sh ...` and `tools/verify-package.sh ...`: **PASS**, strict
   assets, UI/dynamic demo screenshots, stress/benchmark and negative asset proof.
-- Mac/Windows remote 1.50 checks cannot run before a push; physical desktop
-  clipboard/gamepad and IME composition remain unverified/unsupported as above.
+- Physical desktop clipboard/gamepad and IME composition remain
+  unverified/unsupported as above. This record is not a real-desktop
+  manual acceptance pass.
 - The inherited box desktop rejects the gameplay resize assertion; the complete
   docs gate above uses isolated Xvfb and exercises it successfully (no skip).
+- Full staged-package `verify-package.sh` remains a Linux Build gate;
+  macOS/Windows Build run the shared `find_package` consumer instead.

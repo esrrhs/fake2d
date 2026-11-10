@@ -311,7 +311,8 @@ that round trip about a second instead of five; `--jit` compiles natively anyway
 
 ### Headless Verification & Testing
 
-Fake2D supports first-class headless execution in display-less CI environments (e.g. Linux with xvfb):
+Fake2D supports first-class headless execution in display-less CI environments (e.g. Linux with xvfb). The Build workflow uses the same shared entry points on Linux (Xvfb/llvmpipe), macOS (CGL FBO) and Windows (Mesa llvmpipe): `ctest` (the 30 suites, both `--ui-stress` seeds, `--ui-bench`, and `fake2d-win-macro-compat`), `tools/check_ui_demos.py`, `tools/run_demo_scripts.py` (exit code plus `syntax error` / `CompileFile` / `update()` log scan), `tools/run_gpu_smoke.py`, and `tools/verify-consumer.sh` (`find_package(fake2d 1.50)`). Long gameplay milestone screenshots and full staged-package `tools/verify-package.sh` stay Linux-only on Build. These headless gates use the in-memory Input clipboard and injected focus/gamepad events; they are not a real-desktop clipboard, physical gamepad, or IME composition pass. GLFW 3.4 still has no public preedit API, so inline IME preview remains unsupported.
+
 
 ```bash
 # Run 60 frames headlessly and exit cleanly

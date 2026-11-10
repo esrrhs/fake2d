@@ -121,6 +121,14 @@ verified on a physical Apple-Silicon machine (all three dylibs resolve from
 `@executable_path/../lib`, the process reaches the GL layer with no "library
 not loaded").
 
+The Build workflow runs the full `tools/verify-package.sh` staged-package
+proof (strict assets, UI/dynamic demo screenshots, stress/benchmark, negative
+missing-texture test) on Linux only. macOS and Windows Build jobs run the
+shared `tools/verify-consumer.sh` `find_package(fake2d 1.50)` consumer instead.
+The Release workflow still stages packages on all three OSes; Windows packages
+only get the static completeness checks in `verify-package.sh` (no GL fixture
+in that script on Windows).
+
 ## Versioning
 
 Semantic Versioning: `MAJOR.MINOR.PATCH` kept in sync between

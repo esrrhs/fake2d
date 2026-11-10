@@ -2414,12 +2414,23 @@ keep stable IDs; declare dynamic text before later siblings; use resolved ListVi
 slots for scrolling; do not rely on widget return values inside declaration. No
 changes to the game repository are included.
 
-**Cross-platform verification / IME evidence (1.50):** Linux/macOS/Windows CI runs
-`--ui-test`, seeded stress, `--ui-bench` and variable/features demo smokes. Headless
-`Input` clipboard tests use the engine's in-memory path and cover UTF-8 roundtrip,
-password copy suppression, cut-without-export and paste. These are portable and
-not evidence that an OS desktop clipboard or a physical gamepad was exercised on
-Mac/Windows; neither was physically tested in this work.
+**Cross-platform verification / IME evidence (1.50):** The Build workflow
+requires the same shared gates on Linux (Xvfb/llvmpipe), macOS (CGL FBO) and
+Windows (Mesa llvmpipe): CTest (all 30 `--*-test` suites, UI stress seeds 42
+and 1492026, `--ui-bench` complexity counters, and `fake2d-win-macro-compat`),
+`tools/check_ui_demos.py` (layout/features/variable/stress marker, grow/shrink/
+scroll metrics, overflow and screenshot colour floors, plus migrated-caller
+smokes), `tools/run_demo_scripts.py` (every catalog demo, exit code and
+`syntax error` / `CompileFile` / `update()` log scan), mid-length JIT/GL smoke
+in `tools/run_gpu_smoke.py`, and `tools/verify-consumer.sh`
+(`find_package(fake2d 1.50)` plus the 1.50 UI APIs). Long gameplay milestone
+screenshots and full staged-package `tools/verify-package.sh` remain Linux-only
+on Build; the Release workflow still stages packages on all three OSes.
+Headless `Input` clipboard tests use the engine's in-memory path and cover
+UTF-8 roundtrip, password copy suppression, cut-without-export and paste.
+These are portable and not evidence that an OS desktop clipboard or a
+physical gamepad was exercised on Mac/Windows; neither was physically
+tested, and this CI work does not claim a real-desktop manual pass.
 
 CPM remains pinned to GLFW **3.4** (`CMakeLists.txt`, `GIT_TAG 3.4`). Its public
 `glfw3.h`/`glfw3native.h` expose character callbacks/native handles but **no preedit

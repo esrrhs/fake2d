@@ -24,10 +24,13 @@ add_custom_target(fake2d_copy_scripts ALL
 )
 
 # --- CTest: one entry per headless self-test suite --------------------------
+# This is the shared suite list the Build workflow runs on Linux, macOS and
+# Windows (30 --<suite>-test binaries, both UI stress seeds, and --ui-bench).
 # Everything runs from the repository root so the suites find assets/, scripts/
 # and the generated first-run files exactly as the demos do. Linux runners have
-# no display, so wrap the binary in xvfb-run when it is available; the suites
-# still create a GL context headlessly.
+# no display, so wrap the binary in xvfb-run when it is available; macOS uses
+# the CGL headless path and Windows uses Mesa llvmpipe. The suites still create
+# a GL context headlessly.
 if (FAKE2D_BUILD_TESTS)
     find_program(FAKE2D_XVFB_RUN xvfb-run)
 

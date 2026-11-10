@@ -108,27 +108,17 @@ jobs:
       - name: Every demo script runs
         run: |
           export LD_LIBRARY_PATH="$FLINSTALL/lib:${LD_LIBRARY_PATH:-}"
-          # Two gaps this closes. A script that fails to compile only logs a
-          # warning and still exits 0, so the per-demo exit-code checks are
-          # blind to it; and a script error inside update() does not fail the
-          # run either -- the demo just keeps throwing every frame, which is
-          # how mario shipped a crash on the first stomped goomba that no
-          # exit-code gate could see. Frames 400 under --ai because that is
-          # roughly where the attract AI first kills something; the interpreter
-          # because the JIT would add ~20 minutes to compile 29 scripts and the
-          # per-demo steps below already exercise it.
-          failed=0
-          for demo in $(grep -oE '\{"[a-z0-9-]+"' include/fake2d/demos.h \
-                          | sed 's/{"//; s/"//'); do
-            if xvfb-run -a -s '-screen 0 1024x768x24' env LIBGL_ALWAYS_SOFTWARE=1 \
-                 ./build/bin/fake2d_hello --headless --interp --ai --frames 400 \
-                 "--$demo-demo" 2>&1 |
-               grep -qE "syntax error|CompileFile.*failed|update\(\) failed"; then
-              echo "::error::demo '$demo' throws while running"
-              failed=1
-            fi
-          done
-          exit $failed
+          # Shared catalog scan (tools/run_demo_scripts.py), also required on
+          # macOS and Windows. CompileFile still warns and continues without a
+          # script (zero exit), so the runner scans the log for syntax error /
+          # CompileFile failed / update() failed as well as the exit code.
+          # Engine::Run already returns non-zero after update() throws; the
+          # --entry update_fail_test.lua inverse gate below keeps that contract.
+          # Frames 400 under --ai because that is roughly where the attract AI
+          # first kills something; the interpreter because the JIT would add
+          # ~20 minutes to compile the catalog, and the GPU smoke / UI demo
+          # gates already exercise it.
+          python3 tools/run_demo_scripts.py --frames 400 --interp --ai
 
       - uses: actions/upload-artifact@v4
         with:
@@ -146,48 +136,20 @@ jobs:
       - name: Headless demo + benchmark smoke
         run: |
           export LD_LIBRARY_PATH="$FLINSTALL/lib:${LD_LIBRARY_PATH:-}"
-          run_xvfb() {
-            xvfb-run -a -s '-screen 0 1024x768x24' env LIBGL_ALWAYS_SOFTWARE=1 "$@"
-          }
-          run_xvfb ./build/bin/fake2d_hello --headless --frames 30 --scene-demo
-          run_xvfb ./build/bin/fake2d_hello --headless --frames 40 --scene-demo \
-            --screenshot scene.png
-          test -s scene.png
-          run_xvfb ./build/bin/fake2d_hello --headless --frames 60 --text-demo \
-            --screenshot text.png --shot-min-colors 12
-          test -s text.png
-          run_xvfb ./build/bin/fake2d_hello --headless --bench
-          run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --tile-demo
-          run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --map-demo
-          # These demos wait for input now that their attract AI is opt-in, so
-          # headless runs ask for it: a character standing at spawn exercises
-          # none of the moves, pickups or win paths these steps are for.
-          run_xvfb ./build/bin/fake2d_hello --headless --ai --frames 180 --platformer-demo
-          run_xvfb ./build/bin/fake2d_hello --headless --ai --frames 180 --mario-demo
-          run_xvfb ./build/bin/fake2d_hello --headless --ai --frames 120 --slope-demo
-          run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --path-demo
-          run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --rt-demo
-          run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --ui-demo
-          run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --ui2-demo
-          run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --ui3-demo
-          run_xvfb ./build/bin/fake2d_hello --headless --frames 240 --ui-layout-demo
-          run_xvfb ./build/bin/fake2d_hello --headless --frames 240 --ui-features-demo
-          run_xvfb ./build/bin/fake2d_hello --headless --frames 240 --ui-variable-demo
-          run_xvfb ./build/bin/fake2d_hello --headless --frames 240 --ui-stress-demo
-          run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --post-demo
-          run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --fx-demo
-          run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --fog-demo
-          run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --audio-demo
-          run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --spatial-demo
-          run_xvfb ./build/bin/fake2d_hello --headless --phys-bench
+          # Shared JIT/GL smoke (tools/run_gpu_smoke.py --profile core).
+          # Dynamic UI layout/features/variable/stress metric and screenshot
+          # acceptance is tools/check_ui_demos.py, run by the docs gate next
+          # (Linux) and as a required step on macOS/Windows. Long gameplay
+          # milestones stay in the screenshot-gates step below.
+          python3 tools/run_gpu_smoke.py --profile core
 
       - name: Headless test suites (ctest)
         run: |
           export LD_LIBRARY_PATH="$FLINSTALL/lib:${LD_LIBRARY_PATH:-}"
-          # Single entry point for the 30 --<suite>-test binaries. On Linux the
-          # CMake test registration wraps every case in xvfb-run when available,
-          # and ctest reports the failing suite's own output.
-          # Includes 1.50 portable UI tests and rich batch complexity regression gate.
+          # Shared CTest set also required on macOS and Windows: the 30
+          # --<suite>-test binaries, both UI stress seeds (42 / 1492026),
+          # --ui-bench counter gates, and fake2d-win-macro-compat. On Linux
+          # the CMake registration wraps every case in xvfb-run when available.
           ctest --test-dir build --output-on-failure
 
       - name: Docs counts match the code
@@ -355,14 +317,8 @@ jobs:
           rc_vn_demo=$?
           test -s vn.png
           if grep -q "update() failed" vn_demo.log; then rc_vn_demo=1; fi
-          # Same surface through the Lua bindings; PASS is the [script] 0 line.
-          # Capture BOTH streams: under xvfb-run the child's stderr is not
-          # reliably caught by a bare `2>` redirection.
-          run_xvfb ./build/bin/fake2d_hello --headless --fixed-sim-dt --frames 200 \
-            --entry scripts/phys_test.lua > phys_test.log 2>&1
-          rc_lua=$?
           set -e
-          echo "exit codes: birds=$rc_birds limbo=$rc_limbo limbowalk=$rc_limbo_walk lightbench=$rc_light_bench lightdemo=$rc_light_demo skeldemo=$rc_skeleton_demo skelmesh=$rc_skeleton_mesh_demo skellight=$rc_skeleton_light_demo updatefail=$rc_update_fail launcher=$rc_launcher_demo launcherfilter=$rc_launcher_filter launcherclick=$rc_launcher_click beat=$rc_beat shmupdemo=$rc_shmup_demo snookerdemo=$rc_snooker_demo contrademo=$rc_contra_demo citydemo=$rc_city_demo rtsdemo=$rc_rts_demo vndemo=$rc_vn_demo lua=$rc_lua"
+          echo "exit codes: birds=$rc_birds limbo=$rc_limbo limbowalk=$rc_limbo_walk lightbench=$rc_light_bench lightdemo=$rc_light_demo skeldemo=$rc_skeleton_demo skelmesh=$rc_skeleton_mesh_demo skellight=$rc_skeleton_light_demo updatefail=$rc_update_fail launcher=$rc_launcher_demo launcherfilter=$rc_launcher_filter launcherclick=$rc_launcher_click beat=$rc_beat shmupdemo=$rc_shmup_demo snookerdemo=$rc_snooker_demo contrademo=$rc_contra_demo citydemo=$rc_city_demo rtsdemo=$rc_rts_demo vndemo=$rc_vn_demo"
           [ "$rc_birds" -eq 0 ]
           [ "$rc_limbo" -eq 0 ]
           [ "$rc_limbo_walk" -eq 0 ]
@@ -382,7 +338,6 @@ jobs:
           [ "$rc_city_demo" -eq 0 ]
           [ "$rc_rts_demo" -eq 0 ]
           [ "$rc_vn_demo" -eq 0 ]
-          [ "$rc_lua" -eq 0 ]
           grep -F "limbo: walk PASS" limbo_walk.log
           grep -F "[light-bench] PASS" light_bench.log
           grep -F "lighting: " light_demo.log
@@ -399,76 +354,16 @@ jobs:
           grep -F "rts: player victory" rts_demo.log
           grep -F "vn: day 7" vn_demo.log
           grep -F "vn: ending" vn_demo.log
-          grep -F "[script] 0" phys_test.log
-          ! grep -E "\[script] (10[0-9][0-9]|200[0-9])" phys_test.log
 
       - name: Installed package is consumable by another project
         run: |
-          # The engine installs as a find_package-able package, and every other
-          # step in this job builds inside the repository -- where
-          # CMAKE_CXX_STANDARD is already set by the top level. That is exactly
-          # the blind spot that let a package ship whose headers need C++23
-          # without saying so, breaking any project that followed the README
-          # and only called find_package. So: install to a prefix, then build
-          # and run a throwaway consumer that declares no standard at all.
-          #
-          # FakeLua goes in as a second prefix because fake2dConfig.cmake calls
-          # find_dependency(fakelua) -- a real requirement on consumers, not a
-          # test artifact. The first version of this step passed on a Mac,
-          # where FakeLua happens to sit in /usr/local (a default search path),
-          # and failed here, where it lives in a temp prefix. So "find_package
-          # (fake2d) is enough" only holds while FakeLua is also findable.
-          set -e
-          PREFIX="$RUNNER_TEMP/fake2d-prefix"
-          CONSUMER="$RUNNER_TEMP/fake2d-consumer"
-          rm -rf "$PREFIX" "$CONSUMER"
-          cmake --install build --prefix "$PREFIX" > /dev/null
-
-          mkdir -p "$CONSUMER"
-          cat > "$CONSUMER/CMakeLists.txt" <<'EOF'
-          cmake_minimum_required(VERSION 3.16)
-          project(fake2d_consumer CXX)
-          find_package(fake2d 1.50 REQUIRED CONFIG)
-          add_executable(consumer main.cpp)
-          target_link_libraries(consumer PRIVATE fake2d::fake2d)
-          EOF
-          cat > "$CONSUMER/main.cpp" <<'EOF'
-          #include "fake2d/engine.h"
-          #include "fake2d/version.h"
-          #include <cstdio>
-          int main() {
-              fake2d::EngineConfig cfg;
-              fake2d::Engine engine;
-              auto &ui = engine.GetUI();
-              if (!ui.ConfigureVariableList("api", {"stable-a", "stable-b"}, 24, "v1")) return 2;
-              if (!ui.SetVariableRowText("api", "stable-a", "UTF-8 田", .6f)) return 5;
-              ui.SetVariableMeasureBudget(64);
-              if (ui.UnscopedWarnings() != 0) return 6;
-              ui.SetTextValue("edit", "UTF-8 田");
-              ui.NewFrame();
-              if (!ui.BeginFrameUI() || !ui.EndFrameUI()) return 3;
-              if (ui.VariableListTotal("api") != 48 || ui.TextValue("edit") != "UTF-8 田") return 4;
-              std::printf("consumer: %s, ai_input default %d, frame %llu\n",
-                          FAKE2D_VERSION_STRING, cfg.ai_input ? 1 : 0,
-                          (unsigned long long)engine.FrameIndex());
-              return 0;
-          }
-          EOF
-
-          # Deliberately absent: if someone adds a standard here the step stops
-          # testing anything, so say so rather than pass quietly.
-          if grep -q "CXX_STANDARD" "$CONSUMER/CMakeLists.txt"; then
-            echo "::error::the consumer must declare no C++ standard; that is the point"
-            exit 1
-          fi
-          grep -q "cxx_std_23" "$PREFIX/lib/cmake/fake2d/fake2dTargets.cmake"
-
-          cmake -S "$CONSUMER" -B "$CONSUMER/build" \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_PREFIX_PATH="$PREFIX;$FLINSTALL"
-          cmake --build "$CONSUMER/build" -j 4
+          # Shared find_package(fake2d 1.50) consumer (tools/verify-consumer.sh
+          # and tools/consumer). The same gate is required on macOS and Windows.
+          # FakeLua must be findable -- a real requirement on consumers, not a
+          # test artifact -- so FLINSTALL is on CMAKE_PREFIX_PATH.
+          export CMAKE_PREFIX_PATH="$FLINSTALL"
           export LD_LIBRARY_PATH="$FLINSTALL/lib:${LD_LIBRARY_PATH:-}"
-          "$CONSUMER/build/consumer" | grep -F "consumer: 1.50"
+          tools/verify-consumer.sh --build-dir build
 
       - name: Staged package ships every demo asset
         run: |
@@ -481,10 +376,14 @@ jobs:
             build/bin/fake2d_hello "$FLINSTALL/lib" "$STAGE"
           tools/verify-package.sh "$STAGE"
 
-  # macOS and Windows build the full fakelua-enabled engine and run the 24
-  # Lua logic cases against Linux-produced maps. GitHub macOS VMs have no
-  # NSOpenGL pixel format (GLFW 65545), so no engine runs there; Windows
-  # installs Mesa llvmpipe (tools/setup-mesa-windows.ps1) for software GL.
+  # macOS and Windows build the full fakelua-enabled engine and share the
+  # same test entry points as Linux (CTest, tools/check_ui_demos.py,
+  # tools/run_demo_scripts.py, tools/run_gpu_smoke.py, tools/verify-consumer.sh)
+  # against Linux-produced maps. GitHub macOS VMs have no NSOpenGL pixel
+  # format (GLFW 65545); headless runs use the CGL offscreen FBO path and
+  # are required gates, not continue-on-error. Windows installs Mesa
+  # llvmpipe (tools/setup-mesa-windows.ps1) for software GL. Long gameplay
+  # milestone screenshots and staged-package verify-package stay Linux-only.
   engine:
     name: engine (${{ matrix.label }})
     needs: assets
@@ -686,100 +585,6 @@ jobs:
           python3 tests/headless/run_headless.py \
             --flua "$FLINSTALL/bin/flua"
 
-      # Pure-CPU physics queries (no GL needed): C++ exit-code self-test plus
-      # the Lua binding test through the CGL headless path.
-      - name: (macos) physics query tests
-        if: runner.os == 'macOS'
-        run: |
-          set -eux
-          export DYLD_LIBRARY_PATH="$FLINSTALL/lib:${DYLD_LIBRARY_PATH:-}"
-          ./build/bin/fake2d_hello --phys-query-test
-          ./build/bin/fake2d_hello --phys-filter-test
-          ./build/bin/fake2d_hello --phys-rigid-test
-          ./build/bin/fake2d_hello --phys-extended-test
-          ./build/bin/fake2d_hello --headless --angry-birds-demo --frames 120
-          ./build/bin/fake2d_hello --headless --limbo-demo --frames 120
-          ./build/bin/fake2d_hello --tile-test
-          ./build/bin/fake2d_hello --timestep-test
-          ./build/bin/fake2d_hello --path-test
-          ./build/bin/fake2d_hello --rt-test
-          # Includes portable 1.50 convergence, password clipboard and warning tests.
-          ./build/bin/fake2d_hello --ui-test
-          ./build/bin/fake2d_hello --headless --ui-stress --frames 300 --ui-stress-seed 42
-          ./build/bin/fake2d_hello --headless --ui-bench
-          ./build/bin/fake2d_hello --post-test
-          ./build/bin/fake2d_hello --fx-test
-          ./build/bin/fake2d_hello --fog-test
-          ./build/bin/fake2d_hello --light-test
-          ./build/bin/fake2d_hello --light-bench
-          ./build/bin/fake2d_hello --skeleton-test
-          ./build/bin/fake2d_hello --headless --skeleton-demo --frames 120
-          ./build/bin/fake2d_hello --headless --light-demo --frames 120
-          ./build/bin/fake2d_hello --audio-test
-          ./build/bin/fake2d_hello --map-object-test
-          ./build/bin/fake2d_hello --font-test
-          ./build/bin/fake2d_hello --platform-test
-          ./build/bin/fake2d_hello --gameplay-test
-          ./build/bin/fake2d_hello --replay-test
-          ./build/bin/fake2d_hello --determinism-test
-          ./build/bin/fake2d_hello --combat-test
-          ./build/bin/fake2d_hello --shmup-test
-          ./build/bin/fake2d_hello --art-test
-          ./build/bin/fake2d_hello --launcher-test
-          ./build/bin/fake2d_hello --snooker-test
-          ./build/bin/fake2d_hello --contra-test
-          ./build/bin/fake2d_hello --city-test
-          ./build/bin/fake2d_hello --rts-test
-          ./build/bin/fake2d_hello --vn-test
-          ./build/bin/fake2d_hello --headless --ai --frames 180 --beat-em-up-demo
-          ./build/bin/fake2d_hello --headless --ai --frames 180 --shmup-demo
-          ./build/bin/fake2d_hello --headless --ai --frames 180 --snooker-demo
-          ./build/bin/fake2d_hello --headless --ai --frames 180 --contra-demo
-          ./build/bin/fake2d_hello --headless --ai --frames 600 --city-demo
-          ./build/bin/fake2d_hello --headless --ai --frames 600 --rts-demo
-          ./build/bin/fake2d_hello --headless --ai --frames 600 --vn-demo
-          ./build/bin/fake2d_hello --headless --phys-bench
-          ./build/bin/fake2d_hello --headless --frames 200 \
-            --entry scripts/phys_test.lua > phys_test.log 2>&1
-          grep -F "[script] 0" phys_test.log
-          ! grep -E "\[script] (10[0-9][0-9]|200[0-9])" phys_test.log
-
-      # macOS runners expose no NSGL pixel format (GLFW 65545), but the CGL
-      # headless fallback (no-drawable context + offscreen FBO, GL 2.1 legacy
-      # path) renders for real on the Apple Software Renderer. Start
-      # continue-on-error; promote to a required gate once proven stable.
-      - name: (macos) headless GPU smoke via CGL FBO
-        if: runner.os == 'macOS'
-        continue-on-error: true
-        run: |
-          set -eux
-          export DYLD_LIBRARY_PATH="$FLINSTALL/lib:${DYLD_LIBRARY_PATH:-}"
-          ./build/bin/fake2d_hello --headless --frames 90 --scene-demo \
-            --screenshot scene-mac.png
-          test -s scene-mac.png
-          ./build/bin/fake2d_hello --headless --frames 120 --tile-demo
-          ./build/bin/fake2d_hello --headless --frames 120 --map-demo
-          ./build/bin/fake2d_hello --headless --ai --frames 180 --platformer-demo
-          ./build/bin/fake2d_hello --headless --ai --frames 180 --mario-demo
-          ./build/bin/fake2d_hello --headless --ai --frames 120 --slope-demo
-          ./build/bin/fake2d_hello --headless --frames 120 --path-demo
-          ./build/bin/fake2d_hello --headless --frames 120 --rt-demo
-          ./build/bin/fake2d_hello --headless --frames 120 --ui-demo
-          ./build/bin/fake2d_hello --headless --frames 120 --ui2-demo
-          ./build/bin/fake2d_hello --headless --frames 120 --ui3-demo
-          ./build/bin/fake2d_hello --headless --frames 240 --ui-layout-demo
-          ./build/bin/fake2d_hello --headless --frames 240 --ui-features-demo
-          ./build/bin/fake2d_hello --headless --frames 240 --ui-variable-demo
-          ./build/bin/fake2d_hello --headless --frames 240 --ui-stress-demo
-          ./build/bin/fake2d_hello --headless --frames 120 --post-demo
-          ./build/bin/fake2d_hello --headless --frames 120 --fx-demo
-          ./build/bin/fake2d_hello --headless --frames 120 --fog-demo
-          ./build/bin/fake2d_hello --headless --frames 120 --audio-demo
-          ./build/bin/fake2d_hello --headless --frames 120 --spatial-demo
-          ./build/bin/fake2d_hello --headless --frames 60 --text-demo \
-            --screenshot text-mac.png --shot-min-colors 12
-          test -s text-mac.png
-
       - name: (windows) headless Lua fixtures
         if: runner.os == 'Windows'
         shell: msys2 {0}
@@ -800,7 +605,17 @@ jobs:
           powershell -ExecutionPolicy Bypass -File tools/setup-mesa-windows.ps1 `
             -TargetDir build/bin
 
-      - name: (windows) headless GPU smoke via llvmpipe
+      # Shared required gates. Same scripts as Linux: CTest (30 suites, both
+      # UI stress seeds, ui-bench, win_macro_compat), dynamic UI demo
+      # acceptance, catalog script-error scan, JIT/GL smoke, and the 1.50
+      # find_package consumer. CGL/llvmpipe failures are blocking.
+      - name: Headless test suites (ctest)
+        if: runner.os == 'macOS'
+        run: |
+          export DYLD_LIBRARY_PATH="$FLINSTALL/lib:${DYLD_LIBRARY_PATH:-}"
+          ctest --test-dir build --output-on-failure
+
+      - name: (windows) headless test suites (ctest)
         if: runner.os == 'Windows'
         shell: msys2 {0}
         env:
@@ -809,79 +624,74 @@ jobs:
         run: |
           set -eux
           export PATH="$(cygpath -u "$FLINSTALL")/bin:$PATH"
-          # Pure-CPU physics query self-test (exit code) + Lua binding test.
-          ./build/bin/fake2d_hello.exe --phys-query-test
-          ./build/bin/fake2d_hello.exe --phys-filter-test
-          ./build/bin/fake2d_hello.exe --phys-rigid-test
-          ./build/bin/fake2d_hello.exe --phys-extended-test
-          ./build/bin/fake2d_hello.exe --headless --angry-birds-demo --frames 120
-          ./build/bin/fake2d_hello.exe --headless --limbo-demo --frames 120
-          ./build/bin/fake2d_hello.exe --tile-test
-          ./build/bin/fake2d_hello.exe --timestep-test
-          ./build/bin/fake2d_hello.exe --path-test
-          ./build/bin/fake2d_hello.exe --rt-test
-          # Includes portable 1.50 convergence, password clipboard and warning tests.
-          ./build/bin/fake2d_hello.exe --ui-test
-          ./build/bin/fake2d_hello.exe --headless --ui-stress --frames 300 --ui-stress-seed 42
-          ./build/bin/fake2d_hello.exe --headless --ui-bench
-          ./build/bin/fake2d_hello.exe --post-test
-          ./build/bin/fake2d_hello.exe --fx-test
-          ./build/bin/fake2d_hello.exe --fog-test
-          ./build/bin/fake2d_hello.exe --light-test
-          ./build/bin/fake2d_hello.exe --light-bench
-          ./build/bin/fake2d_hello.exe --skeleton-test
-          ./build/bin/fake2d_hello.exe --headless --skeleton-demo --frames 120
-          ./build/bin/fake2d_hello.exe --headless --light-demo --frames 120
-          ./build/bin/fake2d_hello.exe --audio-test
-          ./build/bin/fake2d_hello.exe --map-object-test
-          ./build/bin/fake2d_hello.exe --font-test
-          ./build/bin/fake2d_hello.exe --platform-test
-          ./build/bin/fake2d_hello.exe --gameplay-test
-          ./build/bin/fake2d_hello.exe --replay-test
-          ./build/bin/fake2d_hello.exe --determinism-test
-          ./build/bin/fake2d_hello.exe --combat-test
-          ./build/bin/fake2d_hello.exe --shmup-test
-          ./build/bin/fake2d_hello.exe --snooker-test
-          ./build/bin/fake2d_hello.exe --contra-test
-          ./build/bin/fake2d_hello.exe --city-test
-          ./build/bin/fake2d_hello.exe --rts-test
-          ./build/bin/fake2d_hello.exe --vn-test
-          ./build/bin/fake2d_hello.exe --headless --ai --frames 180 --beat-em-up-demo
-          ./build/bin/fake2d_hello.exe --headless --ai --frames 180 --shmup-demo
-          ./build/bin/fake2d_hello.exe --headless --ai --frames 180 --snooker-demo
-          ./build/bin/fake2d_hello.exe --headless --ai --frames 180 --contra-demo
-          ./build/bin/fake2d_hello.exe --headless --ai --frames 600 --city-demo
-          ./build/bin/fake2d_hello.exe --headless --ai --frames 600 --rts-demo
-          ./build/bin/fake2d_hello.exe --headless --ai --frames 600 --vn-demo
-          ./build/bin/fake2d_hello.exe --headless --frames 200 \
-            --entry scripts/phys_test.lua > phys_test.log 2>&1
-          grep -F "[script] 0" phys_test.log
-          ! grep -E "\[script] (10[0-9][0-9]|200[0-9])" phys_test.log
-          ./build/bin/fake2d_hello.exe --headless --frames 30 --scene-demo
-          ./build/bin/fake2d_hello.exe --headless --frames 40 --scene-demo \
-            --screenshot scene.png
-          test -s scene.png
-          ./build/bin/fake2d_hello.exe --headless --frames 120 --tile-demo
-          ./build/bin/fake2d_hello.exe --headless --frames 120 --map-demo
-          ./build/bin/fake2d_hello.exe --headless --ai --frames 180 --platformer-demo
-          ./build/bin/fake2d_hello.exe --headless --ai --frames 180 --mario-demo
-          ./build/bin/fake2d_hello.exe --headless --ai --frames 120 --slope-demo
-          ./build/bin/fake2d_hello.exe --headless --frames 120 --path-demo
-          ./build/bin/fake2d_hello.exe --headless --frames 120 --rt-demo
-          ./build/bin/fake2d_hello.exe --headless --frames 120 --ui-demo
-          ./build/bin/fake2d_hello.exe --headless --frames 120 --ui2-demo
-          ./build/bin/fake2d_hello.exe --headless --frames 120 --ui3-demo
-          ./build/bin/fake2d_hello.exe --headless --frames 240 --ui-layout-demo
-          ./build/bin/fake2d_hello.exe --headless --frames 240 --ui-features-demo
-          ./build/bin/fake2d_hello.exe --headless --frames 240 --ui-variable-demo
-          ./build/bin/fake2d_hello.exe --headless --frames 240 --ui-stress-demo
-          ./build/bin/fake2d_hello.exe --headless --frames 120 --post-demo
-          ./build/bin/fake2d_hello.exe --headless --frames 120 --fx-demo
-          ./build/bin/fake2d_hello.exe --headless --frames 120 --fog-demo
-          ./build/bin/fake2d_hello.exe --headless --frames 120 --audio-demo
-          ./build/bin/fake2d_hello.exe --headless --frames 120 --spatial-demo
-          ./build/bin/fake2d_hello.exe --headless --frames 60 --text-demo \
-            --screenshot text-win.png --shot-min-colors 12
-          test -s text-win.png
-          ./build/bin/fake2d_hello.exe --headless --bench
-          ./build/bin/fake2d_hello.exe --headless --phys-bench
+          ctest --test-dir build --output-on-failure
+
+      - name: Dynamic UI demo acceptance
+        if: runner.os == 'macOS'
+        run: |
+          export DYLD_LIBRARY_PATH="$FLINSTALL/lib:${DYLD_LIBRARY_PATH:-}"
+          python3 tools/check_ui_demos.py
+
+      - name: (windows) dynamic UI demo acceptance
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        env:
+          GALLIUM_DRIVER: llvmpipe
+          LIBGL_ALWAYS_SOFTWARE: "1"
+        run: |
+          set -eux
+          export PATH="$(cygpath -u "$FLINSTALL")/bin:$PATH"
+          PY=python3; command -v python3 >/dev/null || PY=python
+          "$PY" tools/check_ui_demos.py
+
+      - name: Every demo script runs
+        if: runner.os == 'macOS'
+        run: |
+          export DYLD_LIBRARY_PATH="$FLINSTALL/lib:${DYLD_LIBRARY_PATH:-}"
+          python3 tools/run_demo_scripts.py --frames 400 --interp --ai
+
+      - name: (windows) every demo script runs
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        env:
+          GALLIUM_DRIVER: llvmpipe
+          LIBGL_ALWAYS_SOFTWARE: "1"
+        run: |
+          set -eux
+          export PATH="$(cygpath -u "$FLINSTALL")/bin:$PATH"
+          PY=python3; command -v python3 >/dev/null || PY=python
+          "$PY" tools/run_demo_scripts.py --frames 400 --interp --ai
+
+      - name: Headless demo + benchmark smoke
+        if: runner.os == 'macOS'
+        run: |
+          export DYLD_LIBRARY_PATH="$FLINSTALL/lib:${DYLD_LIBRARY_PATH:-}"
+          python3 tools/run_gpu_smoke.py --profile extended
+
+      - name: (windows) headless demo + benchmark smoke
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        env:
+          GALLIUM_DRIVER: llvmpipe
+          LIBGL_ALWAYS_SOFTWARE: "1"
+        run: |
+          set -eux
+          export PATH="$(cygpath -u "$FLINSTALL")/bin:$PATH"
+          PY=python3; command -v python3 >/dev/null || PY=python
+          "$PY" tools/run_gpu_smoke.py --profile extended
+
+      - name: Installed package is consumable by another project
+        if: runner.os == 'macOS'
+        run: |
+          export DYLD_LIBRARY_PATH="$FLINSTALL/lib:${DYLD_LIBRARY_PATH:-}"
+          export CMAKE_PREFIX_PATH="$FLINSTALL"
+          tools/verify-consumer.sh --build-dir build
+
+      - name: (windows) installed package is consumable by another project
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          set -eux
+          export PATH="$(cygpath -u "$FLINSTALL")/bin:$PATH"
+          export CMAKE_PREFIX_PATH="$FLINSTALL"
+          tools/verify-consumer.sh --build-dir build

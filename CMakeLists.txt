@@ -61,6 +61,7 @@ if (FAKE2D_BUILD_TESTS)
     # Compile-and-run guard: inject windef.h's near/far macros, include the
     # same header chain as hello, then use `auto near` / member `far`. This
     # is its own executable so it is not counted as a hello self-test suite.
+    # CI runs it through CTest on Linux, macOS and Windows.
     add_executable(fake2d_win_macro_compat tests/win_macro_compat.cpp)
     target_include_directories(fake2d_win_macro_compat PRIVATE
         ${CMAKE_SOURCE_DIR}/src)

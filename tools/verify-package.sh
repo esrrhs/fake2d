@@ -21,6 +21,8 @@
 #
 # Linux runners need xvfb; on macOS the package's CGL headless path is used.
 # Windows packages only get the static check (no GL fixture here).
+# The Build workflow runs this full proof on Linux only; macOS/Windows Build
+# jobs use tools/verify-consumer.sh for the find_package consumer gate.
 set -euo pipefail
 
 STAGE_ARG=${1:?usage: verify-package.sh <stage-root>}

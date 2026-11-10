@@ -289,7 +289,8 @@ target_link_libraries(my_game PRIVATE fake2d::fake2d)   # GLFW/OpenGL/FakeLua �
 
 ### 无头模式与自动化 CI 验证（Headless & Testing）
 
-Fake2D 原生支持无头运行模式，可在无 X11/Wayland 物理显示器的 Linux CI 机器（配合 xvfb）上完整运行全部图形与逻辑：
+Fake2D 原生支持无头运行模式，可在无物理显示器的 CI 上完整运行图形与逻辑。Build 工作流在 Linux（Xvfb/llvmpipe）、macOS（CGL FBO）和 Windows（Mesa llvmpipe）上共用同一组入口：`ctest`（30 组套件、两个 `--ui-stress` seed、`--ui-bench` 与 `fake2d-win-macro-compat`）、`tools/check_ui_demos.py`、`tools/run_demo_scripts.py`（退出码加上 `syntax error` / `CompileFile` / `update()` 日志扫描）、`tools/run_gpu_smoke.py`，以及 `tools/verify-consumer.sh`（`find_package(fake2d 1.50)`）。长游戏里程碑截图和完整的 staged 包 `tools/verify-package.sh` 仍只在 Linux Build 上强制执行。这些无头门使用内存剪贴板和注入的焦点/手柄事件，并不表示已在真实桌面上验收过系统剪贴板、物理手柄或 IME 组合预览。GLFW 3.4 仍无公开 preedit API，行内 IME 预览仍明确未实现。
+
 
 ```bash
 # 运行 60 帧无头测试并平稳退出
