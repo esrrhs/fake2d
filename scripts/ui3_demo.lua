@@ -134,21 +134,15 @@ local function draw_audio(bx, by)
     draw_text("sfx    " .. pct(S.sfx), bx + 292, by + 110, 0.55,
               0.75, 0.85, 0.95, 1.0)
     ui_push(bx, by + 146, ui_layout_token("panel_width"), math.max(18, 28))
-    local ui_clicked_1 = ui_checkbox("mute", 18, S.muted, "mute everything", 0.6)
+    ui_checkbox("mute", 18, S.muted, "mute everything", 0.6)
     ui_pop()
-    if ui_clicked_1 then
-        S.muted = not S.muted
-    end
     return 0
 end
 
 local function draw_video(bx, by)
     ui_push(bx, by, 280, 22)
-    local ui_clicked_2 = ui_tree("grp_display", 22, "display", S.open_display, 0.65)
+    ui_tree("grp_display", 22, "display", S.open_display, 0.65)
     ui_pop()
-    if ui_clicked_2 then
-        S.open_display = not S.open_display
-    end
     if S.open_display then
         draw_text("brightness", bx + 18, by + 32, 0.6, 0.72, 0.78, 0.86, 1.0)
         ui_push(bx + 18, by + 50, 262, 20)
@@ -165,24 +159,15 @@ local function draw_video(bx, by)
         ey = by + 140
     end
     ui_push(bx, ey, 280, 22)
-    local ui_clicked_3 = ui_tree("grp_effects", 22, "effects", S.open_effects, 0.65)
+    ui_tree("grp_effects", 22, "effects", S.open_effects, 0.65)
     ui_pop()
-    if ui_clicked_3 then
-        S.open_effects = not S.open_effects
-    end
     if S.open_effects then
         ui_push(bx + 18, ey + 30, ui_layout_token("panel_width"), math.max(18, 28))
-        local ui_clicked_4 = ui_checkbox("bloom", 18, S.bloom, "bloom", 0.6)
+        ui_checkbox("bloom", 18, S.bloom, "bloom", 0.6)
         ui_pop()
-        if ui_clicked_4 then
-            S.bloom = not S.bloom
-        end
         ui_push(bx + 18, ey + 58, ui_layout_token("panel_width"), math.max(18, 28))
-        local ui_clicked_5 = ui_checkbox("fog", 18, S.fog, "fog of war", 0.6)
+        ui_checkbox("fog", 18, S.fog, "fog of war", 0.6)
         ui_pop()
-        if ui_clicked_5 then
-            S.fog = not S.fog
-        end
     end
     return 0
 end
@@ -190,44 +175,31 @@ end
 local function draw_controls(bx, by)
     draw_text("INPUT", bx, by, 0.7, 0.75, 0.65, 0.95, 1.0)
     ui_push(bx, by + 26, ui_layout_token("panel_width"), math.max(18, 28))
-    local ui_clicked_6 = ui_radio("ctl0", 18, S.control == 0, control_name(0), 0.6)
+    ui_radio("ctl0", 18, S.control == 0, control_name(0), 0.6)
     ui_pop()
-    if ui_clicked_6 then
-        S.control = 0
-    end
     ui_push(bx, by + 54, ui_layout_token("panel_width"), math.max(18, 28))
-    local ui_clicked_7 = ui_radio("ctl1", 18, S.control == 1, control_name(1), 0.6)
+    ui_radio("ctl1", 18, S.control == 1, control_name(1), 0.6)
     ui_pop()
-    if ui_clicked_7 then
-        S.control = 1
-    end
 
     draw_text("SCHEME", bx, by + 92, 0.7, 0.75, 0.65, 0.95, 1.0)
     ui_push(bx, by + 112, 200, 26)
-    local ui_clicked_8 = ui_combo("scheme", 26, scheme_name(S.scheme), S.scheme_open, 0.6)
+    ui_combo("scheme", 26, scheme_name(S.scheme), S.scheme_open, 0.6)
     ui_pop()
-    if ui_clicked_8 then
-        S.scheme_open = not S.scheme_open
-    end
     if S.scheme_open then
         draw_quad(bx - 2.0, by + 142, 204, 84, 0.08, 0.10, 0.15, 1.0)
         local k = 0 + 0
         while k < 3 do
             local ry = by + 144 + k * 26
             ui_push(bx, ry, 200, 24)
-            local ui_clicked_9 = ui_combo_item("sc" .. istr(k), 24, scheme_name(k), S.scheme == k, 0.6)
+            ui_combo_item("sc" .. istr(k), 24, scheme_name(k), S.scheme == k, 0.6)
             ui_pop()
-            if ui_clicked_9 then
-                S.scheme = k
-                S.scheme_open = false
-            end
             k = k + 1
         end
     end
     return 0
 end
 
-function update(dt)
+local function update_body(dt)
     if S.seeded == nil then
         S.seeded = true
         reset_state()
@@ -235,12 +207,8 @@ function update(dt)
 
     -- --- the window shell -------------------------------------------------
     ui_push(S.wx, S.wy, WIN_W, WIN_H)
-    local ui_clicked_10 = ui_window("settings", "SETTINGS", 0.7)
+    ui_window("settings", "SETTINGS", 0.7)
     ui_pop()
-    if ui_clicked_10 then
-        S.wx = S.wx + input_mouse_dx()
-        S.wy = S.wy + input_mouse_dy()
-    end
     -- Keep it reachable: a panel dragged off the canvas can never be grabbed
     -- again, so the title bar always stays inside.
     if S.wx < 0.0 then
@@ -260,11 +228,8 @@ function update(dt)
     local i = 0 + 0
     while i < 3 do
         ui_push(S.wx + 10 + i * 102, S.wy + 36, 100, 24)
-        local ui_clicked_11 = ui_tab("tab" .. istr(i), 24, tab_name(i), S.tab == i, 0.6)
+        ui_tab("tab" .. istr(i), 24, tab_name(i), S.tab == i, 0.6)
         ui_pop()
-        if ui_clicked_11 then
-            S.tab = i
-        end
         i = i + 1
     end
 
@@ -286,12 +251,8 @@ function update(dt)
 
     -- --- outside: a reset and the hover hints -----------------------------
     ui_push(40, 470, 120, 26)
-    local ui_clicked_12 = ui_button("reset", 26, "RECENTER", 0.6)
+    ui_button("reset", 26, "RECENTER", 0.6)
     ui_pop()
-    if ui_clicked_12 then
-        S.wx = 300.0
-        S.wy = 90.0
-    end
 
     draw_text("UI WIDGETS ROUND 3", 40, 24, 1.2, 0.94, 0.96, 1.0, 1.0)
     draw_text("draggable window, tab bar, collapsible tree", 40, 52, 0.7,
@@ -299,13 +260,72 @@ function update(dt)
     draw_text("hover a control for a hint - it is a panel plus ui_hovered", 40,
               76, 0.6, 0.5, 0.58, 0.66, 1.0)
 
+
+    -- The logical canvas is 960x540 (1920x1080 at 2x), so nothing here may
+    -- sit below y=540 or past x=960.
+    return 0
+end
+
+function update(dt)
+    ui_begin()
+    local result = update_body(dt)
+    ui_end()
     tooltip("master", "master bus, 0-100%")
     tooltip("music", "music bus")
     tooltip("sfx", "one-shot bus")
     tooltip("grp_display", "click to collapse")
     tooltip("reset", "put the panel back")
-
-    -- The logical canvas is 960x540 (1920x1080 at 2x), so nothing here may
-    -- sit below y=540 or past x=960.
-    return 0
+    S.master = ui_result("master", S.master)
+    S.music = ui_result("music", S.music)
+    S.sfx = ui_result("sfx", S.sfx)
+    S.bright = ui_result("bright", S.bright)
+    S.gamma = ui_result("gamma", S.gamma)
+    if ui_clicked("mute") then
+        S.muted = not S.muted
+    end
+    if ui_clicked("grp_display") then
+        S.open_display = not S.open_display
+    end
+    if ui_clicked("grp_effects") then
+        S.open_effects = not S.open_effects
+    end
+    if ui_clicked("bloom") then
+        S.bloom = not S.bloom
+    end
+    if ui_clicked("fog") then
+        S.fog = not S.fog
+    end
+    if ui_clicked("ctl0") then
+        S.control = 0
+    end
+    if ui_clicked("ctl1") then
+        S.control = 1
+    end
+    if ui_clicked("scheme") then
+        S.scheme_open = not S.scheme_open
+    end
+    local k = 0 + 0
+    while k < 3 do
+        if ui_clicked("sc" .. istr(k)) then
+            S.scheme = k
+            S.scheme_open = false
+        end
+        k = k + 1
+    end
+    if ui_clicked("settings") then
+        S.wx = S.wx + input_mouse_dx()
+        S.wy = S.wy + input_mouse_dy()
+    end
+    local i = 0 + 0
+    while i < 3 do
+        if ui_clicked("tab" .. istr(i)) then
+            S.tab = i
+        end
+        i = i + 1
+    end
+    if ui_clicked("reset") then
+        S.wx = 300.0
+        S.wy = 90.0
+    end
+    return result
 end

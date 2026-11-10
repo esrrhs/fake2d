@@ -155,17 +155,11 @@ local function draw_panel()
     ui_pop()
 
     ui_push(px + 18.0, py + 78.0, 190.0, 38.0)
-    local ui_clicked_1 = ui_button("lang", 38.0, i18n_t("Switch language"), 0.55)
+    ui_button("lang", 38.0, i18n_t("Switch language"), 0.55)
     ui_pop()
-    if ui_clicked_1 then
-        switch_language()
-    end
     ui_push(px + 220.0, py + 78.0, 170.0, 38.0)
-    local ui_clicked_2 = ui_button("save", 38.0, i18n_t("Save"), 0.62)
+    ui_button("save", 38.0, i18n_t("Save"), 0.62)
     ui_pop()
-    if ui_clicked_2 then
-        save_demo_slot()
-    end
 
     -- Shrink-to-fit: a long label never overflows its 360 px box.
     ui_push(px + 18.0, py + 132.0, 370.0, text_line_height() * (0.66))
@@ -188,7 +182,7 @@ local function draw_footer()
               24.0, 500.0, 0.56, 0.28, 0.29, 0.32, 1.0)
 end
 
-function update(dt)
+local function update_body(dt)
     if S.seeded == nil then
         S.seeded = true
         reset_state()
@@ -260,4 +254,18 @@ function update(dt)
     draw_panel()
     draw_footer()
     return 0
+end
+
+-- Declare once, resolve complete current-frame geometry, then perform effects once.
+function update(dt)
+    ui_begin()
+    local result = update_body(dt)
+    ui_end()
+    if ui_clicked("lang") then
+        switch_language()
+    end
+    if ui_clicked("save") then
+        save_demo_slot()
+    end
+    return result
 end

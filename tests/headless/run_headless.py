@@ -32,13 +32,14 @@ Examples:
 
 import argparse
 import os
+import re
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from generate_fixtures import write_fixtures  # noqa: E402
+from generate_fixtures import parse_native_api, write_fixtures  # noqa: E402
 
 # scenario: name, demo script, fixed-step frames, extra environment vars
 SCENARIOS = [
@@ -98,6 +99,72 @@ def write_lua(path, text):
         handle.write(text)
 
 
+LUA_TOKENS = re.compile(
+    r'--\[(?P<comment_eq>=*)\[.*?\](?P=comment_eq)\]|--[^\n]*|'
+    r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|'
+    r'\[(?P<string_eq>=*)\[.*?\](?P=string_eq)\]|\w+|[^\s]', re.S)
+
+
+def pad_optional_ui_calls(body, api, minimums):
+    """Native Args accepts omitted options; Lua fixture functions are exact-arity.
+
+    Pad only the generated copy, with nil for omitted options. Preserve real
+    source, strings/comments, nested calls and explicit arguments. This does not
+    simulate UI rendering/input; those run through the real engine UI tests.
+    """
+    tokens = [(m.group(), m.start()) for m in LUA_TOKENS.finditer(body)
+              if not m.group().startswith("--")]
+    edits = []
+    for i, (name, _) in enumerate(tokens[:-1]):
+        if name not in minimums or tokens[i + 1][0] != "(":
+            continue
+        if i and tokens[i - 1][0] in ("function", ".", ":"):
+            continue
+        stack = []
+        actual = 0 if tokens[i + 2][0] == ")" else 1
+        for token, offset in tokens[i + 1:]:
+            if token in ("(", "[", "{"):
+                stack.append(token)
+            elif token in (")", "]", "}"):
+                if not stack or stack.pop() != {")": "(", "]": "[", "}": "{"}[token]:
+                    raise ValueError(f"unbalanced UI call: {name}")
+                if not stack:
+                    if actual < minimums[name]:
+                        raise ValueError(f"{name}: requires at least {minimums[name]} args, got {actual}")
+                    missing = api[name][1] - actual
+                    if missing > 0:
+                        edits.append((offset, (", " if actual else "") +
+                                      ", ".join(["nil"] * missing)))
+                    break
+            elif token == "," and len(stack) == 1:
+                actual += 1
+        else:
+            raise ValueError(f"unclosed UI call: {name}")
+    for offset, text in sorted(edits, reverse=True):
+        body = body[:offset] + text + body[offset:]
+    return body
+
+
+def verify_optional_ui_padding(api, minimums):
+    # Regression for the real platformer call shape that otherwise fails under
+    # all three standalone flua backends despite working with native Args.
+    before = 'ui_push(x, y, math.min(3, text_width("a,(b)", .6)), h())'
+    assert pad_optional_ui_calls(before, api, minimums) == before[:-1] + ', nil)'
+    before = 'ui_text("田, x", .6, "wrap", 0, 1, 1, 1, 1)'
+    assert pad_optional_ui_calls(before, api, minimums) == before[:-1] + ', nil)'
+    before = '-- ui_push(1)\nlocal s = "ui_push(1)"\nlocal t = [=[ui_push(1)]=]'
+    assert pad_optional_ui_calls(before, api, minimums) == before
+    before = 'ui_panel(-- ignored (, )\n)'
+    assert pad_optional_ui_calls(before, api, minimums) == before[:-1] + 'nil, nil, nil, nil)'
+    before = 'ui_push(1, 2, 3, ui_text("nested"), 0)'
+    assert pad_optional_ui_calls(before, api, minimums).count('nil') == api['ui_text'][1] - 1
+    try:
+        pad_optional_ui_calls('ui_push(1)', api, minimums)
+        raise AssertionError("fixture adapter must not hide missing required arguments")
+    except ValueError:
+        pass
+
+
 def main():
     repo_root = Path(__file__).resolve().parents[2]
     ap = argparse.ArgumentParser()
@@ -122,6 +189,11 @@ def main():
         if own_workdir else args.workdir
     workdir.mkdir(parents=True, exist_ok=True)
     write_fixtures(args.repo, workdir)
+    bindings = args.repo / "src/script/script_bindings.cpp"
+    api = parse_native_api(bindings)
+    minimums = {name: int(count) for name, count in
+                re.findall(r'add\("(ui_\w+)",\s*(\d+),', bindings.read_text())}
+    verify_optional_ui_padding(api, minimums)
     head = (workdir / "m_head.lua").read_text()
     tail = (workdir / "m_tail.lua").read_text()
 
@@ -132,7 +204,7 @@ def main():
     chunk_paths = {}
     for _, script, _, _ in scenarios:
         if script not in chunk_paths:
-            body = (args.repo / script).read_text()
+            body = pad_optional_ui_calls((args.repo / script).read_text(), api, minimums)
             # The game scripts expose update(dt) for the engine's per-frame
             # call; the driver tail owns the name the flua host looks up, so
             # rename the game's to fix_game_step(dt) — exactly one

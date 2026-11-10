@@ -51,7 +51,7 @@ local function yesno(v)
     return "no"
 end
 
-function update(dt)
+local function update_body(dt)
     if S.seeded == nil then
         S.seeded = true
         reset_state()
@@ -120,11 +120,19 @@ function update(dt)
 
     -- A click rewinds the clock: the pond jumps back to frame 1.
     ui_push(800, 436, 120, 28)
-    local ui_clicked_1 = ui_button("ta_reset", 28, "RESET CLOCK", 0.55)
+    ui_button("ta_reset", 28, "RESET CLOCK", 0.55)
     ui_pop()
-    if ui_clicked_1 then
-        map_anim_reset(S.map_id)
-    end
 
     return 0
+end
+
+-- Declare once, resolve complete current-frame geometry, then perform effects once.
+function update(dt)
+    ui_begin()
+    local result = update_body(dt)
+    ui_end()
+    if ui_clicked("ta_reset") then
+        map_anim_reset(S.map_id)
+    end
+    return result
 end

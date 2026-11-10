@@ -1606,11 +1606,8 @@ local function draw_hud()
     ui_pop()
 
     ui_push(770.0, 504.0, 118.0, 28.0)
-    local ui_clicked_1 = ui_button("snooker_new", 28.0, "NEW FRAME", 0.40)
+    ui_button("snooker_new", 28.0, "NEW FRAME", 0.40)
     ui_pop()
-    if ui_clicked_1 then
-        new_frame()
-    end
 end
 
 -- Dim the table for the frame-over screen. Drawn before the HUD so the
@@ -1699,7 +1696,7 @@ local function init()
     S.inited = true
 end
 
-function update(dt)
+local function update_body(dt)
     if S.seeded == nil then
         S.seeded = true
         reset_state()
@@ -1752,4 +1749,15 @@ function update(dt)
     draw_overlays()
 
     return 0
+end
+
+-- Declare once, resolve complete current-frame geometry, then perform effects once.
+function update(dt)
+    ui_begin()
+    local result = update_body(dt)
+    ui_end()
+    if ui_clicked("snooker_new") then
+        new_frame()
+    end
+    return result
 end

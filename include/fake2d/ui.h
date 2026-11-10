@@ -5,6 +5,7 @@
 #include "fake2d/renderer.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -21,7 +22,8 @@ enum class UITextOverflow { Wrap, Ellipsis, Shrink, Clip };
 /// draws, widgets are keyed by a string and persist their own interaction
 /// state (hover, press, drag, focus, text) across frames.
 ///
-/// Values live in the caller, like every immediate-mode UI: `Slider` returns
+/// Values live in the caller. Within BeginFrameUI/EndFrameUI consume results after End.
+/// Legacy unscoped calls remain source-compatible: `Slider` returns
 /// the updated value, `Checkbox` returns true on the frame it was toggled,
 /// and text inputs / scroll boxes keep text and offset keyed by the widget
 /// (read them back with `TextValue` / `ScrollOffset`).
@@ -30,6 +32,49 @@ class UISystem {
   public:
     /// Reset per-frame state; the engine calls it after the input snapshot.
     void NewFrame();
+
+    // Explicit declaration -> interaction boundary. User code executes once.
+    // During a declaration widgets return unchanged values/false. Read results
+    // after EndFrameUI(), in the SAME frame; no hidden script replay.
+    bool BeginFrameUI();
+    bool EndFrameUI();
+    // Optional explicit layout barrier for virtual views whose final position is not yet known.
+    bool EndLayout();
+    bool ListView(std::string_view key, float height);
+    bool ListViewBegin(std::string_view key);
+    bool ListViewEnd();
+    [[nodiscard]] bool Clicked(std::string_view key) const;
+    [[nodiscard]] float ResultNumber(std::string_view key, float fallback = 0) const;
+    [[nodiscard]] std::string_view ClickedLink() const { return clicked_link_; }
+    [[nodiscard]] std::string_view ActivatedWidget() const { return activated_widget_; }
+    [[nodiscard]] Rect WidgetRect(std::string_view key) const;
+    struct FrameStats {
+        std::size_t nodes = 0, visible = 0, draw_commands = 0, tree_steps = 0, measured_rows = 0;
+        double layout_ms = 0, interaction_ms = 0;
+    };
+    [[nodiscard]] const FrameStats &Stats() const { return frame_stats_; }
+
+    bool TextPassword(std::string_view key, float height, std::size_t max_chars = 128);
+    bool Undo(std::string_view key);
+    bool Redo(std::string_view key);
+    /// Optional deterministic monotonic seconds for recording/tests; empty = steady_clock.
+    void SetInteractionClock(std::function<double()> clock) {
+        interaction_clock_ = std::move(clock);
+    }
+    [[nodiscard]] std::size_t Selection(std::string_view key, bool end) const;
+
+    bool ConfigureVariableList(std::string_view key, const std::vector<std::string> &ids,
+                               float estimate = 24, std::string_view revision = {});
+    void InvalidateVariableList(std::string_view key, std::string_view row_id = {});
+    bool VariableListBegin(std::string_view key, float view_h, bool pin_bottom = false);
+    int VariableListNext(); // opens an auto-height row; -1 when viewport filled
+    float VariableListRowEnd();
+    void VariableListEnd();
+    [[nodiscard]] float VariableListTotal(std::string_view key) const;
+    [[nodiscard]] std::string VariableListAnchor(std::string_view key) const;
+    [[nodiscard]] std::string VariableListID(std::string_view key, int index) const;
+    [[nodiscard]] float VariableListHeight(std::string_view key, std::string_view row_id) const;
+    [[nodiscard]] bool VariableListMeasured(std::string_view key, std::string_view row_id) const;
 
     // Phase 57+: practical game UI, without an editor or retained widget tree.
     struct Constraints {
@@ -69,7 +114,7 @@ class UISystem {
     void SetRichIcon(std::string_view name, const Texture2D *texture, const Rect &source);
     std::string RichText(std::string_view markup, float scale = 0); // clicked link id or empty
     bool TextArea(std::string_view key, float height, std::size_t max_chars = 4096);
-    void OpenModal(std::string_view key); // before drawing underlying controls
+    void OpenModal(std::string_view key); // May be declared late within an explicit frame
     void CloseModal();
     bool ModalBegin(std::string_view key, float width, float height);
     void ModalEnd();
@@ -201,7 +246,8 @@ class UISystem {
                                  float text_scale = 0.6f);
     Rect Allocate(float height, std::string_view kind);
     void Quad(const Rect &rect, const Color &tint);
-    float String(std::string_view text, float x, float y, float scale, const Color &tint);
+    float String(std::string_view text, float x, float y, float scale, const Color &tint,
+                 bool clipped = false);
     /// One state record serves every widget kind; the fields a given kind
     /// ignores simply stay at their default.
     struct WidgetState {
@@ -211,6 +257,14 @@ class UISystem {
         /// Grab offset from the thumb's top-left, so dragging does not make
         /// the thumb jump under the cursor.
         float grab = 0.0f;
+        struct EditSnapshot {
+            std::string text;
+            std::size_t caret = 0, anchor = 0;
+        };
+        std::vector<EditSnapshot> undo, redo;
+        bool selecting = false;
+        double last_click = -1;
+        Vec2 last_click_pos{};
         std::size_t caret = 0, anchor = 0;
         std::string text; // text field content
     };
@@ -274,6 +328,83 @@ class UISystem {
     std::unordered_map<std::string, ScrollState> scroll_states_;
     std::unordered_map<std::string, float> tokens_{
         {"panel_width", 600.0f}, {"sidebar_inset", 410.0f}, {"menu_icon_spacing_cap", 64.0f}};
+    struct InteractionNode {
+        std::string key, modal, popup;
+        Rect rect;
+        LayoutBox box;
+        std::vector<std::size_t> translations;
+        bool disabled = false, text = false, adjustable = false, focusable = true;
+        std::function<void()> action;
+        std::shared_ptr<std::vector<std::function<void()>>> paints;
+        int pointer_button = 0;
+    };
+    void QueueInteraction(std::string_view key, const Rect &rect, std::function<void()> action,
+                          bool text = false, bool adjustable = false, bool focusable = true);
+    void NavigateCurrent();
+    void ResolveScrollLayout();
+    struct ListViewport {
+        LayoutBox box;
+        std::vector<std::size_t> translations;
+        std::string modal, popup;
+        bool disabled = false, submitted = false;
+        std::shared_ptr<std::vector<std::function<void()>>> paints;
+    };
+    std::unordered_map<std::string, ListViewport> list_views_;
+    std::string active_list_view_;
+    std::size_t list_view_paint_start_ = 0, draw_placeholders_ = 0;
+    bool layout_resolved_ = false, dismissed_overlay_ = false, resolving_allowed_ = true;
+    std::string text_activated_;
+    std::function<double()> interaction_clock_;
+    bool recording_ = false, resolving_ = false, frame_submitted_ = false;
+    bool scroll_layout_only_ = false, scroll_input_only_ = false;
+    std::vector<std::size_t> prescrolled_;
+    struct ScrollCandidate {
+        std::size_t index, depth;
+        Rect viewport;
+        std::vector<LayoutClip> clips;
+        std::vector<std::size_t> parents;
+        bool disabled, modal, popup;
+    };
+    std::vector<ScrollCandidate> scroll_candidates_;
+    std::vector<InteractionNode> interactions_;
+    std::unordered_map<std::string, float> frame_results_;
+    std::unordered_map<std::string, Rect> widget_rects_;
+    std::string saved_nav_focus_, saved_text_focus_;
+    bool saved_stick_ = false;
+    std::string clicked_link_, activated_widget_, resolving_key_, pointer_owner_, pointer_active_;
+    FrameStats frame_stats_;
+    std::chrono::steady_clock::time_point frame_started_;
+    struct VariableListState {
+        std::vector<std::string> ids;
+        std::unordered_map<std::string, std::size_t> positions;
+        std::unordered_map<std::string, float> measured;
+        std::vector<float> heights, fenwick;
+        std::string revision, anchor;
+        float estimate = 24, anchor_inset = 0, width = -1, font_scale = -1;
+        std::uint64_t font_revision = 0;
+        bool bottom = false, anchor_pending = false;
+    };
+    struct VariableListScope {
+        std::string key;
+        float view_h;
+        int next;
+        std::size_t depth;
+        bool row_open = false, pin_bottom = false;
+        struct SubmittedRow {
+            int index;
+            std::size_t translation;
+            float original_start;
+        };
+        std::vector<SubmittedRow> submitted;
+        std::unordered_map<int, bool> visited;
+    };
+    void RebuildVariable(VariableListState &state);
+    float VariablePrefix(const VariableListState &state, std::size_t count) const;
+    std::size_t VariableFind(const VariableListState &state, float offset);
+    void SaveVariableAnchor(const std::string &key, VariableListState &state);
+    void RestoreVariableAnchor(const std::string &key, VariableListState &state, float view_h);
+    std::unordered_map<std::string, VariableListState> variable_lists_;
+    std::vector<VariableListScope> variable_scopes_;
     void FlushDraws();
     bool CanInteract() const;
     bool FocusWidget(std::string_view key, const Rect &r, bool text = false,
@@ -282,7 +413,8 @@ class UISystem {
     Rect MapRect(Rect r) const;
     Vec2 RawMouse() const;
     void Sprite(const Texture2D *texture, const Rect &src, const Rect &dst, const Color &tint);
-    bool EditText(std::string_view key, const Rect &r, std::size_t max_chars, bool multiline);
+    bool EditText(std::string_view key, const Rect &r, std::size_t max_chars, bool multiline,
+                  bool password = false);
     Constraints next_limits_;
     int deferred_ = 0;
     struct FlowState {

@@ -383,10 +383,12 @@ bool Font::AddFallback(const std::string &path, float pixel_height) {
     // 惰性：只登记路径（存在性已核），首次缺字时才读文件——
     // 系统 CJK 回退字体单个 40-80MB，多数会话一个生僻字都不会命中。
     impl_->pending_fallbacks.emplace_back(path, pixel_height);
+    ++revision_;
     return true;
 }
 
 void Font::ClearFallbacks() {
+    ++revision_;
     if (!impl_ || (impl_->faces.size() <= 1 && impl_->pending_fallbacks.empty())) {
         return;
     }
@@ -494,6 +496,7 @@ bool Font::LoadDefault(float pixel_height) {
 }
 
 void Font::Reset() {
+    ++revision_;
     texture_.Destroy();
     if (impl_) {
         impl_->glyphs.clear();

@@ -89,7 +89,7 @@ local function set_paused(next_value)
     audio_pause(S.paused)
 end
 
-function update(dt)
+local function update_body(dt)
     if S.seeded == nil then
         S.seeded = true
         reset_state()
@@ -118,9 +118,6 @@ function update(dt)
     ui_push(40, 184, 220, 24)
     S.music_bus = ui_slider("bus_music", 24, S.music_bus, 0.0, 1.0)
     ui_pop()
-    audio_bus_set(0, S.master)
-    audio_bus_set(1, S.sfx_bus)
-    audio_bus_set(2, S.music_bus)
     draw_text("master " .. pct(S.master) .. "%", 268, 110, 0.6,
               0.75, 0.85, 0.95, 1.0)
     draw_text("sfx    " .. pct(S.sfx_bus) .. "%", 268, 150, 0.6,
@@ -133,82 +130,46 @@ function update(dt)
     -- --- one-shots on the sfx bus ----------------------------------------
     draw_text("ONE-SHOTS", 40, 252, 0.75, 1.0, 0.80, 0.35, 1.0)
     ui_push(40, 272, 64, 26)
-    local ui_clicked_1 = ui_button("sfx_coin", 26, "COIN", 0.55)
+    ui_button("sfx_coin", 26, "COIN", 0.55)
     ui_pop()
-    if ui_clicked_1 then
-        audio_play("coin", 0.90)
-    end
     ui_push(112, 272, 64, 26)
-    local ui_clicked_2 = ui_button("sfx_jump", 26, "JUMP", 0.55)
+    ui_button("sfx_jump", 26, "JUMP", 0.55)
     ui_pop()
-    if ui_clicked_2 then
-        audio_play("jump", 0.90)
-    end
     ui_push(184, 272, 64, 26)
-    local ui_clicked_3 = ui_button("sfx_win", 26, "WIN", 0.55)
+    ui_button("sfx_win", 26, "WIN", 0.55)
     ui_pop()
-    if ui_clicked_3 then
-        audio_play("win", 0.90)
-    end
     ui_push(256, 272, 64, 26)
-    local ui_clicked_4 = ui_button("sfx_brick", 26, "BRICK", 0.5)
+    ui_button("sfx_brick", 26, "BRICK", 0.5)
     ui_pop()
-    if ui_clicked_4 then
-        audio_play("brick", 0.90)
-    end
     ui_push(40, 306, 64, 26)
-    local ui_clicked_5 = ui_button("sfx_launch", 26, "LAUNCH", 0.5)
+    ui_button("sfx_launch", 26, "LAUNCH", 0.5)
     ui_pop()
-    if ui_clicked_5 then
-        audio_play("launch", 0.90)
-    end
     ui_push(112, 306, 64, 26)
-    local ui_clicked_6 = ui_button("sfx_lose", 26, "LOSE", 0.55)
+    ui_button("sfx_lose", 26, "LOSE", 0.55)
     ui_pop()
-    if ui_clicked_6 then
-        audio_play("lose", 0.90)
-    end
     ui_push(184, 306, 64, 26)
-    local ui_clicked_7 = ui_button("sfx_wall", 26, "WALL", 0.55)
+    ui_button("sfx_wall", 26, "WALL", 0.55)
     ui_pop()
-    if ui_clicked_7 then
-        audio_play("wall", 0.90)
-    end
     ui_push(256, 306, 64, 26)
-    local ui_clicked_8 = ui_button("sfx_paddle", 26, "PADDLE", 0.5)
+    ui_button("sfx_paddle", 26, "PADDLE", 0.5)
     ui_pop()
-    if ui_clicked_8 then
-        audio_play("paddle", 0.90)
-    end
     draw_text("routed through the sfx bus; 32 voices, oldest wins", 40, 344,
               0.55, 0.5, 0.58, 0.66, 1.0)
 
     -- --- music: cross-fade, level, stop ----------------------------------
     draw_text("MUSIC", 360, 84, 0.75, 0.62, 0.86, 0.98, 1.0)
     ui_push(360, 104, 120, 28)
-    local ui_clicked_9 = ui_button("trk_a", 28, "TRACK A", 0.6)
+    ui_button("trk_a", 28, "TRACK A", 0.6)
     ui_pop()
-    if ui_clicked_9 then
-        play_track("theme_a")
-    end
     ui_push(490, 104, 120, 28)
-    local ui_clicked_10 = ui_button("trk_b", 28, "TRACK B", 0.6)
+    ui_button("trk_b", 28, "TRACK B", 0.6)
     ui_pop()
-    if ui_clicked_10 then
-        play_track("theme_b")
-    end
     ui_push(360, 142, 120, 28)
-    local ui_clicked_11 = ui_button("trk_stop", 28, "STOP", 0.6)
+    ui_button("trk_stop", 28, "STOP", 0.6)
     ui_pop()
-    if ui_clicked_11 then
-        audio_music_stop(S.crossfade)
-    end
     ui_push(490, 142, 120, 28)
-    local ui_clicked_12 = ui_button("trk_out", 28, "FADE OUT", 0.5)
+    ui_button("trk_out", 28, "FADE OUT", 0.5)
     ui_pop()
-    if ui_clicked_12 then
-        audio_music_stop(1.5)
-    end
 
     ui_push(360, 184, 200, 24)
     S.crossfade = ui_slider("xfade", 24, S.crossfade, 0.0, 3.0)
@@ -220,10 +181,7 @@ function update(dt)
     draw_text(pct(S.level) .. "%", 568, 230, 0.55, 0.75, 0.85, 0.95, 1.0)
     -- Only push when the value actually moved, or this would cancel the
     -- fade-out the STOP button just started.
-    if S.level ~= S.last_level then
-        S.last_level = S.level
-        audio_music_fade(S.level, 0.0)
-    end
+
     draw_text("cross-fade / level", 360, 262, 0.6, 0.5, 0.58, 0.66, 1.0)
     draw_text("keys: 1 track A, 2 track B, S stop, P pause", 360, 286, 0.55,
               0.5, 0.58, 0.66, 1.0)
@@ -256,11 +214,8 @@ function update(dt)
     draw_text("music: " .. state, 640, 126, 0.65, 0.94, 0.96, 1.0, 1.0)
 
     ui_push(640, 152, ui_layout_token("panel_width"), math.max(20, 28))
-    local ui_clicked_13 = ui_checkbox("pause", 20, S.paused, "pause the mix", 0.6)
+    ui_checkbox("pause", 20, S.paused, "pause the mix", 0.6)
     ui_pop()
-    if ui_clicked_13 then
-        set_paused(not S.paused)
-    end
 
     local peak = audio_peak()
     local lit = math.floor(peak * SEGMENTS + 0.5)
@@ -300,17 +255,11 @@ function update(dt)
 
     draw_text("FILE PLAYBACK", 640, 300, 0.75, 0.62, 0.86, 0.98, 1.0)
     ui_push(640, 320, 128, 28)
-    local ui_clicked_14 = ui_button("play_dec", 28, "DECODED", 0.6)
+    ui_button("play_dec", 28, "DECODED", 0.6)
     ui_pop()
-    if ui_clicked_14 then
-        audio_music("decoded", S.level, S.crossfade)
-    end
     ui_push(776, 320, 128, 28)
-    local ui_clicked_15 = ui_button("play_str", 28, "STREAMED", 0.6)
+    ui_button("play_str", 28, "STREAMED", 0.6)
     ui_pop()
-    if ui_clicked_15 then
-        audio_music("streamed", S.level, S.crossfade)
-    end
     draw_text("assets/music.wav  " .. one_dp(S.stream_len) .. "s", 640, 358, 0.55,
               0.5, 0.58, 0.66, 1.0)
     if not S.decode_ok or not S.stream_ok then
@@ -345,4 +294,69 @@ function update(dt)
     draw_text("directly and asserts the envelopes, buses and voice pool",
               40, 496, 0.6, 0.45, 0.52, 0.6, 1.0)
     return 0
+end
+
+-- Declare once, resolve complete current-frame geometry, then perform effects once.
+function update(dt)
+    ui_begin()
+    local result = update_body(dt)
+    ui_end()
+    S.master = ui_result("bus_master", S.master)
+    S.sfx_bus = ui_result("bus_sfx", S.sfx_bus)
+    S.music_bus = ui_result("bus_music", S.music_bus)
+    S.crossfade = ui_result("xfade", S.crossfade)
+    S.level = ui_result("level", S.level)
+    if ui_clicked("sfx_coin") then
+        audio_play("coin", 0.90)
+    end
+    if ui_clicked("sfx_jump") then
+        audio_play("jump", 0.90)
+    end
+    if ui_clicked("sfx_win") then
+        audio_play("win", 0.90)
+    end
+    if ui_clicked("sfx_brick") then
+        audio_play("brick", 0.90)
+    end
+    if ui_clicked("sfx_launch") then
+        audio_play("launch", 0.90)
+    end
+    if ui_clicked("sfx_lose") then
+        audio_play("lose", 0.90)
+    end
+    if ui_clicked("sfx_wall") then
+        audio_play("wall", 0.90)
+    end
+    if ui_clicked("sfx_paddle") then
+        audio_play("paddle", 0.90)
+    end
+    if ui_clicked("trk_a") then
+        play_track("theme_a")
+    end
+    if ui_clicked("trk_b") then
+        play_track("theme_b")
+    end
+    if ui_clicked("trk_stop") then
+        audio_music_stop(S.crossfade)
+    end
+    if ui_clicked("trk_out") then
+        audio_music_stop(1.5)
+    end
+    if ui_clicked("pause") then
+        set_paused(not S.paused)
+    end
+    if ui_clicked("play_dec") then
+        audio_music("decoded", S.level, S.crossfade)
+    end
+    if ui_clicked("play_str") then
+        audio_music("streamed", S.level, S.crossfade)
+    end
+    if S.level ~= S.last_level then
+        S.last_level = S.level
+        audio_music_fade(S.level, 0.0)
+    end
+    audio_bus_set(0, S.master)
+    audio_bus_set(1, S.sfx_bus)
+    audio_bus_set(2, S.music_bus)
+    return result
 end

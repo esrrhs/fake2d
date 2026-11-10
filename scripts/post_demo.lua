@@ -129,7 +129,7 @@ local function init()
     bake_minimap()
 end
 
-function update(dt)
+local function update_body(dt)
     if S.seeded == nil then
         S.seeded = true
         reset_state()
@@ -221,17 +221,11 @@ function update(dt)
     draw_quad(616, 32, 324, 226, 0.04, 0.06, 0.11, 0.88)
     draw_text("POST PASS", 632, 42, 0.75, 0.62, 0.86, 0.98, 1.0)
     ui_push(632, 66, ui_layout_token("panel_width"), math.max(18, 28))
-    local ui_clicked_1 = ui_checkbox("post", 18, S.post_on, "enabled (SPACE)", 0.6)
+    ui_checkbox("post", 18, S.post_on, "enabled (SPACE)", 0.6)
     ui_pop()
-    if ui_clicked_1 then
-        S.post_on = not S.post_on
-    end
     ui_push(632, 92, ui_layout_token("panel_width"), math.max(18, 28))
-    local ui_clicked_2 = ui_checkbox("grey", 18, S.grey, "greyscale (G)", 0.6)
+    ui_checkbox("grey", 18, S.grey, "greyscale (G)", 0.6)
     ui_pop()
-    if ui_clicked_2 then
-        S.grey = not S.grey
-    end
     ui_push(632, 126, 180, 22)
     S.bright = ui_slider("bright", 22, S.bright, -0.3, 0.3)
     ui_pop()
@@ -277,4 +271,21 @@ function update(dt)
     draw_text("SPACE post on/off   G greyscale   sliders grade the pass",
               40, 500, 0.65, 0.5, 0.6, 0.7, 1.0)
     return 0
+end
+
+-- Declare once, resolve complete current-frame geometry, then perform effects once.
+function update(dt)
+    ui_begin()
+    local result = update_body(dt)
+    ui_end()
+    S.bright = ui_result("bright", S.bright)
+    S.vig = ui_result("vig", S.vig)
+    S.scan = ui_result("scan", S.scan)
+    if ui_clicked("post") then
+        S.post_on = not S.post_on
+    end
+    if ui_clicked("grey") then
+        S.grey = not S.grey
+    end
+    return result
 end

@@ -1747,6 +1747,11 @@ without advancing. Values/selections/open state remain in the caller.
 An unmatched end or a widget outside a box is a no-op. Balance all scopes
 in the frame; NewFrame clears layout scopes, rectangles and pending draws.
 
+**1.49 interaction migration:** the recommended explicit `ui_begin` / `ui_end`
+contract and post-End result queries are documented below. Widget return-value
+descriptions in the table describe legacy unscoped calls; declaration-time returns
+are false/unchanged. New demos use the current-frame contract, with no script replay.
+
 | Function | Description |
 |---|---|
 | `ui_push(x, y, w, h, pad=0)` / `ui_pop()` | Local origin, content width/height and intersecting clip stack. A disjoint intersection draws nothing. |
@@ -1794,10 +1799,11 @@ All UI content inside a scroll must use this API: direct renderer draws are
 not cursor-measured or deferred. Do not mix `draw_set_clip` with active UI
 scopes; the UI owns and restores its own intersection stack. No culling or
 virtualization is performed by ordinary Scroll; every submitted element contributes
-to height. Use the fixed-row List API below for virtualization.
+to height. Use fixed-row or 1.49 variable-row List APIs below for virtualization.
 
 ```lua
 function update(dt)
+    ui_begin()
     local w = math.min(ui_layout_token("panel_width"), camera_viewport_w() - 40)
     ui_push(20, 20, w, 460, 12)
         ui_panel(0.10, 0.12, 0.18, 1)
@@ -1815,6 +1821,7 @@ function update(dt)
             end
         ui_scroll_end()
     ui_pop()
+    ui_end()
     return 0
 end
 ```
@@ -1858,7 +1865,7 @@ C++ types/defaults). Lua returns one value; rectangles/colors use field getters.
 | `ui_rich_icon(name,texture,sx,sy,sw,sh)` / `ui_rich_text(markup,scale=0) -> link_id` | Register inline image; parse color/bold/image/link subset; empty result unless link activated. `SetRichIcon/RichText`. |
 | `ui_text_area(key,h,max_chars=4096) -> changed` | Wrapped multiline editable input; Enter inserts newline. `TextArea(...)`; single-line `TextInput` remains, Enter unfocuses. Same TextValue/SetTextValue storage. |
 | `ui_disabled_begin(disabled=true)` / `ui_disabled_end()` | Nested logical-OR scopes: disabled ancestors cannot be re-enabled by children. Ignore hover/press/drag/focus/text/navigation; dim interactive widget/image paint. `DisabledBegin/DisabledEnd`. |
-| `ui_modal_open(key)` / `ui_modal_close()` | Activate input block **before drawing underlying controls**; one active modal. `OpenModal/CloseModal`. |
+| `ui_modal_open(key)` / `ui_modal_close()` | Activate input block; one active modal. In an explicit frame, may be declared after underlying controls but before End. `OpenModal/CloseModal`. |
 | `ui_modal_begin(key,w,h) -> bool` / `ui_modal_end()` | Conditional body, centered reference-space dialog, full-screen dimming, fresh overlay clip. Escape / pad B cancels. Close explicit or button. Draw after base UI. `ModalBegin/ModalEnd`. |
 | `ui_popup_open(key,x,y)` / `ui_popup_close()` | One active popup; blocks underlying input while open. Coordinates in reference points. `OpenPopup/ClosePopup`. |
 | `ui_context_menu(key) -> open` | Open on right press over visible LastRect. `ContextMenu(key)`. |
@@ -1883,20 +1890,16 @@ reference-space root. World HUD mode remains translation-only (camera zoom 1,
 rotation 0); keep screen UI at world origin 0. Calling SetScale inside a box is
 rejected so one deferred batch cannot mix transforms.
 
-**Focus:** Tab/Shift-Tab and arrows traverse the submitted-order ring; pad dpad
-or left-stick threshold crossing navigates, A activates, B cancels overlays.
+**Focus:** Tab/Shift-Tab and arrows traverse current submitted controls; pad dpad
+or left-stick threshold crossing navigates, A activates, B cancels overlays/editing.
 Sliders/splitters use horizontal keys/pad to adjust. Mouse press moves focus;
-focused controls show an accent outline. The ring is the **previous completed
-frame's eligible controls** (normal immediate-mode discovery), not a retained
-widget tree. Disabled/clipped controls are excluded on submission. Input fields
-own arrows/Home/End/Enter while focused; navigation does not consume caret keys.
-Vertically aligned row painting resolves in the current RowEnd; pointer
-hit-testing uses the previous completed row's vertical offsets (first frame top),
-like regular scroll input using the previous visible offset. Keep row declaration
-order stable; query LastRect before RowEnd for the unshifted layout rectangle.
-For animated/reflowing interactive rows, prefer top alignment or wait one frame
-before pointer interaction. This is an explicit immediate-mode input limitation,
-not a claim of fully retained same-pass hit layout.
+focused controls show an accent outline. With the **1.49 explicit boundary below**,
+discovery and aligned hit rectangles use this frame's resolved geometry, including
+first appearance, resize, auto-height and scroll clamp. Disabled/clipped/removed
+controls and lower modal layers cannot keep stale focus. Focused fields own their
+caret arrows/Home/End/Enter. LastRect is declaration geometry; query WidgetRect
+after End for the finalized transformed rectangle. Legacy unscoped calls retain
+1.48 discovery semantics for compatibility, not the new same-frame guarantee.
 
 **Rich text syntax:** `[color=#rrggbb]...[/color]` or #rrggbbaa, `[b]...[/b]`
 (fake-bold), `[img=registered_name]`, `[link=id]...[/link]`. Color scopes nest;
@@ -1915,7 +1918,7 @@ clipboard adapter. **GLFW 3.4**, pinned in CMake and inspected in glfw3.h, expos
 committed `glfwSetCharCallback` characters, **no public preedit/composition API**.
 Chinese IME committed text works, but inline composition preview/underline and
 candidate-window positioning cannot be implemented honestly on this backend.
-There is no fake preedit, shaping/RTL, undo history or platform-native text view.
+There is no fake preedit, shaping/RTL or platform-native text view. Undo/redo is added in 1.49 below.
 
 **Runnable acceptance templates** (real FakeLua, real OFL CJK fallback asset):
 
@@ -1940,6 +1943,200 @@ requires transition markers, real screenshots, no update exceptions or overflow.
 `--ui-test` separately asserts dynamic geometry, pixels, grow/shrink offsets,
 Latin splitting, selection/clipboard, modality, focus/gamepad and virtual ranges.
 No UI Builder, visual editor, CSS engine or arbitrary-tree virtualization ships.
+
+#### 1.49 interaction boundary, variable rows and editing (Phases 63–67)
+
+**Use an explicit declaration boundary for same-frame interaction.** The caller
+executes once; there is no hidden second Lua `update`, user callback replay, or
+re-execution of purchases/gameplay/audio side effects. Declare all widgets between
+`ui_begin()` and `ui_end()`, then consume their results. Auto heights, row alignment,
+outer scroll clamping, overlay precedence, reference mapping and the **current**
+focus ring are resolved before hit-testing. First appearance, removal, reorder and
+disabled controls do not depend on a previous ring or previous aligned rectangle.
+Internal native widget painters run after layout, at their original paint insertion
+points; a later panel/modal still paints over earlier controls and scrollbars.
+
+During declaration, boolean widgets return false and numeric widgets return the
+unchanged value (a splitter returns its saved/initial offset). Their old direct
+return descriptions apply only to source-compatible **legacy unscoped** calls;
+that path retains 1.48 discovery semantics and is not the same-frame contract.
+All in-repository interactive UI demos now use the explicit boundary. An action
+which changes the UI structure takes effect at the **next declaration**: e.g.
+`if ui_clicked("open") then ui_modal_open("dialog") end` after End opens the
+next frame's dialog. Declare a modal before End if it must block this frame,
+even when the declaration comes after underlying controls. Likewise, read edited
+`ui_text_value` after End; a dependent paragraph/panel uses that new value at the
+next declaration. Programmatic text known before Begin is measured immediately.
+This explicit event boundary is not a promise to replay dependent caller layout.
+Popup outside-click /
+Escape dismissal consumes the gesture rather than clicking through below it.
+Apply theme/scale/data changes before declaration, keep texture resources alive
+through End, and do not change camera/render target halfway through a deferred UI.
+
+| Lua API | C++ method / semantics |
+|---|---|
+| `ui_begin() -> bool` / `ui_end() -> bool` | `BeginFrameUI()/EndFrameUI()`. Once per NewFrame; all boxes/rows/scrolls must balance. End resolves and paints; queries remain valid until NewFrame. A second Begin cannot accidentally replay the completed frame. |
+| `ui_clicked(key) -> bool` | `Clicked(key)`: boolean-return widgets' activation/change result. Do **not** use it for sliders/splitters (a nonzero numeric value is not a click). |
+| `ui_result(key,fallback=0) -> number` | `ResultNumber(key,fallback)`: slider/splitter value, or popup parent key's selected 0-based index; use fallback -1 for menus. Window drag returns 0/1. |
+| `ui_activated() -> key` / `ui_link_clicked() -> id` | `ActivatedWidget()/ClickedLink()`: last activated focusable non-text/non-adjustable widget, or rich-link id; empty if none. Useful for button-backed virtual rows without scanning all items. No automatic navigation/network actions. |
+| `ui_widget_rect(key,field) -> number` | `WidgetRect(key)` after End: final **transformed, unclipped** reference-point rect (x/y/w/h), including row alignment and scroll; missing/removed key = zero rect. LastRect remains declaration-space geometry. |
+| `ui_frame_stat(name) -> number` | `Stats()` / `FrameStats`: nodes, visible (eligible intersecting interaction nodes, not row count), draw_commands, tree_steps, measured_rows, layout_ms, interaction_ms. Unknown reads = 0. These are counters/CPU timers, **not allocation or GPU timings**. |
+| `ui_list_view(key,h) -> bool` | `ListView(key,h)`: reserve a fixed viewport at its normal place in a row/auto box/scroll; retain clips, transform identities, disabled/overlay scope and paint insertion point. Unique key per frame. |
+| `ui_layout_end() -> bool` | `EndLayout()`: optional balanced layout barrier, before visible-row declaration. Resolve parent auto sizes/alignment/scroll input once, without painting or replaying caller code. |
+| `ui_list_view_begin(key) -> bool` / `ui_list_view_end() -> bool` | `ListViewBegin/End`: after the barrier, re-enter that finalized viewport once. Declare a fixed or variable list inside; End restores the outer declaration state. Missing/unreserved key returns false. |
+
+The list-view barrier matters when the final viewport is only known after a later
+column or outer auto/scroll closes. It lets wheel/drag choose the **new** visible
+slice before the caller submits any rows. Place all main-layout views and overlays,
+close scopes, call `ui_layout_end`, fill the views, then `ui_end` discovers focus
+across all submitted controls. A reserved list owns the wheel over its viewport
+(no scroll chaining to its parent). The original direct `ui_list_begin` and new
+`ui_vlist_begin` remain useful when their viewport/ancestor offsets are already
+known; use ListView for the general reflowing/aligned/nested-scroll case. Do not
+request a slice against a still-unresolved parent and expect hidden caller replay.
+The focus order is widget submission order (including the late visible-row phase);
+only submitted, visible, enabled rows are focus stops. Offscreen selection policy
+is application-owned, not arbitrary-tree virtualization.
+
+**Variable-height virtual lists:**
+
+| Lua API | C++ signature / contract |
+|---|---|
+| `ui_vlist_configure(key,ids_csv,estimate=24,revision="") -> bool` | `ConfigureVariableList(key,vector<string> ids,float estimate=24,string_view revision={})`. Call on data mutation, **not per-frame over thousands of IDs**. Nonempty unique stable IDs; Lua IDs cannot contain comma (empty CSV clears). Reject duplicate/empty IDs, invalid estimate (<1/nonfinite), and mutation of an active list. |
+| `ui_vlist_invalidate(key,row_id="")` | `InvalidateVariableList(key,row_id={})`. Clear one row's measurement or all measurements; no-op inside an active row/list. Keep the visible ID/inset anchor. |
+| `ui_vlist_begin(key,view_h,pin_bottom=false) -> bool` | `VariableListBegin(...)`: configure first; enter a normal measured/intersecting scroll. Default preserves the visible anchor; true intentionally pins to bottom. |
+| `ui_vlist_next() -> index` | `VariableListNext()`: open one auto-height row; -1 means done. Zero-based index into configured IDs. Must close each returned row. May request predecessors after bottom-pinned estimates shrink: **do not assume monotonically increasing indices**. Each index is requested at most once in a frame. |
+| `ui_vlist_row_end() -> measured_h` / `ui_vlist_end()` | `VariableListRowEnd()/VariableListEnd()`: measure actual consumed height (minimum 1), update offsets and row transforms, continue requesting enough rows to fill the view **this frame**, close scroll. |
+| `ui_vlist_id(key,index) -> id` | `VariableListID(key,int)`: bounded lookup, unknown/out of range = empty. |
+| `ui_vlist_height(key,id) -> h` / `ui_vlist_measured(key,id) -> bool` | `VariableListHeight/Measured`: distinguish current estimate from a known measurement. |
+| `ui_vlist_total(key)` / `ui_vlist_anchor(key)` | `VariableListTotal/Anchor`: estimated+measured extent and current top visible stable row ID. Existing scroll height/offset getters also work. |
+
+An O(N) ID/offset rebuild happens on configuration or invalidation; Fenwick prefix,
+range lookup and measurement updates are O(log N). Normal frames submit only the
+visible window, not all 1200 rows. Each ID caches its last measured height. Width,
+`theme.font_scale`, and Font's revision (load/reset/fallback changes) invalidate
+measurements automatically. Change `revision`, or invalidate affected IDs, for
+application text/content changes, explicit per-row font-scale changes, or other
+custom row style/padding changes. Unvisited heights are **estimates**, not claims
+of measuring unseen content; total extent converges as those rows are visited.
+
+Before mutation/remeasurement, retain top visible ID + intra-row offset; restore
+its new prefix sum afterward. An unknown anchor's inset is retained until its
+actual height is known, not prematurely clamped to a too-small estimate. Expansion,
+collapse, insertion/deletion above and width/font remeasurement do not jump the
+known anchor. Deleting that ID chooses its nearest surviving successor (then
+predecessor), inset 0; legal end-of-content clamping takes precedence. Bottom pin
+explicitly opts out of the top anchor; shrinking estimates can request preceding
+rows in the same frame. Per-row transforms keep already-submitted rows aligned
+when those preceding measurements change. No full traversal of arbitrary trees.
+
+```lua
+local S = new_global_obj("example", "ui")
+function update(dt)
+    if S.ready == nil then
+        S.ready = true
+        ui_vlist_configure("log", "stable-a,stable-b,stable-c", 32, "data-v1")
+    end
+    ui_begin()
+    ui_push(20, 20, 400, 240, 8)
+        ui_button("clear", 28, "Clear selection")
+        ui_list_view("log", 180)
+    ui_pop()
+    ui_layout_end()
+    if ui_list_view_begin("log") then
+        ui_vlist_begin("log", 180)
+        local row = ui_vlist_next()
+        while row >= 0 do
+            local id = ui_vlist_id("log", row)
+            ui_text("田亩 / variable wrapped text for " .. id)
+            ui_button("select/" .. id, 24, id)
+            ui_vlist_row_end()
+            row = ui_vlist_next()
+        end
+        ui_vlist_end()
+        ui_list_view_end()
+    end
+    ui_end()
+    if ui_clicked("clear") then S.selected = "" end
+    local key = ui_activated()
+    if string.sub(key, 1, 7) == "select/" then S.selected = string.sub(key, 8) end
+    return 0
+end
+```
+
+**Editing polish:** `ui_password(key,h,max_chars=128)` / C++ `TextPassword` shares
+single-line UTF-8 storage but draws one `*` per codepoint, never writes masks into
+the value. Ctrl/Cmd-C leaves clipboard unchanged; X deletes without exporting;
+V pastes normally. The raw value and undo history remain ordinary process memory,
+not a credential vault or secure-memory promise; do not log them. Ctrl/Cmd-Z undo,
+Shift-Z or Y redo, and `ui_undo(key)` / `ui_redo(key)` (C++ `Undo/Redo`) share bounded
+128-transaction per-field history (one text-changing frame per transaction).
+A new edit clears redo; `ui_text_set` resets history and selection. History actions
+restore the UTF-8 value/caret/anchor. `ui_selection(key,end=false)` / C++
+`Selection(key,bool end)` returns ordered byte offsets (false start, true end),
+always codepoint boundaries for valid UTF-8. Mouse drag selects; double-click
+selects ASCII alnum/underscore words or a contiguous CJK run (basic word classes,
+not ICU linguistic segmentation). Mouse placement precedes committed characters
+in the same input snapshot. C++ `SetInteractionClock(function<double()>)` can
+supply monotonic seconds for deterministic recording/tests; empty uses steady
+clock. Focused fields keep their caret keys; Enter/A can re-activate a blurred
+text focus stop, Escape/pad B cancels editing. Clipboard still uses GLFW, with a
+headless in-memory adapter for tests; no claim of an OS clipboard on no-window runs.
+
+**IME investigation (still a limitation):** pinned GLFW 3.4's public `glfw3.h` and
+`glfw3native.h` expose no preedit callback. Cocoa's `setMarkedText` stores composition
+in GLFW's private `GLFWContentView`; X11 uses `Xutf8LookupString` for committed
+characters; Win32's public path supplies committed character events. Native-window
+handles alone do not expose a portable preedit event stream. Intercepting/replacing
+GLFW's private Cocoa input client / Win32 message procedure / XIM callbacks would
+be a platform-specific backend rewrite, not a safe extension here. No vendor fork,
+private-object scraping or fake preview was added. Committed IME characters,
+selection, clipboard and undo work; inline composition preview and candidate
+positioning remain explicitly unsupported. Shaping/RTL/platform-native text views
+remain outside this UI's scope.
+
+**New runnable acceptance/measurement commands:**
+
+```sh
+./build/bin/fake2d_hello --ui-variable-demo
+./build/bin/fake2d_hello --headless --frames 240 --ui-variable-demo
+./build/bin/fake2d_hello --ui-stress-demo
+./build/bin/fake2d_hello --headless --frames 240 --ui-stress-demo
+./build/bin/fake2d_hello --headless --ui-test
+./build/bin/fake2d_hello --headless --ui-stress --frames 300 --ui-stress-seed 42
+./build/bin/fake2d_hello --headless --ui-bench
+```
+
+Variable demo: 1200 mixed Chinese/English rows, keyed expansion, insertion/deletion,
+width/reference changes, bottom pin, large-to-three-row shrink, live text-driven
+auto panel, multiline undo/redo and masked input. SPACE auto; L language; E expand;
+W width/reference; I insert; D shrink; B bottom; A audit. It scripts six 40-frame
+states, including short → long Chinese → short and long English. Stress demo:
+seeded 30-frame short → long → short transitions with font/width/reference changes,
+measured auto panels, bottom-aligned hit targets, nested scrolls, first-frame modal
+precedence, visible geometry/hit metrics and audit toggle; SPACE pause, N step,
+R reset seed, A audit. `--ui-test` adds focused regressions plus 90 seeded states;
+CTest adds two 300-frame seeds. Failures report seed/frame/state for reproduction.
+The existing layout/features demos remain the market/digit/scale and full-widget
+migration templates. All four 240-frame demos compile/run through real FakeLua in
+check-docs/CI/package verification, not just static screenshots. The docs gate
+also compiles and executes three-frame smoke runs of all 13 other migrated UI
+callers (including ui/ui2/ui3 and game/audio HUDs). Existing standalone gameplay
+fixtures remain a separate, non-rendering gate: their exact-arity Lua stubs receive
+explicit nil padding for omitted native UI options in generated copies only; real
+demo sources continue to use the documented optional arguments.
+
+`--ui-bench` warms up eight frames and measures 30 samples for fixed 1000-row and
+variable 1200-row lists, 64 rich links, and nested scroll/auto panels. Output is
+stable `UI_BENCH_CONFIG`, `UI_BENCH_CONTEXT`, and `UI_BENCH key=value` records: actual
+CPU layout/interaction/total timing, submitted/eligible nodes, measured rows,
+Fenwick lookup/update steps (not prefix-sum traversals), queued draw commands,
+renderer draw calls/batches and quads. Initial
+ID configuration is outside timed normal frames. Wall times vary by hardware,
+build and contention; CI gates deterministic workloads/complexity counters, **not
+absolute milliseconds**. Allocations are explicitly not instrumented; GPU timing
+is not measured. See [measured host sample](UI_BENCH_1_49.md) for actual context and
+numbers, not a fabricated performance claim. No visual editor or UI Builder.
 
 ### Debugging
 

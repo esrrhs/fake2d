@@ -387,7 +387,7 @@ local function draw_debug(cam_x, cam_y, vw, vh)
     end
 end
 
-function update(dt)
+local function update_body(dt)
     if S.seeded == nil then
         S.seeded = true
         reset_state()
@@ -478,11 +478,8 @@ function update(dt)
     ui_text("A/D MOVE  SPACE JUMP", 0.4, "ellipsis", 0, 0.67, 0.71, 0.80, 1.0)
     ui_pop()
     ui_push(cam_x + vw - 126.0, cam_y + 10.0, 110.0, 32.0)
-    local ui_clicked_1 = ui_button("restart", 32.0, "RESTART", 0.5)
+    ui_button("restart", 32.0, "RESTART", 0.5)
     ui_pop()
-    if ui_clicked_1 then
-        spawn()
-    end
     if S.win_timer >= 0 then
         local banner = "LEVEL COMPLETE!"
         local w = text_width(banner, 1.4)
@@ -490,4 +487,15 @@ function update(dt)
                   cam_y + vh * 0.5 - 40.0, 1.4, 0.47, 0.92, 0.55, 1.0)
     end
     return 0
+end
+
+-- Declare once, resolve complete current-frame geometry, then perform effects once.
+function update(dt)
+    ui_begin()
+    local result = update_body(dt)
+    ui_end()
+    if ui_clicked("restart") then
+        spawn()
+    end
+    return result
 end

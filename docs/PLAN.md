@@ -1119,7 +1119,8 @@ Phases 57–62 ship together as **1.48.0**, in the **1.48.x** band. No visual UI
 editor/UI Builder/WYSIWYG is implemented (explicit user exclusion). Full CSS
 Flexbox/Grid, accessibility/RTL, docking/multi-viewport and variable-height tree
 virtualization remain out of scope. The GLFW IME preedit and immediate-mode
-input-discovery limits above are deliberate, documented limitations, not stubs.
+input-discovery limits above are historical 1.48 limitations, not stubs. Phase 63
+supersedes input discovery for the new explicit path; IME preedit remains unsupported.
 
 ### Verification — Phases 57–62
 
@@ -1145,3 +1146,124 @@ input-discovery limits above are deliberate, documented limitations, not stubs.
 Only Linux execution was performed locally; the existing macOS/Windows CI smoke
 matrix now includes both new demos. No claims of native IME preedit or platform
 clipboard behavior beyond the tested GLFW/X11 and no-window adapter paths.
+
+## Phase 63 — Current-frame layout / interaction boundary (1.49.x)
+
+- [x] `BeginFrameUI/EndFrameUI` (`ui_begin/ui_end`): declare caller code exactly
+      once; resolve measured boxes/row transforms/scrolls before interaction;
+      consume `Clicked/ResultNumber/ActivatedWidget/ClickedLink` after End
+- [x] Discover the **current** eligible focus ring: first appearance, reorder,
+      removal, disabled controls, late modal precedence, Tab/Shift-Tab/arrows/pad;
+      focused text fields retain caret keys; visible focus indicator
+- [x] Final `WidgetRect` includes same-frame alignment/scroll/reference mapping;
+      short→long→short, viewport resize and clamped offsets are regression-tested
+- [x] Optional `ListView` placement + `EndLayout` barrier + `ListViewBegin/End`:
+      request visible rows only after a later column/outer scroll has finalized
+      the viewport; no hidden application callback or Lua update replay
+- [x] Preserve declaration paint insertion points for native widget painters,
+      late-filled list views and scrollbars; consume popup dismissal gestures
+- [x] Migrate all in-repository interactive UI scripts to declare/resolve/effect
+      phases. Legacy unscoped C++/Lua returns remain compatible, but retain the
+      old discovery semantics; the explicit boundary is the new guarantee
+
+This supersedes Phase 60's input-discovery caveat for the explicit API. Application
+side effects execute once after End; structure changes affect the next declaration,
+not a silently repeated update. General virtual views use the optional barrier;
+requests made against an unresolved parent are not magically replayed.
+
+## Phase 64 — Keyed variable-height virtual rows (1.49.x)
+
+- [x] Keep the fixed-height list path; add configured unique stable IDs, estimated
+      versus measured heights, visible-row iterator and auto-height row scopes
+- [x] Fenwick prefix/range/update queries O(log N); O(N) metadata rebuild only on
+      configuration/invalidation; normal frames submit only a visible window
+- [x] Preserve measurements by ID across insertion/deletion; invalidate by row or
+      content revision, plus automatic width/theme-font-scale/font-revision changes
+- [x] Preserve top visible ID + intra-row offset through remeasurement, including
+      an inset larger than an unknown row's estimate; deleted anchors choose the
+      nearest surviving successor then predecessor, subject to legal range clamp
+- [x] Explicit bottom pin; shrinking estimates can request preceding rows in the
+      same frame. Per-row transforms reposition already-submitted rows correctly
+- [x] 1200-row mixed Chinese/English regressions, insertion/deletion/anchor deletion,
+      resize, font/content changes, bottom-pin convergence and shrink without tail
+- [x] Reject duplicate IDs, invalid estimates and mutation inside an active row;
+      expose row ID/height/measured/total/anchor getters in C++ and Lua
+
+Unvisited content is estimated, not secretly fully measured. Call Configure on
+mutation, not every frame; caller revision/invalidation covers application text
+or custom row styling. This is row virtualization, not arbitrary-tree virtualization.
+
+## Phase 65 — Measured UI workload benchmark (1.49.x)
+
+- [x] `--ui-bench`: 8 warmup frames, 30 samples each for fixed 1000-row list,
+      variable 1200-row list, 64 rich links and nested scroll/auto-panel workloads
+- [x] Stable parseable CPU layout/interaction/total timing, submission/eligibility,
+      measured rows, Fenwick steps, queued draw commands, draw calls/batches/quads
+- [x] Print actual GL vendor/renderer/version, compiler/build mode and workload
+      configuration. Allocation instrumentation and GPU timing explicitly absent
+- [x] Deterministic workload/complexity gates in CTest and CI, never absolute
+      machine-dependent wall-clock thresholds
+- [x] Record final measured host output and environment in `UI_BENCH_1_49.md`
+
+No speedup or zero-allocation claim is made. Initial ID configuration is outside
+normal-frame samples; rebuild costs still occur when data/width/font invalidates.
+
+## Phase 66 — Seeded dynamic acceptance and runnable templates (1.49.x)
+
+- [x] `--ui-test` extends the existing runner, including seeded grow/shrink states
+      and focused geometry/pixel/input regressions rather than a parallel harness
+- [x] `--ui-stress --ui-stress-seed N --frames N`: reproducible text/language/word,
+      width/reference mode/font, nested scroll, modal/focus and list-size changes;
+      report seed/frame/state on failure; check containment, audit, sibling reserve,
+      legal ranges, no stale focus and surviving interior anchor continuity
+- [x] Two additional CTest seeds (42 / 1492026, 300 states each) and benchmark gate
+- [x] `--ui-variable-demo`: interactive + six deterministic 40-frame states, mixed
+      keyed rows, expansion, insertion/deletion, resize/reference mapping, large-to-
+      three-row shrink, text-driven grow/shrink panel and editing controls
+- [x] `--ui-stress-demo`: seeded 30-frame short→long→short transitions, real glyphs,
+      measured aligned hit targets, nested scrolls, modal precedence and diagnostics
+- [x] Fix the existing standalone fixture mismatch: native UI optional arguments
+      versus exact-arity Lua stubs. Token-aware nil padding touches generated
+      copies only, preserves strings/comments/nested expressions and rejects
+      missing required arguments; lexer assertions plus all 24 backend cases pass
+- [x] Preserve `--ui-layout-demo` / `--ui-features-demo`, migrate virtual views to
+      final-layout slots; launcher/catalog/CLI/CI/package/docs wiring for all four
+- [x] Final full-suite / real FakeLua transition / package acceptance below
+
+## Phase 67 — UTF-8 editing polish and honest IME boundary (1.49.x)
+
+- [x] Per-field bounded undo/redo snapshots (128 text-changing-frame transactions),
+      Ctrl/Cmd-Z, Shift-Z/Y and C++/Lua commands; new edits clear redo; SetText resets
+- [x] Mouse drag selection, double-click basic word/CJK-run selection, codepoint-
+      safe byte boundaries, mouse placement before committed characters in one
+      snapshot, and deterministic interaction-clock injection for C++ tests
+- [x] Single/multiline editing remains; Enter/A can activate a blurred text focus
+      stop, Escape/pad B cancels; caret keys do not navigate away while editing
+- [x] Password mode masks per codepoint without changing the value; C does not
+      export, X deletes without export, V pastes; raw-memory/history caveat documented
+- [x] Inspect GLFW 3.4 public/native headers and Cocoa/X11/Win32 implementation:
+      public commit callbacks do not expose preedit; native handles alone are not
+      a safe portable composition stream
+- [ ] Native composition preview/candidate positioning: **unsupported**. No fake
+      preedit, private GLFW object interception, vendor fork or unrelated backend
+      rewrite; committed IME characters, clipboard, selection and history work
+
+Phases 63–67 ship together as **1.49.0**, in the **1.49.x** band. No visual editor,
+UI Builder, WYSIWYG, full CSS engine, docking or arbitrary-tree virtualization.
+
+### 1.49.0 verification record
+
+- [x] CMake/Ninja build; **--ui-test 1375 checks**; **CTest 33/33**; two additional
+      300-frame stress seeds each **2110 checks**; all four benchmark workloads pass
+- [x] `env -u DISPLAY python3 tools/check-docs.py`: 35 demos, 30 counted suites,
+      **2858 assertions**, four 240-frame FakeLua demos/screenshots, measured
+      grow/shrink/scroll assertions and all 13 other migrated-caller smokes
+- [x] Staged Linux package / strict assets / installed `find_package(fake2d 1.49)`
+      consumer compile/link/runtime API smoke (**consumer: 1.49.0**)
+- [x] Existing gameplay fixtures: **24/24**, TCC / GCC / interpreter; fixture
+      signature generation **152 custom / 479 automatic**; real launcher 3-frame
+      strict-assets startup/render succeeds
+Release policy: local commits only, author and committer both
+`esrrhs <esrrhs@163.com>`; no push. Commit SHA is reported with the delivery.
+
+Native Windows/macOS runs are CI-wired, not claimed as executed on this Linux host.

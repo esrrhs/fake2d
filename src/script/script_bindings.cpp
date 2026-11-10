@@ -1458,7 +1458,8 @@ void RegisterUiApi(fakelua::State *state, Engine *engine) {
         fakelua::CVar *values;
         int count;
         float N(int i, float fallback = 0) const {
-            return i < count ? static_cast<float>(fakelua::inter::CVarToNumber(values[i], fallback)) : fallback;
+            return i < count ? static_cast<float>(fakelua::inter::CVarToNumber(values[i], fallback))
+                             : fallback;
         }
         std::int64_t I(int i) const {
             return i < count ? static_cast<std::int64_t>(fakelua::inter::CVarToNumber(values[i], 0))
@@ -1470,17 +1471,121 @@ void RegisterUiApi(fakelua::State *state, Engine *engine) {
         bool B(int i) const { return i < count && fakelua::inter::CVarToBool(values[i], false); }
         Color C(int i) const { return {N(i, 1), N(i + 1, 1), N(i + 2, 1), N(i + 3, 1)}; }
         fakelua::CVar Nil() const { return fakelua::inter::NativeToFakeluaNil(state); }
-        fakelua::CVar Number(float n) const { return fakelua::inter::NativeToFakeluaDouble(state, n); }
+        fakelua::CVar Number(float n) const {
+            return fakelua::inter::NativeToFakeluaDouble(state, n);
+        }
         fakelua::CVar Bool(bool b) const { return fakelua::inter::NativeToFakeluaBool(state, b); }
-        fakelua::CVar String(std::string_view s) const { return fakelua::inter::NativeToFakeluaStringView(state, s); }
+        fakelua::CVar String(std::string_view s) const {
+            return fakelua::inter::NativeToFakeluaStringView(state, s);
+        }
     };
     const auto add = [state, engine](const char *name, int required,
-        std::function<fakelua::CVar(UISystem &, const Args &)> call) {
-        fakelua::RegisterNativeFunction(state, name, required, true,
-            fakelua::NativeFuncCallback([engine, call](fakelua::State *st, fakelua::CVar *v, int n) {
-                return call(engine->GetUI(), Args{st, v, n});
-            }));
+                                     std::function<fakelua::CVar(UISystem &, const Args &)> call) {
+        fakelua::RegisterNativeFunction(
+            state, name, required, true,
+            fakelua::NativeFuncCallback(
+                [engine, call](fakelua::State *st, fakelua::CVar *v, int n) {
+                    return call(engine->GetUI(), Args{st, v, n});
+                }));
     };
+    add("ui_password", 2, [](UISystem &ui, const Args &a) {
+        return a.Bool(
+            ui.TextPassword(a.S(0), a.N(1), static_cast<std::size_t>(std::max(0.0f, a.N(2, 128)))));
+    });
+    add("ui_undo", 1, [](UISystem &ui, const Args &a) { return a.Bool(ui.Undo(a.S(0))); });
+    add("ui_redo", 1, [](UISystem &ui, const Args &a) { return a.Bool(ui.Redo(a.S(0))); });
+    add("ui_selection", 2, [](UISystem &ui, const Args &a) {
+        return a.Number(static_cast<float>(ui.Selection(a.S(0), a.B(1))));
+    });
+    add("ui_vlist_id", 2, [](UISystem &ui, const Args &a) {
+        return a.String(ui.VariableListID(a.S(0), static_cast<int>(a.N(1))));
+    });
+    add("ui_vlist_height", 2, [](UISystem &ui, const Args &a) {
+        return a.Number(ui.VariableListHeight(a.S(0), a.S(1)));
+    });
+    add("ui_vlist_measured", 2, [](UISystem &ui, const Args &a) {
+        return a.Bool(ui.VariableListMeasured(a.S(0), a.S(1)));
+    });
+    add("ui_frame_stat", 1, [](UISystem &ui, const Args &a) {
+        const auto &s = ui.Stats();
+        const auto name = a.S(0);
+        double result = 0;
+        if (name == "nodes")
+            result = s.nodes;
+        else if (name == "visible")
+            result = s.visible;
+        else if (name == "draw_commands")
+            result = s.draw_commands;
+        else if (name == "tree_steps")
+            result = s.tree_steps;
+        else if (name == "measured_rows")
+            result = s.measured_rows;
+        else if (name == "layout_ms")
+            result = s.layout_ms;
+        else if (name == "interaction_ms")
+            result = s.interaction_ms;
+        return a.Number(static_cast<float>(result));
+    });
+    add("ui_vlist_configure", 2, [](UISystem &ui, const Args &a) {
+        std::vector<std::string> ids;
+        const std::string csv = a.S(1);
+        std::size_t from = 0;
+        if (!csv.empty() && (csv.front() == ',' || csv.back() == ','))
+            return a.Bool(false);
+        while (from < csv.size()) {
+            auto to = csv.find(',', from);
+            ids.push_back(csv.substr(from, to - from));
+            if (to == std::string::npos)
+                break;
+            from = to + 1;
+        }
+        return a.Bool(ui.ConfigureVariableList(a.S(0), ids, a.N(2, 24), a.S(3)));
+    });
+    add("ui_vlist_invalidate", 1, [](UISystem &ui, const Args &a) {
+        ui.InvalidateVariableList(a.S(0), a.S(1));
+        return a.Nil();
+    });
+    add("ui_vlist_begin", 2, [](UISystem &ui, const Args &a) {
+        return a.Bool(ui.VariableListBegin(a.S(0), a.N(1), a.B(2)));
+    });
+    add("ui_vlist_next", 0, [](UISystem &ui, const Args &a) {
+        return a.Number(static_cast<float>(ui.VariableListNext()));
+    });
+    add("ui_vlist_row_end", 0,
+        [](UISystem &ui, const Args &a) { return a.Number(ui.VariableListRowEnd()); });
+    add("ui_vlist_end", 0, [](UISystem &ui, const Args &a) {
+        ui.VariableListEnd();
+        return a.Nil();
+    });
+    add("ui_vlist_total", 1,
+        [](UISystem &ui, const Args &a) { return a.Number(ui.VariableListTotal(a.S(0))); });
+    add("ui_vlist_anchor", 1,
+        [](UISystem &ui, const Args &a) { return a.String(ui.VariableListAnchor(a.S(0))); });
+    add("ui_layout_end", 0, [](UISystem &ui, const Args &a) { return a.Bool(ui.EndLayout()); });
+    add("ui_list_view", 2,
+        [](UISystem &ui, const Args &a) { return a.Bool(ui.ListView(a.S(0), a.N(1))); });
+    add("ui_list_view_begin", 1,
+        [](UISystem &ui, const Args &a) { return a.Bool(ui.ListViewBegin(a.S(0))); });
+    add("ui_list_view_end", 0,
+        [](UISystem &ui, const Args &a) { return a.Bool(ui.ListViewEnd()); });
+    add("ui_begin", 0, [](UISystem &ui, const Args &a) { return a.Bool(ui.BeginFrameUI()); });
+    add("ui_end", 0, [](UISystem &ui, const Args &a) { return a.Bool(ui.EndFrameUI()); });
+    add("ui_clicked", 1, [](UISystem &ui, const Args &a) { return a.Bool(ui.Clicked(a.S(0))); });
+    add("ui_result", 1,
+        [](UISystem &ui, const Args &a) { return a.Number(ui.ResultNumber(a.S(0), a.N(1))); });
+    add("ui_activated", 0,
+        [](UISystem &ui, const Args &a) { return a.String(ui.ActivatedWidget()); });
+    add("ui_link_clicked", 0,
+        [](UISystem &ui, const Args &a) { return a.String(ui.ClickedLink()); });
+    add("ui_widget_rect", 2, [](UISystem &ui, const Args &a) {
+        const auto r = ui.WidgetRect(a.S(0));
+        const auto f = a.S(1);
+        return a.Number(f == "x"   ? r.x
+                        : f == "y" ? r.y
+                        : f == "w" ? r.width
+                        : f == "h" ? r.height
+                                   : 0);
+    });
     add("ui_constrain", 2, [](UISystem &ui, const Args &a) {
         ui.Constrain(a.N(0), a.N(1), a.N(2), a.N(3, 1e9f));
         return a.Nil();

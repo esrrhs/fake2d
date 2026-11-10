@@ -1092,11 +1092,8 @@ local function draw_hud()
     ui_pop()
 
     ui_push(S.vw - 138.0, 12.0, 126.0, 30.0)
-    local ui_clicked_1 = ui_button("shmup_restart", 30.0, "RESTART", 0.4)
+    ui_button("shmup_restart", 30.0, "RESTART", 0.4)
     ui_pop()
-    if ui_clicked_1 then
-        reset_stage(true)
-    end
 
     if S.ready_t > 0.0 then
         local m = "READY"
@@ -1160,7 +1157,7 @@ local function init()
     S.inited = true
 end
 
-function update(dt)
+local function update_body(dt)
     if S.seeded == nil then
         S.seeded = true
         reset_state()
@@ -1298,4 +1295,15 @@ function update(dt)
 
     if input_key_pressed("r") then reset_stage(true) end
     return 0
+end
+
+-- Declare once, resolve complete current-frame geometry, then perform effects once.
+function update(dt)
+    ui_begin()
+    local result = update_body(dt)
+    ui_end()
+    if ui_clicked("shmup_restart") then
+        reset_stage(true)
+    end
+    return result
 end

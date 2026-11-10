@@ -113,7 +113,7 @@ local function init()
     S.grade_fx = shader_load("assets/post_grade.vert", "assets/post_grade.frag")
 end
 
-function update(dt)
+local function update_body(dt)
     if S.seeded == nil then
         S.seeded = true
         reset_state()
@@ -223,11 +223,8 @@ function update(dt)
     draw_text("glow " .. pct(S.strength) .. "%", 300, 114, 0.55,
               0.75, 0.85, 0.95, 1.0)
     ui_push(52, 144, 120, 24)
-    local ui_clicked_1 = ui_button("split", 24, "SPLIT", 0.55)
+    ui_button("split", 24, "SPLIT", 0.55)
     ui_pop()
-    if ui_clicked_1 then
-        S.split = not S.split
-    end
     if S.split then
         draw_text("two cameras", 180, 148, 0.6, 0.98, 0.85, 0.40, 1.0)
     else
@@ -238,22 +235,16 @@ function update(dt)
     -- on by default because a bloom without a threshold is just a haze; the
     -- wave is off because a wobbling skyline is not for everyone.
     ui_push(52, 180, ui_layout_token("panel_width"), math.max(18, 28))
-    local ui_clicked_2 = ui_checkbox("bright", 18, S.bright_on, "bright pass", 0.6)
+    ui_checkbox("bright", 18, S.bright_on, "bright pass", 0.6)
     ui_pop()
-    if ui_clicked_2 then
-        S.bright_on = not S.bright_on
-    end
     ui_push(52, 208, 240, 22)
     S.threshold = ui_slider("cut", 22, S.threshold, 0.0, 1.0)
     ui_pop()
     draw_text("cut " .. pct(S.threshold) .. "%", 300, 212, 0.55,
               0.75, 0.85, 0.95, 1.0)
     ui_push(52, 244, ui_layout_token("panel_width"), math.max(18, 28))
-    local ui_clicked_3 = ui_checkbox("wave", 18, S.wave_on, "wave pass (u_time)", 0.6)
+    ui_checkbox("wave", 18, S.wave_on, "wave pass (u_time)", 0.6)
     ui_pop()
-    if ui_clicked_3 then
-        S.wave_on = not S.wave_on
-    end
     ui_push(52, 272, 240, 22)
     S.wamp = ui_slider("wamp", 22, S.wamp, 0.0, 20.0)
     ui_pop()
@@ -272,4 +263,26 @@ function update(dt)
     draw_text("u_time and u_resolution are stamped by the renderer", 40, 496,
               0.6, 0.45, 0.52, 0.6, 1.0)
     return 0
+end
+
+-- Declare once, resolve complete current-frame geometry, then perform effects once.
+function update(dt)
+    ui_begin()
+    local result = update_body(dt)
+    ui_end()
+    S.radius = ui_result("radius", S.radius)
+    S.strength = ui_result("strength", S.strength)
+    S.threshold = ui_result("cut", S.threshold)
+    S.wamp = ui_result("wamp", S.wamp)
+    S.wfreq = ui_result("wfreq", S.wfreq)
+    if ui_clicked("split") then
+        S.split = not S.split
+    end
+    if ui_clicked("bright") then
+        S.bright_on = not S.bright_on
+    end
+    if ui_clicked("wave") then
+        S.wave_on = not S.wave_on
+    end
+    return result
 end

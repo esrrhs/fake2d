@@ -172,6 +172,8 @@ jobs:
           run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --ui3-demo
           run_xvfb ./build/bin/fake2d_hello --headless --frames 240 --ui-layout-demo
           run_xvfb ./build/bin/fake2d_hello --headless --frames 240 --ui-features-demo
+          run_xvfb ./build/bin/fake2d_hello --headless --frames 240 --ui-variable-demo
+          run_xvfb ./build/bin/fake2d_hello --headless --frames 240 --ui-stress-demo
           run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --post-demo
           run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --fx-demo
           run_xvfb ./build/bin/fake2d_hello --headless --frames 120 --fog-demo
@@ -425,7 +427,7 @@ jobs:
           cat > "$CONSUMER/CMakeLists.txt" <<'EOF'
           cmake_minimum_required(VERSION 3.16)
           project(fake2d_consumer CXX)
-          find_package(fake2d 1.48 REQUIRED CONFIG)
+          find_package(fake2d 1.49 REQUIRED CONFIG)
           add_executable(consumer main.cpp)
           target_link_libraries(consumer PRIVATE fake2d::fake2d)
           EOF
@@ -436,6 +438,12 @@ jobs:
           int main() {
               fake2d::EngineConfig cfg;
               fake2d::Engine engine;
+              auto &ui = engine.GetUI();
+              if (!ui.ConfigureVariableList("api", {"stable-a", "stable-b"}, 24, "v1")) return 2;
+              ui.SetTextValue("edit", "UTF-8 田");
+              ui.NewFrame();
+              if (!ui.BeginFrameUI() || !ui.EndFrameUI()) return 3;
+              if (ui.VariableListTotal("api") != 48 || ui.TextValue("edit") != "UTF-8 田") return 4;
               std::printf("consumer: %s, ai_input default %d, frame %llu\n",
                           FAKE2D_VERSION_STRING, cfg.ai_input ? 1 : 0,
                           (unsigned long long)engine.FrameIndex());
@@ -456,7 +464,7 @@ jobs:
             -DCMAKE_PREFIX_PATH="$PREFIX;$FLINSTALL"
           cmake --build "$CONSUMER/build" -j 4
           export LD_LIBRARY_PATH="$FLINSTALL/lib:${LD_LIBRARY_PATH:-}"
-          "$CONSUMER/build/consumer" | grep -F "consumer: 1.48"
+          "$CONSUMER/build/consumer" | grep -F "consumer: 1.49"
 
       - name: Staged package ships every demo asset
         run: |
@@ -692,6 +700,8 @@ jobs:
           ./build/bin/fake2d_hello --path-test
           ./build/bin/fake2d_hello --rt-test
           ./build/bin/fake2d_hello --ui-test
+          ./build/bin/fake2d_hello --headless --ui-stress --frames 300 --ui-stress-seed 42
+          ./build/bin/fake2d_hello --headless --ui-bench
           ./build/bin/fake2d_hello --post-test
           ./build/bin/fake2d_hello --fx-test
           ./build/bin/fake2d_hello --fog-test
@@ -754,6 +764,8 @@ jobs:
           ./build/bin/fake2d_hello --headless --frames 120 --ui3-demo
           ./build/bin/fake2d_hello --headless --frames 240 --ui-layout-demo
           ./build/bin/fake2d_hello --headless --frames 240 --ui-features-demo
+          ./build/bin/fake2d_hello --headless --frames 240 --ui-variable-demo
+          ./build/bin/fake2d_hello --headless --frames 240 --ui-stress-demo
           ./build/bin/fake2d_hello --headless --frames 120 --post-demo
           ./build/bin/fake2d_hello --headless --frames 120 --fx-demo
           ./build/bin/fake2d_hello --headless --frames 120 --fog-demo
@@ -804,6 +816,8 @@ jobs:
           ./build/bin/fake2d_hello.exe --path-test
           ./build/bin/fake2d_hello.exe --rt-test
           ./build/bin/fake2d_hello.exe --ui-test
+          ./build/bin/fake2d_hello.exe --headless --ui-stress --frames 300 --ui-stress-seed 42
+          ./build/bin/fake2d_hello.exe --headless --ui-bench
           ./build/bin/fake2d_hello.exe --post-test
           ./build/bin/fake2d_hello.exe --fx-test
           ./build/bin/fake2d_hello.exe --fog-test
@@ -853,6 +867,8 @@ jobs:
           ./build/bin/fake2d_hello.exe --headless --frames 120 --ui3-demo
           ./build/bin/fake2d_hello.exe --headless --frames 240 --ui-layout-demo
           ./build/bin/fake2d_hello.exe --headless --frames 240 --ui-features-demo
+          ./build/bin/fake2d_hello.exe --headless --frames 240 --ui-variable-demo
+          ./build/bin/fake2d_hello.exe --headless --frames 240 --ui-stress-demo
           ./build/bin/fake2d_hello.exe --headless --frames 120 --post-demo
           ./build/bin/fake2d_hello.exe --headless --frames 120 --fx-demo
           ./build/bin/fake2d_hello.exe --headless --frames 120 --fog-demo

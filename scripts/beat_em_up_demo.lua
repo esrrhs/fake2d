@@ -1057,11 +1057,8 @@ local function draw_hud(cam_x, cam_y)
     ui_pop()
 
     ui_push(cam_x + S.vw - 132.0, cam_y + 52.0, 114.0, 30.0)
-    local ui_clicked_1 = ui_button("restart", 30.0, "RESTART", 0.42)
+    ui_button("restart", 30.0, "RESTART", 0.42)
     ui_pop()
-    if ui_clicked_1 then
-        reset_game()
-    end
 
     if S.wave_state == 1 and not S.stage_done then
         local m = "WAVE CLEAR"
@@ -1129,7 +1126,7 @@ local function init()
     S.inited = true
 end
 
-function update(dt)
+local function update_body(dt)
     if S.seeded == nil then
         S.seeded = true
         reset_state()
@@ -1155,4 +1152,15 @@ function update(dt)
 
     draw_hud(cam_x, cam_y)
     return 0
+end
+
+-- Declare once, resolve complete current-frame geometry, then perform effects once.
+function update(dt)
+    ui_begin()
+    local result = update_body(dt)
+    ui_end()
+    if ui_clicked("restart") then
+        reset_game()
+    end
+    return result
 end

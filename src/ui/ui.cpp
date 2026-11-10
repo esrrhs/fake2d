@@ -1,6 +1,7 @@
 #include "fake2d/ui.h"
 #include "fake2d/ease.h"
 #include <cstdlib>
+#include <cctype>
 
 #include <algorithm>
 #include <chrono>
@@ -84,8 +85,31 @@ void UISystem::Bind(const Input *input, const Camera2D *camera, Renderer *render
 }
 
 void UISystem::NewFrame() {
+    recording_ = resolving_ = frame_submitted_ = false;
+    dismissed_overlay_ = false;
+    resolving_allowed_ = true;
+    text_activated_.clear();
+    list_views_.clear();
+    active_list_view_.clear();
+    layout_resolved_ = false;
+    draw_placeholders_ = 0;
+    scroll_candidates_.clear();
+    prescrolled_.clear();
+    variable_scopes_.clear();
+    for (const auto &node : interactions_)
+        if (auto *state = Find(node.key))
+            state->hover = false;
+    interactions_.clear();
+    frame_results_.clear();
+    widget_rects_.clear();
+    clicked_link_.clear();
+    activated_widget_.clear();
+    frame_stats_ = {};
     // Widget state persists (hover/pressed); tooltip records are per frame.
     tooltip_.clear();
+    saved_nav_focus_ = nav_focus_;
+    saved_text_focus_ = focused_;
+    saved_stick_ = stick_held_;
     prior_focus_ = std::move(focus_ring_);
     focus_ring_.clear();
     nav_activate_ = false;
@@ -159,7 +183,8 @@ UISystem::WidgetState *UISystem::Find(std::string_view key) {
 }
 
 bool UISystem::MouseVisible() const {
-    if (!CanInteract())
+    if (!CanInteract() ||
+        (resolving_ && resolving_key_ != pointer_owner_ && resolving_key_ != pointer_active_))
         return false;
     if (!input_ || boxes_.empty())
         return true;
@@ -174,7 +199,8 @@ bool UISystem::MouseVisible() const {
 }
 
 Vec2 UISystem::Mouse() const {
-    if (!CanInteract())
+    if (!CanInteract() ||
+        (resolving_ && resolving_key_ != pointer_owner_ && resolving_key_ != pointer_active_))
         return {-1e20f, -1e20f};
     Vec2 p = RawMouse();
     p.y += ScrollTranslation(active_scrolls_);
@@ -225,6 +251,10 @@ void UISystem::PaintTip(float offset_x, float offset_y, float w, float h, std::s
 }
 
 void UISystem::DrawTooltip() {
+    if (recording_ && !resolving_) {
+        pending_draws_.push_back([this] { DrawTooltip(); });
+        return;
+    }
     if (tooltip_.empty() || camera_ == nullptr || renderer_ == nullptr) {
         return;
     }
@@ -274,7 +304,8 @@ bool UISystem::PaintButton(std::string_view key, float offset_x, float offset_y,
         if (state.pressed && mouse_released) {
             clicked = true;
         }
-        state.pressed = mouse_down || (state.pressed && !mouse_released && hover);
+        state.pressed = (mouse_down && (!resolving_ || input_->MousePressed(0))) ||
+                        (state.pressed && !mouse_released && hover);
     } else {
         // Drag outside cancels the press.
         state.pressed = false;
@@ -296,6 +327,8 @@ bool UISystem::PaintButton(std::string_view key, float offset_x, float offset_y,
     Quad(bounds, fill);
 
     if (!text.empty()) {
+        text_scale =
+            std::min(text_scale, std::max(0.01f, (h - 4) / renderer_->GetFont().LineHeight()));
         const float available = std::max(0.0f, w - 8.0f);
         const float natural = renderer_->MeasureText(text, text_scale);
         const float used_scale =
@@ -403,7 +436,8 @@ bool UISystem::PaintCheckbox(std::string_view key, float offset_x, float offset_
         if (state.pressed && mouse_released) {
             clicked = true;
         }
-        state.pressed = mouse_down || (state.pressed && !mouse_released && hover);
+        state.pressed = (mouse_down && (!resolving_ || input_->MousePressed(0))) ||
+                        (state.pressed && !mouse_released && hover);
     } else {
         state.pressed = false;
     }
@@ -437,6 +471,10 @@ void UISystem::SetTextValue(std::string_view key, std::string_view text) {
     WidgetState &state = widgets_[std::string(key)];
     state.text = std::string(text);
     state.caret = state.anchor = state.text.size();
+    state.undo.clear();
+    state.redo.clear();
+    state.last_click = -1;
+    state.selecting = false;
 }
 
 float UISystem::PaintScrollArea(std::string_view key, float offset_x, float offset_y, float w,
@@ -491,7 +529,7 @@ float UISystem::PaintScrollArea(std::string_view key, float offset_x, float offs
 
     // The container itself is invisible: content is drawn by the caller,
     // clipped, before this call. Only the scrollbar is drawn here.
-    if (max_scroll > 0.0f) {
+    if (max_scroll > 0.0f && !scroll_input_only_) {
         Quad(bar, ThemeColor("track"));
         const float drawn = p.y + (next / max_scroll) * thumb_track;
         Quad({bar.x + 1.0f, drawn, bar_w - 2.0f, thumb_h}, state.dragging ? ThemeColor("accent")
@@ -505,6 +543,12 @@ float UISystem::DrawFittedText(std::string_view text, float x, float y, float w,
                                const Color &tint, bool tail) {
     if (w <= 0.0f)
         return x;
+    if (renderer_ && paint_bounds_.height > 0) {
+        scale = std::min(
+            scale, std::max(.01f, (paint_bounds_.height - 4) / renderer_->GetFont().LineHeight()));
+        y = std::max(paint_bounds_.y, std::min(y, paint_bounds_.y + paint_bounds_.height -
+                                                      renderer_->GetFont().LineHeight() * scale));
+    }
     if (!tail)
         return String(Ellipsize(text, w, scale), x, y, scale, tint);
     // Keep the editable tail, but never split a UTF-8 codepoint.
@@ -556,7 +600,8 @@ bool UISystem::PaintRadioButton(std::string_view key, float offset_x, float offs
         if (state.pressed && mouse_released) {
             clicked = true;
         }
-        state.pressed = mouse_down || (state.pressed && !mouse_released && hover);
+        state.pressed = (mouse_down && (!resolving_ || input_->MousePressed(0))) ||
+                        (state.pressed && !mouse_released && hover);
     } else {
         state.pressed = false;
     }
@@ -600,7 +645,8 @@ bool UISystem::PaintComboBegin(std::string_view key, float offset_x, float offse
         if (state.pressed && mouse_released) {
             clicked = true;
         }
-        state.pressed = mouse_down || (state.pressed && !mouse_released && hover);
+        state.pressed = (mouse_down && (!resolving_ || input_->MousePressed(0))) ||
+                        (state.pressed && !mouse_released && hover);
     } else {
         // Unlike a button, releasing outside still counts as a click: the
         // list is a popup that swallows the gesture, and users flick it.
@@ -657,7 +703,8 @@ bool UISystem::PaintComboItem(std::string_view key, float offset_x, float offset
         if (state.pressed && mouse_released) {
             clicked = true;
         }
-        state.pressed = mouse_down || (state.pressed && !mouse_released && hover);
+        state.pressed = (mouse_down && (!resolving_ || input_->MousePressed(0))) ||
+                        (state.pressed && !mouse_released && hover);
     } else {
         state.pressed = false;
     }
@@ -741,7 +788,8 @@ bool UISystem::PaintTab(std::string_view key, float offset_x, float offset_y, fl
         if (state.pressed && mouse_released) {
             clicked = true;
         }
-        state.pressed = mouse_down || (state.pressed && !mouse_released && hover);
+        state.pressed = (mouse_down && (!resolving_ || input_->MousePressed(0))) ||
+                        (state.pressed && !mouse_released && hover);
     } else {
         state.pressed = false;
     }
@@ -789,7 +837,8 @@ bool UISystem::PaintTree(std::string_view key, float offset_x, float offset_y, f
         if (state.pressed && mouse_released) {
             clicked = true;
         }
-        state.pressed = mouse_down || (state.pressed && !mouse_released && hover);
+        state.pressed = (mouse_down && (!resolving_ || input_->MousePressed(0))) ||
+                        (state.pressed && !mouse_released && hover);
     } else {
         state.pressed = false;
     }
@@ -953,6 +1002,9 @@ void UISystem::FlushDraws() {
             resolve();
     for (auto &resolve : scroll_resolvers_)
         resolve = {};
+    frame_stats_.draw_commands += pending_draws_.size();
+    frame_stats_.draw_commands -= draw_placeholders_;
+    draw_placeholders_ = 0;
     auto commands = std::move(pending_draws_);
     pending_draws_.clear();
     for (auto &command : commands)
@@ -1191,8 +1243,24 @@ float UISystem::ScrollEnd() {
         }
     }
     const bool disabled_scope = IsDisabled(), modal_scope = in_modal_, popup_scope = in_popup_;
+    if (recording_ && height > scroll.viewport.height)
+        scroll_candidates_.push_back({scroll.index, scroll.depth, scroll.viewport, clips,
+                                      parent_ids, disabled_scope, modal_scope, popup_scope});
+    auto paints = std::make_shared<std::vector<std::function<void()>>>();
+    ++draw_placeholders_;
+    pending_draws_.push_back([paints] {
+        for (auto &paint : *paints)
+            paint();
+    });
     scroll_resolvers_[scroll.index] = [this, scroll, parent_ids, clips, height, disabled_scope,
-                                       modal_scope, popup_scope]() {
+                                       modal_scope, popup_scope, paints]() {
+        if (scroll_layout_only_) {
+            auto &saved = scroll_states_[scroll.key];
+            saved.offset =
+                std::clamp(saved.offset, 0.0f, std::max(0.0f, height - scroll.viewport.height));
+            scroll_offsets_[scroll.index] = saved.offset;
+            return;
+        }
         const bool old_modal = in_modal_, old_popup = in_popup_;
         in_modal_ = modal_scope;
         in_popup_ = popup_scope;
@@ -1207,10 +1275,20 @@ float UISystem::ScrollEnd() {
         viewport_box.content = paint_bounds_;
         viewport_box.clips = clips;
         boxes_.push_back(viewport_box);
+        const auto paint_start = pending_draws_.size();
+        ++deferred_;
         if (input_ && camera_ && renderer_)
             offset = PaintScrollArea(scroll.key, scroll.viewport.x, y, scroll.viewport.width,
                                      scroll.viewport.height, height, offset,
-                                     wheel_scroll_ == scroll.index);
+                                     wheel_scroll_ == scroll.index &&
+                                         std::find(prescrolled_.begin(), prescrolled_.end(),
+                                                   scroll.index) == prescrolled_.end());
+        --deferred_;
+        paints->clear();
+        for (auto i = paint_start; i < pending_draws_.size(); ++i)
+            paints->push_back(std::move(pending_draws_[i]));
+        frame_stats_.draw_commands += paints->size();
+        pending_draws_.resize(paint_start);
         boxes_.pop_back();
         saved.offset = offset;
         scroll_offsets_[scroll.index] = offset;
@@ -1283,7 +1361,8 @@ void UISystem::Quad(const Rect &rect, const Color &color) {
     });
 }
 
-float UISystem::String(std::string_view text, float x, float y, float scale, const Color &color) {
+float UISystem::String(std::string_view text, float x, float y, float scale, const Color &color,
+                       bool clipped) {
     Color tint =
         (color.r == 1 && color.g == 1 && color.b == 1 && color.a == 1) ? ThemeColor("text") : color;
     if (IsDisabled())
@@ -1291,7 +1370,19 @@ float UISystem::String(std::string_view text, float x, float y, float scale, con
     if (!renderer_)
         return x;
     const float width = renderer_->MeasureText(text, scale);
-    Record("widget text", {x, y, width, renderer_->GetFont().MeasureTextEx(text, scale, 0)});
+    Rect glyph_bounds{x, y, width, renderer_->GetFont().MeasureTextEx(text, scale, 0)};
+    if (clipped) {
+        const float right =
+            std::min(glyph_bounds.x + glyph_bounds.width, paint_bounds_.x + paint_bounds_.width);
+        const float bottom =
+            std::min(glyph_bounds.y + glyph_bounds.height, paint_bounds_.y + paint_bounds_.height);
+        glyph_bounds.x = std::max(glyph_bounds.x, paint_bounds_.x);
+        glyph_bounds.y = std::max(glyph_bounds.y, paint_bounds_.y);
+        glyph_bounds.width = std::max(0.0f, right - glyph_bounds.x);
+        glyph_bounds.height = std::max(0.0f, bottom - glyph_bounds.y);
+    }
+    if (glyph_bounds.width > 0 && glyph_bounds.height > 0)
+        Record("widget text", glyph_bounds);
     auto clips = boxes_.empty() ? std::vector<LayoutClip>{} : boxes_.back().clips;
     clips.push_back({paint_bounds_, active_scrolls_});
     if (scrolls_.empty() && deferred_ == 0) {
@@ -1353,6 +1444,15 @@ bool UISystem::Button(std::string_view key, float h, std::string_view text, floa
     if (boxes_.empty())
         return false;
     const Rect r = Allocate(h, "button");
+    if (recording_ && !resolving_) {
+        QueueInteraction(
+            key, r,
+            [=, this, k = std::string(key), t = std::string(text)] {
+                frame_results_[k] = Button(k, h, t, scale);
+            },
+            false, false, true);
+        return false;
+    }
     const bool activate = FocusWidget(key, r);
     const bool clicked = PaintButton(key, r.x, r.y, r.width, r.height, text, scale);
     FocusIndicator(key, r);
@@ -1363,6 +1463,15 @@ float UISystem::Slider(std::string_view key, float h, float value, float min_val
     if (boxes_.empty())
         return value;
     const Rect r = Allocate(h, "slider");
+    if (recording_ && !resolving_) {
+        QueueInteraction(
+            key, r,
+            [=, this, k = std::string(key)] {
+                frame_results_[k] = Slider(k, h, value, min_value, max_value);
+            },
+            false, true, true);
+        return value;
+    }
     FocusWidget(key, r, false, true);
     if (CanInteract() && input_ && nav_focus_ == key) {
         if (input_->KeyPressed("left") || input_->GamepadButtonPressed(0, "dpad_left"))
@@ -1396,6 +1505,15 @@ bool UISystem::Checkbox(std::string_view key, float size, bool checked, std::str
     size = std::max(0.0f, std::min(size, AvailWidth()));
     const float line = renderer_ ? renderer_->GetFont().LineHeight() * scale : 0;
     const Rect r = Allocate(std::max(size, line), "checkbox");
+    if (recording_ && !resolving_) {
+        QueueInteraction(
+            key, r,
+            [=, this, k = std::string(key), l = std::string(label)] {
+                frame_results_[k] = Checkbox(k, size, checked, l, scale);
+            },
+            false, false, true);
+        return false;
+    }
     const std::string fitted =
         renderer_ ? Ellipsize(label, std::max(0.0f, r.width - size - 8), scale) : std::string{};
     const bool activate = FocusWidget(key, r);
@@ -1413,6 +1531,15 @@ bool UISystem::RadioButton(std::string_view key, float size, bool selected, std:
     size = std::max(0.0f, std::min(size, AvailWidth()));
     const float line = renderer_ ? renderer_->GetFont().LineHeight() * scale : 0;
     const Rect r = Allocate(std::max(size, line), "radio");
+    if (recording_ && !resolving_) {
+        QueueInteraction(
+            key, r,
+            [=, this, k = std::string(key), l = std::string(label)] {
+                frame_results_[k] = RadioButton(k, size, selected, l, scale);
+            },
+            false, false, true);
+        return false;
+    }
     const std::string fitted =
         renderer_ ? Ellipsize(label, std::max(0.0f, r.width - size - 8), scale) : std::string{};
     const bool activate = FocusWidget(key, r);
@@ -1428,6 +1555,15 @@ bool UISystem::ComboBegin(std::string_view key, float h, std::string_view label,
     if (boxes_.empty())
         return false;
     const Rect r = Allocate(h, "combo");
+    if (recording_ && !resolving_) {
+        QueueInteraction(
+            key, r,
+            [=, this, k = std::string(key), l = std::string(label)] {
+                frame_results_[k] = ComboBegin(k, h, l, open, scale);
+            },
+            false, false, true);
+        return false;
+    }
     const bool activate = FocusWidget(key, r);
     const bool clicked = PaintComboBegin(key, r.x, r.y, r.width, r.height, label, open, scale);
     FocusIndicator(key, r);
@@ -1440,6 +1576,15 @@ bool UISystem::ComboItem(std::string_view key, float h, std::string_view label, 
     if (boxes_.empty())
         return false;
     const Rect r = Allocate(h, "combo_item");
+    if (recording_ && !resolving_) {
+        QueueInteraction(
+            key, r,
+            [=, this, k = std::string(key), l = std::string(label)] {
+                frame_results_[k] = ComboItem(k, h, l, selected, scale);
+            },
+            false, false, true);
+        return false;
+    }
     const bool activate = FocusWidget(key, r);
     const bool clicked = PaintComboItem(key, r.x, r.y, r.width, r.height, label, selected, scale);
     FocusIndicator(key, r);
@@ -1454,6 +1599,15 @@ bool UISystem::Window(std::string_view key, std::string_view title, float scale)
     last_rect_ = r;
     paint_bounds_ = r;
     Record("window", r);
+    if (recording_ && !resolving_) {
+        QueueInteraction(
+            key, r,
+            [=, this, k = std::string(key), t = std::string(title)] {
+                frame_results_[k] = Window(k, t, scale);
+            },
+            false, false, false);
+        return false;
+    }
     return PaintWindow(key, r.x, r.y, r.width, r.height, title, scale);
 }
 bool UISystem::Tab(std::string_view key, float h, std::string_view label, bool active,
@@ -1463,6 +1617,15 @@ bool UISystem::Tab(std::string_view key, float h, std::string_view label, bool a
     if (boxes_.empty())
         return false;
     const Rect r = Allocate(h, "tab");
+    if (recording_ && !resolving_) {
+        QueueInteraction(
+            key, r,
+            [=, this, k = std::string(key), l = std::string(label)] {
+                frame_results_[k] = Tab(k, h, l, active, scale);
+            },
+            false, false, true);
+        return false;
+    }
     const bool activate = FocusWidget(key, r);
     const bool clicked = PaintTab(key, r.x, r.y, r.width, r.height, label, active, scale);
     FocusIndicator(key, r);
@@ -1474,6 +1637,15 @@ bool UISystem::Tree(std::string_view key, float h, std::string_view label, bool 
     if (boxes_.empty())
         return false;
     const Rect r = Allocate(h, "tree");
+    if (recording_ && !resolving_) {
+        QueueInteraction(
+            key, r,
+            [=, this, k = std::string(key), l = std::string(label)] {
+                frame_results_[k] = Tree(k, h, l, open, scale);
+            },
+            false, false, true);
+        return false;
+    }
     const bool activate = FocusWidget(key, r);
     const bool clicked = PaintTree(key, r.x, r.y, r.width, r.height, label, open, scale);
     FocusIndicator(key, r);
@@ -1481,6 +1653,14 @@ bool UISystem::Tree(std::string_view key, float h, std::string_view label, bool 
 }
 void UISystem::Tip(std::string_view text) {
     const Rect r = last_rect_;
+    if (recording_ && !resolving_ && !boxes_.empty()) {
+        const std::string key = interactions_.empty() ? "@tip" : interactions_.back().key;
+        QueueInteraction(
+            key, r,
+            [this, r, text = std::string(text)] { PaintTip(r.x, r.y, r.width, r.height, text); },
+            false, false, false);
+        return;
+    }
     PaintTip(r.x, r.y, r.width, r.height, text);
 }
 
@@ -1580,6 +1760,15 @@ float UISystem::Splitter(std::string_view key, float height, float initial, floa
     if (boxes_.empty())
         return initial;
     const Rect r = Allocate(height, "splitter");
+    if (recording_ && !resolving_) {
+        QueueInteraction(
+            key, r,
+            [=, this, k = std::string(key)] {
+                frame_results_[k] = Splitter(k, height, initial, minimum);
+            },
+            false, true, true);
+        return Find(key) ? Find(key)->grab : initial;
+    }
     auto [it, inserted] = widgets_.try_emplace(std::string(key));
     auto &state = it->second;
     if (inserted)
@@ -1717,9 +1906,12 @@ void UISystem::DisabledEnd() {
         disabled_.pop_back();
 }
 bool UISystem::CanInteract() const {
-    return !IsDisabled() && (modal_.empty() || in_modal_) && (popup_.empty() || in_popup_);
+    return !(recording_ && dismissed_overlay_) && (!resolving_ || resolving_allowed_) &&
+           !IsDisabled() && (modal_.empty() || in_modal_) && (popup_.empty() || in_popup_);
 }
 bool UISystem::FocusWidget(std::string_view key, const Rect &r, bool text, bool adjustable) {
+    if (resolving_)
+        return CanInteract() && nav_focus_ == key && nav_activate_ && !text;
     if (!CanInteract() || !input_) {
         if (nav_focus_ == key)
             nav_focus_.clear();
@@ -1790,6 +1982,13 @@ bool UISystem::ImageButton(std::string_view key, const Texture2D *texture, const
                            float height, std::string_view label) {
     if (boxes_.empty())
         return false;
+    if (recording_ && !resolving_) {
+        const Rect r = Allocate(height, "image button");
+        QueueInteraction(key, r, [=, this, k = std::string(key), l = std::string(label)] {
+            frame_results_[k] = ImageButton(k, texture, src, height, l);
+        });
+        return false;
+    }
     const bool click = Button(key, height, label);
     const Rect r = last_rect_;
     const float size = std::max(0.0f, std::min(height - 8, r.width - 8));
@@ -1814,6 +2013,8 @@ bool UISystem::ModalBegin(std::string_view key, float width, float height) {
     if (modal_ != key || !camera_)
         return false;
     if (input_ && (input_->KeyPressed("escape") || input_->GamepadButtonPressed(0, "b"))) {
+        if (recording_)
+            dismissed_overlay_ = true;
         CloseModal();
         return false;
     }
@@ -1845,8 +2046,12 @@ void UISystem::ModalEnd() {
     ApplyLayoutClip(boxes_.empty() ? std::vector<LayoutClip>{} : boxes_.back().clips);
 }
 void UISystem::SetScrollOffset(std::string_view key, float offset) {
-    if (std::isfinite(offset))
+    if (std::isfinite(offset)) {
         scroll_states_[std::string(key)].offset = std::max(0.0f, offset);
+        auto it = variable_lists_.find(std::string(key));
+        if (it != variable_lists_.end())
+            it->second.anchor_pending = false;
+    }
 }
 void UISystem::OpenPopup(std::string_view key, float x, float y) {
     popup_ = key;
@@ -1857,6 +2062,22 @@ void UISystem::OpenPopup(std::string_view key, float x, float y) {
     focused_.clear();
 }
 bool UISystem::ContextMenu(std::string_view key) {
+    if (recording_ && !resolving_ && !boxes_.empty()) {
+        const auto rect = last_rect_;
+        const std::string menu(key);
+        QueueInteraction(
+            "@context/" + menu, rect,
+            [this, rect, menu] {
+                if (input_ && CanInteract() && MouseVisible() && rect.Contains(Mouse()) &&
+                    input_->MousePressed(1)) {
+                    const auto mouse = RawMouse();
+                    OpenPopup(menu, mouse.x, mouse.y);
+                }
+            },
+            false, false, false);
+        interactions_.back().pointer_button = 1;
+        return popup_ == key;
+    }
     if (input_ && !IsDisabled() && (modal_.empty() || in_modal_) && last_rect_.Contains(Mouse()) &&
         MouseVisible() && input_->MousePressed(1)) {
         const Vec2 m = Mouse();
@@ -1876,11 +2097,13 @@ int UISystem::Popup(std::string_view key, const std::vector<std::string> &items,
     r.y = std::clamp(r.y, 0.0f, std::max(0.0f, camera_->ViewportHeight() / scale_ - r.height));
     if (input_->KeyPressed("escape") || input_->GamepadButtonPressed(0, "b") ||
         (input_->MousePressed(0) && !r.Contains(RawMouse()))) {
+        if (recording_)
+            dismissed_overlay_ = true;
         popup_.clear();
         in_popup_ = false;
         return -1;
     }
-    if (!items.empty()) {
+    if (!items.empty() && !recording_) {
         const std::string prefix = std::string(key) + "/";
         if (input_->KeyPressed("tab") && nav_focus_.find(prefix) == 0)
             popup_index_ = std::atoi(nav_focus_.substr(prefix.size()).c_str());
@@ -1896,6 +2119,12 @@ int UISystem::Popup(std::string_view key, const std::vector<std::string> &items,
                            static_cast<int>(items.size()) - 1);
         nav_focus_ = prefix + std::to_string(popup_index_);
     }
+    if (recording_ && !items.empty()) {
+        const std::string prefix = std::string(key) + "/";
+        if (nav_focus_.find(prefix) != 0)
+            nav_focus_ = prefix + "0";
+        frame_results_[std::string(key)] = -1;
+    }
     const bool saved_activation = nav_activate_;
     if (popup_just_opened_)
         nav_activate_ = false;
@@ -1908,11 +2137,25 @@ int UISystem::Popup(std::string_view key, const std::vector<std::string> &items,
     ThemedPanel();
     int chosen = -1;
     for (std::size_t i = 0; i < items.size(); ++i) {
-        if (Button(std::string(key) + "/" + std::to_string(i), item_h, items[i]))
+        const std::string item_key = std::string(key) + "/" + std::to_string(i);
+        if (Button(item_key, item_h, items[i]))
             chosen = static_cast<int>(i);
+        if (recording_) {
+            auto action = std::move(interactions_.back().action);
+            interactions_.back().action = [this, action = std::move(action), item_key,
+                                           menu = std::string(key), i] {
+                action();
+                if (Clicked(item_key)) {
+                    frame_results_[menu] = static_cast<float>(i);
+                    popup_.clear();
+                    nav_focus_.clear();
+                }
+            };
+        }
     }
     nav_activate_ = saved_activation;
-    popup_just_opened_ = false;
+    if (!recording_)
+        popup_just_opened_ = false;
     Pop();
     boxes_.pop_back();
     in_popup_ = false;
@@ -1938,10 +2181,13 @@ UISystem::ListRange UISystem::ListBegin(std::string_view key, float view_h, int 
     const Rect view{boxes_.back().content.x, boxes_.back().content.y + boxes_.back().cursor,
                     AvailWidth(), std::max(0.0f, view_h)};
     paint_bounds_ = view;
+    scroll_input_only_ = true;
     if (input_ && renderer_ && camera_)
         state.offset = PaintScrollArea(key, view.x, view.y, view.width, view.height, state.height,
                                        state.offset,
                                        CanInteract() && view.Contains(Mouse()) && MouseVisible());
+    scroll_input_only_ = false;
+    prescrolled_.push_back(scroll_offsets_.size());
     state.offset = std::clamp(state.offset, 0.0f, std::max(0.0f, state.height - view.height));
     const int first = std::min(count, static_cast<int>(state.offset / item_h));
     const int end =
@@ -2017,10 +2263,19 @@ bool UISystem::TextArea(std::string_view key, float height, std::size_t max_char
         return false;
     return EditText(key, Allocate(height, "text_area"), max_chars, true);
 }
-bool UISystem::EditText(std::string_view key, const Rect &r, std::size_t max_chars,
-                        bool multiline) {
+bool UISystem::EditText(std::string_view key, const Rect &r, std::size_t max_chars, bool multiline,
+                        bool password) {
     if (!renderer_ || !input_)
         return false;
+    if (recording_ && !resolving_) {
+        QueueInteraction(
+            key, r,
+            [=, this, k = std::string(key)] {
+                frame_results_[k] = EditText(k, r, max_chars, multiline, password);
+            },
+            true);
+        return false;
+    }
     auto &s = widgets_[std::string(key)];
     s.caret = std::min(s.caret, s.text.size());
     s.anchor = std::min(s.anchor, s.text.size());
@@ -2037,7 +2292,12 @@ bool UISystem::EditText(std::string_view key, const Rect &r, std::size_t max_cha
     s.pressed = hover && CanInteract() && input_->MouseDown(0);
     s.hover = hover;
     const bool focused = CanInteract() && focused_ == key;
-    const float scale = ThemeMetric("font_scale"), lh = renderer_->GetFont().LineHeight() * scale;
+    bool history_action = false;
+    const float scale =
+        multiline ? ThemeMetric("font_scale")
+                  : std::min(ThemeMetric("font_scale"),
+                             std::max(.01f, (r.height - 12) / renderer_->GetFont().LineHeight()));
+    const float lh = renderer_->GetFont().LineHeight() * scale;
     const float width = std::max(1.0f, r.width - 12);
     struct Glyph {
         std::size_t start, end;
@@ -2049,7 +2309,9 @@ bool UISystem::EditText(std::string_view key, const Rect &r, std::size_t max_cha
         for (std::size_t i = 0; i < s.text.size();) {
             const auto next = NextChar(s.text, i);
             const auto ch = std::string_view(s.text).substr(i, next - i);
-            const float w = ch == "\n" ? 0 : renderer_->MeasureText(ch, scale);
+            const float w =
+                ch == "\n" ? 0
+                           : renderer_->MeasureText(password ? std::string_view("*") : ch, scale);
             if (multiline && x > 0 && x + w > width) {
                 x = 0;
                 y += lh;
@@ -2075,6 +2337,71 @@ bool UISystem::EditText(std::string_view key, const Rect &r, std::size_t max_cha
     const bool shift = input_->KeyDown("left_shift") || input_->KeyDown("right_shift");
     const bool ctrl = input_->KeyDown("left_control") || input_->KeyDown("right_control") ||
                       input_->KeyDown("left_super") || input_->KeyDown("right_super");
+    const Vec2 old_caret = caret_pos(s.caret);
+    const float mouse_scroll_x = multiline ? 0 : std::max(0.0f, old_caret.x - width + 2);
+    const float mouse_scroll_y = multiline ? std::max(0.0f, old_caret.y - (r.height - 12 - lh)) : 0;
+    if (hover && input_->MousePressed(0))
+        s.selecting = true;
+    if (s.selecting && CanInteract() &&
+        (input_->MouseDown(0) || (input_->MouseReleased(0) &&
+                                  (input_->MouseDelta().x != 0 || input_->MouseDelta().y != 0)))) {
+        const Vec2 m = Mouse();
+        float distance = 1e20f;
+        std::size_t index = s.text.size();
+        for (const auto &g : glyphs) {
+            const float d = std::abs(g.y - (m.y - r.y - 6 + mouse_scroll_y)) * 1000 +
+                            std::abs(g.x - (m.x - r.x - 6 + mouse_scroll_x));
+            if (d < distance) {
+                distance = d;
+                index = g.start;
+            }
+        }
+        s.caret = index;
+        if (input_->MousePressed(0)) {
+            const double now = interaction_clock_
+                                   ? interaction_clock_()
+                                   : std::chrono::duration<double>(
+                                         std::chrono::steady_clock::now().time_since_epoch())
+                                         .count();
+            const float dx = m.x - s.last_click_pos.x, dy = m.y - s.last_click_pos.y;
+            const bool double_click =
+                s.last_click >= 0 && now - s.last_click < .35 && dx * dx + dy * dy < 25;
+            if (!shift)
+                s.anchor = index;
+            if (double_click && !s.text.empty()) {
+                const auto cls = [](std::string_view text, std::size_t p) {
+                    if (p >= text.size())
+                        return -1;
+                    unsigned char c = static_cast<unsigned char>(text[p]);
+                    if (c < 128)
+                        return std::isalnum(c) || c == '_' ? 1 : 0;
+                    unsigned int cp = c & ((c & 0xf0) == 0xf0 ? 7 : (c & 0xe0) == 0xe0 ? 15 : 31);
+                    for (auto q = p + 1; q < NextChar(text, p); ++q)
+                        cp = (cp << 6) | (static_cast<unsigned char>(text[q]) & 63);
+                    if ((cp >= 0x3000 && cp <= 0x303f) || (cp >= 0xff00 && cp <= 0xff65))
+                        return 0;
+                    return cp >= 0x3400 && cp <= 0x9fff ? 2 : 1;
+                };
+                std::size_t a = index == s.text.size() ? PrevChar(s.text, index) : index,
+                            b = NextChar(s.text, a);
+                const int kind = cls(s.text, a);
+                while (a > 0 && cls(s.text, PrevChar(s.text, a)) == kind)
+                    a = PrevChar(s.text, a);
+                while (b < s.text.size() && cls(s.text, b) == kind)
+                    b = NextChar(s.text, b);
+                s.anchor = a;
+                s.caret = b;
+                s.selecting = false;
+                s.last_click = -1;
+            } else {
+                s.last_click = now;
+                s.last_click_pos = m;
+            }
+        }
+    }
+    if (!CanInteract() || !input_->MouseDown(0))
+        s.selecting = false;
+    const WidgetState::EditSnapshot before{s.text, s.caret, s.anchor};
     bool changed = false;
     auto erase_selection = [&]() {
         const auto a = std::min(s.anchor, s.caret), b = std::max(s.anchor, s.caret);
@@ -2113,20 +2440,27 @@ bool UISystem::EditText(std::string_view key, const Rect &r, std::size_t max_cha
             s.anchor = index;
     };
     if (focused) {
+        if (ctrl && input_->KeyPressed("z")) {
+            changed = shift ? Redo(key) : Undo(key);
+            history_action = true;
+        } else if (ctrl && input_->KeyPressed("y")) {
+            changed = Redo(key);
+            history_action = true;
+        }
         if (ctrl && input_->KeyPressed("a")) {
             s.anchor = 0;
             s.caret = s.text.size();
         }
         if (ctrl && (input_->KeyPressed("c") || input_->KeyPressed("x"))) {
             const auto a = std::min(s.anchor, s.caret), b = std::max(s.anchor, s.caret);
-            if (a != b)
+            if (a != b && !password)
                 input_->SetClipboard(std::string_view(s.text).substr(a, b - a));
             if (input_->KeyPressed("x"))
                 erase_selection();
         }
         if (ctrl && input_->KeyPressed("v"))
             insert(input_->Clipboard());
-        if (!ctrl)
+        if (!ctrl && text_activated_ != key)
             for (unsigned int cp : input_->TextCodepoints())
                 if (cp >= 32 && cp != 127) {
                     std::string utf;
@@ -2182,13 +2516,13 @@ bool UISystem::EditText(std::string_view key, const Rect &r, std::size_t max_cha
             }
             move(index);
         }
-        if (input_->KeyPressed("enter")) {
+        if (input_->KeyPressed("enter") && text_activated_ != key) {
             if (multiline)
                 insert("\n");
             else
                 focused_.clear();
         }
-        if (input_->KeyPressed("escape"))
+        if (input_->KeyPressed("escape") || input_->GamepadButtonPressed(0, "b"))
             focused_.clear();
     }
     glyphs = layout();
@@ -2196,22 +2530,6 @@ bool UISystem::EditText(std::string_view key, const Rect &r, std::size_t max_cha
     const float scroll_x = multiline ? 0 : std::max(0.0f, caret.x - width + 2);
     const float scroll_y =
         multiline ? std::max(0.0f, caret.y + lh - std::max(lh, r.height - 12)) : 0;
-    if (hover && input_->MousePressed(0)) {
-        const Vec2 m = Mouse();
-        float distance = 1e20f;
-        std::size_t index = s.text.size();
-        for (const auto &g : glyphs) {
-            float d = std::abs(g.y - (m.y - r.y - 6 + scroll_y)) * 1000 +
-                      std::abs(g.x - (m.x - r.x - 6 + scroll_x));
-            if (d < distance) {
-                distance = d;
-                index = g.start;
-            }
-        }
-        s.caret = index;
-        if (!shift)
-            s.anchor = index;
-    }
     Quad(r, ThemeColor("border"));
     Quad({r.x + 2, r.y + 2, std::max(0.0f, r.width - 4), std::max(0.0f, r.height - 4)},
          ThemeColor("field"));
@@ -2224,14 +2542,21 @@ bool UISystem::EditText(std::string_view key, const Rect &r, std::size_t max_cha
         if (g.start >= lo && g.start < hi)
             Quad({x, y, std::max(3.0f, g.w), lh}, ThemeColor("accent"));
         if (s.text[g.start] != '\n')
-            String(std::string_view(s.text).substr(g.start, g.end - g.start), x, y, scale,
-                   ThemeColor("text"));
+            String(password ? std::string_view("*")
+                            : std::string_view(s.text).substr(g.start, g.end - g.start),
+                   x, y, scale, ThemeColor("text"), true);
     }
     if (s.text.empty() && !focused)
         DrawFittedText("click to type", r.x + 6, r.y + 6, width, scale, {.45f, .48f, .55f, 1});
     if (focused) {
         const Vec2 c = caret_pos(s.caret);
         Quad({r.x + 6 + c.x - scroll_x, r.y + 6 + c.y - scroll_y, 1.5f, lh}, ThemeColor("text"));
+    }
+    if (changed && !history_action) {
+        if (s.undo.size() >= 128)
+            s.undo.erase(s.undo.begin());
+        s.undo.push_back(before);
+        s.redo.clear();
     }
     return changed;
 }
@@ -2326,13 +2651,27 @@ std::string UISystem::RichText(std::string_view markup, float scale) {
         }
         const Rect r{ox + x, oy + y, std::min(w, width), lh};
         if (!link.empty()) {
-            const std::string key = "rich/" + link + "/" + std::to_string(i);
-            const bool activate = FocusWidget(key, r);
-            auto &state = widgets_[key];
-            const bool hover = MouseVisible() && r.Contains(Mouse());
-            if (activate || (hover && state.pressed && input_ && input_->MouseReleased(0)))
-                clicked = link;
-            state.pressed = hover && input_ && CanInteract() && input_->MouseDown(0);
+            const std::string key = "rich/" + link;
+            const std::string state_key = key + "/" + std::to_string(i);
+            if (recording_ && !resolving_) {
+                QueueInteraction(key, r, [this, key, state_key, r, link] {
+                    auto &state = widgets_[state_key];
+                    const bool hover = MouseVisible() && r.Contains(Mouse());
+                    if ((nav_focus_ == key && nav_activate_) ||
+                        (hover && pointer_active_ == key && state.pressed && input_ &&
+                         input_->MouseReleased(0)))
+                        clicked_link_ = link;
+                    state.pressed = hover && input_ && CanInteract() && input_->MouseDown(0);
+                    FocusIndicator(key, r);
+                });
+            } else {
+                const bool activate = FocusWidget(key, r);
+                auto &state = widgets_[state_key];
+                const bool hover = MouseVisible() && r.Contains(Mouse());
+                if (activate || (hover && state.pressed && input_ && input_->MouseReleased(0)))
+                    clicked = link;
+                state.pressed = hover && input_ && CanInteract() && input_->MouseDown(0);
+            }
             Quad({r.x, r.y + lh - 2, r.width, 1}, color);
         }
         if (image)
@@ -2349,6 +2688,674 @@ std::string UISystem::RichText(std::string_view markup, float scale) {
     last_rect_ = {ox, oy, width, h};
     Record("rich text", last_rect_);
     return clicked;
+}
+
+bool UISystem::BeginFrameUI() {
+    if (recording_ || frame_submitted_ || !boxes_.empty() || !scrolls_.empty() || deferred_ != 0)
+        return false;
+    nav_focus_ = saved_nav_focus_;
+    focused_ = saved_text_focus_;
+    stick_held_ = saved_stick_;
+    recording_ = true;
+    ++deferred_;
+    interactions_.clear();
+    frame_results_.clear();
+    widget_rects_.clear();
+    clicked_link_.clear();
+    activated_widget_.clear();
+    nav_activate_ = false;
+    frame_started_ = std::chrono::steady_clock::now();
+    return true;
+}
+void UISystem::QueueInteraction(std::string_view key, const Rect &rect,
+                                std::function<void()> action, bool text, bool adjustable,
+                                bool focusable) {
+    InteractionNode node;
+    node.key = key;
+    node.rect = rect;
+    node.box = boxes_.back();
+    node.box.content = rect;
+    node.box.cursor = 0;
+    node.box.auto_height = false;
+    node.box.measured.reset();
+    node.translations = active_scrolls_;
+    node.disabled = IsDisabled();
+    node.modal = in_modal_ ? modal_ : "";
+    node.popup = in_popup_ ? popup_ : "";
+    node.text = text;
+    node.adjustable = adjustable;
+    node.focusable = focusable;
+    node.action = std::move(action);
+    node.paints = std::make_shared<std::vector<std::function<void()>>>();
+    ++draw_placeholders_;
+    pending_draws_.push_back([paints = node.paints] {
+        for (auto &paint : *paints)
+            paint();
+    });
+    interactions_.push_back(std::move(node));
+}
+void UISystem::NavigateCurrent() {
+    text_activated_.clear();
+    nav_activate_ = false;
+    nav_adjust_step_ = 0;
+    auto it = std::find_if(focus_ring_.begin(), focus_ring_.end(),
+                           [this](const FocusEntry &e) { return e.key == nav_focus_; });
+    if (it == focus_ring_.end()) {
+        nav_focus_.clear();
+        focused_.clear();
+    }
+    if (!input_ || focus_ring_.empty())
+        return;
+    const bool shift = input_->KeyDown("left_shift") || input_->KeyDown("right_shift");
+    const bool editing = it != focus_ring_.end() && it->text && focused_ == nav_focus_;
+    const bool adjustable = it != focus_ring_.end() && it->adjustable;
+    int step = input_->KeyPressed("tab") ? (shift ? -1 : 1) : 0;
+    const float x = input_->GamepadAxis(0, "left_x"), y = input_->GamepadAxis(0, "left_y");
+    const bool stick = std::abs(x) > .55f || std::abs(y) > .55f;
+    if (!editing) {
+        if (input_->KeyPressed("down") || input_->GamepadButtonPressed(0, "dpad_down") ||
+            (!adjustable &&
+             (input_->KeyPressed("right") || input_->GamepadButtonPressed(0, "dpad_right"))) ||
+            (stick && !stick_held_ && (y > .55f || (!adjustable && x > .55f))))
+            step = 1;
+        if (input_->KeyPressed("up") || input_->GamepadButtonPressed(0, "dpad_up") ||
+            (!adjustable &&
+             (input_->KeyPressed("left") || input_->GamepadButtonPressed(0, "dpad_left"))) ||
+            (stick && !stick_held_ && (y < -.55f || (!adjustable && x < -.55f))))
+            step = -1;
+        if (adjustable && stick && !stick_held_)
+            nav_adjust_step_ = x > .55f ? 1 : x < -.55f ? -1 : 0;
+        nav_activate_ = input_->KeyPressed("enter") || input_->KeyPressed("space") ||
+                        input_->GamepadButtonPressed(0, "a");
+    }
+    stick_held_ = stick;
+    if (step) {
+        int index = it == focus_ring_.end() ? (step > 0 ? -1 : 0)
+                                            : static_cast<int>(it - focus_ring_.begin());
+        index = (index + step + static_cast<int>(focus_ring_.size())) %
+                static_cast<int>(focus_ring_.size());
+        nav_focus_ = focus_ring_[index].key;
+        focused_ = focus_ring_[index].text ? nav_focus_ : "";
+    }
+    if (!editing && nav_activate_) {
+        auto target =
+            std::find_if(focus_ring_.begin(), focus_ring_.end(),
+                         [this](const FocusEntry &entry) { return entry.key == nav_focus_; });
+        if (target != focus_ring_.end() && target->text) {
+            focused_ = nav_focus_;
+            text_activated_ = nav_focus_;
+            nav_activate_ = false;
+        }
+    }
+    if (input_->MousePressed(0)) {
+        auto mouse_it =
+            std::find_if(focus_ring_.begin(), focus_ring_.end(),
+                         [this](const FocusEntry &e) { return e.key == pointer_owner_; });
+        if (mouse_it != focus_ring_.end()) {
+            nav_focus_ = mouse_it->key;
+            focused_ = mouse_it->text ? nav_focus_ : "";
+        } else
+            focused_.clear();
+    }
+}
+void UISystem::ResolveScrollLayout() {
+    // Resolve measured clips, aligned-column transforms and scroll offsets BEFORE
+    // discovering focus or hit-testing any widget. No caller code is replayed.
+    scroll_layout_only_ = true;
+    for (auto &resolve : scroll_resolvers_)
+        if (resolve)
+            resolve();
+    scroll_layout_only_ = false;
+    // The final measured/transformed viewport chooses the wheel recipient, not last frame's row
+    // alignment.
+    wheel_scroll_ = static_cast<std::size_t>(-1);
+    wheel_depth_ = 0;
+    for (const auto &candidate : scroll_candidates_) {
+        if (candidate.disabled || (!modal_.empty() && !candidate.modal) ||
+            (!popup_.empty() && !candidate.popup))
+            continue;
+        const auto mouse = RawMouse();
+        Rect viewport = candidate.viewport;
+        viewport.y -= ScrollTranslation(candidate.parents);
+        bool hit = viewport.Contains(mouse);
+        for (const auto &clip : candidate.clips) {
+            Rect c = clip.measured ? *clip.measured : clip.rect;
+            c.y -= ScrollTranslation(clip.scrolls);
+            hit = hit && c.Contains(mouse);
+        }
+        if (hit && candidate.depth >= wheel_depth_) {
+            wheel_depth_ = candidate.depth;
+            wheel_scroll_ = candidate.index;
+        }
+    }
+    for (auto &resolve : scroll_resolvers_)
+        if (resolve)
+            resolve();
+    for (auto &resolve : scroll_resolvers_)
+        resolve = {};
+    scroll_candidates_.clear();
+}
+bool UISystem::EndLayout() {
+    if (!recording_ || resolving_ || layout_resolved_ || !boxes_.empty() || !scrolls_.empty() ||
+        deferred_ != 1)
+        return false;
+    const auto now = std::chrono::steady_clock::now();
+    frame_stats_.layout_ms +=
+        std::chrono::duration<double, std::milli>(now - frame_started_).count();
+    ResolveScrollLayout();
+    frame_started_ = std::chrono::steady_clock::now();
+    frame_stats_.interaction_ms +=
+        std::chrono::duration<double, std::milli>(frame_started_ - now).count();
+    layout_resolved_ = true;
+    return true;
+}
+bool UISystem::ListView(std::string_view key, float height) {
+    if (!recording_ || resolving_ || layout_resolved_ || boxes_.empty() || height <= 0 ||
+        !std::isfinite(height) || list_views_.count(std::string(key)))
+        return false;
+    const Rect rect = Allocate(height, "virtual viewport");
+    ListViewport view;
+    view.box = boxes_.back();
+    view.box.content = rect;
+    view.box.cursor = 0;
+    view.box.padding = 0;
+    view.box.reserve = 0;
+    view.box.auto_height = false;
+    view.box.measured.reset();
+    view.box.clips.push_back({rect, active_scrolls_});
+    view.translations = active_scrolls_;
+    view.modal = in_modal_ ? modal_ : "";
+    view.popup = in_popup_ ? popup_ : "";
+    view.disabled = IsDisabled();
+    view.paints = std::make_shared<std::vector<std::function<void()>>>();
+    ++draw_placeholders_;
+    pending_draws_.push_back([paints = view.paints] {
+        for (auto &paint : *paints)
+            paint();
+    });
+    // A reserved list owns its wheel; the outer scroll must not consume it at the barrier.
+    scroll_candidates_.push_back({static_cast<std::size_t>(-2), boxes_.size() + 1, rect,
+                                  view.box.clips, view.translations, view.disabled,
+                                  !view.modal.empty(), !view.popup.empty()});
+    list_views_.emplace(std::string(key), std::move(view));
+    return true;
+}
+bool UISystem::ListViewBegin(std::string_view key) {
+    auto it = list_views_.find(std::string(key));
+    if (!recording_ || resolving_ || !layout_resolved_ || !boxes_.empty() ||
+        !active_list_view_.empty() || it == list_views_.end() || it->second.submitted)
+        return false;
+    auto &view = it->second;
+    view.submitted = true;
+    active_list_view_ = key;
+    list_view_paint_start_ = pending_draws_.size();
+    boxes_.push_back(view.box);
+    active_scrolls_ = view.translations;
+    DisabledBegin(view.disabled);
+    in_modal_ = !view.modal.empty() && view.modal == modal_;
+    in_popup_ = !view.popup.empty() && view.popup == popup_;
+    return true;
+}
+bool UISystem::ListViewEnd() {
+    if (active_list_view_.empty() || boxes_.size() != 1 || !scrolls_.empty() || !rows_.empty() ||
+        deferred_ != 1)
+        return false;
+    auto &view = list_views_.at(active_list_view_);
+    for (auto i = list_view_paint_start_; i < pending_draws_.size(); ++i)
+        view.paints->push_back(std::move(pending_draws_[i]));
+    frame_stats_.draw_commands += view.paints->size();
+    pending_draws_.resize(list_view_paint_start_);
+    boxes_.pop_back();
+    active_scrolls_.clear();
+    DisabledEnd();
+    in_modal_ = in_popup_ = false;
+    active_list_view_.clear();
+    return true;
+}
+bool UISystem::EndFrameUI() {
+    if (!recording_ || resolving_ || !boxes_.empty() || !scrolls_.empty() || deferred_ != 1)
+        return false;
+    const auto layout_done = std::chrono::steady_clock::now();
+    frame_stats_.layout_ms +=
+        std::chrono::duration<double, std::milli>(layout_done - frame_started_).count();
+    ResolveScrollLayout();
+    focus_ring_.clear();
+    pointer_owner_.clear();
+    std::vector<bool> eligible;
+    eligible.reserve(interactions_.size());
+    const Vec2 mouse = RawMouse();
+    for (const auto &node : interactions_) {
+        Rect visible = node.rect;
+        visible.y -= ScrollTranslation(node.translations);
+        widget_rects_[node.key] = visible;
+        bool allowed = !dismissed_overlay_ && !node.disabled &&
+                       (modal_.empty() || modal_ == node.modal) &&
+                       (popup_.empty() || popup_ == node.popup);
+        Rect clipped = visible;
+        for (const auto &clip : node.box.clips) {
+            Rect c = clip.measured ? *clip.measured : clip.rect;
+            c.y -= ScrollTranslation(clip.scrolls);
+            const float right = std::min(clipped.x + clipped.width, c.x + c.width),
+                        bottom = std::min(clipped.y + clipped.height, c.y + c.height);
+            clipped.x = std::max(clipped.x, c.x);
+            clipped.y = std::max(clipped.y, c.y);
+            clipped.width = std::max(0.0f, right - clipped.x);
+            clipped.height = std::max(0.0f, bottom - clipped.y);
+        }
+        allowed = allowed && clipped.width > 0 && clipped.height > 0;
+        eligible.push_back(allowed);
+        if (allowed) {
+            ++frame_stats_.visible;
+            if (clipped.Contains(mouse) &&
+                (node.pointer_button == 0 || (input_ && input_->MousePressed(node.pointer_button))))
+                pointer_owner_ = node.key; // last/topmost declaration wins
+            if (node.focusable &&
+                std::none_of(focus_ring_.begin(), focus_ring_.end(),
+                             [&](const FocusEntry &e) { return e.key == node.key; }))
+                focus_ring_.push_back({node.key, visible, node.text, node.adjustable});
+        }
+    }
+    if (input_ && input_->MousePressed(0))
+        pointer_active_ = pointer_owner_;
+    if (!pointer_active_.empty() &&
+        std::none_of(interactions_.begin(), interactions_.end(), [&](const InteractionNode &n) {
+            return n.key == pointer_active_ && !n.disabled &&
+                   (modal_.empty() || modal_ == n.modal) && (popup_.empty() || popup_ == n.popup);
+        })) {
+        if (auto *state = Find(pointer_active_)) {
+            state->pressed = false;
+            state->dragging = false;
+            state->selecting = false;
+        }
+        pointer_active_.clear();
+    }
+    NavigateCurrent();
+    if (popup_just_opened_)
+        nav_activate_ = false;
+    resolving_ = true;
+    for (std::size_t i = 0; i < interactions_.size(); ++i) {
+        const auto &node = interactions_[i];
+        resolving_key_ = node.key;
+        if (node.key != pointer_active_)
+            if (auto *state = Find(node.key)) {
+                state->pressed = false;
+                state->dragging = false;
+                state->selecting = false;
+            }
+        in_modal_ = !node.modal.empty();
+        in_popup_ = !node.popup.empty();
+        resolving_allowed_ = eligible[i];
+        DisabledBegin(node.disabled);
+        active_scrolls_ = node.translations;
+        boxes_.push_back(node.box);
+        paint_bounds_ = node.rect;
+        const auto paint_start = pending_draws_.size();
+        node.action();
+        if (node.focusable && !node.text && !node.adjustable && Clicked(node.key))
+            activated_widget_ = node.key;
+        for (auto p = paint_start; p < pending_draws_.size(); ++p)
+            node.paints->push_back(std::move(pending_draws_[p]));
+        frame_stats_.draw_commands += node.paints->size();
+        pending_draws_.resize(paint_start);
+        boxes_.pop_back();
+        active_scrolls_.clear();
+        DisabledEnd();
+    }
+    if (input_ && !input_->MouseDown(0))
+        pointer_active_.clear();
+    in_modal_ = in_popup_ = false;
+    resolving_allowed_ = true;
+    resolving_ = false;
+    recording_ = false;
+    --deferred_;
+    frame_stats_.nodes = interactions_.size();
+    frame_stats_.interaction_ms +=
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - layout_done)
+            .count();
+    popup_just_opened_ = false;
+    frame_submitted_ = true;
+    FlushDraws();
+
+    ApplyLayoutClip({});
+    return true;
+}
+bool UISystem::Clicked(std::string_view key) const {
+    auto it = frame_results_.find(std::string(key));
+    return it != frame_results_.end() && it->second != 0;
+}
+float UISystem::ResultNumber(std::string_view key, float fallback) const {
+    auto it = frame_results_.find(std::string(key));
+    return it == frame_results_.end() ? fallback : it->second;
+}
+Rect UISystem::WidgetRect(std::string_view key) const {
+    auto it = widget_rects_.find(std::string(key));
+    return it == widget_rects_.end() ? Rect{} : it->second;
+}
+
+void UISystem::RebuildVariable(VariableListState &s) {
+    s.positions.clear();
+    s.heights.resize(s.ids.size());
+    s.fenwick.assign(s.ids.size() + 1, 0);
+    for (std::size_t i = 0; i < s.ids.size(); ++i) {
+        s.positions[s.ids[i]] = i;
+        auto it = s.measured.find(s.ids[i]);
+        s.heights[i] = it == s.measured.end() ? s.estimate : it->second;
+        s.fenwick[i + 1] += s.heights[i];
+        const std::size_t parent = (i + 1) + ((i + 1) & (~i));
+        if (parent < s.fenwick.size())
+            s.fenwick[parent] += s.fenwick[i + 1];
+    }
+}
+float UISystem::VariablePrefix(const VariableListState &s, std::size_t count) const {
+    float sum = 0;
+    for (std::size_t i = std::min(count, s.ids.size()); i > 0; i -= i & (~i + 1))
+        sum += s.fenwick[i];
+    return sum;
+}
+std::size_t UISystem::VariableFind(const VariableListState &s, float offset) {
+    std::size_t index = 0, bit = 1;
+    while (bit < s.fenwick.size())
+        bit <<= 1;
+    float sum = 0;
+    for (; bit; bit >>= 1) {
+        ++frame_stats_.tree_steps;
+        const auto next = index + bit;
+        if (next < s.fenwick.size() && sum + s.fenwick[next] <= offset) {
+            index = next;
+            sum += s.fenwick[next];
+        }
+    }
+    return std::min(index, s.ids.size());
+}
+void UISystem::SaveVariableAnchor(const std::string &key, VariableListState &s) {
+    if (s.anchor_pending && s.positions.count(s.anchor))
+        return;
+    const float offset = scroll_states_[key].offset;
+    const auto index = VariableFind(s, offset);
+    if (index < s.ids.size()) {
+        s.anchor = s.ids[index];
+        s.anchor_inset = offset - VariablePrefix(s, index);
+    } else {
+        s.anchor = s.ids.empty() ? "" : s.ids.back();
+        s.anchor_inset = 0;
+    }
+}
+void UISystem::RestoreVariableAnchor(const std::string &key, VariableListState &s, float view_h) {
+    auto &scroll = scroll_states_[key];
+    scroll.height = VariablePrefix(s, s.ids.size());
+    auto it = s.positions.find(s.anchor);
+    if (it != s.positions.end()) {
+        float inset = s.anchor_inset;
+        if (s.measured.count(s.anchor))
+            inset = std::min(inset, std::max(0.0f, s.heights[it->second] - .001f));
+        scroll.offset = VariablePrefix(s, it->second) + inset;
+    }
+    if (s.bottom)
+        scroll.offset = std::max(0.0f, scroll.height - view_h);
+    scroll.offset = std::clamp(scroll.offset, 0.0f, std::max(0.0f, scroll.height - view_h));
+}
+bool UISystem::ConfigureVariableList(std::string_view name, const std::vector<std::string> &ids,
+                                     float estimate, std::string_view revision) {
+    if (std::any_of(variable_scopes_.begin(), variable_scopes_.end(),
+                    [&](const VariableListScope &scope) { return scope.key == name; }))
+        return false;
+    if (!std::isfinite(estimate) || estimate < 1)
+        return false;
+    std::unordered_map<std::string, bool> seen;
+    for (const auto &id : ids)
+        if (id.empty() || !seen.emplace(id, true).second)
+            return false;
+    const std::string key(name);
+    auto &s = variable_lists_[key];
+    if (s.ids == ids && s.estimate == estimate && s.revision == revision)
+        return true;
+    SaveVariableAnchor(key, s);
+    std::size_t old_index = 0;
+    auto old = s.positions.find(s.anchor);
+    if (old != s.positions.end())
+        old_index = old->second;
+    // If the anchor is deleted choose its nearest surviving successor, then predecessor.
+    if (seen.find(s.anchor) == seen.end()) {
+        std::string replacement;
+        for (std::size_t i = old_index; i < s.ids.size(); ++i)
+            if (seen.count(s.ids[i])) {
+                replacement = s.ids[i];
+                break;
+            }
+        if (replacement.empty())
+            for (std::size_t i = std::min(old_index, s.ids.size()); i > 0; --i)
+                if (seen.count(s.ids[i - 1])) {
+                    replacement = s.ids[i - 1];
+                    break;
+                }
+        s.anchor = replacement;
+        s.anchor_inset = 0;
+    }
+    if (s.revision != revision)
+        s.measured.clear();
+    s.ids = ids;
+    s.estimate = estimate;
+    s.revision = revision;
+    // Remove deleted cache entries so repeated replacements do not leak memory.
+    for (auto it = s.measured.begin(); it != s.measured.end();)
+        if (!seen.count(it->first))
+            it = s.measured.erase(it);
+        else
+            ++it;
+    RebuildVariable(s);
+    s.anchor_pending = !s.anchor.empty() && !s.measured.count(s.anchor);
+    RestoreVariableAnchor(key, s, 0);
+    return true;
+}
+void UISystem::InvalidateVariableList(std::string_view name, std::string_view row_id) {
+    if (std::any_of(variable_scopes_.begin(), variable_scopes_.end(),
+                    [&](const VariableListScope &scope) { return scope.key == name; }))
+        return;
+    auto it = variable_lists_.find(std::string(name));
+    if (it == variable_lists_.end())
+        return;
+    auto &s = it->second;
+    SaveVariableAnchor(it->first, s);
+    if (row_id.empty())
+        s.measured.clear();
+    else
+        s.measured.erase(std::string(row_id));
+    RebuildVariable(s);
+    s.anchor_pending = !s.anchor.empty() && !s.measured.count(s.anchor);
+    RestoreVariableAnchor(it->first, s, 0);
+}
+bool UISystem::VariableListBegin(std::string_view name, float view_h, bool pin_bottom) {
+    if (boxes_.empty() || !std::isfinite(view_h) || view_h <= 0)
+        return false;
+    const std::string key(name);
+    auto it = variable_lists_.find(key);
+    if (it == variable_lists_.end())
+        return false;
+    auto &s = it->second;
+    const float width = std::max(0.0f, AvailWidth() - 12), fs = ThemeMetric("font_scale");
+    const auto font_revision = renderer_ ? renderer_->GetFont().Revision() : 0;
+    const bool changed = s.width != width || s.font_scale != fs || s.font_revision != font_revision;
+    if (changed) {
+        SaveVariableAnchor(key, s);
+        s.measured.clear();
+        s.width = width;
+        s.font_scale = fs;
+        s.font_revision = font_revision;
+        RebuildVariable(s);
+        s.anchor_pending = !s.anchor.empty() && !s.measured.count(s.anchor);
+        RestoreVariableAnchor(key, s, view_h);
+    }
+    auto &saved = scroll_states_[key];
+    saved.height = VariablePrefix(s, s.ids.size());
+    s.bottom = pin_bottom;
+    if (pin_bottom)
+        s.anchor_pending = false;
+    const float input_offset = saved.offset;
+    if (pin_bottom)
+        saved.offset = std::max(0.0f, saved.height - view_h);
+    const Rect view{boxes_.back().content.x, boxes_.back().content.y + boxes_.back().cursor,
+                    AvailWidth(), view_h};
+    paint_bounds_ = view;
+    scroll_input_only_ = true;
+    if (input_ && renderer_ && camera_)
+        saved.offset = PaintScrollArea(key, view.x, view.y, view.width, view.height, saved.height,
+                                       saved.offset,
+                                       CanInteract() && MouseVisible() && view.Contains(Mouse()));
+    scroll_input_only_ = false;
+    prescrolled_.push_back(scroll_offsets_.size());
+    saved.offset = std::clamp(saved.offset, 0.0f, std::max(0.0f, saved.height - view_h));
+    if (saved.offset != input_offset && input_ &&
+        (input_->MouseWheel() != 0 || input_->MouseDown(0)))
+        s.anchor_pending = false;
+    SaveVariableAnchor(key, s);
+    const auto first = s.anchor_pending && s.positions.count(s.anchor)
+                           ? s.positions.at(s.anchor)
+                           : VariableFind(s, saved.offset);
+    ScrollBegin(key, view_h);
+    wheel_depth_ = boxes_.size() + 1;
+    boxes_.back().cursor = VariablePrefix(s, first);
+    variable_scopes_.push_back(
+        {key, view_h, static_cast<int>(first), boxes_.size(), false, pin_bottom, {}, {}});
+    return true;
+}
+int UISystem::VariableListNext() {
+    if (variable_scopes_.empty())
+        return -1;
+    auto &scope = variable_scopes_.back();
+    auto &s = variable_lists_[scope.key];
+    if (scope.row_open || boxes_.size() != scope.depth)
+        return -1;
+    int index = scope.submitted.empty() && s.anchor_pending && s.positions.count(s.anchor)
+                    ? static_cast<int>(s.positions.at(s.anchor))
+                    : static_cast<int>(VariableFind(s, scroll_states_[scope.key].offset));
+    while (index < static_cast<int>(s.ids.size()) && scope.visited.count(index))
+        ++index;
+    if (index >= static_cast<int>(s.ids.size()))
+        return -1;
+    const float start = VariablePrefix(s, index);
+    if (start >= scroll_states_[scope.key].offset + scope.view_h)
+        return -1;
+    scope.next = index;
+    scope.visited[index] = true;
+    boxes_.back().cursor = start;
+    const auto translation = scroll_offsets_.size();
+    scroll_offsets_.push_back(0);
+    scroll_resolvers_.emplace_back();
+    scope.submitted.push_back({index, translation, start});
+    active_scrolls_.push_back(translation);
+    Push(0, 0, AvailWidth(), 0);
+    scope.row_open = true;
+    return index;
+}
+float UISystem::VariableListRowEnd() {
+    if (variable_scopes_.empty() || !variable_scopes_.back().row_open)
+        return 0;
+    auto &scope = variable_scopes_.back();
+    if (boxes_.size() != scope.depth + 1)
+        return 0;
+    auto &s = variable_lists_[scope.key];
+    const auto index = static_cast<std::size_t>(scope.next);
+    Pop();
+    const float height = std::max(1.0f, last_rect_.height);
+    active_scrolls_.pop_back();
+    const float delta = height - s.heights[index];
+    s.heights[index] = height;
+    s.measured[s.ids[index]] = height;
+    if (s.ids[index] == s.anchor) {
+        s.anchor_pending = false;
+        s.anchor_inset = std::min(s.anchor_inset, std::max(0.0f, height - .001f));
+    }
+    for (std::size_t i = index + 1; i < s.fenwick.size(); i += i & (~i + 1)) {
+        s.fenwick[i] += delta;
+        ++frame_stats_.tree_steps;
+    }
+    ++frame_stats_.measured_rows;
+    scope.row_open = false;
+    RestoreVariableAnchor(scope.key, s, scope.view_h);
+    if (!active_scrolls_.empty())
+        scroll_offsets_[active_scrolls_.back()] = scroll_states_[scope.key].offset;
+    for (const auto &row : scope.submitted)
+        scroll_offsets_[row.translation] = row.original_start - VariablePrefix(s, row.index);
+    boxes_.back().cursor = VariablePrefix(s, index + 1);
+    return height;
+}
+void UISystem::VariableListEnd() {
+    if (variable_scopes_.empty())
+        return;
+    auto scope = variable_scopes_.back();
+    if (scope.row_open)
+        VariableListRowEnd();
+    if (boxes_.size() != scope.depth)
+        return;
+    auto &s = variable_lists_[scope.key];
+    RestoreVariableAnchor(scope.key, s, scope.view_h);
+    boxes_.back().cursor = VariablePrefix(s, s.ids.size());
+    ScrollEnd();
+    SaveVariableAnchor(scope.key, s);
+    variable_scopes_.pop_back();
+}
+float UISystem::VariableListTotal(std::string_view key) const {
+    auto it = variable_lists_.find(std::string(key));
+    return it == variable_lists_.end() ? 0 : VariablePrefix(it->second, it->second.ids.size());
+}
+std::string UISystem::VariableListAnchor(std::string_view key) const {
+    auto it = variable_lists_.find(std::string(key));
+    return it == variable_lists_.end() ? "" : it->second.anchor;
+}
+
+std::string UISystem::VariableListID(std::string_view key, int index) const {
+    auto it = variable_lists_.find(std::string(key));
+    return it == variable_lists_.end() || index < 0 ||
+                   static_cast<std::size_t>(index) >= it->second.ids.size()
+               ? ""
+               : it->second.ids[index];
+}
+float UISystem::VariableListHeight(std::string_view key, std::string_view id) const {
+    auto it = variable_lists_.find(std::string(key));
+    if (it == variable_lists_.end())
+        return 0;
+    auto pos = it->second.positions.find(std::string(id));
+    return pos == it->second.positions.end() ? 0 : it->second.heights[pos->second];
+}
+bool UISystem::VariableListMeasured(std::string_view key, std::string_view id) const {
+    auto it = variable_lists_.find(std::string(key));
+    return it != variable_lists_.end() && it->second.measured.count(std::string(id));
+}
+bool UISystem::TextPassword(std::string_view key, float h, std::size_t max_chars) {
+    if (boxes_.empty())
+        return false;
+    return EditText(key, Allocate(h, "password"), max_chars, false, true);
+}
+bool UISystem::Undo(std::string_view key) {
+    auto *s = Find(key);
+    if (!s || s->undo.empty())
+        return false;
+    s->redo.push_back({s->text, s->caret, s->anchor});
+    auto snapshot = std::move(s->undo.back());
+    s->undo.pop_back();
+    s->text = std::move(snapshot.text);
+    s->caret = snapshot.caret;
+    s->anchor = snapshot.anchor;
+    return true;
+}
+bool UISystem::Redo(std::string_view key) {
+    auto *s = Find(key);
+    if (!s || s->redo.empty())
+        return false;
+    s->undo.push_back({s->text, s->caret, s->anchor});
+    auto snapshot = std::move(s->redo.back());
+    s->redo.pop_back();
+    s->text = std::move(snapshot.text);
+    s->caret = snapshot.caret;
+    s->anchor = snapshot.anchor;
+    return true;
+}
+std::size_t UISystem::Selection(std::string_view key, bool end) const {
+    auto it = widgets_.find(std::string(key));
+    if (it == widgets_.end())
+        return 0;
+    return end ? std::max(it->second.caret, it->second.anchor)
+               : std::min(it->second.caret, it->second.anchor);
 }
 
 } // namespace fake2d

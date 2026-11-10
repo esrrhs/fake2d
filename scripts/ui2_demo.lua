@@ -73,7 +73,7 @@ local function diff_name(k)
     return "hard"
 end
 
-function update(dt)
+local function update_body(dt)
     if S.seeded == nil then
         S.seeded = true
         reset_state()
@@ -120,11 +120,8 @@ function update(dt)
     while i < 3 do
         local y = 104 + i * 32
         ui_push(400, y, ui_layout_token("panel_width"), math.max(20, 28))
-        local ui_clicked_1 = ui_radio("d" .. istr(i), 20, S.sel == i, diff_name(i), 0.65)
+        ui_radio("d" .. istr(i), 20, S.sel == i, diff_name(i), 0.65)
         ui_pop()
-        if ui_clicked_1 then
-            S.sel = i
-        end
         i = i + 1
     end
     draw_text("selected: " .. diff_name(S.sel), 400, 212, 0.7, 0.94, 0.96, 1.0, 1.0)
@@ -132,11 +129,8 @@ function update(dt)
     -- --- combo: a header plus one row per item ---------------------------
     draw_text("UNIT", 640, 84, 0.75, 0.75, 0.65, 0.95, 1.0)
     ui_push(640, 104, 280, 28)
-    local ui_clicked_2 = ui_combo("unit", 28, unit_name(S.pick), S.open, 0.65)
+    ui_combo("unit", 28, unit_name(S.pick), S.open, 0.65)
     ui_pop()
-    if ui_clicked_2 then
-        S.open = not S.open
-    end
     if S.open then
         -- The list is drawn right after the header, so the rows sit on top
         -- of whatever the panel behind them had.
@@ -145,12 +139,8 @@ function update(dt)
         while k < ITEM_COUNT do
             local y = 140 + k * ITEM_H
             ui_push(640, y, 280, ITEM_H - 2)
-            local ui_clicked_3 = ui_combo_item("u" .. istr(k), ITEM_H - 2, unit_name(k), S.pick == k, 0.65)
+            ui_combo_item("u" .. istr(k), ITEM_H - 2, unit_name(k), S.pick == k, 0.65)
             ui_pop()
-            if ui_clicked_3 then
-                S.pick = k
-                S.open = false
-            end
             k = k + 1
         end
     end
@@ -165,4 +155,30 @@ function update(dt)
               40, 470, 0.7, 0.5, 0.6, 0.7, 1.0)
     draw_text("960x540 logical canvas", 40, 496, 0.6, 0.45, 0.52, 0.6, 1.0)
     return 0
+end
+
+function update(dt)
+    ui_begin()
+    local result = update_body(dt)
+    ui_end()
+    S.mana = ui_result("mana", S.mana)
+    local i = 0 + 0
+    while i < 3 do
+        if ui_clicked("d" .. istr(i)) then
+            S.sel = i
+        end
+        i = i + 1
+    end
+    if ui_clicked("unit") then
+        S.open = not S.open
+    end
+    local k = 0 + 0
+    while k < ITEM_COUNT do
+        if ui_clicked("u" .. istr(k)) then
+            S.pick = k
+            S.open = false
+        end
+        k = k + 1
+    end
+    return result
 end

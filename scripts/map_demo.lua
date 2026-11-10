@@ -135,7 +135,7 @@ local function build_world()
     spawn_balls()
 end
 
-function update(dt)
+local function update_body(dt)
     if S.seeded == nil then
         S.seeded = true
         reset_state()
@@ -168,13 +168,21 @@ function update(dt)
     ui_text("TILEMAP + PHYSICS DEMO", 0.55, "ellipsis", 0, 0.92, 0.94, 1.0, 1.0)
     ui_pop()
     ui_push(camera_viewport_w() - (16) - (104), 10, 104, 32)
-    local ui_clicked_1 = ui_button("reset", 32, "RESET (R)", 0.5)
+    ui_button("reset", 32, "RESET (R)", 0.5)
     ui_pop()
-    if ui_clicked_1 then
-        spawn_balls()
-    end
     ui_push(16, camera_viewport_h() - (12) - (text_line_height() * (0.45)), math.min(ui_layout_token("panel_width"), text_width("built-in AABB/circle physics, Tiled JSON, anchored UI", 0.45)), text_line_height() * (0.45))
     ui_text("built-in AABB/circle physics, Tiled JSON, anchored UI", 0.45, "ellipsis", 0, 0.67, 0.71, 0.80, 1.0)
     ui_pop()
     return 0
+end
+
+-- Declare once, resolve complete current-frame geometry, then perform effects once.
+function update(dt)
+    ui_begin()
+    local result = update_body(dt)
+    ui_end()
+    if ui_clicked("reset") then
+        spawn_balls()
+    end
+    return result
 end

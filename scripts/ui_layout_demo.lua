@@ -1,9 +1,9 @@
--- Dynamic 1.48 acceptance template. Automatic states use frame numbers, not
+-- Dynamic 1.49 acceptance template. Automatic states use frame numbers, not
 -- wall-clock time: --headless --frames 240 --ui-layout-demo visits every state.
 -- SPACE auto/manual; N next text; L language; D digits; W width; R window resize;
 -- A overflow audit. All layout is measured again every frame (grow AND shrink).
 local S = new_global_obj("ui_layout_demo", "state")
-function update(dt)
+local function update_body(dt)
     if S.ready == nil then
         S.ready = true
         S.frame = 0 + 0
@@ -56,13 +56,15 @@ function update(dt)
     end
     ui_push(24, 18, width, 580, 10)
         ui_panel()
-        ui_text("DYNAMIC TEXT / 1.48", 0.75)
+        ui_text("DYNAMIC TEXT / 1.49", 0.75)
         ui_text("SPACE auto | N text | L language | D digits | W width | R resize | A audit", 0.4)
         ui_push(0, 0, ui_avail_w(), 0, 8)
             ui_panel(0.12, 0.19, 0.28, 1)
             ui_text(paragraph, 0.62)
         ui_pop()
         local child_h = ui_last_rect("h")
+        S.child_h = child_h
+        S.width = width
         ui_text("Following sibling: child h=" .. string.format("%.1f", child_h), 0.45)
         ui_remember("sibling")
         ui_row(8, 140, -1, -1)
@@ -84,14 +86,25 @@ function update(dt)
             ui_text(paragraph, 0.6)
             if S.stage == 1 then ui_text(long, 0.6) ui_text(long, 0.6) end
         ui_scroll_end()
+    ui_pop()
+    return 0
+end
+
+function update(dt)
+    ui_begin()
+    local result = update_body(dt)
+    ui_end()
+    -- Scroll clamp/aligned interaction resolve at End: query final diagnostics
+    -- here, not during declaration (especially on the first shrinking frame).
+    ui_push(34, 550, S.width - 20, 32)
         ui_text("scroll h=" .. string.format("%.1f", ui_scroll_content_h("dynamic")) .. " offset=" .. string.format("%.1f", ui_scroll_offset("dynamic")), 0.42)
         ui_text("scale=" .. string.format("%.2f", ui_scale_get()) .. " overflow=" .. string.format("%d", ui_overflow_count()) .. " state=" .. string.format("%d", S.stage), 0.42)
     ui_pop()
     if S.auto and (S.frame - 1) % 40 == 0 then
         log_number(148010 + math.floor((S.frame - 1) / 40) % 6)
-        log_number(child_h)
+        log_number(S.child_h)
         log_number(ui_scroll_content_h("dynamic"))
         log_number(ui_scroll_offset("dynamic"))
     end
-    return 0
+    return result
 end

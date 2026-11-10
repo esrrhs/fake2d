@@ -1,8 +1,8 @@
--- 1.47 breaking API migration template: caller-owned values, cursor boxes.
+-- 1.49 migration template: declare once, ui_end resolves, consume ui_clicked/ui_result.
 -- No point labels, estimated content heights, manual y advances or clip calls.
 local S = new_global_obj("ui_demo", "state")
 
-function update(dt)
+local function update_body(dt)
     if S.ready == nil then
         S.ready = true
         font_add_fallback("assets/fonts/ui_layout_test.otf", 28)
@@ -33,13 +33,9 @@ function update(dt)
         ui_col_end()
     ui_row_end()
     S.volume = ui_slider("volume", 24, S.volume, 0, 1)
-    if ui_checkbox("enabled", 20, S.enabled, "Caller owns the checkbox value") then
-        S.enabled = not S.enabled
-    end
+    ui_checkbox("enabled", 20, S.enabled, "Caller owns the checkbox value")
     ui_text_input("name", 30, 24)
-    if ui_button("clear", 28, "A button whose very long label must never leave its box, even at the minimum scale: it must end with an ellipsis instead of painting into the next panel", 0.65) then
-        ui_text_set("name", "")
-    end
+    ui_button("clear", 28, "A button whose very long label must never leave its box, even at the minimum scale: it must end with an ellipsis instead of painting into the next panel", 0.65)
     ui_tip("Text and widgets share the rectangle audit")
     ui_scroll_begin("list", math.max(40, camera_viewport_h() - 345))
         local i = 0 + 0
@@ -62,4 +58,14 @@ function update(dt)
     end
     ui_tip_draw()
     return 0
+end
+
+function update(dt)
+    ui_begin()
+    local result = update_body(dt)
+    ui_end()
+    S.volume = ui_result("volume", S.volume)
+    if ui_clicked("enabled") then S.enabled = not S.enabled end
+    if ui_clicked("clear") then ui_text_set("name", "") end
+    return result
 end

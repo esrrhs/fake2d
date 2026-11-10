@@ -68,6 +68,7 @@ public:
     [[nodiscard]] bool IsValid() const { return texture_.IsValid(); }
     /// True when a vector font is loaded (on-demand glyphs available).
     [[nodiscard]] bool HasVectorFont() const;
+    [[nodiscard]] std::uint64_t Revision() const { return revision_; }
     [[nodiscard]] float PixelHeight() const { return pixel_height_; }
     [[nodiscard]] float LineHeight() const { return line_height_; }
     [[nodiscard]] const Texture2D &GetTexture() const { return texture_; }
@@ -129,6 +130,7 @@ private:
     // Mutable: GetGlyph() rasterizes and uploads glyph regions even from
     // const measure/draw calls.
     mutable Texture2D texture_;
+    std::uint64_t revision_ = 0;
     float pixel_height_ = 0.0f;
     float line_height_ = 0.0f;
 };

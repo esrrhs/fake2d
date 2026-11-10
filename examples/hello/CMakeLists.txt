@@ -2,7 +2,9 @@ cmake_minimum_required(VERSION 3.16)
 
 add_executable(fake2d_hello main.cpp)
 
-target_include_directories(fake2d_hello PRIVATE ${CMAKE_SOURCE_DIR}/third_party/stb)
+# The benchmark uses the renderer's existing GL portability shim for context info.
+target_include_directories(fake2d_hello PRIVATE ${CMAKE_SOURCE_DIR}/third_party/stb
+                                              ${CMAKE_SOURCE_DIR}/src)
 
 # stb_image_write is vendored code and still uses sprintf internally.
 target_compile_options(fake2d_hello PRIVATE -Wno-deprecated-declarations)
@@ -48,4 +50,18 @@ if (FAKE2D_BUILD_TESTS)
             TIMEOUT 900
             ENVIRONMENT "LIBGL_ALWAYS_SOFTWARE=1")
     endforeach ()
+    # Extended seeded runs and the benchmark gate COUNTERS, never wall-clock thresholds.
+    foreach (seed IN ITEMS 42 1492026)
+        add_test(NAME "fake2d-ui-stress-${seed}"
+            COMMAND ${_prefix} $<TARGET_FILE:fake2d_hello> --headless --ui-stress
+                    --frames 300 --ui-stress-seed ${seed})
+        set_tests_properties("fake2d-ui-stress-${seed}" PROPERTIES
+            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}" TIMEOUT 900
+            ENVIRONMENT "LIBGL_ALWAYS_SOFTWARE=1")
+    endforeach ()
+    add_test(NAME fake2d-ui-bench
+        COMMAND ${_prefix} $<TARGET_FILE:fake2d_hello> --headless --ui-bench)
+    set_tests_properties(fake2d-ui-bench PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}" TIMEOUT 900
+        ENVIRONMENT "LIBGL_ALWAYS_SOFTWARE=1")
 endif ()

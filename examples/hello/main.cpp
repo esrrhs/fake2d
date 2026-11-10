@@ -17,6 +17,10 @@
 #include "fake2d/log.h"
 #include "fake2d/save_store.h"
 #include "fake2d/steam.h"
+#if defined(_WIN32) && !defined(NOMINMAX)
+#define NOMINMAX
+#endif
+#include "render/gl.h" // benchmark reports the actual current GL driver/context
 
 #include <algorithm>
 #include <cerrno>
@@ -5632,6 +5636,8 @@ int RunRenderTargetTest(fake2d::Engine &engine) {
 // (clamping, ranges, text handling, focus bookkeeping) and asserts that every
 // widget produces draw commands without corrupting the batch. Interaction
 // itself is exercised interactively through --ui-demo.
+#include "ui_verification.h"
+
 int RunUITest(fake2d::Engine &engine) {
     int failures = 0;
     int checks = 0;
@@ -6668,6 +6674,8 @@ int RunUITest(fake2d::Engine &engine) {
         ui3_lib.Destroy(box_rt);
     }
 
+    RunUI149Checks(engine, check);
+    RunUIStressChecks(engine, 1492026, 90, check);
     std::printf("[ui] %s: %d checks, %d failures\n", failures == 0 ? "PASS" : "FAIL",
                 checks, failures);
     return failures == 0 ? 0 : 1;
@@ -11841,6 +11849,8 @@ int main(int argc, char **argv) {
     bool path_test = false;
     bool rt_test = false;
     bool ui_test = false;
+    bool ui_stress = false, ui_bench = false;
+    std::uint32_t ui_stress_seed=1492026;
     bool post_test = false;
     bool fx_test = false;
     bool fog_test = false;
@@ -11925,6 +11935,10 @@ int main(int argc, char **argv) {
                 "UI API)\n"
                 "  --ui2-demo    Box-scoped progress bars, radio groups and combos\n"
                 "  --ui3-demo    Box-scoped windows, tabs and trees\n"
+                "  --ui-variable-demo  Keyed mixed-height rows, anchors, UTF-8 history/password\n"
+                "  --ui-stress-demo  Seeded interactive dynamic layout laboratory\n"
+                "  --ui-stress [--ui-stress-seed N] [--frames N]  Reproducible regressions\n"
+                "  --ui-bench    Warmup/sampled UI CPU and complexity/draw counters\n"
                 "  --ui-layout-demo  Dynamic text/number/language/resize acceptance scenarios\n"
                 "  --ui-features-demo  Containers, skin, rich input, focus/menu/modal, virtual "
                 "list\n"
@@ -12120,6 +12134,12 @@ int main(int argc, char **argv) {
             cfg.headless = true;
             cfg.script_entry.clear();
             cfg.vsync = false;
+        } else if (arg == "--ui-bench") {
+            ui_bench=true;
+        } else if (arg == "--ui-stress") {
+            ui_stress=true;
+        } else if (arg == "--ui-stress-seed" && i+1<argc) {
+            ui_stress_seed=static_cast<std::uint32_t>(std::strtoul(argv[++i],nullptr,10));
         } else if (arg == "--light-bench") {
             // Gated performance run for the lighting pass: the exit code says
             // whether the pass stayed batched and inside the frame budget.
@@ -12337,6 +12357,8 @@ int main(int argc, char **argv) {
     if (ui_test) {
         return RunUITest(engine);
     }
+    if(ui_stress) return RunUIStress(engine,ui_stress_seed,max_frames>0?max_frames:300);
+    if(ui_bench) return RunUIBenchmark(engine);
     if (post_test) {
         return RunPostTest(engine);
     }
