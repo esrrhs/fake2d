@@ -32,18 +32,32 @@ void RunUI150Checks(fake2d::Engine &engine, const std::function<void(bool, const
                 parity_target->ReadPixel(x, y, sampled);
                 rich_pixels.push_back(sampled);
             }
-    renderer.BeginFrame(0, 0, 0, 1);
-    renderer.BeginRenderTarget(target);
-    renderer.ClearActiveTarget({0, 0, 0, 1});
+    // Independently measured unkerned advances, but the same compositing
+    // order as RichText's batched flush: one underline, then the base run,
+    // then the fake-bold offset run. Interleaving base+bold per glyph
+    // changes overlap blending on some software renderers (CGL / Apple
+    // Software Renderer) even when advances match. A batched run that
+    // applies kerning or a wrong width still fails the pixel compare.
+    std::vector<float> pens;
     float pen = 10;
     const float line_h = renderer.GetFont().LineHeight() * .7f;
     for (std::size_t i = 0; i < parity_text.size(); ++i) {
+        pens.push_back(pen);
         const auto ch = std::string_view(parity_text).substr(i, 1);
-        const float advance = renderer.MeasureText(ch, .7f);
-        renderer.DrawQuad({pen, 10 + line_h - 2, advance, 1}, red);
-        renderer.DrawText(ch, pen, 10, .7f, red);
-        renderer.DrawText(ch, pen + .7f, 10, .7f, red);
-        pen += advance;
+        pen += renderer.MeasureText(ch, .7f);
+    }
+    renderer.BeginFrame(0, 0, 0, 1);
+    renderer.BeginRenderTarget(target);
+    renderer.ClearActiveTarget({0, 0, 0, 1});
+    if (!pens.empty())
+        renderer.DrawQuad({pens.front(), 10 + line_h - 2, pen - pens.front(), 1}, red);
+    for (std::size_t i = 0; i < parity_text.size(); ++i) {
+        const auto ch = std::string_view(parity_text).substr(i, 1);
+        renderer.DrawText(ch, pens[i], 10, .7f, red);
+    }
+    for (std::size_t i = 0; i < parity_text.size(); ++i) {
+        const auto ch = std::string_view(parity_text).substr(i, 1);
+        renderer.DrawText(ch, pens[i] + .7f, 10, .7f, red);
     }
     renderer.EndRenderTarget();
     renderer.EndFrame();

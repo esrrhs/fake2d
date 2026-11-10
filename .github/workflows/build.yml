@@ -9,6 +9,12 @@ on:
 permissions:
   contents: read
 
+# Cancel a superseded Build on the same branch or PR only. This does not
+# touch release.yml or runs on a different ref.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 # Pinned fakelua commit (post-v2.0.0 master; must include fakelua #33 for `flua --once`). It must also
 # permit native table mutation: the demos keep their cross-frame state in a
 # new_global_obj NativeObject, and older FakeLua rejects those writes with
@@ -19,10 +25,12 @@ env:
   FAKELUA_REF: 9f7216e0e9904d7cd05bbc4109fc22caf6ca57da
 
 jobs:
-  # Linux owns GPU coverage (xvfb + llvmpipe) and produces the generated
-  # demo maps that the other OSes consume for their Lua logic runs.
+  # Short Linux job that only produces the generated demo maps. macOS and
+  # Windows need these files, but they must not wait for the full Linux test
+  # gate (historically 16-31 minutes). linux-tests starts in parallel and
+  # generates its own maps.
   assets:
-    name: linux build + assets + tests
+    name: linux assets
     runs-on: ubuntu-24.04
     timeout-minutes: 90
 
@@ -45,7 +53,9 @@ jobs:
       - name: Cache paths
         run: |
           echo "CPM_SOURCE_CACHE=$HOME/.cache/CPM" >> "$GITHUB_ENV"
-          echo "FLINSTALL=$RUNNER_TEMP/flinstall" >> "$GITHUB_ENV"
+          echo "FLINSTALL=$GITHUB_WORKSPACE/.deps/fakelua-prefix" >> "$GITHUB_ENV"
+          echo "FAKELUA_SRC=$RUNNER_TEMP/fakelua-src" >> "$GITHUB_ENV"
+          echo "FAKELUA_BUILD=$RUNNER_TEMP/flbuild" >> "$GITHUB_ENV"
           mkdir -p "$HOME/.cache/CPM"
 
       - uses: actions/cache@v4
@@ -55,23 +65,16 @@ jobs:
           restore-keys: |
             Linux-cpm-
 
-      - name: Checkout fakelua
-        run: |
-          git clone --no-checkout https://github.com/esrrhs/fakelua "$RUNNER_TEMP/fakelua-src"
-          git -C "$RUNNER_TEMP/fakelua-src" fetch --depth 1 origin "$FAKELUA_REF"
-          git -C "$RUNNER_TEMP/fakelua-src" checkout FETCH_HEAD
+      - name: Fakelua cache identity
+        run: tools/ci_fakelua.sh identity
+
+      - uses: actions/cache@v4
+        with:
+          path: .deps/fakelua-prefix
+          key: ${{ env.FAKELUA_CACHE_KEY }}
 
       - name: Build + install fakelua
-        run: |
-          set -eux
-          cmake -S "$RUNNER_TEMP/fakelua-src" -B "$RUNNER_TEMP/flbuild" -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DFAKELUA_BUILD_TESTS=OFF \
-            -DFAKELUA_BUILD_BENCHMARKS=OFF \
-            -DCMAKE_INSTALL_PREFIX="$FLINSTALL"
-          cmake --build "$RUNNER_TEMP/flbuild" --parallel
-          cmake --install "$RUNNER_TEMP/flbuild"
-          ccache -s || true
+        run: tools/ci_fakelua.sh install
 
       - name: Configure fake2d
         run: |
@@ -85,6 +88,95 @@ jobs:
       - name: Binary smoke
         run: test -x build/bin/fake2d_hello
 
+      - name: Generate demo assets
+        run: |
+          # One pass materializes the whole first-run asset tree, so packages
+          # and the demo runs below never rely on the host filling gaps in.
+          export LD_LIBRARY_PATH="$FLINSTALL/lib:${LD_LIBRARY_PATH:-}"
+          ./build/bin/fake2d_hello --generate-assets
+          test -s assets/mario.json && test -s assets/platformer.json \
+            && test -s assets/slope.json && test -s assets/vn/bg/gate.png
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: demo-assets
+          path: |
+            assets/mario.json
+            assets/platformer.json
+            assets/slope.json
+
+  # Full Linux gate. Starts immediately (no needs: assets) so it does not
+  # wait for the short assets job. Uses the same shared test entry points
+  # as macOS/Windows; long gameplay milestone screenshots and staged-package
+  # verify-package stay here.
+  linux-tests:
+    name: linux tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build pkg-config ccache xvfb \
+            libssl-dev libgl1-mesa-dev libx11-dev libxrandr-dev libxi-dev \
+            libxcursor-dev libxinerama-dev patchelf fonts-noto-cjk
+
+      - uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: linux-fakelua
+          max-size: 2G
+
+      - name: Cache paths
+        run: |
+          echo "CPM_SOURCE_CACHE=$HOME/.cache/CPM" >> "$GITHUB_ENV"
+          echo "FLINSTALL=$GITHUB_WORKSPACE/.deps/fakelua-prefix" >> "$GITHUB_ENV"
+          echo "FAKELUA_SRC=$RUNNER_TEMP/fakelua-src" >> "$GITHUB_ENV"
+          echo "FAKELUA_BUILD=$RUNNER_TEMP/flbuild" >> "$GITHUB_ENV"
+          mkdir -p "$HOME/.cache/CPM"
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/CPM
+          key: Linux-cpm-v2
+          restore-keys: |
+            Linux-cpm-
+
+      - name: Fakelua cache identity
+        run: tools/ci_fakelua.sh identity
+
+      - uses: actions/cache@v4
+        with:
+          path: .deps/fakelua-prefix
+          key: ${{ env.FAKELUA_CACHE_KEY }}
+
+      - name: Build + install fakelua
+        run: tools/ci_fakelua.sh install
+
+      - name: Configure fake2d
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -Dfakelua_DIR="$FLINSTALL/lib/cmake/fakelua"
+
+      - name: Build fake2d
+        run: cmake --build build --parallel
+
+      - name: Binary smoke
+        run: test -x build/bin/fake2d_hello
+
+      - name: Generate demo assets
+        run: |
+          # One pass materializes the whole first-run asset tree, so packages
+          # and the demo runs below never rely on the host filling gaps in.
+          export LD_LIBRARY_PATH="$FLINSTALL/lib:${LD_LIBRARY_PATH:-}"
+          ./build/bin/fake2d_hello --generate-assets
+          test -s assets/mario.json && test -s assets/platformer.json \
+            && test -s assets/slope.json && test -s assets/vn/bg/gate.png
+
       # Compile the Steamworks branch against tests/fake_steam: the SDK code
       # path must stay buildable even though CI has no proprietary SDK.
       - name: Steamworks adapter header check
@@ -95,15 +187,6 @@ jobs:
             -DFAKE2D_TEST_STEAM_HEADERS=ON
           cmake --build "$RUNNER_TEMP/steam-check" \
             --target fake2d_steam_compile_check
-
-      - name: Generate demo assets
-        run: |
-          # One pass materializes the whole first-run asset tree, so packages
-          # and the demo runs below never rely on the host filling gaps in.
-          export LD_LIBRARY_PATH="$FLINSTALL/lib:${LD_LIBRARY_PATH:-}"
-          ./build/bin/fake2d_hello --generate-assets
-          test -s assets/mario.json && test -s assets/platformer.json \
-            && test -s assets/slope.json && test -s assets/vn/bg/gate.png
 
       - name: Every demo script runs
         run: |
@@ -120,13 +203,6 @@ jobs:
           # gates already exercise it.
           python3 tools/run_demo_scripts.py --frames 400 --interp --ai
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: demo-assets
-          path: |
-            assets/mario.json
-            assets/platformer.json
-            assets/slope.json
 
       - name: Headless Lua gameplay fixtures (tcc/gcc/interp)
         run: |
@@ -150,16 +226,18 @@ jobs:
           # --<suite>-test binaries, both UI stress seeds (42 / 1492026),
           # --ui-bench counter gates, and fake2d-win-macro-compat. On Linux
           # the CMake registration wraps every case in xvfb-run when available.
-          ctest --test-dir build --output-on-failure
+          # Keep passed-test stdout in the log (default passed-output cap is
+          # 1 KiB and would truncate the trailing PASS: N checks line).
+          ctest --test-dir build --output-on-failure --output-log build/ctest.log \
+            --verbose --test-output-size-passed 10485760 --test-output-size-failed 10485760
 
       - name: Docs counts match the code
         run: |
           export LD_LIBRARY_PATH="$FLINSTALL/lib:${LD_LIBRARY_PATH:-}"
-          # Re-count the suites' assertions and compare every headline number
-          # (demo count, suite count, assertion total, entity slots) against
-          # demos.h / entity_store.h / the CMake suite list. Editing the code
-          # without updating README fails here instead of drifting silently.
-          python3 tools/check-docs.py
+          # Re-count from the ctest log (do not re-run the 30 suites) and
+          # compare headline numbers against demos.h / entity_store.h / the
+          # CMake suite list. Dynamic UI demo acceptance still runs here.
+          python3 tools/check-docs.py --ctest-log build/ctest.log
 
       - name: Demo smoke + screenshot gates
         run: |
@@ -418,7 +496,9 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           echo "CPM_SOURCE_CACHE=$HOME/.cache/CPM" >> "$GITHUB_ENV"
-          echo "FLINSTALL=$RUNNER_TEMP/flinstall" >> "$GITHUB_ENV"
+          echo "FLINSTALL=$GITHUB_WORKSPACE/.deps/fakelua-prefix" >> "$GITHUB_ENV"
+          echo "FAKELUA_SRC=$RUNNER_TEMP/fakelua-src" >> "$GITHUB_ENV"
+          echo "FAKELUA_BUILD=$RUNNER_TEMP/flbuild" >> "$GITHUB_ENV"
           mkdir -p "$HOME/.cache/CPM"
 
       - name: (macos) cache CPM
@@ -451,9 +531,12 @@ jobs:
         shell: msys2 {0}
         run: |
           set -eux
-          mkdir -p .cache/CPM .cache/ccache
+          mkdir -p .deps .cache/CPM .cache/ccache
+          WS=$(cygpath -u "$GITHUB_WORKSPACE")
           echo "CPM_SOURCE_CACHE=$(cygpath -w "$GITHUB_WORKSPACE/.cache/CPM")" >> "$GITHUB_ENV"
-          echo "FLINSTALL=$(cygpath -w "$GITHUB_WORKSPACE/../flinstall")" >> "$GITHUB_ENV"
+          echo "FLINSTALL=$(cygpath -w "$WS/.deps/fakelua-prefix")" >> "$GITHUB_ENV"
+          echo "FAKELUA_SRC=$WS/../fakelua-src" >> "$GITHUB_ENV"
+          echo "FAKELUA_BUILD=$WS/../flbuild" >> "$GITHUB_ENV"
           echo "CCACHE_DIR=$(cygpath -w "$GITHUB_WORKSPACE/.cache/ccache")" >> "$GITHUB_ENV"
 
       - name: (windows) cache CPM/ccache
@@ -465,44 +548,40 @@ jobs:
           restore-keys: |
             windows-cpm-ccache-
 
-      - name: (macos) checkout fakelua
+      - name: (macos) fakelua cache identity
         if: runner.os == 'macOS'
-        run: |
-          git clone --no-checkout https://github.com/esrrhs/fakelua "$RUNNER_TEMP/fakelua-src"
-          git -C "$RUNNER_TEMP/fakelua-src" fetch --depth 1 origin "$FAKELUA_REF"
-          git -C "$RUNNER_TEMP/fakelua-src" checkout FETCH_HEAD
+        run: tools/ci_fakelua.sh identity
+
+      - name: (macos) cache fakelua install
+        if: runner.os == 'macOS'
+        uses: actions/cache@v4
+        with:
+          path: .deps/fakelua-prefix
+          key: ${{ env.FAKELUA_CACHE_KEY }}
 
       - name: (macos) build + install fakelua
         if: runner.os == 'macOS'
-        run: |
-          set -eux
-          cmake -S "$RUNNER_TEMP/fakelua-src" -B "$RUNNER_TEMP/flbuild" -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DFAKELUA_BUILD_TESTS=OFF \
-            -DFAKELUA_BUILD_BENCHMARKS=OFF \
-            -DCMAKE_PREFIX_PATH="$OPENSSL_PREFIX" \
-            -DCMAKE_INSTALL_PREFIX="$FLINSTALL"
-          cmake --build "$RUNNER_TEMP/flbuild" --parallel
-          cmake --install "$RUNNER_TEMP/flbuild"
-          ccache -s || true
+        run: tools/ci_fakelua.sh install
 
-      - name: (windows) checkout + build fakelua
+      - name: (windows) fakelua cache identity
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
           set -eux
           ccache --max-size=2G || true
-          git clone --no-checkout https://github.com/esrrhs/fakelua ../fakelua-src
-          git -C ../fakelua-src fetch --depth 1 origin "$FAKELUA_REF"
-          git -C ../fakelua-src checkout FETCH_HEAD
-          cmake -S ../fakelua-src -B ../flbuild -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DFAKELUA_BUILD_TESTS=OFF \
-            -DFAKELUA_BUILD_BENCHMARKS=OFF \
-            -DCMAKE_INSTALL_PREFIX="$FLINSTALL"
-          cmake --build ../flbuild --parallel
-          cmake --install ../flbuild
-          ccache -s || true
+          tools/ci_fakelua.sh identity
+
+      - name: (windows) cache fakelua install
+        if: runner.os == 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: .deps/fakelua-prefix
+          key: ${{ env.FAKELUA_CACHE_KEY }}
+
+      - name: (windows) build + install fakelua
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: tools/ci_fakelua.sh install
 
       - name: Configure fake2d (macos)
         if: runner.os == 'macOS'
@@ -547,9 +626,15 @@ jobs:
           # runtime it resolves {B} to the executable's directory
           # (flua.exe), searching ./include, ./include/winapi and ./lib.
           # Populate those from the tinycc install + MinGW/GCC runtime.
-          TCC=../flbuild/third_party/tinycc
-          BLD=../flbuild/third_party/tinycc_build
+          # A fakelua install cache already includes this tree.
           FLBIN="$(cygpath -u "$FLINSTALL")/bin"
+          if [ -f "$FLBIN/include/windows.h" ] || [ -f "$FLBIN/include/winapi/windows.h" ]; then
+            ls "$FLBIN/include/assert.h" "$FLBIN/include/stdio.h" \
+               "$FLBIN/include/stdarg.h" "$FLBIN/include/vadefs.h"
+            exit 0
+          fi
+          TCC="${FAKELUA_BUILD}/third_party/tinycc"
+          BLD="${FAKELUA_BUILD}/third_party/tinycc_build"
           mkdir -p "$FLBIN/include" "$FLBIN/lib"
           cp -f "$TCC/include/"*.h "$FLBIN/include/"
           cp -f "$BLD/tcclib.h" "$FLBIN/include/" 2>/dev/null || true

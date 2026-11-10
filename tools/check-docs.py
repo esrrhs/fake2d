@@ -5,11 +5,13 @@ The guard compares three sources of truth:
   * include/fake2d/entity_store.h  -> persistent entity slots
   * include/fake2d/demos.h         -> runnable demos
   * examples/hello/CMakeLists.txt  -> registered self-test suites
-and, by running the built binary (unless --no-run), the assertion total that
-the suites actually report. CI runs it after `ctest`, so an added suite or demo
-that is not reflected in the docs fails the build instead of silently rotting.
+and the assertion total that the suites actually report. CI runs it after
+`ctest` and passes `--ctest-log` so the 30 suites are not executed a second
+time; counts are parsed from the log (every suite must still have a PASS line).
+`--no-run` skips execution entirely (docs-only). Dynamic UI demo acceptance
+still runs via tools/check_ui_demos.py unless `--no-run`.
 
-  tools/check-docs.py [--no-run]
+  tools/check-docs.py [--no-run] [--ctest-log PATH]
 """
 from __future__ import annotations
 
@@ -55,6 +57,45 @@ def check(label: str, source: str, pattern: str, expected: int) -> None:
 
 
 
+# CTest / printf tag is the suite name except for this hyphenated alias.
+SUITE_LOG_TAG = {
+    "map-object": "map-obj",
+}
+
+
+def suite_pass_count(text: str, suite: str) -> int | None:
+    tag = SUITE_LOG_TAG.get(suite, suite)
+    matches = re.findall(
+        rf"\[{re.escape(tag)}\] PASS: (\d+) checks", text)
+    if not matches:
+        fail = re.search(rf"\[{re.escape(tag)}\] FAIL(?:ED)?: (\d+) checks", text)
+        if fail:
+            errors.append(f"suite {suite} failed in the log ({fail.group(0)})")
+        else:
+            errors.append(f"suite {suite} printed no 'PASS: N checks' line")
+        return None
+    if len(set(matches)) != 1:
+        errors.append(f"suite {suite} reported conflicting PASS counts: {matches}")
+        return None
+    return int(matches[0])
+
+
+def assertion_total_from_log(path: Path, suites: list[str]) -> int | None:
+    if not path.is_file():
+        errors.append(f"missing ctest log: {path}")
+        return None
+    text = path.read_text(errors="replace")
+    total = 0
+    missing = False
+    for suite in suites:
+        count = suite_pass_count(text, suite)
+        if count is None:
+            missing = True
+            continue
+        total += count
+    return None if missing else total
+
+
 def assertion_total(suites: list[str]) -> int | None:
     if not BINARY.is_file():
         errors.append(f"missing test binary: {BINARY} (configure/build first)")
@@ -71,11 +112,10 @@ def assertion_total(suites: list[str]) -> int | None:
             errors.append(f"suite {suite} failed while counting assertions (exit {proc.returncode})\n"
                           f"{proc.stdout}{proc.stderr}")
             continue
-        match = re.search(r"PASS: (\d+) checks", proc.stdout + proc.stderr)
-        if not match:
-            errors.append(f"suite {suite} printed no 'PASS: N checks' line")
+        count = suite_pass_count(proc.stdout + proc.stderr, suite)
+        if count is None:
             continue
-        total += int(match.group(1))
+        total += count
     return total
 
 
@@ -83,6 +123,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--no-run", action="store_true",
                         help="skip executing suites (docs-only check)")
+    parser.add_argument("--ctest-log", type=Path, default=None,
+                        help="reuse PASS counts from a ctest --output-log instead of re-running suites")
     args = parser.parse_args()
 
     demos = len(re.findall(r'\{"[a-z0-9-]+"', DEMOS_H.read_text()))
@@ -95,7 +137,10 @@ def main() -> int:
     suites = suite_block.group(1).split()
     total = None
     if not args.no_run:
-        total = assertion_total(suites)
+        if args.ctest_log is not None:
+            total = assertion_total_from_log(args.ctest_log, suites)
+        else:
+            total = assertion_total(suites)
         validate_ui_demos(BINARY, errors)
 
     check("entity slots", "README.md",

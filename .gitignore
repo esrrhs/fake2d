@@ -119,3 +119,6 @@ vibe_images/
 
 # Ephemeral malformed fixtures written by --skeleton-test
 assets/skeleton/_bad*.json
+
+# CI / local fakelua install prefix used by tools/ci_fakelua.sh
+.deps/
