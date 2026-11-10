@@ -15,11 +15,16 @@
 # cache hit on a fresh runner would lose stdarg.h (TCC's builtin headers are
 # not in /usr/include). install stores the tree under $FLINSTALL/lib/tcc and
 # rematerializes it at the baked path before the prefix is reused.
+#
+# On Windows, statically-linked libtcc has no CONFIG_TCCDIR: it searches
+# include/, include/winapi and lib/ next to flua.exe. install also assembles
+# that win32 support tree into $FLINSTALL/bin so the TCC probe can run before
+# later workflow steps, and so a cache hit already has assert.h.
 set -euo pipefail
 
 cmd=${1:?usage: tools/ci_fakelua.sh identity|install|verify}
 
-flag_id="rel-nt-nb-v2"
+flag_id="rel-nt-nb-v3"
 
 compiler_id() {
     local cxx=${CXX:-}
@@ -173,6 +178,81 @@ materialize_tccdir() {
     fi
 }
 
+is_windows() {
+    case "${RUNNER_OS:-}" in
+        Windows) return 0 ;;
+    esac
+    case "${MSYSTEM:-}" in
+        MINGW*|MSYS*|CLANG*) return 0 ;;
+    esac
+    case "$(uname -s 2>/dev/null || true)" in
+        MINGW*|MSYS*|CYGWIN*) return 0 ;;
+    esac
+    return 1
+}
+
+prefix_unix() {
+    if command -v cygpath >/dev/null 2>&1; then
+        cygpath -u "$1"
+    else
+        printf '%s' "$1"
+    fi
+}
+
+# On win32, libtcc looks next to flua.exe rather than at CONFIG_TCCDIR.
+win32_tcc_support_ok() {
+    local inc
+    inc=$(prefix_unix "$1")/bin/include
+    [ -f "$inc/assert.h" ] && [ -f "$inc/stdio.h" ] && \
+        [ -f "$inc/stdarg.h" ] && [ -f "$inc/vadefs.h" ] && \
+        { [ -f "$inc/windows.h" ] || [ -f "$inc/winapi/windows.h" ]; }
+}
+
+# Copy TinyCC's win32 include/lib shims (plus the MinGW/GCC include search
+# path) next to flua.exe. A cached prefix already holding this tree is reused
+# as-is; a fresh install needs $FAKELUA_BUILD/third_party/tinycc{,_build}.
+install_win32_tcc_support() {
+    local prefix=${1:?}
+    local flbin tcc bld
+
+    is_windows || return 0
+    prefix=$(prefix_unix "$prefix")
+    if win32_tcc_support_ok "$prefix"; then
+        echo "ci_fakelua: win32 TinyCC support tree already present"
+        return 0
+    fi
+
+    tcc="${FAKELUA_BUILD:-}/third_party/tinycc"
+    bld="${FAKELUA_BUILD:-}/third_party/tinycc_build"
+    if [ -z "${FAKELUA_BUILD:-}" ] || [ ! -d "$tcc/include" ] || [ ! -d "$bld/win32/include" ]; then
+        echo "ci_fakelua: cannot assemble win32 TinyCC support (need \$FAKELUA_BUILD)" >&2
+        return 1
+    fi
+
+    flbin="$prefix/bin"
+    mkdir -p "$flbin/include" "$flbin/lib"
+    cp -f "$tcc/include/"*.h "$flbin/include/"
+    cp -f "$bld/tcclib.h" "$flbin/include/" 2>/dev/null || true
+    gcc -E -Wp,-v -xc /dev/null 2>&1 | sed -n 's/^ \(.*\)/\1/p' | \
+    while read -r d; do
+        [ -d "$d" ] && cp -rf "$d/." "$flbin/include/" || true
+    done
+    # tcc's win32/include shims (vadefs.h, _mingw.h, assert.h, ...) must
+    # override the current MinGW CRT headers, then the tcc root overrides
+    # (stdarg/stddef/tcclib) last.
+    cp -rf "$bld/win32/include/." "$flbin/include/"
+    cp -f "$tcc/include/"*.h "$flbin/include/"
+    cp -f "$bld/win32/lib/"*.def "$flbin/lib/" 2>/dev/null || true
+    find "$bld" -maxdepth 2 -name "*libtcc1*.a" -exec cp -f {} "$flbin/lib/" \;
+
+    if ! win32_tcc_support_ok "$prefix"; then
+        echo "ci_fakelua: failed to assemble win32 TinyCC support under $flbin" >&2
+        return 1
+    fi
+    echo "ci_fakelua: assembled win32 TinyCC support at $flbin"
+}
+
+
 # Compile a tiny main package with JIT_TCC. INTERP also compiles TCC (pcall /
 # load closures), so this is the gate that must pass after a cache hit.
 probe_tcc() {
@@ -214,6 +294,7 @@ verify_prefix() {
     [ -n "$(cmake_config "$prefix")" ] && flua_bin "$prefix" >/dev/null || return 1
     tcc_runtime_ok "$prefix" || return 1
     materialize_tccdir "$prefix" || return 1
+    install_win32_tcc_support "$prefix" || return 1
     probe_tcc "$prefix"
 }
 

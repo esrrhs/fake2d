@@ -625,8 +625,9 @@ jobs:
           # Statically-linked libtcc has no CONFIG_TCCDIR on win32: at
           # runtime it resolves {B} to the executable's directory
           # (flua.exe), searching ./include, ./include/winapi and ./lib.
-          # Populate those from the tinycc install + MinGW/GCC runtime.
-          # A fakelua install cache already includes this tree.
+          # tools/ci_fakelua.sh now assembles this tree into the prefix
+          # before the TCC probe; this step is a leftover check so later
+          # fixtures still have the headers if the cache predates that.
           FLBIN="$(cygpath -u "$FLINSTALL")/bin"
           if [ -f "$FLBIN/include/windows.h" ] || [ -f "$FLBIN/include/winapi/windows.h" ]; then
             ls "$FLBIN/include/assert.h" "$FLBIN/include/stdio.h" \
