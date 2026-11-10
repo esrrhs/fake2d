@@ -1729,73 +1729,99 @@ end
 
 ### UI
 
-Anchored immediate widgets. Anchor ids: `0` top-left, `1` top-right,
-`2` bottom-left, `3` bottom-right, `4` center; offsets are logical points
-from the anchored corner.
+**Breaking change in 1.47.0 (Phases 54–56): one cursor/box API.**
+The old `ui_label` / `ui_label_fit` entry points are removed: use `ui_text`
+with `wrap` / `shrink` respectively. The old `ui_scroll` estimated-height
+interface is removed: use `ui_scroll_begin` / `ui_scroll_end`. All widgets
+have lost their `anchor, ox, oy, w` arguments: position a root `ui_push`,
+then let its cursor and rows/columns place its children. There are no
+compatibility shims or retained-mode widget trees. Low-level rendering
+primitives (`draw_text_ex`, `draw_text_fit`, etc.) remain rendering APIs,
+not a parallel UI layout system.
+
+Coordinates and dimensions are logical points. A root push is absolute;
+a nested push's x/y is relative to the parent's **current cursor**. Padding
+shrinks its content rectangle. Pop reserves `y + h` in the parent. Text and
+widgets consume height; Panel and Window decorate the current content box
+without advancing. Values/selections/open state remain in the caller.
+An unmatched end or a widget outside a box is a no-op. Balance all scopes
+in the frame; NewFrame clears layout scopes, rectangles and pending draws.
 
 | Function | Description |
 |---|---|
-| `ui_panel(anchor, ox, oy, w, h, r, g, b, a)` | Solid panel quad. |
-| `ui_label(anchor, ox, oy, text, scale, r, g, b, a)` | Auto-measured text. |
-| `ui_label_fit(anchor, ox, oy, max_w, text, scale, min_scale, r, g, b, a) -> w` | Label that shrinks down to `min_scale` until it fits `max_w` — translated text never overflows its box. Returns the drawn width. |
-| `ui_tip(anchor, ox, oy, w, h, text)` | Record a tooltip while the mouse is inside the rect (the last record wins; cleared each frame). |
-| `ui_tip_draw()` | Draw this frame's tooltip next to the mouse, clamped to the viewport. Call it after every widget so it renders on top. |
-| `ui_set_tip_delay(seconds)` | Hover time before tooltips appear (default 0.3 s; 0 = immediately). |
-| `ui_button(key, anchor, ox, oy, w, h, text, scale) -> bool` | Returns true exactly on the click-release frame; `key` keeps hover/press state. |
-| `ui_slider(key, anchor, ox, oy, w, h, value, min, max) -> number` | Horizontal slider. Drag the thumb (it keeps its grab offset, so it never jumps) or click the track to jump there. Returns the value clamped to `[min, max]` — the caller owns the returned value. |
-| `ui_checkbox(key, anchor, ox, oy, size, checked, label, text_scale) -> bool` | Square box with a tick and an optional right-side label. Returns true exactly on the frame it was clicked; flip your own `checked` then (same contract as `ui_button`). |
-| `ui_text_input(key, anchor, ox, oy, w, h, max_chars) -> bool` | Single-line field. Click to focus (this drops focus from any other field; clicking elsewhere unfocuses). Typed characters append and backspace pops, always in whole UTF-8 codepoints — multi-byte characters never corrupt. `max_chars` counts characters, not bytes; 0 = unlimited. Returns true when the text changed. |
-| `ui_text_get(key) -> string` | Current content of a field ("" for an unknown key). Field content lives in the UI system because scripts cannot own a mutable string. |
-| `ui_text_set(key, text)` | Overwrite a field's content (also how you clear it). |
-| `ui_text_focused() -> string` | Key of the focused field, or "" when none is. |
-| `ui_scroll(key, anchor, ox, oy, w, h, content_height, scroll_y) -> number` | Vertical scrollbar: wheel while hovered (40 px per notch) or drag the thumb. Returns the offset clamped to `[0, content_height - h]`, 0 when the content fits. **The widget only owns the offset and the scrollbar** — clip your content with `draw_set_clip` and draw items at `y - scroll_y`. |
-| `ui_bar(anchor, ox, oy, w, h, value, r, g, b, a)` | Progress bar: a frame and a track, filled `w * value` from the left. `value` is clamped to `0..1`, so a bar fed `1.4` or `-0.2` still looks like a bar instead of spilling out of (or growing backwards past) its track. Pure draw — no key, no state. |
-| `ui_radio(key, anchor, ox, oy, size, selected, label, text_scale) -> bool` | One radio row: a square indicator plus a right-side label. Returns true exactly on the click-release frame (releasing outside cancels, like `ui_button`). Selection is caller-owned — a group is N rows and one index. |
-| `ui_combo(key, anchor, ox, oy, w, h, label, open, text_scale) -> bool` | Combo header: the field's current text plus a chevron. Returns true on the click-release frame — **including a flick that ends outside the header**, because the popup list swallows the gesture. Toggle your own `open` then. |
-| `ui_combo_item(key, anchor, ox, oy, w, h, label, selected, text_scale) -> bool` | One row of an open combo list. Draws the label with a hover/selected highlight and returns true on the click-release frame over that row. Draw the list right after the header so the rows sit on top of what is behind them. |
-| `ui_window(key, anchor, ox, oy, w, h, title, text_scale) -> bool` | A titled panel dragged by its title bar (a press on the body never grabs; the drag survives the cursor leaving the bar while the button is down). Returns true on the frames it is **being dragged** — not on the grab frame, so the panel never jumps by the distance the cursor travelled to reach the bar. The position stays with you: add `input_mouse_dx/dy` when it returns true, and clamp so the bar can always be grabbed again. |
-| `ui_tab(key, anchor, ox, oy, w, h, label, active, text_scale) -> bool` | One tab of a tab bar; which tab is active is caller-owned (an index). The active tab sits brighter, grows 2 px and drops its bottom edge so it reads as connected to the panel below. Returns true on the click-release frame (releasing outside cancels). |
-| `ui_tree(key, anchor, ox, oy, w, h, label, open, text_scale) -> bool` | A disclosure row: a triangle pointing right (closed) or down (open) plus a label. Returns true on the click-release frame — toggle your own `open`; the children are a plain `if open then ... end` block. |
-| `ui_hovered(key) -> bool` | True while the mouse is over the widget with that key (use it to swap cursors or highlight rows). |
-| `ui_set_origin(x, y)` | Offset added to mouse positions during hit-testing (set to the camera top-left for a world-anchored HUD). |
+| `ui_push(x, y, w, h, pad=0)` / `ui_pop()` | Local origin, content width/height and intersecting clip stack. A disjoint intersection draws nothing. |
+| `ui_text(text, scale=0.6, overflow="wrap", align=0, r=1, g=1, b=1, a=1, min_scale=0.35) -> height` | Measure, draw, register a rectangle and advance the cursor. Align 0/1/2 is left/center/right **inside the box**. |
+| `ui_avail_w() -> width` | Current content width (0 outside a box). |
+| `ui_last_rect(field) -> number` | Read `"x"`, `"y"`, `"w"`, `"h"` of the last text/widget in layout coordinates. Single-field access matches FakeLua native return conventions; C++ returns a Rect. |
+| `ui_row(gap=0, col1, col2, ...)` | Optional same-frame template: positive=fixed pixels, negative=flex weight, zero=zero width. Space after fixed slots and gaps is split by weights. Oversubscribed slots clamp to remaining width. |
+| `ui_col(fixed_w=0)` / `ui_col_end()` | Enter next template slot; without a template, pack fixed-width columns left-to-right (0 consumes the remainder). No previous-frame width cache or ambiguous `ui_col_flex`. |
+| `ui_row_end()` | Advance parent by maximum measured column height, including wrapped cells. |
+| `ui_scroll_begin(key, view_h)` / `ui_scroll_end() -> content_h` | Always measure cursor height; reserve viewport height in parent. Content has viewport width minus a 12-point scrollbar gutter. All UI draws are deferred until the outermost scroll closes, so first-frame offsets and shortened lists clamp using this frame's height. |
+| `ui_scroll_content_h(key)` / `ui_scroll_offset(key)` | Read measured height / clamped persistent offset. Wheel step is 40 points; thumb can be dragged. |
+| `ui_layout_token(name)` / `ui_set_layout_token(name, value) -> bool` | `panel_width`=600, `sidebar_inset`=410 (typical screen width minus inset), `menu_icon_spacing_cap`=64. Overrides persist; unknown names, negative or non-finite values are rejected (unknown reads return 0). |
+| `ui_set_audit(enabled)` / `ui_overflow_count()` | Enable `[UI_OVERFLOW]` logs / read overflow count. Text, widgets and pushed boxes use the same per-frame ledger (C++ AuditRects()). A pushed box is audited against its parent/screen; hidden scroll content is not overflow. |
+| `ui_panel(r,g,b,a)` | Decorate current box; does not consume cursor height. |
+| `ui_button(key,h,text,scale=0.6) -> bool` | Current width; advances h; returns click-release. Label shrinks to minimum 0.35 then ellipsizes, with pixel clipping even for tiny controls. |
+| `ui_slider(key,h,value,min,max) -> number` | Caller-owned value, clamped; drag thumb or click track. |
+| `ui_checkbox(key,size,checked,label="",scale=0.6) -> bool` | Consume max(size,line height), clipped/ellipsized caption; returns click-release. |
+| `ui_radio(key,size,selected,label="",scale=0.6) -> bool` | Same layout as checkbox; caller owns group selection. |
+| `ui_text_input(key,h,max_chars=24) -> bool` | UTF-8 field; 0 means unlimited codepoints; returns text change. |
+| `ui_text_get(key)` / `ui_text_set(key,text)` / `ui_text_focused()` | Field content / focus access. |
+| `ui_bar(h,value,r,g,b,a)` | Current-width progress bar; value clamped to 0..1; advances h. |
+| `ui_combo(key,h,label,open,scale=0.6) -> bool` | Header; caller owns open state; release outside also toggles an opened gesture. |
+| `ui_combo_item(key,h,label,selected,scale=0.6) -> bool` | One popup row; caller owns selection. |
+| `ui_window(key,title,scale=0.6) -> bool` | Decorate current box; true while dragging title, not on initial grab. Caller updates root push position from mouse delta. |
+| `ui_tab(key,h,label,active,scale=0.6) -> bool` | Click-release; caller owns active index. Unlike the old API, no pixels extend below the declared box. |
+| `ui_tree(key,h,label,open,scale=0.6) -> bool` | Disclosure row; caller toggles open and conditionally draws children. |
+| `ui_tip(text)` / `ui_tip_draw()` | Attach hover tooltip to LastRect; draw it last. |
+| `ui_set_tip_delay(seconds)` / `ui_hovered(key)` | Hover delay (default .3 s) / widget hover state. |
+| `ui_set_origin(x,y)` | World-HUD input origin; defaults to 0. Translation-only world HUDs use the same coordinate space as their renderer camera (zoom 1, rotation 0). |
 
-Widgets draw through the camera transform, so passing world coordinates as
-offsets (e.g. `cam_x + 16`) anchors a HUD to the world. For clickable
-world-space buttons, call `ui_set_origin(cam_x, cam_y)` before the widgets
-so mouse hit-testing shifts with the camera — the origin is **not** reset
-automatically; screen-space HUDs leave it at `0, 0`.
+Overflow policies:
+- **wrap** (body default): the existing Font::DrawTextEx / MeasureTextEx
+  CJK-per-character, Latin-at-space algorithm; height advances by measurement.
+  As with the font backend, a single unbreakable word wider than a column is
+  clipped, not split. Glyph bearings and oversized glyphs are always scissored.
+- **ellipsis** (recommended for headers/table cells): UTF-8-safe prefix + `…`
+  fits the width; if even `…` cannot fit, draw nothing.
+- **shrink**: reduce scale no lower than min_scale (clamped to 0..scale), then
+  ellipsize. Never draw an overlong centered sentence at the scale floor.
+- **clip**: accept crop, but register the natural rectangle so genuine overflow
+  remains auditable. Properly fitted text must not warn. All modes clip pixels.
 
-A minimal scroll list — the widget owns the offset, you own the rows:
+All UI content inside a scroll must use this API: direct renderer draws are
+not cursor-measured or deferred. Do not mix `draw_set_clip` with active UI
+scopes; the UI owns and restores its own intersection stack. No culling or
+virtualization is performed; every submitted element contributes to height.
 
 ```lua
-local scroll = 0 + 0
 function update(dt)
-    draw_quad(20, 20, 300, 200, 0.1, 0.12, 0.18, 1.0)   -- backdrop
-    draw_set_clip(20, 20, 290, 200)
-    local i = 0 + 0
-    while i < 24 do
-        local y = 20 + i * 30 - scroll
-        if y > 20 - 30 and y < 220 then                  -- cull off-screen rows
-            draw_text("row " .. string.format("%d", i + 1), 30, y + 8, 0.6,
-                      0.9, 0.9, 0.9, 1.0)
-        end
-        i = i + 1
-    end
-    draw_clear_clip()
-    scroll = ui_scroll("list", 0, 20, 20, 300, 200, 24 * 30, scroll)
+    local w = math.min(ui_layout_token("panel_width"), camera_viewport_w() - 40)
+    ui_push(20, 20, w, 460, 12)
+        ui_panel(0.10, 0.12, 0.18, 1)
+        ui_text("能吏抚恤百姓，长句自动换行并推动下一行。")
+        ui_row(8, 120, -1, -1)
+            ui_col() ui_text("江南长名称货物") ui_col_end()
+            ui_col() ui_text("现价(时价偏离)", 0.6, "ellipsis") ui_col_end()
+            ui_col() ui_text("产出涌入", 0.6, "ellipsis") ui_col_end()
+        ui_row_end()
+        ui_scroll_begin("list", 240)
+            local i = 0 + 0
+            while i < 24 do
+                ui_text("row " .. string.format("%d", i + 1))
+                i = i + 1
+            end
+        ui_scroll_end()
+    ui_pop()
     return 0
 end
 ```
 
-See `scripts/ui_demo.lua` (`--ui-demo`) for the Phase 20 widgets wired
-together, `scripts/ui2_demo.lua` (`--ui2-demo`) for the round-2 set: a
-looping progress bar, a slider-driven bar that clamps past 100%, a radio
-group and a combo box with an openable list, and `scripts/ui3_demo.lua`
-(`--ui3-demo`) for the round-3 set: a draggable SETTINGS window with a
-three-tab bar, collapsible tree groups and `ui_hovered`-driven tooltips.
-`scripts/text_demo.lua` (`--text-demo`) puts the text/platform layer on one
-screen: CJK + Latin wrapping, rotated and shrink-to-fit text, live language
-switching, user paths, a v2 save container and the Steam stub state.
+`--ui-demo` is the migration template (long CJK, flex columns, caller-owned
+controls, auto-height scroll and shared tokens); `--ui2-demo` / `--ui3-demo`
+exercise bars/radios/combos and draggable windows/tabs/trees using box scopes.
+`--ui-test` includes pixel containment, empty/nested intersections, UTF-8 fit,
+rectangle audit, same-frame columns, auto scroll growth/shrink and input tests.
 
 ### Debugging
 

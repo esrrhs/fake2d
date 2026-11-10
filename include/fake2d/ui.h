@@ -6,163 +6,89 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 
 namespace fake2d {
 
-/// Widget anchoring: offsets are measured from the anchored corner/edge of
-/// the camera viewport (logical points), so layouts stay put at any window
-/// size and DPI scale.
-enum class UIAnchor : std::int64_t {
-    TopLeft = 0,
-    TopRight = 1,
-    BottomLeft = 2,
-    BottomRight = 3,
-    Center = 4,
-};
+enum class UITextOverflow { Wrap, Ellipsis, Shrink, Clip };
 
-/// Immediate-style 2D UI kept per-frame simple: panels and labels are pure
+/// Immediate-style 2D UI kept per-frame simple: panels and text are pure
 /// draws, widgets are keyed by a string and persist their own interaction
 /// state (hover, press, drag, focus, text) across frames.
 ///
 /// Values live in the caller, like every immediate-mode UI: `Slider` returns
 /// the updated value, `Checkbox` returns true on the frame it was toggled,
-/// and `TextInput`/`ScrollArea` keep their content/offset inside the widget
-/// (read them back with `TextValue` / pass the offset in again each frame).
+/// and text inputs / scroll boxes keep text and offset keyed by the widget
+/// (read them back with `TextValue` / `ScrollOffset`).
+
 class UISystem {
 public:
     /// Reset per-frame state; the engine calls it after the input snapshot.
     void NewFrame();
 
-    void Panel(UIAnchor anchor, float offset_x, float offset_y,
-               float w, float h, const Color &fill,
-               const Color &border = Color::Clear());
+    // Phase 54–56: cursor-box layout, independent of caller-owned values.
+    // Nested x/y are relative to the parent's current cursor; Pop reserves y+h.
+    void Push(float x, float y, float w, float h, float padding = 0.0f);
+    void Pop();
+    float Text(std::string_view text, float scale = 0.6f,
+               UITextOverflow overflow = UITextOverflow::Wrap, int align = 0,
+               const Color &tint = Color::White(), float min_scale = 0.35f);
+    [[nodiscard]] float AvailWidth() const;
+    [[nodiscard]] Rect LastRect() const { return last_rect_; }
+    void Row(float gap = 0.0f, const std::vector<float> &columns = {});
+    void Col(float fixed_width = 0.0f);
+    void ColEnd();
+    void RowEnd();
+    // Always measures content from the cursor. Draw commands are deferred
+    // until ScrollEnd, so first-frame clamping uses this frame's height.
+    void ScrollBegin(std::string_view key, float view_height);
+    float ScrollEnd();
+    [[nodiscard]] float ScrollContentHeight(std::string_view key) const;
+    [[nodiscard]] float ScrollOffset(std::string_view key) const;
+    [[nodiscard]] float LayoutToken(std::string_view name) const;
+    bool SetLayoutToken(std::string_view name, float value);
+    struct AuditRect {
+        std::string kind;
+        Rect rect;
+        Rect bounds;
+        bool overflow = false;
+    };
+    void SetAudit(bool enabled) { audit_enabled_ = enabled; }
+    [[nodiscard]] const std::vector<AuditRect> &AuditRects() const { return audit_; }
+    [[nodiscard]] std::size_t OverflowCount() const;
 
-    void Label(UIAnchor anchor, float offset_x, float offset_y,
-               std::string_view text, float scale, const Color &tint);
-
-    /// Label that shrinks to fit `max_width` (down to `min_scale`). Returns
-    /// the drawn width; long CJK/Latin strings stay inside their box.
-    float LabelFit(UIAnchor anchor, float offset_x, float offset_y,
-                   float max_width, std::string_view text, float scale,
-                   float min_scale, const Color &tint);
-
-    /// Record a tooltip while the mouse is over the given rect; the last
-    /// record wins. Call DrawTooltip() after all widgets to render it.
-    void Tip(UIAnchor anchor, float offset_x, float offset_y, float w, float h,
-             std::string_view text);
-    /// Hover time before a tooltip appears (0 = immediately, default 0.3 s).
+    // All widgets use the current box width and advance its cursor by h.
+    // Panel and Window decorate the current box without advancing it.
+    void Panel(const Color &fill, const Color &border = Color::Clear());
+    bool Button(std::string_view key, float h, std::string_view text, float scale = 0.6f);
+    float Slider(std::string_view key, float h, float value, float min_value, float max_value);
+    bool Checkbox(std::string_view key, float size, bool checked,
+                  std::string_view label = {}, float scale = 0.6f);
+    bool TextInput(std::string_view key, float h, std::size_t max_chars = 24);
+    [[nodiscard]] std::string_view TextValue(std::string_view key) const;
+    void SetTextValue(std::string_view key, std::string_view text);
+    [[nodiscard]] std::string_view FocusedTextInput() const { return focused_; }
+    void ProgressBar(float h, float value, const Color &fill,
+                     const Color &track = Color{0.14f, 0.17f, 0.24f, 1.0f});
+    bool RadioButton(std::string_view key, float size, bool selected,
+                     std::string_view label = {}, float scale = 0.6f);
+    bool ComboBegin(std::string_view key, float h, std::string_view label,
+                    bool open, float scale = 0.6f);
+    bool ComboItem(std::string_view key, float h, std::string_view label,
+                   bool selected, float scale = 0.6f);
+    bool Window(std::string_view key, std::string_view title, float scale = 0.6f);
+    bool Tab(std::string_view key, float h, std::string_view label,
+             bool active, float scale = 0.6f);
+    bool Tree(std::string_view key, float h, std::string_view label,
+              bool open, float scale = 0.6f);
+    void Tip(std::string_view text); // attaches to LastRect()
     void SetTipDelay(float seconds) { tip_delay_ = std::max(0.0f, seconds); }
     [[nodiscard]] float TipDelay() const { return tip_delay_; }
-    /// Draw the tooltip recorded by this frame's Tip() near the mouse,
-    /// clamped to the viewport.
     void DrawTooltip();
-
-    /// Draw a button and return true exactly on the frame it is clicked.
-    /// The label is centered on the button.
-    bool Button(std::string_view key, UIAnchor anchor,
-                float offset_x, float offset_y, float w, float h,
-                std::string_view text, float text_scale = 0.6f);
-
-    /// Horizontal slider: drag the thumb, or click anywhere on the track to
-    /// jump there. Returns `value` clamped to [min_value, max_value] (and
-    /// clamped for input too, so an out-of-range value snaps into range).
-    /// A zero-width range degenerates to min_value.
-    [[nodiscard]] float Slider(std::string_view key, UIAnchor anchor,
-                               float offset_x, float offset_y, float w, float h,
-                               float value, float min_value, float max_value);
-
-    /// Checkbox with an optional right-side label. Returns true exactly on
-    /// the frame it was clicked; the caller owns the `checked` value.
-    [[nodiscard]] bool Checkbox(std::string_view key, UIAnchor anchor,
-                                float offset_x, float offset_y, float size,
-                                bool checked, std::string_view label = {},
-                                float text_scale = 0.6f);
-
-    /// Single-line text field. Click to focus (which also unfocuses every
-    /// other field), then it swallows this frame's typed codepoints and
-    /// handles backspace. Returns true when the text changed.
-    /// `max_chars` counts whole characters, not bytes; 0 means unlimited.
-    [[nodiscard]] bool TextInput(std::string_view key, UIAnchor anchor,
-                                 float offset_x, float offset_y, float w,
-                                 float h, std::size_t max_chars = 24);
-    /// Current content of a text field ("" for an unknown key).
-    [[nodiscard]] std::string_view TextValue(std::string_view key) const;
-    /// Overwrite a text field's content (also used to clear it).
-    void SetTextValue(std::string_view key, std::string_view text);
-    /// Currently focused text field, or "" when none is.
-    [[nodiscard]] std::string_view FocusedTextInput() const { return focused_; }
-
-    /// Vertical scroll container: consumes the wheel while hovered and lets
-    /// the thumb be dragged, returning `scroll_y` clamped to
-    /// [0, content_height - h] (0 when the content fits). The scrollbar is
-    /// drawn along the right edge; **the caller clips the content** with
-    /// Renderer::SetClipRect and draws items at `y - scroll_y`.
-    [[nodiscard]] float ScrollArea(std::string_view key, UIAnchor anchor,
-                                   float offset_x, float offset_y, float w,
-                                   float h, float content_height, float scroll_y);
-
-    /// Horizontal progress bar: `value` is clamped to [0,1] and fills `w`
-    /// from the left. Purely a draw (no key, no interaction) — the caller
-    /// owns the number it shows. `w <= 0` draws nothing.
-    void ProgressBar(UIAnchor anchor, float offset_x, float offset_y, float w,
-                     float h, float value, const Color &fill,
-                     const Color &track = Color{0.14f, 0.17f, 0.24f, 1.0f});
-
-    /// One radio row: a circle instead of a checkbox's square, and true on
-    /// the frame it was clicked. **Group semantics live in the caller** —
-    /// `if ui_radio(key, ..., i == selected, label) then selected = i end`
-    /// — because, like every widget here, the value is the script's.
-    [[nodiscard]] bool RadioButton(std::string_view key, UIAnchor anchor,
-                                   float offset_x, float offset_y, float size,
-                                   bool selected, std::string_view label = {},
-                                   float text_scale = 0.6f);
-
-    /// Combo header (the closed box, or the top of an open list). Returns
-    /// true on the frame it was clicked — the caller owns `open`, so the
-    /// list's lifetime is the script's business, not the widget's.
-    [[nodiscard]] bool ComboBegin(std::string_view key, UIAnchor anchor,
-                                  float offset_x, float offset_y, float w,
-                                  float h, std::string_view label, bool open,
-                                  float text_scale = 0.6f);
-
-    /// One row of an open combo's list. Returns true on the frame it was
-    /// clicked; `selected` only tints it (the current item).
-    [[nodiscard]] bool ComboItem(std::string_view key, UIAnchor anchor,
-                                 float offset_x, float offset_y, float w,
-                                 float h, std::string_view label, bool selected,
-                                 float text_scale = 0.6f);
-
-    /// A titled panel that can be dragged by its title bar. Returns true on
-    /// the frames the title bar is actually being dragged — **not** on the
-    /// frame the grab starts, so the panel never jumps by the whole delta of
-    /// the click that grabbed it. The position stays with the caller:
-    /// `if ui_window(k, 0, wx, wy, w, h, title) then wx = wx + input_mouse_dx()
-    /// ... end`. Dragging survives the cursor leaving the bar (as long as the
-    /// button stays down), which is what every window manager does.
-    [[nodiscard]] bool Window(std::string_view key, UIAnchor anchor,
-                              float offset_x, float offset_y, float w, float h,
-                              std::string_view title, float text_scale = 0.6f);
-
-    /// One tab of a tab bar: `active` tabs sit brighter and lose their bottom
-    /// edge, so they read as attached to the panel below. Returns true on the
-    /// frame it was clicked (release inside; releasing outside cancels) —
-    /// which tab is active is the caller's, like every value here.
-    [[nodiscard]] bool Tab(std::string_view key, UIAnchor anchor,
-                           float offset_x, float offset_y, float w, float h,
-                           std::string_view label, bool active,
-                           float text_scale = 0.6f);
-
-    /// A disclosure row for trees and setting groups: a triangle that points
-    /// right when closed and down when open, plus a label. Returns true on
-    /// the frame it was clicked; the caller owns `open`, so the children are
-    /// a plain if-block.
-    [[nodiscard]] bool Tree(std::string_view key, UIAnchor anchor,
-                            float offset_x, float offset_y, float w, float h,
-                            std::string_view label, bool open,
-                            float text_scale = 0.6f);
 
     [[nodiscard]] bool IsHovered(std::string_view key) const;
 
@@ -175,6 +101,57 @@ public:
     void SetWorldOrigin(const Vec2 &origin) { world_origin_ = origin; }
 
 private:
+    // Internal painters are not a second public placement/layout API.
+    void PaintPanel(float offset_x, float offset_y,
+               float w, float h, const Color &fill,
+               const Color &border = Color::Clear());
+    void PaintTip(float offset_x, float offset_y, float w, float h,
+             std::string_view text);
+    bool PaintButton(std::string_view key,
+                float offset_x, float offset_y, float w, float h,
+                std::string_view text, float text_scale = 0.6f);
+    [[nodiscard]] float PaintSlider(std::string_view key,
+                               float offset_x, float offset_y, float w, float h,
+                               float value, float min_value, float max_value);
+    [[nodiscard]] bool PaintCheckbox(std::string_view key,
+                                float offset_x, float offset_y, float size,
+                                bool checked, std::string_view label = {},
+                                float text_scale = 0.6f);
+    [[nodiscard]] bool PaintTextInput(std::string_view key,
+                                 float offset_x, float offset_y, float w,
+                                 float h, std::size_t max_chars = 24);
+    [[nodiscard]] float PaintScrollArea(std::string_view key,
+                                   float offset_x, float offset_y, float w,
+                                   float h, float content_height, float scroll_y, bool wheel_enabled);
+    void PaintProgressBar(float offset_x, float offset_y, float w,
+                     float h, float value, const Color &fill,
+                     const Color &track = Color{0.14f, 0.17f, 0.24f, 1.0f});
+    [[nodiscard]] bool PaintRadioButton(std::string_view key,
+                                   float offset_x, float offset_y, float size,
+                                   bool selected, std::string_view label = {},
+                                   float text_scale = 0.6f);
+    [[nodiscard]] bool PaintComboBegin(std::string_view key,
+                                  float offset_x, float offset_y, float w,
+                                  float h, std::string_view label, bool open,
+                                  float text_scale = 0.6f);
+    [[nodiscard]] bool PaintComboItem(std::string_view key,
+                                 float offset_x, float offset_y, float w,
+                                 float h, std::string_view label, bool selected,
+                                 float text_scale = 0.6f);
+    [[nodiscard]] bool PaintWindow(std::string_view key,
+                              float offset_x, float offset_y, float w, float h,
+                              std::string_view title, float text_scale = 0.6f);
+    [[nodiscard]] bool PaintTab(std::string_view key,
+                           float offset_x, float offset_y, float w, float h,
+                           std::string_view label, bool active,
+                           float text_scale = 0.6f);
+    [[nodiscard]] bool PaintTree(std::string_view key,
+                            float offset_x, float offset_y, float w, float h,
+                            std::string_view label, bool open,
+                            float text_scale = 0.6f);
+    Rect Allocate(float height, std::string_view kind);
+    void Quad(const Rect &rect, const Color &tint);
+    float String(std::string_view text, float x, float y, float scale, const Color &tint);
     /// One state record serves every widget kind; the fields a given kind
     /// ignores simply stay at their default.
     struct WidgetState {
@@ -187,16 +164,59 @@ private:
         std::string text;      // text field content
     };
 
-    [[nodiscard]] Vec2 Resolve(UIAnchor anchor, float offset_x, float offset_y,
-                               float w, float h, float viewport_w, float viewport_h) const;
     [[nodiscard]] WidgetState *Find(std::string_view key);
     /// Mouse in the same space widgets are laid out in (screen + world origin).
     [[nodiscard]] Vec2 Mouse() const;
-    /// Render a string, trimming the head if it overflows `w` so the tail
-    /// (what was typed last) stays visible. `w <= 0` disables trimming.
-    /// Returns the pen x just past the last drawn glyph (caret position).
+    [[nodiscard]] bool MouseVisible() const;
+    /// Fit a caption with ellipsis, or keep a UTF-8-safe editable tail.
+    /// Zero width draws nothing. Returns the caret / right-edge x.
     float DrawFittedText(std::string_view text, float x, float y, float w,
-                         float scale, const Color &tint);
+                         float scale, const Color &tint, bool tail = false);
+
+    struct LayoutClip {
+        Rect rect;
+        std::vector<std::size_t> scrolls;
+    };
+    struct LayoutBox {
+        Rect content;
+        float cursor = 0.0f;
+        float reserve = 0.0f;
+        std::vector<LayoutClip> clips;
+    };
+    struct LayoutRow {
+        std::size_t depth = 0;
+        float gap = 0, x = 0, height = 0;
+        std::vector<float> widths;
+        std::size_t index = 0;
+    };
+    struct ScrollState { float height = 0, offset = 0; };
+    struct LayoutScroll {
+        std::string key;
+        Rect viewport;
+        std::size_t index = 0, depth = 0;
+    };
+    void PushAbsolute(const Rect &rect, float padding, float reserve);
+    void ApplyLayoutClip(const std::vector<LayoutClip> &clips);
+    void Record(std::string_view kind, const Rect &rect);
+    std::string Ellipsize(std::string_view text, float width, float scale) const;
+    float ScrollTranslation(const std::vector<std::size_t> &ids) const;
+    std::vector<LayoutBox> boxes_;
+    std::vector<LayoutRow> rows_;
+    std::vector<LayoutScroll> scrolls_;
+    std::vector<std::size_t> active_scrolls_;
+    std::vector<float> scroll_offsets_;
+    std::vector<std::function<void()>> pending_draws_;
+    std::vector<std::function<void()>> scroll_resolvers_;
+    std::unordered_map<std::string, ScrollState> scroll_states_;
+    std::unordered_map<std::string, float> tokens_ {
+        {"panel_width", 600.0f}, {"sidebar_inset", 410.0f},
+        {"menu_icon_spacing_cap", 64.0f}};
+    Rect last_rect_{};
+    Rect paint_bounds_{};
+    std::vector<AuditRect> audit_;
+    bool audit_enabled_ = false;
+    std::size_t wheel_scroll_ = static_cast<std::size_t>(-1);
+    std::size_t wheel_depth_ = 0;
 
     const Input *input_ = nullptr;
     const Camera2D *camera_ = nullptr;

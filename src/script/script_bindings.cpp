@@ -1451,290 +1451,83 @@ void RegisterTilemapApi(fakelua::State *state, Engine *engine) {
 }
 
 void RegisterUiApi(fakelua::State *state, Engine *engine) {
-    fakelua::RegisterNativeFunction(
-        state, "ui_panel", false,
-        std::function<void(fakelua::State *, std::int64_t, double, double, double, double,
-                           double, double, double, double)>(
-            [engine](fakelua::State *, std::int64_t anchor, double ox, double oy,
-                     double w, double h, double r, double g, double b, double a) {
-                engine->GetUI().Panel(static_cast<UIAnchor>(anchor),
-                                      static_cast<float>(ox), static_cast<float>(oy),
-                                      static_cast<float>(w), static_cast<float>(h),
-                                      Color{static_cast<float>(r), static_cast<float>(g),
-                                            static_cast<float>(b), static_cast<float>(a)});
+    // Optional arguments are parsed here instead of relying on missing numeric
+    // arguments becoming zero in the typed native-function adapter.
+    struct Args {
+        fakelua::State *state;
+        fakelua::CVar *values;
+        int count;
+        float N(int i, float fallback = 0) const {
+            return i < count ? static_cast<float>(fakelua::inter::CVarToNumber(values[i], fallback)) : fallback;
+        }
+        std::string S(int i, const char *fallback = "") const {
+            return i < count ? fakelua::inter::CVarToString(values[i], fallback) : fallback;
+        }
+        bool B(int i) const { return i < count && fakelua::inter::CVarToBool(values[i], false); }
+        Color C(int i) const { return {N(i, 1), N(i + 1, 1), N(i + 2, 1), N(i + 3, 1)}; }
+        fakelua::CVar Nil() const { return fakelua::inter::NativeToFakeluaNil(state); }
+        fakelua::CVar Number(float n) const { return fakelua::inter::NativeToFakeluaDouble(state, n); }
+        fakelua::CVar Bool(bool b) const { return fakelua::inter::NativeToFakeluaBool(state, b); }
+        fakelua::CVar String(std::string_view s) const { return fakelua::inter::NativeToFakeluaStringView(state, s); }
+    };
+    const auto add = [state, engine](const char *name, int required,
+        std::function<fakelua::CVar(UISystem &, const Args &)> call) {
+        fakelua::RegisterNativeFunction(state, name, required, true,
+            fakelua::NativeFuncCallback([engine, call](fakelua::State *st, fakelua::CVar *v, int n) {
+                return call(engine->GetUI(), Args{st, v, n});
             }));
-
-    fakelua::RegisterNativeFunction(
-        state, "ui_label", false,
-        std::function<void(fakelua::State *, std::int64_t, double, double,
-                           std::string_view, double, double, double, double, double)>(
-            [engine](fakelua::State *, std::int64_t anchor, double ox, double oy,
-                     std::string_view text, double scale,
-                     double r, double g, double b, double a) {
-                engine->GetUI().Label(static_cast<UIAnchor>(anchor),
-                                      static_cast<float>(ox), static_cast<float>(oy),
-                                      text, static_cast<float>(scale),
-                                      Color{static_cast<float>(r), static_cast<float>(g),
-                                            static_cast<float>(b), static_cast<float>(a)});
-            }));
-
-    // Shrink-to-fit label: long CJK/Latin text stays inside max_width.
-    fakelua::RegisterNativeFunction(
-        state, "ui_label_fit", false,
-        std::function<double(fakelua::State *, std::int64_t, double, double, double,
-                             std::string_view, double, double, double, double, double,
-                             double)>(
-            [engine](fakelua::State *, std::int64_t anchor, double ox, double oy,
-                     double max_w, std::string_view text, double scale,
-                     double min_scale, double r, double g, double b,
-                     double a) -> double {
-                return static_cast<double>(engine->GetUI().LabelFit(
-                    static_cast<UIAnchor>(anchor), static_cast<float>(ox),
-                    static_cast<float>(oy), static_cast<float>(max_w), text,
-                    static_cast<float>(scale), static_cast<float>(min_scale),
-                    Color{static_cast<float>(r), static_cast<float>(g),
-                          static_cast<float>(b), static_cast<float>(a)}));
-            }));
-
-    // Tooltips: ui_tip records while hovered, ui_tip_draw renders the last one.
-    fakelua::RegisterNativeFunction(
-        state, "ui_tip", false,
-        std::function<void(fakelua::State *, std::int64_t, double, double, double,
-                           double, std::string_view)>(
-            [engine](fakelua::State *, std::int64_t anchor, double ox, double oy,
-                     double w, double h, std::string_view text) {
-                engine->GetUI().Tip(static_cast<UIAnchor>(anchor),
-                                    static_cast<float>(ox), static_cast<float>(oy),
-                                    static_cast<float>(w), static_cast<float>(h), text);
-            }));
-    fakelua::RegisterNativeFunction(
-        state, "ui_tip_draw", false,
-        std::function<void(fakelua::State *)>(
-            [engine](fakelua::State *) { engine->GetUI().DrawTooltip(); }));
-    fakelua::RegisterNativeFunction(
-        state, "ui_set_tip_delay", false,
-        std::function<void(fakelua::State *, double)>(
-            [engine](fakelua::State *, double seconds) {
-                engine->GetUI().SetTipDelay(static_cast<float>(seconds));
-            }));
-
-    fakelua::RegisterNativeFunction(
-        state, "ui_button", false,
-        std::function<bool(fakelua::State *, std::string_view, std::int64_t,
-                           double, double, double, double, std::string_view, double)>(
-            [engine](fakelua::State *, std::string_view key, std::int64_t anchor,
-                     double ox, double oy, double w, double h,
-                     std::string_view text, double scale) -> bool {
-                return engine->GetUI().Button(
-                    key, static_cast<UIAnchor>(anchor),
-                    static_cast<float>(ox), static_cast<float>(oy),
-                    static_cast<float>(w), static_cast<float>(h),
-                    text, static_cast<float>(scale));
-            }));
-
-    // ---- widgets (Phase 20) -------------------------------------------------
-    // Values stay in the script: ui_slider returns the updated value and
-    // ui_checkbox returns true on the frame it was toggled, so the caller
-    // owns the state (same contract as ui_button).
-    fakelua::RegisterNativeFunction(
-        state, "ui_slider", false,
-        std::function<double(fakelua::State *, std::string_view, std::int64_t,
-                             double, double, double, double, double, double, double)>(
-            [engine](fakelua::State *, std::string_view key, std::int64_t anchor,
-                     double ox, double oy, double w, double h, double value,
-                     double min_value, double max_value) -> double {
-                return engine->GetUI().Slider(
-                    key, static_cast<UIAnchor>(anchor), static_cast<float>(ox),
-                    static_cast<float>(oy), static_cast<float>(w),
-                    static_cast<float>(h), static_cast<float>(value),
-                    static_cast<float>(min_value), static_cast<float>(max_value));
-            }));
-
-    fakelua::RegisterNativeFunction(
-        state, "ui_checkbox", false,
-        std::function<bool(fakelua::State *, std::string_view, std::int64_t,
-                           double, double, double, bool, std::string_view, double)>(
-            [engine](fakelua::State *, std::string_view key, std::int64_t anchor,
-                     double ox, double oy, double size, bool checked,
-                     std::string_view label, double scale) -> bool {
-                return engine->GetUI().Checkbox(
-                    key, static_cast<UIAnchor>(anchor), static_cast<float>(ox),
-                    static_cast<float>(oy), static_cast<float>(size), checked,
-                    label, static_cast<float>(scale));
-            }));
-
-    // ---- widgets round 2 (Phase 25) ----------------------------------------
-    // A progress bar is a pure draw: value clamped to 0..1 fills w from the
-    // left, and there is no state to keep.
-    fakelua::RegisterNativeFunction(
-        state, "ui_bar", false,
-        std::function<void(fakelua::State *, std::int64_t, double, double, double,
-                           double, double, double, double, double, double)>(
-            [engine](fakelua::State *, std::int64_t anchor, double ox, double oy,
-                     double w, double h, double value, double r, double g,
-                     double b, double a) {
-                engine->GetUI().ProgressBar(
-                    static_cast<UIAnchor>(anchor), static_cast<float>(ox),
-                    static_cast<float>(oy), static_cast<float>(w),
-                    static_cast<float>(h), static_cast<float>(value),
-                    Color{static_cast<float>(r), static_cast<float>(g),
-                          static_cast<float>(b), static_cast<float>(a)});
-            }));
-
-    // One radio row; the caller owns which index is selected (see the header).
-    fakelua::RegisterNativeFunction(
-        state, "ui_radio", false,
-        std::function<bool(fakelua::State *, std::string_view, std::int64_t, double,
-                           double, double, bool, std::string_view, double)>(
-            [engine](fakelua::State *, std::string_view key, std::int64_t anchor,
-                     double ox, double oy, double size, bool selected,
-                     std::string_view label, double scale) -> bool {
-                return engine->GetUI().RadioButton(
-                    key, static_cast<UIAnchor>(anchor), static_cast<float>(ox),
-                    static_cast<float>(oy), static_cast<float>(size), selected,
-                    label, static_cast<float>(scale));
-            }));
-
-    // A combo is built from one header call plus one call per row: the
-    // popup's open state lives in the script, so nothing about the list is
-    // hidden inside the widget.
-    fakelua::RegisterNativeFunction(
-        state, "ui_combo", false,
-        std::function<bool(fakelua::State *, std::string_view, std::int64_t, double,
-                           double, double, double, std::string_view, bool, double)>(
-            [engine](fakelua::State *, std::string_view key, std::int64_t anchor,
-                     double ox, double oy, double w, double h,
-                     std::string_view label, bool open, double scale) -> bool {
-                return engine->GetUI().ComboBegin(
-                    key, static_cast<UIAnchor>(anchor), static_cast<float>(ox),
-                    static_cast<float>(oy), static_cast<float>(w),
-                    static_cast<float>(h), label, open,
-                    static_cast<float>(scale));
-            }));
-
-    // A titled panel dragged by its bar; the position lives in the script, so
-    // the caller needs the per-frame mouse delta to move it.
-    fakelua::RegisterNativeFunction(
-        state, "ui_window", false,
-        std::function<bool(fakelua::State *, std::string_view, std::int64_t, double,
-                           double, double, double, std::string_view, double)>(
-            [engine](fakelua::State *, std::string_view key, std::int64_t anchor,
-                     double ox, double oy, double w, double h,
-                     std::string_view title, double scale) -> bool {
-                return engine->GetUI().Window(
-                    key, static_cast<UIAnchor>(anchor), static_cast<float>(ox),
-                    static_cast<float>(oy), static_cast<float>(w),
-                    static_cast<float>(h), title, static_cast<float>(scale));
-            }));
-
-    // One tab of a tab bar; which tab is active is the caller's.
-    fakelua::RegisterNativeFunction(
-        state, "ui_tab", false,
-        std::function<bool(fakelua::State *, std::string_view, std::int64_t, double,
-                           double, double, double, std::string_view, bool, double)>(
-            [engine](fakelua::State *, std::string_view key, std::int64_t anchor,
-                     double ox, double oy, double w, double h,
-                     std::string_view label, bool active, double scale) -> bool {
-                return engine->GetUI().Tab(
-                    key, static_cast<UIAnchor>(anchor), static_cast<float>(ox),
-                    static_cast<float>(oy), static_cast<float>(w),
-                    static_cast<float>(h), label, active,
-                    static_cast<float>(scale));
-            }));
-
-    // A disclosure row; `open` is the caller's, so children are an if-block.
-    fakelua::RegisterNativeFunction(
-        state, "ui_tree", false,
-        std::function<bool(fakelua::State *, std::string_view, std::int64_t, double,
-                           double, double, double, std::string_view, bool, double)>(
-            [engine](fakelua::State *, std::string_view key, std::int64_t anchor,
-                     double ox, double oy, double w, double h,
-                     std::string_view label, bool open, double scale) -> bool {
-                return engine->GetUI().Tree(
-                    key, static_cast<UIAnchor>(anchor), static_cast<float>(ox),
-                    static_cast<float>(oy), static_cast<float>(w),
-                    static_cast<float>(h), label, open,
-                    static_cast<float>(scale));
-            }));
-
-    fakelua::RegisterNativeFunction(
-        state, "ui_combo_item", false,
-        std::function<bool(fakelua::State *, std::string_view, std::int64_t, double,
-                           double, double, double, std::string_view, bool, double)>(
-            [engine](fakelua::State *, std::string_view key, std::int64_t anchor,
-                     double ox, double oy, double w, double h,
-                     std::string_view label, bool selected, double scale) -> bool {
-                return engine->GetUI().ComboItem(
-                    key, static_cast<UIAnchor>(anchor), static_cast<float>(ox),
-                    static_cast<float>(oy), static_cast<float>(w),
-                    static_cast<float>(h), label, selected,
-                    static_cast<float>(scale));
-            }));
-
-    // The field's text lives in the UI system (scripts cannot own a mutable
-    // string), so read it back with ui_text_get and seed it with ui_text_set.
-    fakelua::RegisterNativeFunction(
-        state, "ui_text_input", false,
-        std::function<bool(fakelua::State *, std::string_view, std::int64_t,
-                           double, double, double, double, std::int64_t)>(
-            [engine](fakelua::State *, std::string_view key, std::int64_t anchor,
-                     double ox, double oy, double w, double h,
-                     std::int64_t max_chars) -> bool {
-                return engine->GetUI().TextInput(
-                    key, static_cast<UIAnchor>(anchor), static_cast<float>(ox),
-                    static_cast<float>(oy), static_cast<float>(w),
-                    static_cast<float>(h), static_cast<std::size_t>(max_chars));
-            }));
-
-    fakelua::RegisterNativeFunction(
-        state, "ui_text_get", false,
-        std::function<std::string(fakelua::State *, std::string_view)>(
-            [engine](fakelua::State *, std::string_view key) -> std::string {
-                return std::string(engine->GetUI().TextValue(key));
-            }));
-
-    fakelua::RegisterNativeFunction(
-        state, "ui_text_set", false,
-        std::function<void(fakelua::State *, std::string_view, std::string_view)>(
-            [engine](fakelua::State *, std::string_view key, std::string_view text) {
-                engine->GetUI().SetTextValue(key, text);
-            }));
-
-    fakelua::RegisterNativeFunction(
-        state, "ui_scroll", false,
-        std::function<double(fakelua::State *, std::string_view, std::int64_t,
-                             double, double, double, double, double, double)>(
-            [engine](fakelua::State *, std::string_view key, std::int64_t anchor,
-                     double ox, double oy, double w, double h, double content_h,
-                     double scroll_y) -> double {
-                return engine->GetUI().ScrollArea(
-                    key, static_cast<UIAnchor>(anchor), static_cast<float>(ox),
-                    static_cast<float>(oy), static_cast<float>(w),
-                    static_cast<float>(h), static_cast<float>(content_h),
-                    static_cast<float>(scroll_y));
-            }));
-
-    fakelua::RegisterNativeFunction(
-        state, "ui_hovered", false,
-        std::function<bool(fakelua::State *, std::string_view)>(
-            [engine](fakelua::State *, std::string_view key) -> bool {
-                return engine->GetUI().IsHovered(key);
-            }));
-
-    fakelua::RegisterNativeFunction(
-        state, "ui_text_focused", false,
-        std::function<std::string(fakelua::State *)>(
-            [engine](fakelua::State *) -> std::string {
-                return std::string(engine->GetUI().FocusedTextInput());
-            }));
-
-    fakelua::RegisterNativeFunction(
-        state, "ui_set_origin", false,
-        std::function<void(fakelua::State *, double, double)>(
-            [engine](fakelua::State *, double x, double y) {
-                engine->GetUI().SetWorldOrigin({static_cast<float>(x),
-                                                static_cast<float>(y)});
-            }));
+    };
+    add("ui_push", 4, [](UISystem &ui, const Args &a) {
+        ui.Push(a.N(0), a.N(1), a.N(2), a.N(3), a.N(4)); return a.Nil();
+    });
+    add("ui_pop", 0, [](UISystem &ui, const Args &a) { ui.Pop(); return a.Nil(); });
+    add("ui_text", 1, [](UISystem &ui, const Args &a) {
+        const std::string mode = a.S(2, "wrap");
+        const auto overflow = mode == "ellipsis" ? UITextOverflow::Ellipsis :
+            mode == "shrink" ? UITextOverflow::Shrink : mode == "clip" ? UITextOverflow::Clip : UITextOverflow::Wrap;
+        return a.Number(ui.Text(a.S(0), a.N(1, 0.6f), overflow, static_cast<int>(a.N(3)), a.C(4), a.N(8, 0.35f)));
+    });
+    add("ui_avail_w", 0, [](UISystem &ui, const Args &a) { return a.Number(ui.AvailWidth()); });
+    add("ui_last_rect", 1, [](UISystem &ui, const Args &a) {
+        const Rect r = ui.LastRect(); const std::string field = a.S(0);
+        return a.Number(field == "x" ? r.x : field == "y" ? r.y : field == "w" ? r.width : field == "h" ? r.height : 0);
+    });
+    add("ui_row", 0, [](UISystem &ui, const Args &a) {
+        std::vector<float> columns;
+        for (int i = 1; i < a.count; ++i) columns.push_back(a.N(i));
+        ui.Row(a.N(0), columns); return a.Nil();
+    });
+    add("ui_col", 0, [](UISystem &ui, const Args &a) { ui.Col(a.N(0)); return a.Nil(); });
+    add("ui_col_end", 0, [](UISystem &ui, const Args &a) { ui.ColEnd(); return a.Nil(); });
+    add("ui_row_end", 0, [](UISystem &ui, const Args &a) { ui.RowEnd(); return a.Nil(); });
+    add("ui_scroll_begin", 2, [](UISystem &ui, const Args &a) { ui.ScrollBegin(a.S(0), a.N(1)); return a.Nil(); });
+    add("ui_scroll_end", 0, [](UISystem &ui, const Args &a) { return a.Number(ui.ScrollEnd()); });
+    add("ui_scroll_content_h", 1, [](UISystem &ui, const Args &a) { return a.Number(ui.ScrollContentHeight(a.S(0))); });
+    add("ui_scroll_offset", 1, [](UISystem &ui, const Args &a) { return a.Number(ui.ScrollOffset(a.S(0))); });
+    add("ui_layout_token", 1, [](UISystem &ui, const Args &a) { return a.Number(ui.LayoutToken(a.S(0))); });
+    add("ui_set_layout_token", 2, [](UISystem &ui, const Args &a) { return a.Bool(ui.SetLayoutToken(a.S(0), a.N(1))); });
+    add("ui_set_audit", 1, [](UISystem &ui, const Args &a) { ui.SetAudit(a.B(0)); return a.Nil(); });
+    add("ui_overflow_count", 0, [](UISystem &ui, const Args &a) { return a.Number(static_cast<float>(ui.OverflowCount())); });
+    add("ui_panel", 4, [](UISystem &ui, const Args &a) { ui.Panel(a.C(0)); return a.Nil(); });
+    add("ui_button", 3, [](UISystem &ui, const Args &a) { return a.Bool(ui.Button(a.S(0), a.N(1), a.S(2), a.N(3, 0.6f))); });
+    add("ui_slider", 5, [](UISystem &ui, const Args &a) { return a.Number(ui.Slider(a.S(0), a.N(1), a.N(2), a.N(3), a.N(4))); });
+    add("ui_checkbox", 3, [](UISystem &ui, const Args &a) { return a.Bool(ui.Checkbox(a.S(0), a.N(1), a.B(2), a.S(3), a.N(4, 0.6f))); });
+    add("ui_text_input", 2, [](UISystem &ui, const Args &a) { return a.Bool(ui.TextInput(a.S(0), a.N(1), static_cast<std::size_t>(std::max(0.0f, a.N(2, 24))))); });
+    add("ui_text_get", 1, [](UISystem &ui, const Args &a) { return a.String(ui.TextValue(a.S(0))); });
+    add("ui_text_set", 2, [](UISystem &ui, const Args &a) { ui.SetTextValue(a.S(0), a.S(1)); return a.Nil(); });
+    add("ui_bar", 6, [](UISystem &ui, const Args &a) { ui.ProgressBar(a.N(0), a.N(1), a.C(2)); return a.Nil(); });
+    add("ui_radio", 3, [](UISystem &ui, const Args &a) { return a.Bool(ui.RadioButton(a.S(0), a.N(1), a.B(2), a.S(3), a.N(4, 0.6f))); });
+    add("ui_combo", 4, [](UISystem &ui, const Args &a) { return a.Bool(ui.ComboBegin(a.S(0), a.N(1), a.S(2), a.B(3), a.N(4, 0.6f))); });
+    add("ui_combo_item", 4, [](UISystem &ui, const Args &a) { return a.Bool(ui.ComboItem(a.S(0), a.N(1), a.S(2), a.B(3), a.N(4, 0.6f))); });
+    add("ui_window", 2, [](UISystem &ui, const Args &a) { return a.Bool(ui.Window(a.S(0), a.S(1), a.N(2, 0.6f))); });
+    add("ui_tab", 4, [](UISystem &ui, const Args &a) { return a.Bool(ui.Tab(a.S(0), a.N(1), a.S(2), a.B(3), a.N(4, 0.6f))); });
+    add("ui_tree", 4, [](UISystem &ui, const Args &a) { return a.Bool(ui.Tree(a.S(0), a.N(1), a.S(2), a.B(3), a.N(4, 0.6f))); });
+    add("ui_tip", 1, [](UISystem &ui, const Args &a) { ui.Tip(a.S(0)); return a.Nil(); });
+    add("ui_tip_draw", 0, [](UISystem &ui, const Args &a) { ui.DrawTooltip(); return a.Nil(); });
+    add("ui_set_tip_delay", 1, [](UISystem &ui, const Args &a) { ui.SetTipDelay(a.N(0)); return a.Nil(); });
+    add("ui_hovered", 1, [](UISystem &ui, const Args &a) { return a.Bool(ui.IsHovered(a.S(0))); });
+    add("ui_text_focused", 0, [](UISystem &ui, const Args &a) { return a.String(ui.FocusedTextInput()); });
+    add("ui_set_origin", 2, [](UISystem &ui, const Args &a) { ui.SetWorldOrigin({a.N(0), a.N(1)}); return a.Nil(); });
 }
 
 void RegisterLineApi(fakelua::State *state, Engine *engine) {

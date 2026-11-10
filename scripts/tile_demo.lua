@@ -119,7 +119,10 @@ function update(dt)
               40, 522, 0.6, 0.55, 0.62, 0.7, 1.0)
 
     -- A click rewinds the clock: the pond jumps back to frame 1.
-    if ui_button("ta_reset", 0, 800, 436, 120, 28, "RESET CLOCK", 0.55) then
+    ui_push(800, 436, 120, 28)
+    local ui_clicked_1 = ui_button("ta_reset", 28, "RESET CLOCK", 0.55)
+    ui_pop()
+    if ui_clicked_1 then
         map_anim_reset(S.map_id)
     end
 

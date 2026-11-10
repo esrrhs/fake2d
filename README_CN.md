@@ -7,7 +7,7 @@
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-brightgreen.svg)](https://en.cppreference.com/w/cpp/23)
 [![OpenGL](https://img.shields.io/badge/OpenGL-3.3%20Core%20%7C%202.1-orange.svg)](https://www.opengl.org/)
 [![FakeLua](https://img.shields.io/badge/Script-FakeLua-red.svg)](https://github.com/esrrhs/fakelua)
-[![Version](https://img.shields.io/badge/version-1.46.0-informational.svg)](include/fake2d/version.h)
+[![Version](https://img.shields.io/badge/version-1.47.0-informational.svg)](include/fake2d/version.h)
 
 **Fake2D** 是基于 [FakeLua](https://github.com/esrrhs/fakelua) 驱动的现代化、轻量级、高性能 2D 游戏引擎：
 - **C++23 宿主引擎**：掌管窗口管理、GPU 渲染管线、空间物理、音频混音与底层资源生命周期；
@@ -43,7 +43,7 @@ Fake2D 不仅是渲染器，更是一套自洽完备的 2D 游戏开发平台：
 - **多趟后处理与 FBO**：离屏渲染目标（RenderTarget）、Ping-Pong 缓冲交换、Bloom 辉光、可分离 9 抽头高斯模糊、波浪扭曲特效、战争迷雾（Fog of War）以及全景小地图烘焙；
 - **实时 2D 光照与投影阴影**：点光源带径向柔和衰减，每个遮挡物向外投影硬阴影，光源移动时阴影随之扫过场景。整个通道只用一张生成的衰减贴图与一次 Multiply 混合，并按混合状态合批——64 个运动光照打满 256 个遮挡物槽位仍是 4 个 Draw Call、0.7 ms。遮挡物支持矩形、多边形与实时物理刚体，每道阴影都被约束在自己的光照圆内，每帧阴影四边形预算兜住最坏情况；
 - **2D 骨骼动画**：骨骼层级由关键帧剪辑驱动，一套走路循环是一串角度而不是两百张图。骨架从 JSON 载入（bones / slots / attachments / skins / clips 的 Spine 风格结构），逐通道线性或阶梯插值，交叉淡入淡出时旧剪辑仍在底层继续播放，时间轴事件跨过循环接缝也能命中当帧，并支持双臂两骨 IK 与指向 IK。代价是量出来的：一张图集上的 12 个部件只需 1 个 Draw Call，12 个士兵加起来仍是 1 个；
-- **即时模式 UI（Immediate-Mode UI）**：开箱即用的 UI 控件库（Panel、Button、Label、Slider、Checkbox、TextInput、ScrollArea、ProgressBar、RadioButton、Combo、可拖拽 Window、Tab 标签页、Tree 折叠树、Tooltip）。
+- **即时模式 UI（Immediate-Mode UI）**：开箱即用的 UI 控件库（Panel、Button、盒内 Text、Slider、Checkbox、TextInput、ScrollArea、ProgressBar、RadioButton、Combo、可拖拽 Window、Tab 标签页、Tree 折叠树、Tooltip）。 **1.47.0 统一切换盒模型 API（破坏性变更）**：光标排版、同帧固定/弹性列、滚动高度自动测量、嵌套裁剪求交、文字/控件统一审计与共享布局常量。详见 [迁移/API](docs/SCRIPTING.md#ui)。
 - **文本与平台能力层**：UTF-8 按需字形图集（原生支持 CJK/日文/韩文，`font_load` 可载入任意 TTF/TTC/OTF，缺字自动回退字体）、中文逐字换行与英文按词换行（含禁则与 kerning）、旋转/阴影/描边/自动缩字、运行时切换的 TSV 语言包（BOM 兼容、缺 key 报告）、跨平台资源/用户目录、带 CRC 与 `.bak` 回滚的 v2 存档容器、实体快照存读、文件日志与崩溃报告、离线成就镜像、`mod.json` 模组管理器，以及可选 Steamworks 适配层（成就 / Rich Presence / 语言 / 云存档开关，未链接 SDK 时自动降级为零依赖 stub）。
 - **玩法基础工具**：确定性 splitmix64 随机数、命名缓动曲线与帧率无关的 `Approach`、可重绑的输入动作映射、窗口尺寸/resizable/最小尺寸/光标控制、音频 pitch/循环/停止，以及运行时 FPS / 帧耗时 / draw call 统计。
 - **2.5D 清版动作套件**：全局游戏时间缩放 + 命中停顿 `time_set_scale`/`time_hitstop`（脚本、物理、动画、粒子一起定格）；每个实体 16 个数值 + 4 个字符串槽、最多 512 个实体，足以承载完整角色阵容；动画剪辑池扩至 128；配合 `draw_set_z` + `batch_set_sorted` 实现深度正确的横版 y 排序。
@@ -51,7 +51,7 @@ Fake2D 不仅是渲染器，更是一套自洽完备的 2D 游戏开发平台：
 ### 5. 现代化工程化与极佳开发者体验
 - **JIT 脚本热重载**：支持 GCC JIT 与解释器双模式，在运行中修改 Lua 脚本保存即刻生效，无需重启进程；
 - **无头测试与 CI/CD**：内置原生 `--headless`、`--frames N`、`--screenshot`、`--ai` 与 `--record`/`--replay` 参数，可在无物理显示器的虚拟机、Docker 容器中运行自动化回归验证与帧缓冲像素级比对；
-- **30 项内置自测试套件**：1535 断言，涵盖刚体动力学、关节、休眠、防穿透、物理查询、碰撞过滤、时间步长、地图对象、A\* 寻路、离屏 FBO、即时 UI、后处理链、战争迷雾、2D 光照与阴影包含性、骨骼层级/剪辑播放/交叉淡入/IK/时间轴事件、音频混音、动画瓦片、UTF-8/CJK 文本与字体回退、平台能力层、确定性随机、缓动、实体快照、输入动作、窗口控制、游戏时间缩放/命中停顿、16 槽实体角色、128 剪辑动画池、飞机大战素材管线、城市建造地形/建筑图集/基础地图、RTS 地形/单位/建筑/地图管线与视觉小说背景/立绘素材等，所有测试用例均经过变异测试（Mutation-tested）验证；
+- **30 项内置自测试套件**：1584 断言，涵盖刚体动力学、关节、休眠、防穿透、物理查询、碰撞过滤、时间步长、地图对象、A\* 寻路、离屏 FBO、即时 UI、后处理链、战争迷雾、2D 光照与阴影包含性、骨骼层级/剪辑播放/交叉淡入/IK/时间轴事件、音频混音、动画瓦片、UTF-8/CJK 文本与字体回退、平台能力层、确定性随机、缓动、实体快照、输入动作、窗口控制、游戏时间缩放/命中停顿、16 槽实体角色、128 剪辑动画池、飞机大战素材管线、城市建造地形/建筑图集/基础地图、RTS 地形/单位/建筑/地图管线与视觉小说背景/立绘素材等，既有用例包含变异测试（Mutation-tested）验证，新增 UI 盒模型用例覆盖几何与像素边界；
 - **开箱即用独立打包**：提供自动化打包脚本，一键生成包含依赖库的独立二进制压缩包，分发给玩家免安装环境。
 
 ---
@@ -78,7 +78,7 @@ Fake2D 不仅是渲染器，更是一套自洽完备的 2D 游戏开发平台：
 ├───────────────────────┴──────────────────────────────┴──────────────────────┤
 │                           即时模式 UI 控件库 (UISystem)                      │
 │     窗口 · 面板 · 按钮 · 滑条 · 输入框 · 复选框 · 单选 · 下拉 · 滚动 · 标签 · 树     │
-│     自动缩字 (LabelFit) · 悬浮提示队列 (Tooltip)                             │
+│     文本盒子 (换行/省略/缩字/裁切) · 悬浮提示队列 (Tooltip)                             │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                     平台抽象 · 本地化 (I18n) · 用户目录 · Steam             │
 │         OpenGL 3.3 Core (向下兼容 GL 2.1) · GLFW 3.4 (窗口/手柄/输入快照)   │
@@ -379,11 +379,15 @@ function update(dt)
     draw_quad(player_x - 16, player_y - 16, 32, 32, 60, 180, 255, 255)
     
     -- 绘制即时模式 UI
-    ui_panel("hud", "top_left", 10, 10, 160, 40)
-    ui_label("score", "top_left", 20, 20, "SCORE: 1200", 1.0)
-    if ui_button("btn_pause", "top_right", -110, 10, 100, 32, "PAUSE") then
+    ui_push(20, 20, 220, 40)
+    ui_panel(0.1, 0.12, 0.18, 1)
+    ui_text("SCORE: 1200", 1.0, "ellipsis")
+    ui_pop()
+    ui_push(camera_viewport_w() - 110, 10, 100, 32)
+    if ui_button("btn_pause", 32, "PAUSE") then
         -- 点击按钮逻辑
     end
+    ui_pop()
 
     return 0
 end

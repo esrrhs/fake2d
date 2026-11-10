@@ -236,7 +236,7 @@ public:
     TilemapLibrary &GetTilemaps();
     [[nodiscard]] const TilemapLibrary &GetTilemaps() const;
 
-    /// Anchored UI widgets; click/hover state is refreshed per frame.
+    /// Cursor-box immediate UI; click/hover state is refreshed per frame.
     UISystem &GetUI();
     [[nodiscard]] const UISystem &GetUI() const;
 

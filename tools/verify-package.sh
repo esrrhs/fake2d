@@ -117,6 +117,15 @@ run_check() {
     say "$name ok"
 }
 
+run_check ui --ui-test
+grep -F '[ui] PASS' "$TMP/ui.log" >/dev/null || fail "UI layout test not PASS"
+run_check ui-box-demo --headless --ui-demo --frames 3 \
+    --screenshot "$TMP/ui.png" --shot-frame 2 --shot-min-colors 12
+[ -s "$TMP/ui.png" ] || fail "UI box demo screenshot missing"
+if grep -qF '[UI_OVERFLOW]' "$TMP/ui-box-demo.log"; then
+    fail "UI box demo contains layout overflows"
+fi
+
 run_check art --art-test
 grep -F '[art] PASS' "$TMP/art.log" >/dev/null || fail "art test not PASS"
 

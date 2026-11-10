@@ -111,6 +111,19 @@ def parse_native_api(bindings: Path):
         args = [p.strip() for p in params.split(",")] if params.strip() else []
         args = [p for p in args if p != "fakelua::State *"]
         api[name] = (ret.strip(), len(args))
+    # 1.47 UI bindings parse optional arguments through the local Args adapter.
+    # Keep fixture stubs tied to those real declarations rather than preserving
+    # removed anchored APIs or a second hand-maintained signature table.
+    ui_section = text.split("void RegisterUiApi(", 1)[1].split("void RegisterLineApi(", 1)[0]
+    for match in re.finditer(r'add\("(ui_\w+)",\s*(\d+),.*?\{(.*?return a\.(?:Number|Bool|String|Nil)\(.*?;)\s*\}\);', ui_section, re.S):
+        name, required, body = match.groups()
+        arity = int(required)
+        for kind, index in re.findall(r'a\.(N|S|B|C)\((\d+)', body):
+            arity = max(arity, int(index) + (4 if kind == "C" else 1))
+        result = re.search(r'return a\.(Number|Bool|String|Nil)\(', body)
+        ret = {"Number": "double", "Bool": "bool", "String": "std::string",
+               "Nil": "void"}[result.group(1)]
+        api[name] = (ret, arity)
     return api
 
 
@@ -491,6 +504,7 @@ function draw_quad(a, b, c, d, e, f, g, h) end
 function draw_quad_rgb(a, b, c, d, e, f, g) end
 function draw_text(s, x, y, sc, r, g, b, a) return 0.0 end
 function text_width(s, sc) return 0.0 end
+function text_line_height() return 28.0 end
 function draw_set_layer(a) end
 function draw_set_z(a) end
 function draw_set_blend(a) end
@@ -566,19 +580,24 @@ function window_quit() fix_quit = 1 end
 function window_set_title(t) end
 function window_set_fullscreen(b) end
 function window_fullscreen() return false end
-function ui_panel(a, b, c, d, e, f, g, h, i) end
-function ui_label(a, b, c, d, e, f, g, h, i) end
-function ui_button(a, b, c, d, e, f, g, h) return false end
-function ui_set_origin(a, b) end
--- Phase 25 widgets round 2.
-function ui_bar(a, b, c, d, e, f, g, h, i, j) end
-function ui_radio(a, b, c, d, e, f, g, h) return false end
-function ui_combo(a, b, c, d, e, f, g, h, i) return false end
-function ui_combo_item(a, b, c, d, e, f, g, h, i) return false end
--- Phase 28 widgets round 3.
-function ui_window(a, b, c, d, e, f, g, h) return false end
-function ui_tab(a, b, c, d, e, f, g, h, i) return false end
-function ui_tree(a, b, c, d, e, f, g, h, i) return false end
+function ui_push(x, y, w, h, pad) end
+function ui_pop() end
+function ui_text(text, scale, mode, align, r, g, b, a, min_scale) return 0 end
+function ui_layout_token(name)
+    if name == "sidebar_inset" then return 410 end
+    if name == "menu_icon_spacing_cap" then return 64 end
+    return 600
+end
+function ui_panel(r, g, b, a) end
+function ui_button(key, h, text, scale) return false end
+function ui_set_origin(x, y) end
+function ui_bar(h, value, r, g, b, a) end
+function ui_radio(key, size, selected, label, scale) return false end
+function ui_combo(key, h, label, open, scale) return false end
+function ui_combo_item(key, h, label, selected, scale) return false end
+function ui_window(key, title, scale) return false end
+function ui_tab(key, h, label, active, scale) return false end
+function ui_tree(key, h, label, open, scale) return false end
 
 -- Reset every persistent state slot. Defined last so all locals above are
 -- in scope; the driver calls this once from init().

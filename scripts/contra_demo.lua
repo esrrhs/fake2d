@@ -1821,11 +1821,15 @@ local function draw_hud()
     draw_quad(ox, 0.0, VW, 56.0, 0.025, 0.030, 0.040, 0.94)
     draw_quad(ox, 55.0, VW, 2.0, 0.10, 0.12, 0.15, 1.0)
 
-    ui_label(0, ox + 16.0, 12.0, "SCORE", 0.30, 0.62, 0.68, 0.78, 1.0)
+    ui_push(ox + 16.0, 12.0, math.min(ui_layout_token("panel_width"), text_width("SCORE", 0.30)), text_line_height() * (0.30))
+    ui_text("SCORE", 0.30, "ellipsis", 0, 0.62, 0.68, 0.78, 1.0)
+    ui_pop()
     draw_text(string.format("%06d", math.floor(S.score)), ox + 16.0, 28.0, 0.55,
               1.0, 0.95, 0.78, 1.0)
 
-    ui_label(0, ox + 170.0, 12.0, "LIVES", 0.30, 0.62, 0.68, 0.78, 1.0)
+    ui_push(ox + 170.0, 12.0, math.min(ui_layout_token("panel_width"), text_width("LIVES", 0.30)), text_line_height() * (0.30))
+    ui_text("LIVES", 0.30, "ellipsis", 0, 0.62, 0.68, 0.78, 1.0)
+    ui_pop()
     local lx = 170.0
     for k = 1, S.lives do
         sprite_draw_flip_tinted(S.tex_idle, 0.0, 0.0, 16.0, 32.0,
@@ -1836,19 +1840,30 @@ local function draw_hud()
 
     local wr, wg, wb = weapon_color(S.weapon)
     draw_quad(ox + 392.0, 22.0, 14.0, 14.0, wr, wg, wb, 1.0)
-    ui_label(0, ox + 414.0, 12.0, "WEAPON", 0.28, 0.62, 0.68, 0.78, 1.0)
-    ui_label(0, ox + 414.0, 30.0, weapon_name(S.weapon), 0.40, 1.0, 0.94, 0.80, 1.0)
+    ui_push(ox + 414.0, 12.0, math.min(ui_layout_token("panel_width"), text_width("WEAPON", 0.28)), text_line_height() * (0.28))
+    ui_text("WEAPON", 0.28, "ellipsis", 0, 0.62, 0.68, 0.78, 1.0)
+    ui_pop()
+    ui_push(ox + 414.0, 30.0, math.min(ui_layout_token("panel_width"), text_width(weapon_name(S.weapon), 0.40)), text_line_height() * (0.40))
+    ui_text(weapon_name(S.weapon), 0.40, "ellipsis", 0, 1.0, 0.94, 0.80, 1.0)
+    ui_pop()
 
-    ui_label(0, ox + 690.0, 12.0, "STAGE", 0.28, 0.62, 0.68, 0.78, 1.0)
-    ui_label(0, ox + 690.0, 30.0, string.format("%d", S.stage), 0.55,
-             1.0, 0.92, 0.70, 1.0)
+    ui_push(ox + 690.0, 12.0, math.min(ui_layout_token("panel_width"), text_width("STAGE", 0.28)), text_line_height() * (0.28))
+    ui_text("STAGE", 0.28, "ellipsis", 0, 0.62, 0.68, 0.78, 1.0)
+    ui_pop()
+    ui_push(ox + 690.0, 30.0, math.min(ui_layout_token("panel_width"), text_width(string.format("%d", S.stage), 0.55)), text_line_height() * (0.55))
+    ui_text(string.format("%d", S.stage), 0.55, "ellipsis", 0, 1.0, 0.92, 0.70, 1.0)
+    ui_pop()
 
-    ui_label(0, ox + 790.0, 14.0, "A/D RUN   W UP   S CROUCH",
-             0.22, 0.52, 0.58, 0.68, 0.9)
-    ui_label(0, ox + 790.0, 32.0, "SPACE JUMP   J/X FIRE",
-             0.22, 0.52, 0.58, 0.68, 0.9)
+    ui_push(ox + 790.0, 14.0, math.min(ui_layout_token("panel_width"), text_width("A/D RUN   W UP   S CROUCH", 0.22)), text_line_height() * (0.22))
+    ui_text("A/D RUN   W UP   S CROUCH", 0.22, "ellipsis", 0, 0.52, 0.58, 0.68, 0.9)
+    ui_pop()
+    ui_push(ox + 790.0, 32.0, math.min(ui_layout_token("panel_width"), text_width("SPACE JUMP   J/X FIRE", 0.22)), text_line_height() * (0.22))
+    ui_text("SPACE JUMP   J/X FIRE", 0.22, "ellipsis", 0, 0.52, 0.58, 0.68, 0.9)
+    ui_pop()
     if S.ai_active then
-        ui_label(0, ox + 878.0, 12.0, "AUTO", 0.24, 0.95, 0.62, 0.30, 1.0)
+        ui_push(ox + 878.0, 12.0, math.min(ui_layout_token("panel_width"), text_width("AUTO", 0.24)), text_line_height() * (0.24))
+        ui_text("AUTO", 0.24, "ellipsis", 0, 0.95, 0.62, 0.30, 1.0)
+        ui_pop()
     end
 
     -- Boss bar.
@@ -1861,7 +1876,9 @@ local function draw_hud()
         draw_quad(bx, 64.0, bw, 12.0, 0.05, 0.02, 0.03, 0.92)
         draw_quad(bx + 2.0, 66.0, (bw - 4.0) * ratio, 8.0, 0.90, 0.22, 0.16, 1.0)
         draw_rect_outline(bx, 64.0, bw, 12.0, 0.95, 0.80, 0.45, 0.85)
-        ui_label(0, bx, 80.0, "FORTRESS CORE", 0.30, 1.0, 0.72, 0.35, 1.0)
+        ui_push(bx, 80.0, math.min(ui_layout_token("panel_width"), text_width("FORTRESS CORE", 0.30)), text_line_height() * (0.30))
+        ui_text("FORTRESS CORE", 0.30, "ellipsis", 0, 1.0, 0.72, 0.35, 1.0)
+        ui_pop()
     end
 
     if S.ready_t > 0.0 then

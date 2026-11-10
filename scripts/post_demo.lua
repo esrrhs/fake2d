@@ -220,19 +220,31 @@ function update(dt)
     -- 3. HUD, on top of the graded picture ---------------------------------
     draw_quad(616, 32, 324, 226, 0.04, 0.06, 0.11, 0.88)
     draw_text("POST PASS", 632, 42, 0.75, 0.62, 0.86, 0.98, 1.0)
-    if ui_checkbox("post", 0, 632, 66, 18, S.post_on, "enabled (SPACE)", 0.6) then
+    ui_push(632, 66, ui_layout_token("panel_width"), math.max(18, 28))
+    local ui_clicked_1 = ui_checkbox("post", 18, S.post_on, "enabled (SPACE)", 0.6)
+    ui_pop()
+    if ui_clicked_1 then
         S.post_on = not S.post_on
     end
-    if ui_checkbox("grey", 0, 632, 92, 18, S.grey, "greyscale (G)", 0.6) then
+    ui_push(632, 92, ui_layout_token("panel_width"), math.max(18, 28))
+    local ui_clicked_2 = ui_checkbox("grey", 18, S.grey, "greyscale (G)", 0.6)
+    ui_pop()
+    if ui_clicked_2 then
         S.grey = not S.grey
     end
-    S.bright = ui_slider("bright", 0, 632, 126, 180, 22, S.bright, -0.3, 0.3)
+    ui_push(632, 126, 180, 22)
+    S.bright = ui_slider("bright", 22, S.bright, -0.3, 0.3)
+    ui_pop()
     draw_text("lift " .. istr(math.floor(S.bright * 100 + 0.5)), 822, 132, 0.6,
               0.75, 0.85, 0.95, 1.0)
-    S.vig = ui_slider("vig", 0, 632, 166, 180, 22, S.vig, 0.0, 2.0)
+    ui_push(632, 166, 180, 22)
+    S.vig = ui_slider("vig", 22, S.vig, 0.0, 2.0)
+    ui_pop()
     draw_text("vignette " .. istr(math.floor(S.vig * 50 + 0.5)) .. "%", 822, 172,
               0.6, 0.75, 0.85, 0.95, 1.0)
-    S.scan = ui_slider("scan", 0, 632, 206, 180, 22, S.scan, 0.0, 1.0)
+    ui_push(632, 206, 180, 22)
+    S.scan = ui_slider("scan", 22, S.scan, 0.0, 1.0)
+    ui_pop()
     draw_text("scanline " .. istr(math.floor(S.scan * 100 + 0.5)) .. "%", 822,
               212, 0.6, 0.75, 0.85, 0.95, 1.0)
 

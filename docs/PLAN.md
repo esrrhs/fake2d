@@ -947,3 +947,87 @@ record+replay with the same seed) can be asserted identical.
 Phase 53 shipped as **1.46.0**: RNG pin at Init (`--rng-seed`), FNV-1a world
 hash over RNG + physics + entities + camera, Lua `world_hash`, and
 `--determinism-test` CI gate. GPU skinning and packaging e2e remain deferred.
+
+## Phase 54 — Immediate UI boxes & text (1.47.x)
+
+### Architectural intent
+
+Keep immediate-mode caller-owned values; add a cursor/content rectangle,
+not a retained-mode Control tree. Every text run participates in the same
+rectangle audit as controls. Nested clipping is intersection, never replacement.
+
+### Deliverables
+
+- [x] C++ `Push` / `Pop`, local origin, padding, `AvailWidth` / `LastRect`
+- [x] Lua `ui_push` / `ui_pop` / `ui_avail_w` / `ui_last_rect(field)`
+- [x] `Text` / `ui_text`: wrap, UTF-8 ellipsis, shrink-to-floor then ellipsis,
+      explicit clip, box-relative alignment and measured cursor advance
+- [x] Unified `AuditRects` / `OverflowCount`, `[UI_OVERFLOW]`, Lua audit controls
+- [x] Intersecting clip stack, including empty intersections and glyph overhang
+- [x] Button text fits at the minimum scale; all widget captions are bounded
+- [x] **Breaking API, per user decision:** remove public point labels, fitted
+      labels, anchored widget signatures and estimated-height scroll. No shims.
+      Migrate all in-repo C++/Lua callers and fixture stubs to cursor boxes.
+      Font/Renderer primitives remain low-level drawing backends, not UI APIs.
+
+### Verification
+
+- [x] Extend the existing `--ui-test` (not a parallel harness): CJK wrap height
+      and pixels, nested/disjoint clip pixels, ellipsis/shrink containment,
+      actual clip-text overflow audit and no fitted-text false positives
+- [x] SCRIPTING migration/API reference, README / README_CN feature notes
+
+## Phase 55 — Same-frame rows & columns (1.47.x)
+
+### Deliverables
+
+- [x] C++ `Row(gap, widths)` / `Col(width)` / `ColEnd` / `RowEnd`
+- [x] Lua `ui_row(gap, col1, col2, ...)`: positive fixed px / negative flex
+      weights, distributed from this frame's width before any column draws
+- [x] Untemplated fixed-width packing; zero/default consumes remainder
+- [x] Gap between columns, slot widths clamp to remaining space, row height
+      is the maximum measured column content height; next widget follows it
+- [x] Market-like long-goods-name regression: no overlap with price/output,
+      wrapped cell grows row height; no previous-frame width cache
+
+## Phase 56 — Measured scroll & shared layout metrics (1.47.x)
+
+### Deliverables
+
+- [x] `ScrollBegin(key, view_height)` / `ScrollEnd`, corresponding Lua calls:
+      **always** measure content from the cursor; no estimate argument
+- [x] Defer UI drawing until outermost scroll end, resolve offsets using this
+      frame's measured height, then translate content and nested viewport clips
+- [x] Parent advances by viewport height; width reserves scrollbar gutter;
+      nested scissors prevent list content from covering bottom chrome
+- [x] LayoutToken / SetLayoutToken and Lua access: panel_width=600,
+      sidebar_inset=410, menu_icon_spacing_cap=64; caller overrides persist
+- [x] `--ui-demo` migration template: long CJK, fixed/flex market columns,
+      controls, auto-height list and tokens; ui2/ui3 and other callers updated
+- [x] `--ui-test`: growth/first-frame wheel clamp, final-row pixel visibility,
+      shrinking-list stale-offset removal, nested scroll pixels, token defaults
+      and validation; existing control interaction tests retained and migrated
+- [x] Version **1.47.0** in CMake/header/badges/consumer CI minimum pin
+
+Phases 54–56 ship together in **1.47.0**, the **1.47.x** band, not three
+separate public minor releases. Consumer games are out of scope; they adapt
+at their own pace. Full Flexbox/Grid, editors, virtual lists and controller
+focus remain deferred. See SCRIPTING.md UI for breaking name/signature maps
+and the font backend's existing unbreakable-Latin-word limitation.
+
+### Verification — Phases 54–56
+
+- [x] Debug CMake/Ninja build; `ctest --test-dir build --output-on-failure
+      --parallel 4`: **30/30** suites pass
+- [x] `--ui-test`: **125 checks, 0 failures** (including real CJK glyph pixels,
+      caption visibility, zero-width boxes and deepest-only nested wheel input)
+- [x] `env -u DISPLAY python3 tools/check-docs.py`: **31 demos, 30 suites,
+      512 slots, 1584 assertions**; isolated Xvfb avoids desktop window-manager
+      constraints in the existing window-resize test
+- [x] All **16 migrated demos** compile/run headlessly without JIT fallback,
+      update exceptions or unexpected UI overflow logs
+- [x] Fixture generation validates optional UI signatures (152 custom stubs,
+      406 auto defaults); shipped CJK fixture is OFL-licensed and reproducible
+- [x] Linux package verification: UI test + box demo screenshot, existing art /
+      Mario / snooker / contra gates, strict missing-texture rejection, and no
+      runtime asset generation; installed CMake consumer prints **1.47.0**

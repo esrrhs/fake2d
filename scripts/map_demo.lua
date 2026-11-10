@@ -164,11 +164,17 @@ function update(dt)
         end
     end
 
-    ui_label(0, 16, 12, "TILEMAP + PHYSICS DEMO", 0.55, 0.92, 0.94, 1.0, 1.0)
-    if ui_button("reset", 1, 16, 10, 104, 32, "RESET (R)", 0.5) then
+    ui_push(16, 12, math.min(ui_layout_token("panel_width"), text_width("TILEMAP + PHYSICS DEMO", 0.55)), text_line_height() * (0.55))
+    ui_text("TILEMAP + PHYSICS DEMO", 0.55, "ellipsis", 0, 0.92, 0.94, 1.0, 1.0)
+    ui_pop()
+    ui_push(camera_viewport_w() - (16) - (104), 10, 104, 32)
+    local ui_clicked_1 = ui_button("reset", 32, "RESET (R)", 0.5)
+    ui_pop()
+    if ui_clicked_1 then
         spawn_balls()
     end
-    ui_label(2, 16, 12, "built-in AABB/circle physics, Tiled JSON, anchored UI",
-             0.45, 0.67, 0.71, 0.80, 1.0)
+    ui_push(16, camera_viewport_h() - (12) - (text_line_height() * (0.45)), math.min(ui_layout_token("panel_width"), text_width("built-in AABB/circle physics, Tiled JSON, anchored UI", 0.45)), text_line_height() * (0.45))
+    ui_text("built-in AABB/circle physics, Tiled JSON, anchored UI", 0.45, "ellipsis", 0, 0.67, 0.71, 0.80, 1.0)
+    ui_pop()
     return 0
 end

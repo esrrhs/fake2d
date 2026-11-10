@@ -1040,23 +1040,26 @@ local function draw_hud(cam_x, cam_y)
     draw_quad(hx + 2.0, hy + 2.0, 236.0 * ratio, 16.0, 0.92, 0.26, 0.22, 1.0)
     draw_rect_outline(hx, hy, 240.0, 20.0, 0.85, 0.85, 0.88, 0.9)
 
-    ui_label(0, hx, hy + 26.0,
-             "MESS  LIVES " .. string.format("%d", math.floor(S.lives))
-             .. "   SCORE " .. string.format("%d", math.floor(S.score)),
-             0.42, 0.95, 0.92, 0.72, 1.0)
+    ui_push(hx, hy + 26.0, math.min(ui_layout_token("panel_width"), text_width("MESS  LIVES " .. string.format("%d", math.floor(S.lives))
+             .. "   SCORE " .. string.format("%d", math.floor(S.score)), 0.42)), text_line_height() * (0.42))
+    ui_text("MESS  LIVES " .. string.format("%d", math.floor(S.lives))
+             .. "   SCORE " .. string.format("%d", math.floor(S.score)), 0.42, "ellipsis", 0, 0.95, 0.92, 0.72, 1.0)
+    ui_pop()
     draw_quad(cam_x + S.vw - 168.0, cam_y + 8.0, 158.0, 32.0,
               0.02, 0.02, 0.05, 0.58)
-    ui_label(0, cam_x + S.vw - 160.0, cam_y + 16.0,
-             "WAVE " .. string.format("%d", S.wave + 1) .. " / " .. string.format("%d", MAX_WAVE + 1),
-             0.45, 0.95, 0.90, 0.55, 1.0)
+    ui_push(cam_x + S.vw - 160.0, cam_y + 16.0, math.min(ui_layout_token("panel_width"), text_width("WAVE " .. string.format("%d", S.wave + 1) .. " / " .. string.format("%d", MAX_WAVE + 1), 0.45)), text_line_height() * (0.45))
+    ui_text("WAVE " .. string.format("%d", S.wave + 1) .. " / " .. string.format("%d", MAX_WAVE + 1), 0.45, "ellipsis", 0, 0.95, 0.90, 0.55, 1.0)
+    ui_pop()
     draw_quad(hx - 6.0, cam_y + S.vh - 38.0, 372.0, 28.0,
               0.02, 0.02, 0.05, 0.52)
-    ui_label(0, hx, cam_y + S.vh - 30.0,
-             "WASD MOVE   SPACE/J PUNCH   K KICK   L SPIN",
-             0.36, 0.75, 0.80, 0.88, 1.0)
+    ui_push(hx, cam_y + S.vh - 30.0, math.min(ui_layout_token("panel_width"), text_width("WASD MOVE   SPACE/J PUNCH   K KICK   L SPIN", 0.36)), text_line_height() * (0.36))
+    ui_text("WASD MOVE   SPACE/J PUNCH   K KICK   L SPIN", 0.36, "ellipsis", 0, 0.75, 0.80, 0.88, 1.0)
+    ui_pop()
 
-    if ui_button("restart", 0, cam_x + S.vw - 132.0, cam_y + 52.0,
-                 114.0, 30.0, "RESTART", 0.42) then
+    ui_push(cam_x + S.vw - 132.0, cam_y + 52.0, 114.0, 30.0)
+    local ui_clicked_1 = ui_button("restart", 30.0, "RESTART", 0.42)
+    ui_pop()
+    if ui_clicked_1 then
         reset_game()
     end
 

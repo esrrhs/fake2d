@@ -1048,13 +1048,14 @@ local function draw_hud()
     ui_set_origin(0.0, 0.0)
 
     draw_quad(10.0, 8.0, 300.0, 62.0, 0.02, 0.02, 0.05, 0.62)
-    ui_label(0, 20.0, 14.0,
-             "SCORE " .. string.format("%d", math.floor(S.score)),
-             0.5, 0.98, 0.92, 0.55, 1.0)
-    ui_label(0, 20.0, 40.0,
-             "STAGE " .. string.format("%d", S.stage)
-             .. "   WEAPON " .. weapon_name() .. " Lv" .. string.format("%d", math.floor(S.power)),
-             0.4, 0.80, 0.90, 1.0, 1.0)
+    ui_push(20.0, 14.0, math.min(ui_layout_token("panel_width"), text_width("SCORE " .. string.format("%d", math.floor(S.score)), 0.5)), text_line_height() * (0.5))
+    ui_text("SCORE " .. string.format("%d", math.floor(S.score)), 0.5, "ellipsis", 0, 0.98, 0.92, 0.55, 1.0)
+    ui_pop()
+    ui_push(20.0, 40.0, math.min(ui_layout_token("panel_width"), text_width("STAGE " .. string.format("%d", S.stage)
+             .. "   WEAPON " .. weapon_name() .. " Lv" .. string.format("%d", math.floor(S.power)), 0.4)), text_line_height() * (0.4))
+    ui_text("STAGE " .. string.format("%d", S.stage)
+             .. "   WEAPON " .. weapon_name() .. " Lv" .. string.format("%d", math.floor(S.power)), 0.4, "ellipsis", 0, 0.80, 0.90, 1.0, 1.0)
+    ui_pop()
 
     -- Lives (ship icons) and bombs at the bottom-left.
     local sx = 20.0
@@ -1081,15 +1082,19 @@ local function draw_hud()
         draw_quad(bx, 78.0, bw, 12.0, 0.05, 0.02, 0.04, 0.85)
         draw_quad(bx + 2.0, 80.0, (bw - 4.0) * ratio, 8.0, 0.90, 0.22, 0.18, 1.0)
         draw_rect_outline(bx, 78.0, bw, 12.0, 0.95, 0.85, 0.75, 0.9)
-        ui_label(0, bx, 94.0, "BOSS", 0.4, 1.0, 0.65, 0.35, 1.0)
+        ui_push(bx, 94.0, math.min(ui_layout_token("panel_width"), text_width("BOSS", 0.4)), text_line_height() * (0.4))
+        ui_text("BOSS", 0.4, "ellipsis", 0, 1.0, 0.65, 0.35, 1.0)
+        ui_pop()
     end
 
-    ui_label(0, S.vw - 330.0, S.vh - 28.0,
-             "WASD FLY   SPACE/J FIRE   K BOMB   R RESTART",
-             0.33, 0.78, 0.82, 0.92, 0.9)
+    ui_push(S.vw - 330.0, S.vh - 28.0, math.min(ui_layout_token("panel_width"), text_width("WASD FLY   SPACE/J FIRE   K BOMB   R RESTART", 0.33)), text_line_height() * (0.33))
+    ui_text("WASD FLY   SPACE/J FIRE   K BOMB   R RESTART", 0.33, "ellipsis", 0, 0.78, 0.82, 0.92, 0.9)
+    ui_pop()
 
-    if ui_button("shmup_restart", 0, S.vw - 138.0, 12.0, 126.0, 30.0,
-                 "RESTART", 0.4) then
+    ui_push(S.vw - 138.0, 12.0, 126.0, 30.0)
+    local ui_clicked_1 = ui_button("shmup_restart", 30.0, "RESTART", 0.4)
+    ui_pop()
+    if ui_clicked_1 then
         reset_stage(true)
     end
 

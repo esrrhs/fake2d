@@ -533,10 +533,13 @@ void Renderer::SetClipRect(const Rect &points_rect) {
     // Logical points (top-left origin) -> GL window coords (physical pixels,
     // bottom-left origin). zoom/rotation are not baked in: clip UI in screen
     // space, or convert world rects via camera_world_to_screen first.
-    const float cs = camera_.ContentScale();
+    const RenderTarget *target = active_target_ ? targets_.Get(active_target_) : nullptr;
+    const float cs = target ? 1.0f : camera_.ContentScale();
+    const float surface_height = target ? static_cast<float>(target->Height())
+                                        : static_cast<float>(height_);
     batch_.SetClipRectPhysical(Rect{
         points_rect.x * cs,
-        static_cast<float>(height_) - (points_rect.y + points_rect.height) * cs,
+        surface_height - (points_rect.y + points_rect.height) * cs,
         points_rect.width * cs,
         points_rect.height * cs});
 }

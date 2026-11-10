@@ -144,30 +144,40 @@ end
 local function draw_panel()
     local px = 520.0
     local py = 150.0
-    ui_panel(0, px, py, 410.0, 250.0, 0.09, 0.10, 0.13, 0.96)
-    ui_label(0, px + 18.0, py + 14.0, i18n_t("Tooltip"), 0.8,
-             0.92, 0.84, 0.62, 1.0)
-    ui_label(0, px + 18.0, py + 44.0,
-             i18n_t("Hover this panel for a tooltip"), 0.56,
-             0.80, 0.82, 0.86, 1.0)
+    ui_push(px, py, 410.0, 250.0)
+    ui_panel(0.09, 0.10, 0.13, 0.96)
+    ui_pop()
+    ui_push(px + 18.0, py + 14.0, math.min(ui_layout_token("panel_width"), text_width(i18n_t("Tooltip"), 0.8)), text_line_height() * (0.8))
+    ui_text(i18n_t("Tooltip"), 0.8, "ellipsis", 0, 0.92, 0.84, 0.62, 1.0)
+    ui_pop()
+    ui_push(px + 18.0, py + 44.0, math.min(ui_layout_token("panel_width"), text_width(i18n_t("Hover this panel for a tooltip"), 0.56)), text_line_height() * (0.56))
+    ui_text(i18n_t("Hover this panel for a tooltip"), 0.56, "ellipsis", 0, 0.80, 0.82, 0.86, 1.0)
+    ui_pop()
 
-    if ui_button("lang", 0, px + 18.0, py + 78.0, 190.0, 38.0,
-                 i18n_t("Switch language"), 0.55) then
+    ui_push(px + 18.0, py + 78.0, 190.0, 38.0)
+    local ui_clicked_1 = ui_button("lang", 38.0, i18n_t("Switch language"), 0.55)
+    ui_pop()
+    if ui_clicked_1 then
         switch_language()
     end
-    if ui_button("save", 0, px + 220.0, py + 78.0, 170.0, 38.0,
-                 i18n_t("Save"), 0.62) then
+    ui_push(px + 220.0, py + 78.0, 170.0, 38.0)
+    local ui_clicked_2 = ui_button("save", 38.0, i18n_t("Save"), 0.62)
+    ui_pop()
+    if ui_clicked_2 then
         save_demo_slot()
     end
 
     -- Shrink-to-fit: a long label never overflows its 360 px box.
-    ui_label_fit(0, px + 18.0, py + 132.0, 370.0,
-                 i18n_t("Shrink to fit")
-                     .. " - long translated text shrinks to fit this box",
-                 0.66, 0.42, 0.30, 0.31, 0.35, 1.0)
+    ui_push(px + 18.0, py + 132.0, 370.0, text_line_height() * (0.66))
+    ui_text(i18n_t("Shrink to fit")
+                     .. " - long translated text shrinks to fit this box", 0.66, "shrink", 0, 0.30, 0.31, 0.35, 1.0, 0.42)
+    ui_pop()
 
     -- Tooltip record is per frame; draw it after every widget.
-    ui_tip(0, px, py, 410.0, 250.0, i18n_t("Hover this panel for a tooltip"))
+    ui_push(px, py, 410.0, 250.0)
+    ui_panel(0, 0, 0, 0)
+    ui_tip(i18n_t("Hover this panel for a tooltip"))
+    ui_pop()
     ui_tip_draw()
 end
 

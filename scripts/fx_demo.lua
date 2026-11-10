@@ -212,13 +212,20 @@ function update(dt)
               0.62, 0.55, 0.66, 0.75, 1.0)
 
     draw_quad(40, 60, 300, 292, 0.08, 0.10, 0.15, 0.85)
-    S.radius = ui_slider("radius", 0, 52, 74, 240, 22, S.radius, 0.0, 6.0)
-    S.strength = ui_slider("strength", 0, 52, 110, 240, 22, S.strength, 0.0, 1.0)
+    ui_push(52, 74, 240, 22)
+    S.radius = ui_slider("radius", 22, S.radius, 0.0, 6.0)
+    ui_pop()
+    ui_push(52, 110, 240, 22)
+    S.strength = ui_slider("strength", 22, S.strength, 0.0, 1.0)
+    ui_pop()
     draw_text("radius " .. pct(S.radius / 6.0) .. "%", 300, 78, 0.55,
               0.75, 0.85, 0.95, 1.0)
     draw_text("glow " .. pct(S.strength) .. "%", 300, 114, 0.55,
               0.75, 0.85, 0.95, 1.0)
-    if ui_button("split", 0, 52, 144, 120, 24, "SPLIT", 0.55) then
+    ui_push(52, 144, 120, 24)
+    local ui_clicked_1 = ui_button("split", 24, "SPLIT", 0.55)
+    ui_pop()
+    if ui_clicked_1 then
         S.split = not S.split
     end
     if S.split then
@@ -230,17 +237,29 @@ function update(dt)
     -- The two Phase 27 passes, each with its own switches. The bright pass is
     -- on by default because a bloom without a threshold is just a haze; the
     -- wave is off because a wobbling skyline is not for everyone.
-    if ui_checkbox("bright", 0, 52, 180, 18, S.bright_on, "bright pass", 0.6) then
+    ui_push(52, 180, ui_layout_token("panel_width"), math.max(18, 28))
+    local ui_clicked_2 = ui_checkbox("bright", 18, S.bright_on, "bright pass", 0.6)
+    ui_pop()
+    if ui_clicked_2 then
         S.bright_on = not S.bright_on
     end
-    S.threshold = ui_slider("cut", 0, 52, 208, 240, 22, S.threshold, 0.0, 1.0)
+    ui_push(52, 208, 240, 22)
+    S.threshold = ui_slider("cut", 22, S.threshold, 0.0, 1.0)
+    ui_pop()
     draw_text("cut " .. pct(S.threshold) .. "%", 300, 212, 0.55,
               0.75, 0.85, 0.95, 1.0)
-    if ui_checkbox("wave", 0, 52, 244, 18, S.wave_on, "wave pass (u_time)", 0.6) then
+    ui_push(52, 244, ui_layout_token("panel_width"), math.max(18, 28))
+    local ui_clicked_3 = ui_checkbox("wave", 18, S.wave_on, "wave pass (u_time)", 0.6)
+    ui_pop()
+    if ui_clicked_3 then
         S.wave_on = not S.wave_on
     end
-    S.wamp = ui_slider("wamp", 0, 52, 272, 240, 22, S.wamp, 0.0, 20.0)
-    S.wfreq = ui_slider("wfreq", 0, 52, 308, 240, 22, S.wfreq, 0.0, 24.0)
+    ui_push(52, 272, 240, 22)
+    S.wamp = ui_slider("wamp", 22, S.wamp, 0.0, 20.0)
+    ui_pop()
+    ui_push(52, 308, 240, 22)
+    S.wfreq = ui_slider("wfreq", 22, S.wfreq, 0.0, 24.0)
+    ui_pop()
     draw_text("amp " .. istr(math.floor(S.wamp)) .. "px", 300, 276, 0.55,
               0.75, 0.85, 0.95, 1.0)
     draw_text("freq " .. istr(math.floor(S.wfreq)), 300, 312, 0.55,

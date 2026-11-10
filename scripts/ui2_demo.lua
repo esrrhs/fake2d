@@ -90,18 +90,26 @@ function update(dt)
 
     -- A looping transfer: it passes through empty and full every cycle.
     local load_v = saw(S.t * 0.25)
-    ui_bar(0, 40, 104, 260, 18, load_v, 0.35, 0.72, 0.95, 1.0)
+    ui_push(40, 104, 260, 18)
+    ui_bar(18, load_v, 0.35, 0.72, 0.95, 1.0)
+    ui_pop()
     draw_text("loading " .. pct(load_v), 312, 106, 0.6, 0.75, 0.85, 0.95, 1.0)
 
     -- A pulse, so the fill visibly grows and shrinks.
     local hp = 0.35 + 0.3 * (0.5 + 0.5 * math.sin(S.t * 1.7))
-    ui_bar(0, 40, 146, 260, 18, hp, 0.85, 0.30, 0.32, 1.0)
+    ui_push(40, 146, 260, 18)
+    ui_bar(18, hp, 0.85, 0.30, 0.32, 1.0)
+    ui_pop()
     draw_text("health " .. pct(hp), 312, 148, 0.6, 0.75, 0.85, 0.95, 1.0)
 
     -- Driven by a slider whose range is 0..1.5: past 1 the bar clamps
     -- instead of spilling out of its track.
-    S.mana = ui_slider("mana", 0, 40, 184, 260, 20, S.mana, 0.0, 1.5)
-    ui_bar(0, 40, 216, 260, 18, S.mana, 0.55, 0.40, 0.90, 1.0)
+    ui_push(40, 184, 260, 20)
+    S.mana = ui_slider("mana", 20, S.mana, 0.0, 1.5)
+    ui_pop()
+    ui_push(40, 216, 260, 18)
+    ui_bar(18, S.mana, 0.55, 0.40, 0.90, 1.0)
+    ui_pop()
     draw_text("mana " .. pct(S.mana), 312, 218, 0.6, 0.75, 0.85, 0.95, 1.0)
     draw_text("the slider reaches 150% - past 100% the bar clamps", 40, 244,
               0.6, 0.5, 0.58, 0.66, 1.0)
@@ -111,8 +119,10 @@ function update(dt)
     local i = 0 + 0
     while i < 3 do
         local y = 104 + i * 32
-        if ui_radio("d" .. istr(i), 0, 400, y, 20, S.sel == i,
-                    diff_name(i), 0.65) then
+        ui_push(400, y, ui_layout_token("panel_width"), math.max(20, 28))
+        local ui_clicked_1 = ui_radio("d" .. istr(i), 20, S.sel == i, diff_name(i), 0.65)
+        ui_pop()
+        if ui_clicked_1 then
             S.sel = i
         end
         i = i + 1
@@ -121,7 +131,10 @@ function update(dt)
 
     -- --- combo: a header plus one row per item ---------------------------
     draw_text("UNIT", 640, 84, 0.75, 0.75, 0.65, 0.95, 1.0)
-    if ui_combo("unit", 0, 640, 104, 280, 28, unit_name(S.pick), S.open, 0.65) then
+    ui_push(640, 104, 280, 28)
+    local ui_clicked_2 = ui_combo("unit", 28, unit_name(S.pick), S.open, 0.65)
+    ui_pop()
+    if ui_clicked_2 then
         S.open = not S.open
     end
     if S.open then
@@ -131,8 +144,10 @@ function update(dt)
         local k = 0 + 0
         while k < ITEM_COUNT do
             local y = 140 + k * ITEM_H
-            if ui_combo_item("u" .. istr(k), 0, 640, y, 280, ITEM_H - 2,
-                             unit_name(k), S.pick == k, 0.65) then
+            ui_push(640, y, 280, ITEM_H - 2)
+            local ui_clicked_3 = ui_combo_item("u" .. istr(k), ITEM_H - 2, unit_name(k), S.pick == k, 0.65)
+            ui_pop()
+            if ui_clicked_3 then
                 S.pick = k
                 S.open = false
             end

@@ -60,6 +60,9 @@ coverage_html/
 assets/*
 !assets/*.vert
 !assets/*.frag
+# Small, licensed deterministic CJK UI demo/test fallback.
+!assets/fonts/
+!assets/fonts/**
 # Art-backed sheets that live at the assets/ root because the host's generated
 # Tiled maps reference them by name. tools/art_key.py bakes each one from AI
 # key art; the host painters still only run when the file is absent.

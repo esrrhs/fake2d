@@ -7,7 +7,7 @@
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-brightgreen.svg)](https://en.cppreference.com/w/cpp/23)
 [![OpenGL](https://img.shields.io/badge/OpenGL-3.3%20Core%20%7C%202.1-orange.svg)](https://www.opengl.org/)
 [![FakeLua](https://img.shields.io/badge/Script-FakeLua-red.svg)](https://github.com/esrrhs/fakelua)
-[![Version](https://img.shields.io/badge/version-1.46.0-informational.svg)](include/fake2d/version.h)
+[![Version](https://img.shields.io/badge/version-1.47.0-informational.svg)](include/fake2d/version.h)
 
 **Fake2D** is a modern, lightweight, high-performance 2D game engine powered by [FakeLua](https://github.com/esrrhs/fakelua):
 - **C++23 Host Engine**: Controls window management, GPU rendering pipelines, 2D physics, multi-bus audio mixing, and native resource lifecycles;
@@ -43,7 +43,7 @@ Fake2D is a fully battery-included engine, not just a bare graphics library:
 - **Multi-Pass Post-Processing & FBO**: Offscreen `RenderTarget` pool, ping-pong blur passes, bloom thresholding (`fx_bright`), animated wave shimmer (`fx_wave` with auto `u_time`/`u_resolution`), fog of war with multiply blending & `rt_sample` exploration probes, and baked minimaps;
 - **Real-Time 2D Lighting**: Point lights with soft radial falloff and hard projected shadow volumes, so a light that moves sweeps its shadows across the scene with it. One generated falloff sprite and one multiply blit, grouped by blend state — 64 moving lights against all 256 caster slots cost 4 draw calls and 0.7 ms. Casters are rects, polygons or live physics bodies, each shadow is confined to its own light's circle, and a per-frame quad budget bounds the worst case;
 - **2D Skeletal Animation**: bone hierarchies posed by keyframed clips, so a walk cycle is a list of angles instead of two hundred pictures. Rigs load from JSON (a Spine-shaped schema of bones, slots, attachments, skins and clips), interpolate per channel with linear or stepped keys, cross-fade with the outgoing clip still animating underneath, fire timeline events that land on the frame they were authored for even across the loop seam, and reach live targets with two-bone and aim IK. The cost is measured, not assumed: twelve parts on one sheet are one draw call, and twelve soldiers are still one;
-- **Immediate-Mode UI (UISystem)**: Ready-to-use widgets including Panels, Buttons, Labels, Sliders, Checkboxes, UTF-8 TextInputs, ScrollAreas, ProgressBars, RadioButtons, Combos, draggable Windows (with mouse deltas), Tab bars, disclosure Trees, and Tooltips.
+- **Immediate-Mode UI (UISystem)**: Ready-to-use widgets including Panels, Buttons, box Text, Sliders, Checkboxes, UTF-8 TextInputs, ScrollAreas, ProgressBars, RadioButtons, Combos, draggable Windows (with mouse deltas), Tab bars, disclosure Trees, and Tooltips. **1.47.0 breaks the anchored UI API:** cursor boxes, same-frame fixed/flex columns, measured scroll height, intersecting clips, text/widget audit and shared metrics. See [migration/API](docs/SCRIPTING.md#ui).
 - **Text & Platform Layer**: UTF-8 text with an on-demand glyph atlas (CJK/Japanese/Korean included, `font_load` for any TTF/TTC/OTF, fallback faces for missing glyphs), CJK per-character vs Latin word wrapping with 禁则 rules and kerning, rotated, shadowed, outlined and shrink-to-fit text, TSV localization packs switched at runtime (BOM-safe, missing-key reports), cross-platform resource/user directories, CRC-checked v2 save containers with automatic `.bak` rollback, entity snapshots through the same container, file logging with crash reports, an offline achievement mirror, a `mod.json` mod manager, and an optional Steamworks adapter (achievements / Rich Presence / language / cloud flag) that stubs out when the SDK is absent.
 - **Gameplay Utilities**: deterministic splitmix64 RNG, named easing curves and frame-rate-independent `Approach`, input action maps with rebinding, window size/resizable/min-size/cursor controls, audio pitch/looping/stop, and runtime FPS / frame-ms / draw-call stats.
 - **2.5D Brawler Toolkit**: a global gameplay time scale plus a hit-stop primitive (`time_set_scale` / `time_hitstop`) that freezes scripts, physics, animations and particles together; 16 numeric + 4 string slots per entity and 512 entities for full actor rosters; a 128-clip animation pool; y-sorted draw layers (`draw_set_z` over `batch_set_sorted`) for depth-correct side-scrollers.
@@ -51,7 +51,7 @@ Fake2D is a fully battery-included engine, not just a bare graphics library:
 ### 5. Developer Experience & Automated Testing
 - **JIT Script Hot-Reload**: GCC JIT backend with automatic interpreter fallback; edit Lua scripts live and see changes reflected instantly without restarting;
 - **Headless & CI-Ready**: First-class `--headless`, `--frames N`, `--screenshot`, `--ai`, and `--record`/`--replay` CLI flags allow visual regression tests and automated smoke validation in headless Linux/macOS/Windows environments;
-- **30 Built-in Self-Test Suites**: 1535 assertions covering rigid-body dynamics, joints, sleeping, anti-tunneling, physics queries, filters, timesteps, tilemap objects, A\* pathfinding, render targets, UI widgets, post-FX, fog of war, 2D lighting and shadow containment, bone hierarchy and clip playback with cross-fade, IK and timeline events, audio mixing, animated tiles, UTF-8/CJK text with fallback faces, the platform layer, deterministic RNG, easing, entity snapshots, input actions, window controls, gameplay time scale / hit-stop, 16-slot entity actors, the 128-clip animation pool, the shmup sprite/background asset pipeline, the city-builder tileset/building atlas/base map, the RTS terrain/unit/building/map pipeline and the visual-novel background/portrait art (all mutation-tested);
+- **30 Built-in Self-Test Suites**: 1584 assertions covering rigid-body dynamics, joints, sleeping, anti-tunneling, physics queries, filters, timesteps, tilemap objects, A\* pathfinding, render targets, UI widgets, post-FX, fog of war, 2D lighting and shadow containment, bone hierarchy and clip playback with cross-fade, IK and timeline events, audio mixing, animated tiles, UTF-8/CJK text with fallback faces, the platform layer, deterministic RNG, easing, entity snapshots, input actions, window controls, gameplay time scale / hit-stop, 16-slot entity actors, the 128-clip animation pool, the shmup sprite/background asset pipeline, the city-builder tileset/building atlas/base map, the RTS terrain/unit/building/map pipeline and the visual-novel background/portrait art (with mutation-tested legacy coverage and geometry/pixel UI regressions);
 - **Standalone Packaging**: Bundling scripts under `tools/` generate self-contained archives on Linux, macOS, and Windows with all dependencies, shaders, and assets included.
 
 ---
@@ -78,7 +78,7 @@ Fake2D is a fully battery-included engine, not just a bare graphics library:
 ├───────────────────────┴──────────────────────────────┴──────────────────────┤
 │                       Immediate-Mode UI (UISystem)                          │
 │     Window · Panel · Button · Slider · Input · Radio · Combo · Tab · Tree   │
-│     LabelFit (shrink-to-fit) · Tooltip queue                                │
+│     Box text (wrap/ellipsis/shrink/clip) · Tooltip queue                                │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                    Platform Layer · I18n · Mods · Log · Steam               │
 │          OpenGL 3.3 Core (GL 2.1 Fallback) · GLFW 3.4 (Input/Gamepad)       │
@@ -402,11 +402,15 @@ function update(dt)
     draw_quad(player_x - 16, player_y - 16, 32, 32, 60, 180, 255, 255)
     
     -- Immediate-mode UI elements
-    ui_panel("hud", "top_left", 10, 10, 160, 40)
-    ui_label("score", "top_left", 20, 20, "SCORE: 1200", 1.0)
-    if ui_button("btn_pause", "top_right", -110, 10, 100, 32, "PAUSE") then
+    ui_push(20, 20, 220, 40)
+    ui_panel(0.1, 0.12, 0.18, 1)
+    ui_text("SCORE: 1200", 1.0, "ellipsis")
+    ui_pop()
+    ui_push(camera_viewport_w() - 110, 10, 100, 32)
+    if ui_button("btn_pause", 32, "PAUSE") then
         -- Handle pause logic
     end
+    ui_pop()
 
     return 0
 end
