@@ -1011,9 +1011,9 @@ rectangle audit as controls. Nested clipping is intersection, never replacement.
 
 Phases 54–56 ship together in **1.47.0**, the **1.47.x** band, not three
 separate public minor releases. Consumer games are out of scope; they adapt
-at their own pace. Full Flexbox/Grid, editors, virtual lists and controller
-focus remain deferred. See SCRIPTING.md UI for breaking name/signature maps
-and the font backend's existing unbreakable-Latin-word limitation.
+at their own pace. At 1.47, full Flexbox/Grid, editors, virtual lists and
+controller focus were deferred; practical virtualization/focus and Latin hard
+breaking are delivered below in 1.48. See SCRIPTING.md UI for migration details.
 
 ### Verification — Phases 54–56
 
@@ -1031,3 +1031,117 @@ and the font backend's existing unbreakable-Latin-word limitation.
 - [x] Linux package verification: UI test + box demo screenshot, existing art /
       Mario / snooker / contra gates, strict missing-texture rejection, and no
       runtime asset generation; installed CMake consumer prints **1.47.0**
+
+## Phase 57 — Content containers & reference layout (1.48.x)
+
+### Deliverables
+
+- [x] Content-sized `Push(...,h<=0)`, current-frame grow/shrink, child measurement,
+      padding + parent reservation, deferred panel paint and shared measured clips
+- [x] Next-box / column min/max dimensions; row top/center/bottom alignment
+- [x] Practical wrapping Flow, fixed/flex implicit Grid, keyed draggable Splitter
+- [x] Logical-point reference scaler (width/height/contain/expand), inverse input,
+      scaled text/images/clips, automatic viewport-resize recomputation; no HiDPI
+      double multiplication or global renderer/camera mutation
+- [x] Same-frame named rectangle registry and declaration-order parent/prior-widget
+      relations, parent-right stretch; missing/later targets explicitly rejected
+
+## Phase 58 — Theme, skin & rich text (1.48.x)
+
+### Deliverables
+
+- [x] Persistent validated theme metrics/palette, C++/Lua getters/setters, default
+      1.47 appearance, themed font scale and button scale floor
+- [x] Nine-slice panel style through existing Renderer primitive, solid fallback
+- [x] Image / icon button widgets and registered inline icons, shared deferred
+      paint/clip/scale/audit path; texture lifetime contract documented
+- [x] BBCode-like color, fake-bold, inline image and clickable link subset
+- [x] Hard-break oversized Latin words in **both** Font draw and measure paths;
+      glyph scissors retained, unknown rich tags remain literal
+
+## Phase 59 — Editable input & interaction layers (1.48.x)
+
+### Deliverables
+
+- [x] Shared UTF-8 caret/selection editor for single-line and wrapped multiline
+      fields; Enter newline, Shift arrows/Home/End, backspace/delete, mouse caret
+- [x] Ctrl/Cmd A/C/X/V through GLFW clipboard, synthetic no-window clipboard adapter
+- [x] Investigate pinned **GLFW 3.4** header: no public preedit/composition callback.
+      Committed characters work; **composition preview/candidate positioning is
+      unavailable**, not emulated. Explicit SCRIPTING limitation, no false claim
+- [x] Nested disabled scope: no input/hover/focus, dimmed interactive/image paint
+- [x] One named modal with dim overlay/input barrier/Escape/B/explicit close
+- [x] Popup/context menus, outside-dismiss, indexed selection, keyboard/pad input
+
+## Phase 60 — Focus & fixed-row virtualization (1.48.x)
+
+### Deliverables
+
+- [x] Tab/Shift-Tab, ordered arrow focus ring, dpad/left-stick navigation, A activate,
+      B cancel, visible accent indicator, mouse focus, caret-key ownership
+- [x] Focus across buttons, slider, checkbox/radio, combo/items, tab/tree, input,
+      image buttons, splitter and button-backed list rows; disabled/clipped excluded
+- [x] Fixed-height virtual List returning first + visible count, count*height extent,
+      same-frame wheel/drag visible slice, nested clip, immediate shrink clamping
+- [x] Document immediate-mode input discovery: previous completed focus ring and
+      aligned-row pointer offsets (first frame top); rendering/measurement are
+      current-frame. No retained same-pass interactive layout claim
+
+## Phase 61 — Code-driven transitions & pages (1.48.x)
+
+### Deliverables
+
+- [x] Keyed float Tween with explicit deterministic dt, smooth/in/out and existing
+      Phase 35 easing names, current-value retargeting; usable for offset/alpha/color
+- [x] Named integer page/controller, conditional PageBegin / PageEnd; skipped bodies
+      execute no layout/input. No visual timeline, editor gears or retained tree
+
+## Phase 62 — Dynamic acceptance demos & release gates (1.48.x)
+
+### Deliverables
+
+- [x] **--ui-layout-demo**: automatic deterministic 40-frame text/language/digit/
+      width/window transitions and manual SPACE/N/L/D/W/R/A controls; measured
+      child + sibling, market row, scroll height/offset and audit diagnostics
+- [x] **--ui-features-demo**: three code-authored pages covering every new subsystem;
+      deterministic theme/skin/modal/menu/list transitions plus manual interaction
+- [x] Real OFL CJK fallback glyphs; real FakeLua compile/run, not screenshots alone
+- [x] Register launcher/catalog/CLI/README/CI/package smoke; check-docs verifies
+      transition markers, screenshot colors, no update failures/overflow
+- [x] Extend existing **--ui-test**, not a parallel test harness: changing paragraphs,
+      languages, numbers, widths/scaling, grow/shrink geometry/pixel containment,
+      row alignment, constraints, splitter, relations, theme/skin/rich/link, editing/
+      clipboard, disabled/image/modality/menus/focus/gamepad, 1000-row visible range,
+      nested auto/scroll, transitions/pages
+- [x] Version **1.48.0** in CMake/header/badges/consumer CI pin and API documentation
+
+Phases 57–62 ship together as **1.48.0**, in the **1.48.x** band. No visual UI
+editor/UI Builder/WYSIWYG is implemented (explicit user exclusion). Full CSS
+Flexbox/Grid, accessibility/RTL, docking/multi-viewport and variable-height tree
+virtualization remain out of scope. The GLFW IME preedit and immediate-mode
+input-discovery limits above are deliberate, documented limitations, not stubs.
+
+### Verification — Phases 57–62
+
+- [x] CMake/Ninja Debug build; **--ui-test: 299 checks, 0 failures**
+- [x] `ctest --test-dir build --output-on-failure --parallel 4`: **30/30**
+- [x] `env -u DISPLAY python3 tools/check-docs.py`: **33 demos, 30 suites,
+      512 slots, 1770 assertions**; both 240-frame real FakeLua acceptance demos
+      produce screenshots/transition markers without update failures or overflow
+- [x] Dynamic-demo metric assertions (not static screenshots): Chinese child
+      **33.36 → 68.08 → 33.36**, English child **33.36 → 172.24 → 33.36**;
+      scroll heights **16.8 → 151.2 → 16.8** / **16.8 → 453.6 → 16.8**,
+      short-state offset immediately zero; C++ regressions assert sibling/row
+      geometry, changing digit widths, containment and scale hit-testing
+- [x] All **33** catalogued demos compile/run headlessly with strict assets and
+      no update exceptions (3-frame smoke; new acceptance demos also run 240 frames)
+- [x] Fixture generation validates binding signatures: **152 custom / 452 auto**
+- [x] Linux package verifier: UI tests, old box demo + both new dynamic demos,
+      art/Mario/snooker/contra, strict missing-asset rejection, no asset generation
+- [x] Installed CMake `find_package(fake2d 1.48 REQUIRED CONFIG)` consumer builds
+      against exported headers/library and prints **consumer: 1.48.0**
+- [x] `git diff --check`, Python compile and shell syntax checks
+
+Only Linux execution was performed locally; the existing macOS/Windows CI smoke
+matrix now includes both new demos. No claims of native IME preedit or platform
+clipboard behavior beyond the tested GLFW/X11 and no-window adapter paths.

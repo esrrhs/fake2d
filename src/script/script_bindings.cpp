@@ -1460,6 +1460,10 @@ void RegisterUiApi(fakelua::State *state, Engine *engine) {
         float N(int i, float fallback = 0) const {
             return i < count ? static_cast<float>(fakelua::inter::CVarToNumber(values[i], fallback)) : fallback;
         }
+        std::int64_t I(int i) const {
+            return i < count ? static_cast<std::int64_t>(fakelua::inter::CVarToNumber(values[i], 0))
+                             : 0;
+        }
         std::string S(int i, const char *fallback = "") const {
             return i < count ? fakelua::inter::CVarToString(values[i], fallback) : fallback;
         }
@@ -1477,6 +1481,179 @@ void RegisterUiApi(fakelua::State *state, Engine *engine) {
                 return call(engine->GetUI(), Args{st, v, n});
             }));
     };
+    add("ui_constrain", 2, [](UISystem &ui, const Args &a) {
+        ui.Constrain(a.N(0), a.N(1), a.N(2), a.N(3, 1e9f));
+        return a.Nil();
+    });
+    add("ui_row_align", 1, [](UISystem &ui, const Args &a) {
+        ui.RowAlign(static_cast<int>(a.N(0)));
+        return a.Nil();
+    });
+    add("ui_flow_begin", 0, [](UISystem &ui, const Args &a) {
+        ui.FlowBegin(a.N(0, -1), a.N(1, -1));
+        return a.Nil();
+    });
+    add("ui_flow_item", 1, [](UISystem &ui, const Args &a) {
+        ui.FlowItem(a.N(0));
+        return a.Nil();
+    });
+    add("ui_flow_item_end", 0, [](UISystem &ui, const Args &a) {
+        ui.FlowItemEnd();
+        return a.Nil();
+    });
+    add("ui_flow_end", 0, [](UISystem &ui, const Args &a) {
+        ui.FlowEnd();
+        return a.Nil();
+    });
+    add("ui_grid_begin", 1, [](UISystem &ui, const Args &a) {
+        std::vector<float> widths;
+        for (int i = 2; i < a.count; ++i)
+            widths.push_back(a.N(i));
+        ui.GridBegin(static_cast<int>(a.N(0)), a.N(1, -1), widths);
+        return a.Nil();
+    });
+    add("ui_grid_cell", 0, [](UISystem &ui, const Args &a) {
+        ui.GridCell();
+        return a.Nil();
+    });
+    add("ui_grid_cell_end", 0, [](UISystem &ui, const Args &a) {
+        ui.GridCellEnd();
+        return a.Nil();
+    });
+    add("ui_grid_end", 0, [](UISystem &ui, const Args &a) {
+        ui.GridEnd();
+        return a.Nil();
+    });
+    add("ui_splitter", 3, [](UISystem &ui, const Args &a) {
+        return a.Number(ui.Splitter(a.S(0), a.N(1), a.N(2), a.N(3, 24)));
+    });
+    add("ui_scale", 2, [](UISystem &ui, const Args &a) {
+        return a.Bool(ui.SetScale(a.N(0), a.N(1), a.S(2, "contain")));
+    });
+    add("ui_scale_get", 0, [](UISystem &ui, const Args &a) { return a.Number(ui.Scale()); });
+    add("ui_remember", 1, [](UISystem &ui, const Args &a) {
+        ui.Remember(a.S(0));
+        return a.Nil();
+    });
+    add("ui_rect", 2, [](UISystem &ui, const Args &a) {
+        const Rect r = ui.NamedRect(a.S(0));
+        const auto f = a.S(1);
+        return a.Number(f == "x"   ? r.x
+                        : f == "y" ? r.y
+                        : f == "w" ? r.width
+                        : f == "h" ? r.height
+                                   : 0);
+    });
+    add("ui_push_related", 5, [](UISystem &ui, const Args &a) {
+        return a.Bool(ui.PushRelated(a.S(0), a.S(1), a.N(2), a.N(3), a.N(4), a.N(5), a.N(6, -1)));
+    });
+    add("ui_theme_metric", 1,
+        [](UISystem &ui, const Args &a) { return a.Number(ui.ThemeMetric(a.S(0))); });
+    add("ui_set_theme_metric", 2,
+        [](UISystem &ui, const Args &a) { return a.Bool(ui.SetThemeMetric(a.S(0), a.N(1))); });
+    add("ui_theme_color", 2, [](UISystem &ui, const Args &a) {
+        const Color c = ui.ThemeColor(a.S(0));
+        const auto f = a.S(1);
+        return a.Number(f == "r" ? c.r : f == "g" ? c.g : f == "b" ? c.b : f == "a" ? c.a : 0);
+    });
+    add("ui_set_theme_color", 5,
+        [](UISystem &ui, const Args &a) { return a.Bool(ui.SetThemeColor(a.S(0), a.C(1))); });
+    add("ui_panel_slice", 7, [engine](UISystem &ui, const Args &a) {
+        ui.SetPanelSlice(engine->GetResources().GetTexture(ResolveTexture(a.I(0))),
+                         {a.N(1), a.N(2), a.N(3), a.N(4)}, a.N(5), a.N(6));
+        return a.Nil();
+    });
+    add("ui_disabled_begin", 0, [](UISystem &ui, const Args &a) {
+        ui.DisabledBegin(a.count == 0 || a.B(0));
+        return a.Nil();
+    });
+    add("ui_disabled_end", 0, [](UISystem &ui, const Args &a) {
+        ui.DisabledEnd();
+        return a.Nil();
+    });
+    add("ui_image", 6, [engine](UISystem &ui, const Args &a) {
+        ui.Image(engine->GetResources().GetTexture(ResolveTexture(a.I(0))),
+                 {a.N(1), a.N(2), a.N(3), a.N(4)}, a.N(5), a.C(6));
+        return a.Nil();
+    });
+    add("ui_image_button", 7, [engine](UISystem &ui, const Args &a) {
+        return a.Bool(ui.ImageButton(a.S(0),
+                                     engine->GetResources().GetTexture(ResolveTexture(a.I(1))),
+                                     {a.N(2), a.N(3), a.N(4), a.N(5)}, a.N(6), a.S(7)));
+    });
+    add("ui_rich_icon", 6, [engine](UISystem &ui, const Args &a) {
+        ui.SetRichIcon(a.S(0), engine->GetResources().GetTexture(ResolveTexture(a.I(1))),
+                       {a.N(2), a.N(3), a.N(4), a.N(5)});
+        return a.Nil();
+    });
+    add("ui_rich_text", 1,
+        [](UISystem &ui, const Args &a) { return a.String(ui.RichText(a.S(0), a.N(1))); });
+    add("ui_text_area", 2, [](UISystem &ui, const Args &a) {
+        return a.Bool(
+            ui.TextArea(a.S(0), a.N(1), static_cast<std::size_t>(std::max(0.0f, a.N(2, 4096)))));
+    });
+    add("ui_modal_open", 1, [](UISystem &ui, const Args &a) {
+        ui.OpenModal(a.S(0));
+        return a.Nil();
+    });
+    add("ui_modal_close", 0, [](UISystem &ui, const Args &a) {
+        ui.CloseModal();
+        return a.Nil();
+    });
+    add("ui_modal_begin", 3,
+        [](UISystem &ui, const Args &a) { return a.Bool(ui.ModalBegin(a.S(0), a.N(1), a.N(2))); });
+    add("ui_modal_end", 0, [](UISystem &ui, const Args &a) {
+        ui.ModalEnd();
+        return a.Nil();
+    });
+    add("ui_popup_close", 0, [](UISystem &ui, const Args &a) {
+        ui.ClosePopup();
+        return a.Nil();
+    });
+    add("ui_set_scroll_offset", 2, [](UISystem &ui, const Args &a) {
+        ui.SetScrollOffset(a.S(0), a.N(1));
+        return a.Nil();
+    });
+    add("ui_popup_open", 3, [](UISystem &ui, const Args &a) {
+        ui.OpenPopup(a.S(0), a.N(1), a.N(2));
+        return a.Nil();
+    });
+    add("ui_context_menu", 1,
+        [](UISystem &ui, const Args &a) { return a.Bool(ui.ContextMenu(a.S(0))); });
+    add("ui_popup", 3, [](UISystem &ui, const Args &a) {
+        std::vector<std::string> items;
+        for (int i = 3; i < a.count; ++i)
+            items.push_back(a.S(i));
+        return a.Number(static_cast<float>(ui.Popup(a.S(0), items, a.N(1), a.N(2))));
+    });
+    add("ui_focus", 0, [](UISystem &ui, const Args &a) { return a.String(ui.FocusedWidget()); });
+    add("ui_list_begin", 4, [](UISystem &ui, const Args &a) {
+        return a.Number(static_cast<float>(
+            ui.ListBegin(a.S(0), a.N(1), static_cast<int>(a.N(2)), a.N(3)).first));
+    });
+    add("ui_list_count", 0,
+        [](UISystem &ui, const Args &a) { return a.Number(static_cast<float>(ui.ListCount())); });
+    add("ui_list_end", 0, [](UISystem &ui, const Args &a) {
+        ui.ListEnd();
+        return a.Nil();
+    });
+    add("ui_tween", 4, [](UISystem &ui, const Args &a) {
+        return a.Number(ui.Tween(a.S(0), a.N(1), a.N(2), a.N(3), a.S(4, "linear")));
+    });
+    add("ui_set_page", 2, [](UISystem &ui, const Args &a) {
+        ui.SetPage(a.S(0), static_cast<int>(a.N(1)));
+        return a.Nil();
+    });
+    add("ui_page", 1,
+        [](UISystem &ui, const Args &a) { return a.Number(static_cast<float>(ui.Page(a.S(0)))); });
+    add("ui_page_begin", 2, [](UISystem &ui, const Args &a) {
+        return a.Bool(ui.PageBegin(a.S(0), static_cast<int>(a.N(1))));
+    });
+    add("ui_page_end", 0, [](UISystem &ui, const Args &a) {
+        ui.PageEnd();
+        return a.Nil();
+    });
+
     add("ui_push", 4, [](UISystem &ui, const Args &a) {
         ui.Push(a.N(0), a.N(1), a.N(2), a.N(3), a.N(4)); return a.Nil();
     });
@@ -1485,7 +1662,8 @@ void RegisterUiApi(fakelua::State *state, Engine *engine) {
         const std::string mode = a.S(2, "wrap");
         const auto overflow = mode == "ellipsis" ? UITextOverflow::Ellipsis :
             mode == "shrink" ? UITextOverflow::Shrink : mode == "clip" ? UITextOverflow::Clip : UITextOverflow::Wrap;
-        return a.Number(ui.Text(a.S(0), a.N(1, 0.6f), overflow, static_cast<int>(a.N(3)), a.C(4), a.N(8, 0.35f)));
+        return a.Number(
+            ui.Text(a.S(0), a.N(1, 0), overflow, static_cast<int>(a.N(3)), a.C(4), a.N(8, 0.35f)));
     });
     add("ui_avail_w", 0, [](UISystem &ui, const Args &a) { return a.Number(ui.AvailWidth()); });
     add("ui_last_rect", 1, [](UISystem &ui, const Args &a) {
@@ -1508,20 +1686,41 @@ void RegisterUiApi(fakelua::State *state, Engine *engine) {
     add("ui_set_layout_token", 2, [](UISystem &ui, const Args &a) { return a.Bool(ui.SetLayoutToken(a.S(0), a.N(1))); });
     add("ui_set_audit", 1, [](UISystem &ui, const Args &a) { ui.SetAudit(a.B(0)); return a.Nil(); });
     add("ui_overflow_count", 0, [](UISystem &ui, const Args &a) { return a.Number(static_cast<float>(ui.OverflowCount())); });
-    add("ui_panel", 4, [](UISystem &ui, const Args &a) { ui.Panel(a.C(0)); return a.Nil(); });
-    add("ui_button", 3, [](UISystem &ui, const Args &a) { return a.Bool(ui.Button(a.S(0), a.N(1), a.S(2), a.N(3, 0.6f))); });
+    add("ui_panel", 0, [](UISystem &ui, const Args &a) {
+        if (a.count == 0)
+            ui.ThemedPanel();
+        else
+            ui.Panel(a.C(0));
+        return a.Nil();
+    });
+    add("ui_button", 3, [](UISystem &ui, const Args &a) {
+        return a.Bool(ui.Button(a.S(0), a.N(1), a.S(2), a.N(3, 0)));
+    });
     add("ui_slider", 5, [](UISystem &ui, const Args &a) { return a.Number(ui.Slider(a.S(0), a.N(1), a.N(2), a.N(3), a.N(4))); });
-    add("ui_checkbox", 3, [](UISystem &ui, const Args &a) { return a.Bool(ui.Checkbox(a.S(0), a.N(1), a.B(2), a.S(3), a.N(4, 0.6f))); });
+    add("ui_checkbox", 3, [](UISystem &ui, const Args &a) {
+        return a.Bool(ui.Checkbox(a.S(0), a.N(1), a.B(2), a.S(3), a.N(4, 0)));
+    });
     add("ui_text_input", 2, [](UISystem &ui, const Args &a) { return a.Bool(ui.TextInput(a.S(0), a.N(1), static_cast<std::size_t>(std::max(0.0f, a.N(2, 24))))); });
     add("ui_text_get", 1, [](UISystem &ui, const Args &a) { return a.String(ui.TextValue(a.S(0))); });
     add("ui_text_set", 2, [](UISystem &ui, const Args &a) { ui.SetTextValue(a.S(0), a.S(1)); return a.Nil(); });
     add("ui_bar", 6, [](UISystem &ui, const Args &a) { ui.ProgressBar(a.N(0), a.N(1), a.C(2)); return a.Nil(); });
-    add("ui_radio", 3, [](UISystem &ui, const Args &a) { return a.Bool(ui.RadioButton(a.S(0), a.N(1), a.B(2), a.S(3), a.N(4, 0.6f))); });
-    add("ui_combo", 4, [](UISystem &ui, const Args &a) { return a.Bool(ui.ComboBegin(a.S(0), a.N(1), a.S(2), a.B(3), a.N(4, 0.6f))); });
-    add("ui_combo_item", 4, [](UISystem &ui, const Args &a) { return a.Bool(ui.ComboItem(a.S(0), a.N(1), a.S(2), a.B(3), a.N(4, 0.6f))); });
-    add("ui_window", 2, [](UISystem &ui, const Args &a) { return a.Bool(ui.Window(a.S(0), a.S(1), a.N(2, 0.6f))); });
-    add("ui_tab", 4, [](UISystem &ui, const Args &a) { return a.Bool(ui.Tab(a.S(0), a.N(1), a.S(2), a.B(3), a.N(4, 0.6f))); });
-    add("ui_tree", 4, [](UISystem &ui, const Args &a) { return a.Bool(ui.Tree(a.S(0), a.N(1), a.S(2), a.B(3), a.N(4, 0.6f))); });
+    add("ui_radio", 3, [](UISystem &ui, const Args &a) {
+        return a.Bool(ui.RadioButton(a.S(0), a.N(1), a.B(2), a.S(3), a.N(4, 0)));
+    });
+    add("ui_combo", 4, [](UISystem &ui, const Args &a) {
+        return a.Bool(ui.ComboBegin(a.S(0), a.N(1), a.S(2), a.B(3), a.N(4, 0)));
+    });
+    add("ui_combo_item", 4, [](UISystem &ui, const Args &a) {
+        return a.Bool(ui.ComboItem(a.S(0), a.N(1), a.S(2), a.B(3), a.N(4, 0)));
+    });
+    add("ui_window", 2,
+        [](UISystem &ui, const Args &a) { return a.Bool(ui.Window(a.S(0), a.S(1), a.N(2, 0))); });
+    add("ui_tab", 4, [](UISystem &ui, const Args &a) {
+        return a.Bool(ui.Tab(a.S(0), a.N(1), a.S(2), a.B(3), a.N(4, 0)));
+    });
+    add("ui_tree", 4, [](UISystem &ui, const Args &a) {
+        return a.Bool(ui.Tree(a.S(0), a.N(1), a.S(2), a.B(3), a.N(4, 0)));
+    });
     add("ui_tip", 1, [](UISystem &ui, const Args &a) { ui.Tip(a.S(0)); return a.Nil(); });
     add("ui_tip_draw", 0, [](UISystem &ui, const Args &a) { ui.DrawTooltip(); return a.Nil(); });
     add("ui_set_tip_delay", 1, [](UISystem &ui, const Args &a) { ui.SetTipDelay(a.N(0)); return a.Nil(); });

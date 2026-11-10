@@ -6146,6 +6146,525 @@ int RunUITest(fake2d::Engine &engine) {
         check(!ui.SetLayoutToken("unknown", 1) && !ui.SetLayoutToken("panel_width", -1), "tokens: reject invalid writes");
         ui.SetLayoutToken("panel_width", 600);
         ui.SetAudit(false);
+        // --- 1.48 dynamic regression: the same IDs grow AND shrink ---------
+        float short_auto = 0, long_auto = 0;
+        for (int state = 0; state < 5; ++state) {
+            const bool long_state = state == 1 || state == 3;
+            const std::string paragraph =
+                state == 3   ? "SupercalifragilisticexpialidociousWithoutAnyBreakAtAll"
+                : long_state ? cjk + cjk
+                             : "short";
+            in.InjectFrame({40, 40}, no_keys, none, long_state ? -100 : 0);
+            begin_layout();
+            ui.Push(10, 10, 220, 230);
+            ui.Push(0, 0, 100, 0, 4);
+            ui.ThemedPanel();
+            const float text_h = ui.Text(paragraph, .5f);
+            ui.Pop();
+            const auto child = ui.LastRect();
+            check(near(child.height, text_h + 8),
+                  "dynamic: auto child reserves measured text plus padding");
+            ui.Text("sibling", .5f);
+            check(near(ui.LastRect().y, child.y + child.height),
+                  "dynamic: following sibling tracks grow/shrink in same frame");
+            if (state == 0)
+                short_auto = child.height;
+            if (state == 1)
+                long_auto = child.height;
+            if (state == 2 || state == 4)
+                check(near(child.height, short_auto),
+                      "dynamic: long -> short returns to original height without cache tail");
+            ui.Row(4, {70, -1, -1});
+            ui.Col();
+            ui.Text(long_state ? cjk : "silk", .4f);
+            const auto goods = ui.LastRect();
+            ui.ColEnd();
+            ui.Col();
+            ui.Text(long_state ? "123456789012345 (+999%)" : "12", .4f, Overflow::Ellipsis);
+            const auto price = ui.LastRect();
+            ui.ColEnd();
+            ui.Col();
+            ui.Text(long_state ? "987654321012345" : "9", .4f, Overflow::Shrink);
+            const auto population = ui.LastRect();
+            ui.ColEnd();
+            ui.RowEnd();
+            check(goods.x + goods.width <= price.x && price.x + price.width <= population.x,
+                  "dynamic: digit/language changes never overlap fixed/flex market columns");
+            ui.ScrollBegin("dynamic_text", 40);
+            const float scroll_h = ui.Text(long_state ? cjk + cjk + cjk : "short", .5f);
+            ui.ScrollEnd();
+            check(near(ui.ScrollContentHeight("dynamic_text"), scroll_h),
+                  "dynamic: scroll range uses this transition's text height");
+            if (!long_state)
+                check(near(ui.ScrollOffset("dynamic_text"), 0),
+                      "dynamic: shortened scroll immediately clamps offset to zero");
+            ui.Pop();
+            check(ui.OverflowCount() == 0,
+                  "dynamic: measured content has no unintended audit overflow");
+            end_layout();
+            check(outside_black(10, 10, 220, 230), "dynamic: every transition is pixel-contained");
+        }
+        check(long_auto > short_auto, "dynamic: Chinese paragraph actually grows the child panel");
+        begin_layout();
+        ui.Push(10, 10, 200, 230);
+        ui.Constrain(60, 90, 30, 60);
+        ui.Push(0, 0, 150, 0);
+        ui.Text("x", .4f);
+        ui.Pop();
+        check(near(ui.LastRect().width, 90) && near(ui.LastRect().height, 30),
+              "constraints: auto box honors min/max dimensions");
+        ui.FlowBegin(5, 3);
+        ui.FlowItem(110);
+        ui.Button("flow1", 20, "one");
+        const auto f1 = ui.LastRect();
+        ui.FlowItemEnd();
+        ui.FlowItem(100);
+        ui.Button("flow2", 30, "two");
+        const auto f2 = ui.LastRect();
+        ui.FlowItemEnd();
+        ui.FlowEnd();
+        check(near(f2.x, f1.x) && near(f2.y, f1.y + 23),
+              "flow: insufficient remaining width wraps by tallest line plus gap");
+        ui.GridBegin(2, 4, {60, -1});
+        ui.GridCell();
+        ui.Button("g1", 20, "a");
+        const auto g1 = ui.LastRect();
+        ui.GridCellEnd();
+        ui.GridCell();
+        ui.Button("g2", 30, "b");
+        const auto g2 = ui.LastRect();
+        ui.GridCellEnd();
+        ui.GridCell();
+        ui.Button("g3", 20, "c");
+        const auto g3 = ui.LastRect();
+        ui.GridCellEnd();
+        ui.GridEnd();
+        check(near(g1.width, 60) && near(g2.width, 136) && near(g3.y, g1.y + 34),
+              "grid: fixed/flex cells and measured next-row height");
+        ui.Row(4, {-1, -1});
+        ui.RowAlign(2);
+        ui.Constrain(20, 70, 40, 80);
+        ui.Col();
+        ui.Text("small", .4f);
+        ui.ColEnd();
+        ui.Col();
+        ui.Text(cjk, .4f);
+        ui.ColEnd();
+        ui.RowEnd();
+        ui.Pop();
+        end_layout();
+        check(outside_black(10, 10, 200, 230), "containers: flow/grid/aligned row remain clipped");
+
+        for (int frame = 0; frame < 3; ++frame) {
+            in.InjectFrame({frame == 0 ? 70.0f : 110.0f, 30}, no_keys, frame < 2 ? left : none);
+            begin_layout();
+            ui.Push(10, 10, 180, 100);
+            const float offset = ui.Splitter("split_identity", 80, 60);
+            if (frame == 1)
+                check(near(offset, 100),
+                      "splitter: dragging keyed divider updates offset without jump");
+            if (frame == 2)
+                check(near(offset, 100), "splitter: keyed offset survives release and frames");
+            ui.Pop();
+            end_layout();
+        }
+        // Parent and prior-widget relations are declaration-order, same-frame.
+        begin_layout();
+        ui.Push(10, 10, 200, 180);
+        ui.Button("anchor", 20, "anchor");
+        ui.Remember("anchor");
+        check(ui.PushRelated("anchor", "bottom", 8, 100, 20),
+              "relations: prior widget target resolves this frame");
+        ui.Button("related", 20, "related");
+        check(near(ui.LastRect().y, 38), "relations: bottom + gap uses measured target rect");
+        ui.Pop();
+        check(ui.PushRelated("", "right", -60, 50, 20, 0, 10),
+              "relations: parent edge and stretch supported");
+        ui.Button("stretch", 20, "");
+        check(near(ui.LastRect().x, 150) && near(ui.LastRect().width, 50),
+              "relations: stretch to parent right minus inset");
+        ui.Pop();
+        check(!ui.PushRelated("later", "right", 8, 20, 20),
+              "relations: later undeclared target is rejected, no one-frame stale cache");
+        ui.Pop();
+        end_layout();
+        check(!ui.SetThemeMetric("unknown", 1) &&
+                  !ui.SetThemeColor("unknown", fake2d::Color::White()),
+              "theme: rejects unknown tokens");
+        check(!ui.SetThemeMetric("spacing", -1), "theme: rejects invalid metrics");
+        check(ui.SetThemeMetric("spacing", 12) && near(ui.ThemeMetric("spacing"), 12),
+              "theme: metrics persist");
+        ui.SetThemeMetric("spacing", 8);
+        const auto old_button = ui.ThemeColor("button");
+        check(ui.SetThemeColor("button", {1, 0, 0, 1}) && near(ui.ThemeColor("button").r, 1),
+              "theme: color getter/setter roundtrip");
+        ui.SetThemeColor("button", old_button);
+        // An existing engine texture exercises real nine-slice/image draw paths.
+        const auto skin_handle = engine.GetResources().LoadTexture("assets/art/ore.png");
+        const auto *skin = engine.GetResources().GetTexture(skin_handle);
+        check(skin && skin->IsValid(),
+              "skin: demo texture available for nine-slice and image widgets");
+        begin_layout();
+        ui.Push(10, 10, 120, 100);
+        ui.SetPanelSlice(skin, {0, 0, 32, 32}, 6, 6);
+        ui.ThemedPanel();
+        ui.Image(skin, {0, 0, 32, 32}, 30);
+        ui.SetRichIcon("ore", skin, {0, 0, 32, 32});
+        ui.RichText("[color=#ff0000][b]red[/b][/color] [img=ore]", .5f);
+        ui.Pop();
+        ui.SetPanelSlice(nullptr, {}, 0, 0);
+        end_layout();
+        check(outside_black(10, 10, 120, 100),
+              "skin: nine-slice, icon and image are clipped together");
+        // Rich links use the same press/release semantics as buttons.
+        for (int frame = 0; frame < 2; ++frame) {
+            in.InjectFrame({22, 24}, no_keys, frame == 0 ? left : none);
+            begin_layout();
+            ui.Push(20, 20, 150, 60);
+            const auto link = ui.RichText("[link=manual][color=#ff0000]Read[/color][/link]", .6f);
+            check(frame == 0 ? link.empty() : link == "manual",
+                  "rich: link hit reports its id only on activation");
+            ui.Pop();
+            end_layout();
+        }
+        bool saw_red = false;
+        for (int y = 20; y < 45; ++y)
+            for (int x = 20; x < 80; ++x)
+                if (box_target->ReadPixel(x, y, px) && px.r > .3f && px.g < .1f)
+                    saw_red = true;
+        check(saw_red, "rich: inline hex color actually reaches rendered glyphs");
+        begin_layout();
+        ui.Push(20, 20, 45, 200);
+        const float hard_h = ui.Text("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz", .5f);
+        ui.Pop();
+        end_layout();
+        check(hard_h > line_h * 2 && outside_black(20, 20, 45, 200),
+              "text: unbreakable Latin word hard-breaks and stays contained");
+        // Editable selection is UTF-8 safe, and shares GLFW clipboard plumbing.
+        ui.SetTextValue("area148", "");
+        auto area_frame = [&](const std::vector<std::string_view> &keys,
+                              const std::vector<unsigned int> &chars,
+                              const std::vector<std::int64_t> &buttons) {
+            in.InjectFrame({25, 25}, keys, buttons, 0, chars);
+            begin_layout();
+            ui.Push(20, 20, 180, 100);
+            ui.TextArea("area148", 100);
+            ui.Pop();
+            end_layout();
+        };
+        area_frame({}, {}, left);
+        area_frame({}, {'A', 0x7530}, none);
+        area_frame({"enter"}, {}, none);
+        area_frame({}, {'B'}, none);
+        check(ui.TextValue("area148") == "A田\nB",
+              "input: committed UTF-8 characters and Enter insert a real multiline newline");
+        area_frame({"left_control", "a"}, {}, none);
+        area_frame({"left_control", "c"}, {}, none);
+        check(in.Clipboard() == "A田\nB",
+              "input: Ctrl-A/C copies UTF-8 selection through clipboard");
+        area_frame({"left_control", "x"}, {}, none);
+        check(ui.TextValue("area148").empty(), "input: Ctrl-X removes selected text");
+        area_frame({"left_control", "v"}, {}, none);
+        check(ui.TextValue("area148") == "A田\nB", "input: Ctrl-V pastes multiline clipboard");
+        area_frame({"left_shift", "left"}, {}, none);
+        area_frame({"backspace"}, {}, none);
+        check(ui.TextValue("area148") == "A田\n",
+              "input: shift-arrow selection/backspace operates on characters, not bytes");
+        area_frame({"escape"}, {}, none);
+        for (int frame = 0; frame < 2; ++frame) {
+            in.InjectFrame({25, 25}, no_keys, frame == 0 ? left : none);
+            begin_layout();
+            ui.Push(20, 20, 120, 80);
+            ui.DisabledBegin();
+            ui.DisabledBegin(false);
+            check(!ui.Button("disabled148", 24, "disabled"),
+                  "disabled: nested false scope cannot re-enable a disabled ancestor");
+            check(!ui.IsHovered("disabled148"), "disabled: no hover state");
+            ui.DisabledEnd();
+            ui.DisabledEnd();
+            ui.Pop();
+            end_layout();
+        }
+        for (int frame = 0; frame < 2; ++frame) {
+            in.InjectFrame({25, 25}, no_keys, frame == 0 ? left : none);
+            begin_layout();
+            ui.Push(20, 20, 120, 50);
+            const bool hit = ui.ImageButton("image148", skin, {0, 0, 32, 32}, 40, "icon");
+            check(hit == (frame == 1), "image button: image decoration retains button interaction");
+            ui.Pop();
+            end_layout();
+        }
+        ui.OpenModal("dialog148");
+        in.InjectFrame({25, 25}, no_keys, left);
+        begin_layout();
+        ui.Push(20, 20, 120, 50);
+        check(!ui.Button("under148", 30, "under"), "modal: underlying widget cannot press");
+        ui.Pop();
+        check(ui.ModalBegin("dialog148", 140, 80), "modal: named active dialog opens");
+        ui.Button("modalok148", 24, "OK");
+        ui.ModalEnd();
+        end_layout();
+        in.InjectFrame({25, 25}, no_keys, none);
+        begin_layout();
+        ui.Push(20, 20, 120, 50);
+        check(!ui.Button("under148", 30, "under"),
+              "modal: underlying release cannot click through");
+        ui.Pop();
+        ui.CloseModal();
+        end_layout();
+        ui.OpenPopup("popup148", 20, 20);
+        in.InjectFrame({250, 250}, no_keys, left);
+        begin_layout();
+        check(ui.Popup("popup148", {"one", "two"}) == -1,
+              "popup: outside press dismisses without selection");
+        end_layout();
+        in.InjectFrame({25, 25}, {"enter"}, none);
+        begin_layout();
+        check(ui.Popup("popup148", {"one", "two"}) == -1, "popup: dismissed popup stays closed");
+        end_layout();
+        // Fresh focus ring makes order, activation and gamepad behavior explicit.
+        fake2d::Camera2D nav_camera;
+        nav_camera.SetViewport(256, 256);
+        fake2d::UISystem nav;
+        nav.Bind(&in, &nav_camera, &r);
+        auto nav_frame = [&]() {
+            nav.NewFrame();
+            r.BeginFrame(0, 0, 0, 1);
+            nav.Push(20, 20, 180, 150);
+            const bool a = nav.Button("nav_a", 25, "A");
+            const bool b = nav.Button("nav_b", 25, "B");
+            nav.Pop();
+            r.EndFrame();
+            return a || b;
+        };
+        in.InjectFrame({250, 250}, no_keys, none);
+        nav_frame();
+        in.InjectFrame({250, 250}, {"tab"}, none);
+        nav_frame();
+        check(nav.FocusedWidget() == "nav_a", "focus: Tab enters first focusable widget");
+        in.InjectFrame({250, 250}, no_keys, none);
+        nav_frame();
+        in.InjectFrame({250, 250}, {"tab"}, none);
+        nav_frame();
+        check(nav.FocusedWidget() == "nav_b", "focus: Tab advances focus ring");
+        in.InjectFrame({250, 250}, {"enter"}, none);
+        check(nav_frame(), "focus: Enter activates focused button");
+        fake2d::InputFrameSnapshot pad_snapshot{};
+        in.CaptureSnapshot(pad_snapshot, 0);
+        pad_snapshot.pad_connected[0] = 1;
+        pad_snapshot.SetPadButton(0, 11, true); // GLFW dpad-up
+        in.ApplySnapshot(pad_snapshot);
+        nav_frame();
+        check(nav.FocusedWidget() == "nav_a", "focus: gamepad dpad navigates ring");
+        pad_snapshot.SetPadButton(0, 11, false);
+        pad_snapshot.SetPadButton(0, 0, true);
+        in.ApplySnapshot(pad_snapshot);
+        check(nav_frame(), "focus: gamepad South activates focused button");
+        fake2d::InputFrameSnapshot neutral_pad{};
+        in.ApplySnapshot(neutral_pad);
+        in.InjectFrame({50, 50}, no_keys, left);
+        nav.NewFrame();
+        check(nav.SetScale(128, 128, "contain") && near(nav.Scale(), 2),
+              "scale: contain uses logical-point viewport, not framebuffer DPI");
+        r.BeginFrame(0, 0, 0, 1);
+        nav.Push(20, 20, 50, 25);
+        nav.Button("scaled148", 25, "scaled");
+        nav.Pop();
+        r.EndFrame();
+        in.InjectFrame({50, 50}, no_keys, none);
+        nav.NewFrame();
+        r.BeginFrame(0, 0, 0, 1);
+        nav.Push(20, 20, 50, 25);
+        check(nav.Button("scaled148", 25, "scaled"),
+              "scale: hit test inversely maps scaled reference points");
+        nav.Pop();
+        r.EndFrame();
+        for (const char *mode : {"width", "height", "contain", "expand"}) {
+            nav_camera.SetViewport(320, 200);
+            check(nav.SetScale(160, 100, mode) && near(nav.Scale(), 2),
+                  "scale: reference mode recomputes after viewport resize");
+        }
+        nav.SetScale(0, 0);
+        // 1000 rows request only 5 visible items, and wheel updates the slice now.
+        for (int frame = 0; frame < 3; ++frame) {
+            in.InjectFrame({30, 30}, no_keys, none, frame == 1 ? -3 : 0);
+            begin_layout();
+            ui.Push(20, 20, 180, 150);
+            const auto range = ui.ListBegin("virtual148", 100, frame == 2 ? 2 : 1000, 20);
+            check(range.count <= 6, "virtual: 1000 items request only viewport slice");
+            if (frame == 0)
+                check(range.first == 0 && range.count == 5, "virtual: initial range is exact");
+            if (frame == 1)
+                check(range.first == 6, "virtual: wheel requests new visible rows in same frame");
+            if (frame == 2)
+                check(range.first == 0 && range.count == 2,
+                      "virtual: shrinking item count clamps range immediately");
+            for (int i = 0; i < range.count; ++i)
+                ui.Button("virtualrow" + std::to_string(range.first + i), 20, "row");
+            ui.ListEnd();
+            check(near(ui.ScrollContentHeight("virtual148"), (frame == 2 ? 2 : 1000) * 20.0f),
+                  "virtual: extent is item count times fixed row height");
+            ui.Pop();
+            end_layout();
+            check(outside_black(20, 20, 180, 100), "virtual: rows and scrollbar obey nested clip");
+        }
+        begin_layout();
+        ui.Push(10, 10, 200, 100);
+        ui.Row(4, {-1, -1});
+        ui.RowAlign(2);
+        ui.Col();
+        ui.ProgressBar(12, 1, {1, 0, 0, 1});
+        ui.ColEnd();
+        ui.Col();
+        ui.ProgressBar(40, 1, {0, 1, 0, 1});
+        ui.ColEnd();
+        ui.RowEnd();
+        ui.Pop();
+        end_layout();
+        check(box_target->ReadPixel(30, 44, px) && px.r > .9f && px.g < .1f,
+              "row alignment: short column is painted at measured bottom in first frame");
+        check(box_target->ReadPixel(30, 20, px) && px.r < .1f,
+              "row alignment: no stale short-column pixels remain at top");
+        // Content-sized panels nested inside measured scrolls resolve once,
+        // not to last frame's height, including the first growth and shrink.
+        for (int state = 0; state < 3; ++state) {
+            begin_layout();
+            ui.Push(10, 10, 140, 180);
+            ui.ScrollBegin("nested_auto148", 100);
+            ui.Push(0, 0, 120, 0, 4);
+            ui.ThemedPanel();
+            const float measured = ui.Text(state == 1 ? cjk + cjk : "short", .5f);
+            ui.Pop();
+            ui.Text("after", .5f);
+            const auto after = ui.LastRect();
+            check(near(after.y, 10 + measured + 8),
+                  "nested auto: sibling follows freshly measured box inside scroll");
+            check(near(ui.ScrollEnd(), measured + 8 + 14),
+                  "nested auto: scroll measures grow/shrink including child padding");
+            ui.Pop();
+            end_layout();
+            check(outside_black(10, 10, 140, 100),
+                  "nested auto: deferred panel and text use intersecting viewport clip");
+        }
+        // Disabled text controls discard both committed characters and paste.
+        in.InjectFrame({25, 25}, no_keys, left);
+        begin_layout();
+        ui.Push(20, 20, 180, 80);
+        ui.TextInput("disabled_edit148", 30);
+        ui.Pop();
+        end_layout();
+        in.InjectFrame({25, 25}, no_keys, none, 0, {'X'});
+        begin_layout();
+        ui.Push(20, 20, 180, 80);
+        ui.DisabledBegin();
+        check(!ui.TextInput("disabled_edit148", 30) && ui.TextValue("disabled_edit148").empty(),
+              "disabled: focused field ignores text and loses focus");
+        ui.DisabledEnd();
+        ui.Pop();
+        end_layout();
+        fake2d::Input synthetic_clipboard;
+        synthetic_clipboard.SetClipboard("田亩");
+        check(synthetic_clipboard.Clipboard() == "田亩",
+              "clipboard: headless no-window adapter preserves UTF-8");
+        // Reference root audit and width/height modes use inverse mapping.
+        in.InjectFrame({250, 250}, no_keys, none);
+        nav.NewFrame();
+        nav_camera.SetViewport(400, 200);
+        check(nav.SetScale(100, 100, "width") && near(nav.Scale(), 4),
+              "scale: width mode differs correctly on a non-square viewport");
+        check(nav.SetScale(100, 100, "height") && near(nav.Scale(), 2),
+              "scale: height mode differs correctly on a non-square viewport");
+        check(nav.SetScale(100, 100, "contain") && near(nav.Scale(), 2),
+              "scale: contain letterboxes without double HiDPI scaling");
+        r.BeginFrame(0, 0, 0, 1);
+        nav.Push(5, 5, 90, 90);
+        nav.Text("reference points", .4f);
+        nav.Pop();
+        r.EndFrame();
+        check(nav.OverflowCount() == 0, "scale: root rectangle audit uses reference-point bounds");
+        check(nav.SetScale(100, 100, "expand") && near(nav.Scale(), 4),
+              "scale: expand fills/crops viewport");
+        nav.SetScale(0, 0);
+
+        begin_layout();
+        ui.Push(10, 10, 200, 100);
+        ui.Row(4, {-1, -1});
+        ui.Constrain(30, 60, 25, 60);
+        ui.Col();
+        ui.Button("slot_limits", 20, "limited");
+        const auto limited = ui.LastRect();
+        ui.ColEnd();
+        ui.Col();
+        ui.Button("next_slot", 20, "next");
+        const auto next_slot = ui.LastRect();
+        ui.ColEnd();
+        ui.RowEnd();
+        ui.Pop();
+        end_layout();
+        check(near(limited.width, 60) && near(next_slot.x, limited.x + 64),
+              "constraints: column max-width changes both actual rect and next slot origin");
+        ui.SetThemeMetric("font_scale", .8f);
+        begin_layout();
+        ui.Push(10, 10, 200, 100);
+        check(near(ui.Text("Theme default"), r.GetFont().LineHeight() * .8f),
+              "theme: default font scale changes measured text, not only stored token");
+        ui.Pop();
+        end_layout();
+        ui.SetThemeMetric("font_scale", .6f);
+        ui.OpenPopup("keyboard_popup148", 20, 20);
+        in.InjectFrame({250, 250}, no_keys, none);
+        begin_layout();
+        ui.Popup("keyboard_popup148", {"one", "two"});
+        end_layout();
+        in.InjectFrame({250, 250}, {"down"}, none);
+        begin_layout();
+        ui.Popup("keyboard_popup148", {"one", "two"});
+        end_layout();
+        in.InjectFrame({250, 250}, {"enter"}, none);
+        begin_layout();
+        check(ui.Popup("keyboard_popup148", {"one", "two"}) == 1,
+              "popup: down/enter picks indexed item and dismisses");
+        end_layout();
+        in.InjectFrame({25, 25}, no_keys, {1});
+        begin_layout();
+        ui.Push(20, 20, 150, 60);
+        ui.Button("context_host148", 30, "right click");
+        check(ui.ContextMenu("context148"),
+              "context menu: right press over last rect opens a keyed menu");
+        ui.Pop();
+        ui.Popup("context148", {"one"});
+        ui.ClosePopup();
+        end_layout();
+        ui.OpenModal("escape148");
+        in.InjectFrame({250, 250}, {"escape"}, none);
+        begin_layout();
+        check(!ui.ModalBegin("escape148", 100, 80),
+              "modal: Escape closes before drawing and releases input block");
+        end_layout();
+        in.InjectFrame({250, 250}, no_keys, none);
+        nav.NewFrame();
+        nav_camera.SetViewport(200, 100);
+        nav.SetScale(100, 100, "contain");
+        nav_camera.SetViewport(300, 300);
+        nav.NewFrame();
+        check(near(nav.Scale(), 3),
+              "scale: a saved reference scaler automatically recomputes on viewport resize");
+        nav.SetScale(0, 0);
+
+        check(near(ui.Tween("fade148", 0, 1, 0), 0), "transition: initial value is stable");
+        check(near(ui.Tween("fade148", 1, 1, .5f), .5f),
+              "transition: float animates by explicit deterministic dt");
+        check(near(ui.Tween("fade148", 1, 1, .5f), 1),
+              "transition: duration reaches target exactly");
+        check(near(ui.Tween("fade148", 0, 1, .5f, "smooth"), .5f),
+              "transition: target reversal starts from current value");
+        ui.SetPage("pages148", 2);
+        check(ui.PageBegin("pages148", 2) && !ui.PageBegin("pages148", 1),
+              "controller: only selected page body executes");
+        ui.PageEnd();
+        in.InjectFrame({0, 0}, no_keys, none);
+        ui.NewFrame();
+
         ui3_lib.Destroy(box_rt);
     }
 
@@ -11399,13 +11918,19 @@ int main(int argc, char **argv) {
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg = argv[i];
         if (arg == "--help" || arg == "-h") {
-            std::printf("Fake2D " FAKE2D_VERSION_STRING "\nUsage: fake2d_hello [--headless] [--frames N] [--<name>-demo]\n"
-                        "  --ui-demo     Box text, fixed/flex columns, auto-height scroll (1.47 breaking UI API)\n"
-                        "  --ui2-demo    Box-scoped progress bars, radio groups and combos\n"
-                        "  --ui3-demo    Box-scoped windows, tabs and trees\n"
-                        "  --ui-test     UI layout, clipping, audit and input regression suite\n"
-                        "  --entry PATH  Run a Lua script; UI migration reference: docs/SCRIPTING.md#ui\n"
-                        "Demos:\n");
+            std::printf(
+                "Fake2D " FAKE2D_VERSION_STRING
+                "\nUsage: fake2d_hello [--headless] [--frames N] [--<name>-demo]\n"
+                "  --ui-demo     Box text, fixed/flex columns, auto-height scroll (1.47 breaking "
+                "UI API)\n"
+                "  --ui2-demo    Box-scoped progress bars, radio groups and combos\n"
+                "  --ui3-demo    Box-scoped windows, tabs and trees\n"
+                "  --ui-layout-demo  Dynamic text/number/language/resize acceptance scenarios\n"
+                "  --ui-features-demo  Containers, skin, rich input, focus/menu/modal, virtual "
+                "list\n"
+                "  --ui-test     UI layout, clipping, audit and input regression suite\n"
+                "  --entry PATH  Run a Lua script; UI migration reference: docs/SCRIPTING.md#ui\n"
+                "Demos:\n");
             for (const auto &demo : fake2d::kDemos) std::printf("  --%s-demo\n", demo.flag);
             return 0;
         }

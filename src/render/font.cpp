@@ -689,9 +689,28 @@ float Font::DrawTextEx(SpriteBatch &batch, std::string_view text,
                     }
                 }
             }
-            const std::size_t cluster_end = cursor;
-            const float cluster_w =
-                MeasureText(text.substr(scan, cluster_end - scan)) * scale;
+            std::size_t cluster_end = cursor;
+            float cluster_w = MeasureText(text.substr(scan, cluster_end - scan)) * scale;
+            // A word wider than the entire column must make progress a glyph
+            // at a time. Draw and measure use exactly the same split.
+            if (!space && !IsCjk(cp) && cluster_w > wrap_width) {
+                const std::size_t word_end = cursor;
+                cursor = scan;
+                DecodeUtf8(text, cursor);
+                cluster_end = cursor;
+                cluster_w = MeasureText(text.substr(scan, cluster_end - scan)) * scale;
+                while (cursor < word_end) {
+                    const std::size_t save = cursor;
+                    DecodeUtf8(text, cursor);
+                    const float candidate = MeasureText(text.substr(scan, cursor - scan)) * scale;
+                    if (candidate > wrap_width) {
+                        cursor = save;
+                        break;
+                    }
+                    cluster_end = cursor;
+                    cluster_w = candidate;
+                }
+            }
 
             // CJK 禁则处理: a closing mark never starts a line and an opening
             // bracket never ends one, so those clusters overflow instead of
@@ -788,9 +807,28 @@ float Font::MeasureTextEx(std::string_view text, float scale, float wrap_width) 
                     }
                 }
             }
-            const std::size_t cluster_end = cursor;
-            const float cluster_w =
-                MeasureText(text.substr(scan, cluster_end - scan)) * scale;
+            std::size_t cluster_end = cursor;
+            float cluster_w = MeasureText(text.substr(scan, cluster_end - scan)) * scale;
+            // A word wider than the entire column must make progress a glyph
+            // at a time. Draw and measure use exactly the same split.
+            if (!space && !IsCjk(cp) && cluster_w > wrap_width) {
+                const std::size_t word_end = cursor;
+                cursor = scan;
+                DecodeUtf8(text, cursor);
+                cluster_end = cursor;
+                cluster_w = MeasureText(text.substr(scan, cluster_end - scan)) * scale;
+                while (cursor < word_end) {
+                    const std::size_t save = cursor;
+                    DecodeUtf8(text, cursor);
+                    const float candidate = MeasureText(text.substr(scan, cursor - scan)) * scale;
+                    if (candidate > wrap_width) {
+                        cursor = save;
+                        break;
+                    }
+                    cluster_end = cursor;
+                    cluster_w = candidate;
+                }
+            }
 
             const bool can_break =
                 !NoLineStart(cp) && !NoLineEnd(previous_content);

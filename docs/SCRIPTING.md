@@ -1741,7 +1741,7 @@ not a parallel UI layout system.
 
 Coordinates and dimensions are logical points. A root push is absolute;
 a nested push's x/y is relative to the parent's **current cursor**. Padding
-shrinks its content rectangle. Pop reserves `y + h` in the parent. Text and
+shrinks its content rectangle. Pop reserves `y + h` in the parent (h<=0 is content-sized in 1.48). Text and
 widgets consume height; Panel and Window decorate the current content box
 without advancing. Values/selections/open state remain in the caller.
 An unmatched end or a widget outside a box is a no-op. Balance all scopes
@@ -1750,7 +1750,7 @@ in the frame; NewFrame clears layout scopes, rectangles and pending draws.
 | Function | Description |
 |---|---|
 | `ui_push(x, y, w, h, pad=0)` / `ui_pop()` | Local origin, content width/height and intersecting clip stack. A disjoint intersection draws nothing. |
-| `ui_text(text, scale=0.6, overflow="wrap", align=0, r=1, g=1, b=1, a=1, min_scale=0.35) -> height` | Measure, draw, register a rectangle and advance the cursor. Align 0/1/2 is left/center/right **inside the box**. |
+| `ui_text(text, scale=0 (theme .6), overflow="wrap", align=0, r=1, g=1, b=1, a=1, min_scale=0.35) -> height` | Measure, draw, register a rectangle and advance the cursor. Align 0/1/2 is left/center/right **inside the box**. |
 | `ui_avail_w() -> width` | Current content width (0 outside a box). |
 | `ui_last_rect(field) -> number` | Read `"x"`, `"y"`, `"w"`, `"h"` of the last text/widget in layout coordinates. Single-field access matches FakeLua native return conventions; C++ returns a Rect. |
 | `ui_row(gap=0, col1, col2, ...)` | Optional same-frame template: positive=fixed pixels, negative=flex weight, zero=zero width. Space after fixed slots and gaps is split by weights. Oversubscribed slots clamp to remaining width. |
@@ -1761,18 +1761,18 @@ in the frame; NewFrame clears layout scopes, rectangles and pending draws.
 | `ui_layout_token(name)` / `ui_set_layout_token(name, value) -> bool` | `panel_width`=600, `sidebar_inset`=410 (typical screen width minus inset), `menu_icon_spacing_cap`=64. Overrides persist; unknown names, negative or non-finite values are rejected (unknown reads return 0). |
 | `ui_set_audit(enabled)` / `ui_overflow_count()` | Enable `[UI_OVERFLOW]` logs / read overflow count. Text, widgets and pushed boxes use the same per-frame ledger (C++ AuditRects()). A pushed box is audited against its parent/screen; hidden scroll content is not overflow. |
 | `ui_panel(r,g,b,a)` | Decorate current box; does not consume cursor height. |
-| `ui_button(key,h,text,scale=0.6) -> bool` | Current width; advances h; returns click-release. Label shrinks to minimum 0.35 then ellipsizes, with pixel clipping even for tiny controls. |
+| `ui_button(key,h,text,scale=0 (theme .6)) -> bool` | Current width; advances h; returns click-release. Label shrinks to minimum 0.35 then ellipsizes, with pixel clipping even for tiny controls. |
 | `ui_slider(key,h,value,min,max) -> number` | Caller-owned value, clamped; drag thumb or click track. |
-| `ui_checkbox(key,size,checked,label="",scale=0.6) -> bool` | Consume max(size,line height), clipped/ellipsized caption; returns click-release. |
-| `ui_radio(key,size,selected,label="",scale=0.6) -> bool` | Same layout as checkbox; caller owns group selection. |
+| `ui_checkbox(key,size,checked,label="",scale=0 (theme .6)) -> bool` | Consume max(size,line height), clipped/ellipsized caption; returns click-release. |
+| `ui_radio(key,size,selected,label="",scale=0 (theme .6)) -> bool` | Same layout as checkbox; caller owns group selection. |
 | `ui_text_input(key,h,max_chars=24) -> bool` | UTF-8 field; 0 means unlimited codepoints; returns text change. |
 | `ui_text_get(key)` / `ui_text_set(key,text)` / `ui_text_focused()` | Field content / focus access. |
 | `ui_bar(h,value,r,g,b,a)` | Current-width progress bar; value clamped to 0..1; advances h. |
-| `ui_combo(key,h,label,open,scale=0.6) -> bool` | Header; caller owns open state; release outside also toggles an opened gesture. |
-| `ui_combo_item(key,h,label,selected,scale=0.6) -> bool` | One popup row; caller owns selection. |
-| `ui_window(key,title,scale=0.6) -> bool` | Decorate current box; true while dragging title, not on initial grab. Caller updates root push position from mouse delta. |
-| `ui_tab(key,h,label,active,scale=0.6) -> bool` | Click-release; caller owns active index. Unlike the old API, no pixels extend below the declared box. |
-| `ui_tree(key,h,label,open,scale=0.6) -> bool` | Disclosure row; caller toggles open and conditionally draws children. |
+| `ui_combo(key,h,label,open,scale=0 (theme .6)) -> bool` | Header; caller owns open state; release outside also toggles an opened gesture. |
+| `ui_combo_item(key,h,label,selected,scale=0 (theme .6)) -> bool` | One popup row; caller owns selection. |
+| `ui_window(key,title,scale=0 (theme .6)) -> bool` | Decorate current box; true while dragging title, not on initial grab. Caller updates root push position from mouse delta. |
+| `ui_tab(key,h,label,active,scale=0 (theme .6)) -> bool` | Click-release; caller owns active index. Unlike the old API, no pixels extend below the declared box. |
+| `ui_tree(key,h,label,open,scale=0 (theme .6)) -> bool` | Disclosure row; caller toggles open and conditionally draws children. |
 | `ui_tip(text)` / `ui_tip_draw()` | Attach hover tooltip to LastRect; draw it last. |
 | `ui_set_tip_delay(seconds)` / `ui_hovered(key)` | Hover delay (default .3 s) / widget hover state. |
 | `ui_set_origin(x,y)` | World-HUD input origin; defaults to 0. Translation-only world HUDs use the same coordinate space as their renderer camera (zoom 1, rotation 0). |
@@ -1780,8 +1780,9 @@ in the frame; NewFrame clears layout scopes, rectangles and pending draws.
 Overflow policies:
 - **wrap** (body default): the existing Font::DrawTextEx / MeasureTextEx
   CJK-per-character, Latin-at-space algorithm; height advances by measurement.
-  As with the font backend, a single unbreakable word wider than a column is
-  clipped, not split. Glyph bearings and oversized glyphs are always scissored.
+  In 1.48, Latin words wider than the whole column hard-break at UTF-8 glyph
+  boundaries in both DrawTextEx and MeasureTextEx. Glyph bearings and oversized
+  individual glyphs are always scissored.
 - **ellipsis** (recommended for headers/table cells): UTF-8-safe prefix + `…`
   fits the width; if even `…` cannot fit, draw nothing.
 - **shrink**: reduce scale no lower than min_scale (clamped to 0..scale), then
@@ -1792,7 +1793,8 @@ Overflow policies:
 All UI content inside a scroll must use this API: direct renderer draws are
 not cursor-measured or deferred. Do not mix `draw_set_clip` with active UI
 scopes; the UI owns and restores its own intersection stack. No culling or
-virtualization is performed; every submitted element contributes to height.
+virtualization is performed by ordinary Scroll; every submitted element contributes
+to height. Use the fixed-row List API below for virtualization.
 
 ```lua
 function update(dt)
@@ -1822,6 +1824,122 @@ controls, auto-height scroll and shared tokens); `--ui2-demo` / `--ui3-demo`
 exercise bars/radios/combos and draggable windows/tabs/trees using box scopes.
 `--ui-test` includes pixel containment, empty/nested intersections, UTF-8 fit,
 rectangle audit, same-frame columns, auto scroll growth/shrink and input tests.
+
+#### 1.48 game-UI primitives (Phases 57–62)
+
+The 1.47 box API is retained. `ui_push(..., h<=0)` now means **content height**,
+not an empty box: children are measured, `ui_pop` resolves height (including
+padding), clips deferred paint to it, and advances the parent. It can grow **and
+shrink in the same frame**; `ui_last_rect` after this pop is the resolved outer
+box. Auto boxes, rows and scrolls share a deferred paint queue: an enclosing
+measurement scope must close before painting. Panel backgrounds follow the
+resolved height, not an old cached estimate. Direct renderer/sprite/text calls
+are still not measured, scaled or deferred by the UI.
+
+All functions below also have C++ methods on `UISystem` (see `ui.h` for exact
+C++ types/defaults). Lua returns one value; rectangles/colors use field getters.
+
+| Lua API | Contract / C++ method |
+|---|---|
+| `ui_constrain(min_w,max_w,min_h=0,max_h=1e9)` | Constraints for **next** Push or Col, then reset. Actual slot width and packing both respect limits, capped to remaining width. Max height clips/audits oversized content. `Constrain(...)`. |
+| `ui_row_align(align)` | After Row, before Col: 0 top / 1 center / 2 bottom. Paint waits until max cell height is known. `RowAlign(int)`. |
+| `ui_flow_begin(gap=-1,line_gap=-1)` / `ui_flow_item(width)` / `ui_flow_item_end()` / `ui_flow_end()` | Content-height items pack left-to-right, wrap on insufficient space, advance by tallest line + line gap. -1 uses theme spacing. `FlowBegin/FlowItem/FlowItemEnd/FlowEnd`. |
+| `ui_grid_begin(columns,gap=-1,col1=-1,col2=-1,...)` / `ui_grid_cell()` / `ui_grid_cell_end()` / `ui_grid_end()` | Implicit rows in N columns, optional fixed/flex widths with Row conventions, measured row heights. Practical game grid, **not CSS Grid**. `GridBegin(int,float,vector<float>)/GridCell/GridCellEnd/GridEnd`. |
+| `ui_splitter(key,h,initial,minimum=24) -> offset` | Reserve two-pane area, draw/drag divider, persist offset by key. Caller places panes relative to the returned split (see features demo). Keyboard/pad adjustment when focused. `Splitter(...)`. |
+| `ui_scale(ref_w,ref_h,mode="contain") -> bool` / `ui_scale_get()` | Set reference scaler before root pushes; saved configuration recomputes on NewFrame/viewport resize. Modes `width`, `height`, `contain`, `expand`. Nonpositive reference disables. Unknown mode/invalid numbers rejected. `SetScale/Scale`. |
+| `ui_remember(id)` / `ui_rect(id,field)` | Name LastRect **this frame**, query x/y/w/h; unknown = zero rect. `Remember/NamedRect`. |
+| `ui_push_related(target,edge,offset,w,h,pad=0,right_inset=-1) -> bool` | Enter overlay box relative to named target, or `""` = parent content edges. `left/right/top/bottom/center_x/center_y`; offset on that axis. Optional right inset stretches width to parent's right edge. Balance Pop only if true. Does not reserve flow height. Missing/later targets are rejected: **declare targets first**, never stale one-frame registry data. `PushRelated(...)`. |
+| `ui_theme_metric(name)` / `ui_set_theme_metric(name,value) -> bool` | Persistent `padding=8`, `spacing=8`, `font_scale=.6`, `min_font_scale=.35`, `border=2`. Use metrics explicitly when composing custom containers; negative flow/grid gaps use spacing. `ThemeMetric/SetThemeMetric`. |
+| `ui_theme_color(name,component)` / `ui_set_theme_color(name,r,g,b,a) -> bool` | Persistent panel/button/hover/pressed/text/accent/border/field/track/check palette. Components r/g/b/a. Default matches 1.47. Unknown names rejected, metric values must be finite/nonnegative, colors finite. `ThemeColor/SetThemeColor`. |
+| `ui_panel()` | Themed panel; explicit RGBA still overrides fill. `ThemedPanel()` or `Panel(color,border)`. |
+| `ui_panel_slice(texture,sx,sy,sw,sh,corner_x,corner_y)` | Set theme nine-slice, 0 clears it. Calls Renderer::DrawNineSlice; scaled corners and intersecting clip. Solid default. `SetPanelSlice(const Texture2D*,Rect,float,float)`. |
+| `ui_image(texture,sx,sy,sw,sh,h,r=1,g=1,b=1,a=1)` | Current-width image, advances height; clipped/deferred/scaled like controls. `Image(const Texture2D*,Rect,float,Color)`. |
+| `ui_image_button(key,texture,sx,sy,sw,sh,h,label="") -> bool` | Leading square icon plus normal button label/interaction. `ImageButton(...)`. |
+| `ui_rich_icon(name,texture,sx,sy,sw,sh)` / `ui_rich_text(markup,scale=0) -> link_id` | Register inline image; parse color/bold/image/link subset; empty result unless link activated. `SetRichIcon/RichText`. |
+| `ui_text_area(key,h,max_chars=4096) -> changed` | Wrapped multiline editable input; Enter inserts newline. `TextArea(...)`; single-line `TextInput` remains, Enter unfocuses. Same TextValue/SetTextValue storage. |
+| `ui_disabled_begin(disabled=true)` / `ui_disabled_end()` | Nested logical-OR scopes: disabled ancestors cannot be re-enabled by children. Ignore hover/press/drag/focus/text/navigation; dim interactive widget/image paint. `DisabledBegin/DisabledEnd`. |
+| `ui_modal_open(key)` / `ui_modal_close()` | Activate input block **before drawing underlying controls**; one active modal. `OpenModal/CloseModal`. |
+| `ui_modal_begin(key,w,h) -> bool` / `ui_modal_end()` | Conditional body, centered reference-space dialog, full-screen dimming, fresh overlay clip. Escape / pad B cancels. Close explicit or button. Draw after base UI. `ModalBegin/ModalEnd`. |
+| `ui_popup_open(key,x,y)` / `ui_popup_close()` | One active popup; blocks underlying input while open. Coordinates in reference points. `OpenPopup/ClosePopup`. |
+| `ui_context_menu(key) -> open` | Open on right press over visible LastRect. `ContextMenu(key)`. |
+| `ui_popup(key,w,item_h,item1,item2,...) -> index` | Draw menu last (inside modal scope if modal owns it), choose 0-based index or -1; up/down/Tab/pad, Enter/A; outside press/Escape/B dismiss. `Popup(key,vector<string>,w=180,item_h=28)`. |
+| `ui_focus() -> key` | Focus ring for buttons, slider, checkbox, radio, combo/items, tabs, trees, inputs, image buttons, splitter and button-backed list rows. `FocusedWidget()`. |
+| `ui_list_begin(key,view_h,item_count,item_h) -> first` / `ui_list_count() -> visible_count` / `ui_list_end()` | Fixed-height virtualization: request only `[first,first+count)` (0-based); extent = count * item_h; resolve wheel/drag before returning slice. Caller's rows must consume exactly item_h. C++ returns `ListRange{first,count}` from ListBegin. Nested clip intersects, known extent clamps immediately on item-count shrink. |
+| `ui_set_scroll_offset(key,offset)` | Programmatic scroll position, clamped at next measured scroll/list. `SetScrollOffset`. |
+| `ui_tween(key,target,seconds,dt,easing="linear") -> value` | Persistent float; first call initializes at target; retarget from current value, advance using **explicit dt**. All engine `ease` names plus `smooth`/`in`/`out`. Use for color channels/offset/alpha as floats. `Tween(...)`. |
+| `ui_set_page(controller,index)` / `ui_page(controller)` | Persistent integer page/index, default 0. `SetPage/Page`. |
+| `ui_page_begin(controller,index) -> active` / `ui_page_end()` | **Caller must conditionally skip inactive body**, as with Tree/Combo/Modal. No layout/input/state evaluation for skipped code. `PageBegin/PageEnd`; not editor gears or a retained state machine. |
+
+**Scale mapping:** Camera2D viewport and GLFW mouse positions already use logical
+window points (HiDPI framebuffer conversion happens in Renderer). With logical
+viewport V and reference R, scale is Vw/Rw (`width`), Vh/Rh (`height`), min of
+both (`contain`, letterbox), or max (`expand`, fill/crop). The reference canvas
+is centered. UI point p draws at `p * scale + offset`; mouse applies the exact
+inverse before hit-testing. Font/image/corner sizes and intersected scissors
+use the same mapping. Never multiply by framebuffer scale again. Layout tokens,
+LastRect, relations, scroll offsets and splitter values remain reference points.
+For draggable Windows, divide mouse deltas by `ui_scale_get()` before moving a
+reference-space root. World HUD mode remains translation-only (camera zoom 1,
+rotation 0); keep screen UI at world origin 0. Calling SetScale inside a box is
+rejected so one deferred batch cannot mix transforms.
+
+**Focus:** Tab/Shift-Tab and arrows traverse the submitted-order ring; pad dpad
+or left-stick threshold crossing navigates, A activates, B cancels overlays.
+Sliders/splitters use horizontal keys/pad to adjust. Mouse press moves focus;
+focused controls show an accent outline. The ring is the **previous completed
+frame's eligible controls** (normal immediate-mode discovery), not a retained
+widget tree. Disabled/clipped controls are excluded on submission. Input fields
+own arrows/Home/End/Enter while focused; navigation does not consume caret keys.
+Vertically aligned row painting resolves in the current RowEnd; pointer
+hit-testing uses the previous completed row's vertical offsets (first frame top),
+like regular scroll input using the previous visible offset. Keep row declaration
+order stable; query LastRect before RowEnd for the unshifted layout rectangle.
+For animated/reflowing interactive rows, prefer top alignment or wait one frame
+before pointer interaction. This is an explicit immediate-mode input limitation,
+not a claim of fully retained same-pass hit layout.
+
+**Rich text syntax:** `[color=#rrggbb]...[/color]` or #rrggbbaa, `[b]...[/b]`
+(fake-bold), `[img=registered_name]`, `[link=id]...[/link]`. Color scopes nest;
+bold/link scopes are simple on/off, not arbitrary HTML. Inline items wrap at
+glyph boundaries, images use one line-height square; all glyphs remain scissored.
+Unknown tags render literally; unknown icons draw nothing. A clicked/activated
+link returns id; no automatic network or navigation action. Keep theme slice/
+icon texture resources alive until the deferred frame closes; clear styles before
+freeing a texture. Lua texture arguments use handles from `sprite_load`.
+
+**Editing/IME:** UTF-8 codepoint caret, Shift+left/right/up/down/Home/End selection,
+Backspace/Delete, Ctrl/Cmd A/C/X/V (GLFW clipboard), mouse placement; multiline
+wraps and keeps caret visible. Single-line paste drops newlines/control chars.
+0 max_chars = unlimited. Tests without a native window use an in-memory Input
+clipboard adapter. **GLFW 3.4**, pinned in CMake and inspected in glfw3.h, exposes
+committed `glfwSetCharCallback` characters, **no public preedit/composition API**.
+Chinese IME committed text works, but inline composition preview/underline and
+candidate-window positioning cannot be implemented honestly on this backend.
+There is no fake preedit, shaping/RTL, undo history or platform-native text view.
+
+**Runnable acceptance templates** (real FakeLua, real OFL CJK fallback asset):
+
+```sh
+./build/bin/fake2d_hello --ui-layout-demo
+./build/bin/fake2d_hello --headless --frames 240 --ui-layout-demo
+./build/bin/fake2d_hello --ui-features-demo
+./build/bin/fake2d_hello --headless --frames 240 --ui-features-demo
+```
+
+Dynamic layout cycles every 40 **frames**: short → long Chinese → short, then
+English with an unbreakable word; digit growth, narrower columns, actual window
+resize/reference mapping, child height + next-sibling position, fixed/flex market
+rows, scroll growth/scrolled shrink without stale blank tail. SPACE toggles auto;
+N text / L language / D digits / W width / R resize / A audit. Metrics stay visible.
+Features cycles three pages: flow/grid/constraints/alignment/splitter/relations;
+theme/nine-slice/image/rich text/link/single/multiline input; disabled/focus/pad/
+modal/menu/1000-row virtualization/tween/page. 1/2/3 select pages, SPACE auto.
+Automatic mode also toggles theme/skin, opens/closes overlays and scrolls the list.
+Both scenarios are registered in launcher/CLI, docs/CI/package checks; check-docs
+requires transition markers, real screenshots, no update exceptions or overflow.
+`--ui-test` separately asserts dynamic geometry, pixels, grow/shrink offsets,
+Latin splitting, selection/clipboard, modality, focus/gamepad and virtual ranges.
+No UI Builder, visual editor, CSS engine or arbitrary-tree virtualization ships.
 
 ### Debugging
 

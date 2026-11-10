@@ -45,6 +45,8 @@ inline constexpr DemoInfo kDemos[] = {
     {"rt", "scripts/rt_demo.lua", "engine"},
     {"ui", "scripts/ui_demo.lua", "engine"},
     {"ui2", "scripts/ui2_demo.lua", "engine"},
+    {"ui-layout", "scripts/ui_layout_demo.lua", "engine"},
+    {"ui-features", "scripts/ui_features_demo.lua", "engine"},
     {"ui3", "scripts/ui3_demo.lua", "engine"},
     {"fog", "scripts/fog_demo.lua", "engine"},
     {"post", "scripts/post_demo.lua", "engine"},

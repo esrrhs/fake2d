@@ -123,6 +123,19 @@ float ApplyStickDeadzone(const float axes[6], int axis, int other) {
 
 } // namespace
 
+std::string Input::Clipboard() const {
+    if (window_) {
+        const char *text = glfwGetClipboardString(static_cast<GLFWwindow *>(window_));
+        return text ? text : "";
+    }
+    return clipboard_;
+}
+void Input::SetClipboard(std::string_view text) const {
+    clipboard_.assign(text);
+    if (window_)
+        glfwSetClipboardString(static_cast<GLFWwindow *>(window_), clipboard_.c_str());
+}
+
 void Input::Attach(void *native_window) {
     window_ = native_window;
     if (window_ != nullptr) {

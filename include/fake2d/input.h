@@ -40,6 +40,9 @@ public:
     /// True when any text arrived this frame.
     [[nodiscard]] bool HasTextInput() const { return !text_input_.empty(); }
 
+    [[nodiscard]] std::string Clipboard() const;
+    void SetClipboard(std::string_view text) const;
+
     // --- mouse ---
     /// Cursor position in screen pixels, top-left origin.
     [[nodiscard]] Vec2 MousePosition() const { return mouse_pos_; }
@@ -139,6 +142,7 @@ private:
     static constexpr int kPadButtonCount = kSnapshotPadButtonCount;
     static constexpr int kPadAxisCount = kSnapshotPadAxisCount;
 
+    mutable std::string clipboard_;
     void *window_ = nullptr;
     std::uint8_t keys_[kKeyCount] = {};
     std::uint8_t prev_keys_[kKeyCount] = {};

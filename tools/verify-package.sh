@@ -126,6 +126,15 @@ if grep -qF '[UI_OVERFLOW]' "$TMP/ui-box-demo.log"; then
     fail "UI box demo contains layout overflows"
 fi
 
+for demo in ui-layout ui-features; do
+    run_check "$demo" --headless "--$demo-demo" --frames 240 \
+        --screenshot "$TMP/$demo.png" --shot-frame 60 --shot-min-colors 12
+    [ -s "$TMP/$demo.png" ] || fail "$demo screenshot missing"
+    if grep -qF '[UI_OVERFLOW]' "$TMP/$demo.log"; then
+        fail "$demo contains layout overflows"
+    fi
+done
+
 run_check art --art-test
 grep -F '[art] PASS' "$TMP/art.log" >/dev/null || fail "art test not PASS"
 
