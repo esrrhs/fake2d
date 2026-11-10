@@ -10,7 +10,8 @@ the flua CLI under every FakeLua backend:
 
     jit_type=0  TCC JIT
     jit_type=1  GCC JIT (the engine default)
-    jit_type=2  interpreter
+    jit_type=2  interpreter (flua still compiles TCC: pcall/load closures
+                use JIT_TCC, so a missing TCC include path fails this backend too)
 
 The flua CLI (fakelua #33) drives a fixed init/update/fini lifecycle in
 package "main" and resets the frame arena between top-level Calls, so the
