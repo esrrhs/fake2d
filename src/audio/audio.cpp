@@ -1,5 +1,7 @@
 #include "fake2d/audio.h"
 
+#include "fake2d/world_hash.h"
+
 #define MINIAUDIO_IMPLEMENTATION
 #define MA_NO_ENCODING
 #define MA_NO_GENERATION
@@ -804,6 +806,60 @@ void AudioEngine::Mix(float *out, int frame_count) {
     peak_ = peak;
     peak_left_ = peak_left;
     peak_right_ = peak_right;
+}
+
+std::uint64_t AudioEngine::StateHash() const {
+    std::lock_guard<std::mutex> lock(MixerMutex(mutex_));
+    std::uint64_t hash = 14695981039346656037ull;
+    hash = HashMix(hash, enabled_);
+    hash = HashMix(hash, paused_);
+    hash = HashMix(hash, bus_master_);
+    hash = HashMix(hash, bus_sfx_);
+    hash = HashMix(hash, bus_music_);
+    hash = HashMix(hash, listener_x_);
+    hash = HashMix(hash, listener_y_);
+    hash = HashMix(hash, listener_range_);
+    hash = HashMix(hash, clips_.size());
+    for (const Clip &clip : clips_) {
+        const std::uint64_t len = static_cast<std::uint64_t>(clip.name.size());
+        hash = HashMix(hash, len);
+        if (!clip.name.empty()) {
+            hash = HashBytes(clip.name.data(), clip.name.size(), hash);
+        }
+        const std::uint8_t stream = clip.stream ? 1u : 0u;
+        hash = HashMix(hash, stream);
+        hash = HashMix(hash, clip.length_frames);
+        hash = HashMix(hash, clip.window_start);
+    }
+    hash = HashMix(hash, voices_.size());
+    for (const Voice &voice : voices_) {
+        hash = HashMix(hash, voice.active);
+        hash = HashMix(hash, voice.loop);
+        hash = HashMix(hash, voice.music);
+        hash = HashMix(hash, voice.positional);
+        hash = HashMix(hash, voice.cursor);
+        hash = HashMix(hash, voice.step);
+        hash = HashMix(hash, voice.gain_from);
+        hash = HashMix(hash, voice.gain_to);
+        hash = HashMix(hash, voice.fade_pos);
+        hash = HashMix(hash, voice.fade_dur);
+        hash = HashMix(hash, voice.fade_ends_voice);
+        hash = HashMix(hash, voice.pos_x);
+        hash = HashMix(hash, voice.pos_y);
+        hash = HashMix(hash, voice.atten);
+        hash = HashMix(hash, voice.pan);
+        if (voice.clip != nullptr) {
+            const std::string &name = voice.clip->name;
+            const std::uint64_t len = static_cast<std::uint64_t>(name.size());
+            hash = HashMix(hash, len);
+            if (!name.empty()) {
+                hash = HashBytes(name.data(), name.size(), hash);
+            }
+        } else {
+            hash = HashMix(hash, std::uint64_t{0});
+        }
+    }
+    return hash;
 }
 
 } // namespace fake2d

@@ -154,6 +154,13 @@ public:
     /// the device callback drives, exposed so tests can mix offline.
     void Mix(float *out, int frame_count);
 
+    /// FNV-1a digest over the deterministic mixer state: buses, pause flag,
+    /// listener pose and every voice slot (cursor, envelope, pan/atten,
+    /// clip *name* — never the pointer, which is an address). Clip PCM and
+    /// stream decode windows are inputs, not state, and stay unhashed.
+    /// Output peaks are derived metrics and are likewise excluded.
+    [[nodiscard]] std::uint64_t StateHash() const;
+
 private:
     struct Clip {
         std::string name;

@@ -948,9 +948,12 @@ the same input stream **and** seed produce a matching digest:
 ```
 
 `world_hash()` (and `Engine::WorldHash()`) mixes RNG state, every alive physics
-body in slot order, every active entity slot, and camera position/zoom/rotation.
-Viewport and content-scale are omitted so a Retina CI box matches a 1x host when
-gameplay state matches. The hash is a probe — keep it off the per-frame hot path.
+body in slot order, every active entity slot, camera position/zoom/rotation,
+the particle pool (emitter configs, ring cursor, pool RNG, every slot) and the
+audio mixer state (buses, pause, listener, every voice slot — clip PCM and
+output peaks excluded). Viewport and content-scale are omitted so a Retina CI
+box matches a 1x host when gameplay state matches. The hash is a probe — keep
+it off the per-frame hot path.
 
 #### Gamepad
 
@@ -995,7 +998,7 @@ These are safe no-ops in headless/CI runs (no window surface exists).
 | `rng_seed(n)`, `rng_state() -> n` | Seed / read the engine's deterministic stream (splitmix64: same seed → same sequence on every platform). Host CLI `--rng-seed N` pins the same stream at `Init` before the first script frame. |
 | `rng_float() -> [0,1)`, `rng_range(lo, hi) -> [lo,hi)`, `rng_int(lo, hi) -> n` | Uniform draws; `rng_int` is inclusive. |
 | `rng_chance(p) -> bool` | True with probability `p` (0 = never, ≥1 = always). |
-| `world_hash() -> int` | FNV-1a digest over RNG state + physics body poses + entity-store slots + camera pose (Phase 53). Returns the full 64-bit value as a signed integer so comparisons stay bit-exact. Not sampled every frame — call when you need a probe. |
+| `world_hash() -> int` | FNV-1a digest over RNG state + physics body poses + entity-store slots + camera pose + particle pool + audio mixer state (Phases 53/73). Returns the full 64-bit value as a signed integer so comparisons stay bit-exact. Not sampled every frame — call when you need a probe. |
 | `ease(name, t) -> n` | Easing curve at `t` in [0,1]: `linear`, `in_quad`, `out_quad`, `inout_quad`, `in_cubic`, `out_cubic`, `inout_cubic`, `out_back`, `out_elastic`. |
 | `lerp(a, b, t)`, `clamp01(t)`, `smoothstep(a, b, t)`, `approach(current, target, rate, dt)` | Interpolation helpers; `approach` closes `1 - exp(-rate·dt)` of the gap without overshooting. |
 | `stats_fps()`, `stats_frame_ms()`, `stats_draw_calls()` | Smoothed FPS, last frame duration in ms, and the renderer's draw calls — for a debug overlay. |

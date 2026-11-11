@@ -4105,6 +4105,8 @@ int RunDeterminismTest(fake2d::Engine &engine) {
         fake2d::PhysicsWorld physics;
         fake2d::EntityStore entities;
         fake2d::Camera2D camera(1280.0f, 720.0f);
+        fake2d::ParticleSystem particles;
+        fake2d::AudioEngine audio;
         physics.SetGravity({0.0f, 900.0f});
 
         // Floor
@@ -4141,9 +4143,37 @@ int RunDeterminismTest(fake2d::Engine &engine) {
         camera.SetZoom(1.0f + rng.Range(0.0f, 0.25f));
         camera.SetRotation(rng.Range(-0.05f, 0.05f));
 
+        // Particle emitter whose spawn cadence and mix cursor are driven by
+        // the same pinned stream, so both digests are seed-sensitive.
+        const int emitter = particles.CreateEmitter();
+        if (emitter != 0) {
+            fake2d::ParticleConfig *pcfg = particles.Config(emitter);
+            pcfg->speed_min = 20.0f + rng.Range(0.0f, 10.0f);
+            pcfg->speed_max = pcfg->speed_min + rng.Range(10.0f, 30.0f);
+            pcfg->lifetime_min = 0.4f + rng.Range(0.0f, 0.2f);
+            pcfg->lifetime_max = pcfg->lifetime_min + rng.Range(0.2f, 0.5f);
+        }
+        {
+            std::vector<float> pcm(2205, 0.0f);
+            for (std::size_t i = 0; i < pcm.size(); ++i) {
+                pcm[i] = 0.25f * static_cast<float>((i * 37) % 11) / 10.0f;
+            }
+            (void)audio.AddClip("det_probe", pcm);
+        }
+        float mix_buf[2 * 256];
+
         constexpr float kDt = 1.0f / 60.0f;
         for (int step = 0; step < 90; ++step) {
             physics.Step(kDt);
+            particles.Update(kDt);
+            if (emitter != 0 && step % 15 == 0) {
+                particles.Emit(emitter, 4 + (step % 3),
+                               {rng.Range(0.0f, 640.0f), rng.Range(0.0f, 360.0f)});
+            }
+            if (step % 30 == 0) {
+                audio.Play("det_probe", 0.5f);
+            }
+            audio.Mix(mix_buf, 256);
             // Tiny script-like churn so entity + camera state evolve with the seed.
             if (step % 15 == 0) {
                 const auto id = entities.At(static_cast<std::size_t>(step / 15) % entities.Count());
@@ -4154,7 +4184,8 @@ int RunDeterminismTest(fake2d::Engine &engine) {
             }
         }
 
-        return fake2d::ComputeWorldHash(rng, physics, entities, camera);
+        return fake2d::ComputeWorldHash(rng, physics, entities, camera,
+                                        particles, audio);
     };
 
     const fake2d::WorldHashParts a = simulate(0xC0FFEEu);
@@ -4163,6 +4194,8 @@ int RunDeterminismTest(fake2d::Engine &engine) {
     check(a.physics == b.physics, "same seed: physics hash matches");
     check(a.entities == b.entities, "same seed: entities hash matches");
     check(a.camera == b.camera, "same seed: camera hash matches");
+    check(a.particles == b.particles, "same seed: particles hash matches");
+    check(a.audio == b.audio, "same seed: audio hash matches");
     check(a.combined == b.combined && a.combined != 0,
           "same seed: combined world hash matches and is non-zero");
 
@@ -4194,6 +4227,10 @@ int RunDeterminismTest(fake2d::Engine &engine) {
         const auto parts = engine.WorldHash();
         check(parts.rng == fake2d::HashRng(engine.GetRandom()),
               "Engine::WorldHash rng part matches HashRng");
+        check(parts.particles == fake2d::HashParticles(engine.GetParticles()),
+              "Engine::WorldHash particles part matches HashParticles");
+        check(parts.audio == fake2d::HashAudio(engine.GetAudio()),
+              "Engine::WorldHash audio part matches HashAudio");
         check(parts.combined == fake2d::ComputeWorldHash(engine).combined,
               "Engine::WorldHash matches free ComputeWorldHash");
         // Restore whatever Init left so later host tests are unaffected.
@@ -4221,6 +4258,45 @@ int RunDeterminismTest(fake2d::Engine &engine) {
         (void)w.CreateBody(cfg);
         const auto h2 = fake2d::HashPhysics(w);
         check(h1 != h2 && h2 != 0, "physics hash changes when bodies change");
+    }
+
+    // Particle digest: identical emit/update sequences hash identically and
+    // every mutation moves the digest.
+    {
+        fake2d::ParticleSystem ps;
+        const int em = ps.CreateEmitter();
+        check(em != 0, "particle emitter slot allocated");
+        const auto h0 = fake2d::HashParticles(ps);
+        ps.Emit(em, 8, {10.0f, 20.0f});
+        ps.Update(1.0f / 60.0f);
+        const auto h1 = fake2d::HashParticles(ps);
+        check(h0 != h1, "particle hash changes after emit + update");
+        ps.Emit(em, 8, {10.0f, 20.0f});
+        ps.Update(1.0f / 60.0f);
+        check(fake2d::HashParticles(ps) != h1,
+              "particle hash keeps evolving with the pool");
+    }
+
+    // Audio digest: clip registration alone does not move the voice state,
+    // but a played voice advancing through Mix does.
+    {
+        fake2d::AudioEngine ae;
+        std::vector<float> pcm(512, 0.1f);
+        check(ae.AddClip("probe", pcm), "audio probe clip registers headless");
+        float buf[2 * 64];
+        const auto a0 = fake2d::HashAudio(ae);
+        ae.Play("probe", 0.8f);
+        ae.Mix(buf, 64);
+        const auto a1 = fake2d::HashAudio(ae);
+        check(a0 != a1, "audio hash changes once a voice is live");
+        ae.Mix(buf, 64);
+        check(fake2d::HashAudio(ae) != a1,
+              "audio hash advances with the voice cursor");
+        ae.SetPaused(true);
+        const auto a2 = fake2d::HashAudio(ae);
+        ae.Mix(buf, 64);
+        check(fake2d::HashAudio(ae) == a2,
+              "paused mixer freezes the audio digest");
     }
 
     std::printf("[determinism] %s: %d checks, %d failures\n",

@@ -1323,3 +1323,63 @@ for measured Linux results and platform limitations.
   clipboard/gamepad and IME composition remain unverified/unsupported as above.
 - The inherited box desktop rejects the gameplay resize assertion; the complete
   docs gate above uses isolated Xvfb and exercises it successfully (no skip).
+
+## Phase 73 — Determinism lockstep: particles & audio digests (1.51.x)
+
+Phase 53 deferred "broader lockstep (variable-dt hosts, particle/audio
+digests)". This phase takes the headless-verifiable half: the world hash now
+covers the two remaining simulated subsystems.
+
+### Architectural intent
+
+- **`ParticleSystem::StateHash()`** digests the pool's own xorshift state,
+  ring cursor, active count, every emitter slot's used flag + full config,
+  and all 8192 particle slots in order — dead slots included, since their
+  stale fields are still deterministic state.
+- **`AudioEngine::StateHash()`** locks the mixer mutex and digests enabled /
+  paused / bus gains / listener pose plus every voice slot: cursor, pitch
+  step, gain envelope, fade state, positional pan/atten and the clip **name**
+  (never the `Clip*` — a heap address is not reproducible). Clip PCM, stream
+  decode windows beyond `window_start`, decoder pointers and output peaks
+  are inputs or derived metrics and stay unhashed.
+- `WorldHashParts` gains `particles` and `audio`; `combined` mixes six parts
+  in fixed order rng → physics → entities → camera → particles → audio, so
+  a failing gate still names the diverged subsystem. `ComputeWorldHash`
+  takes the two new references; `Engine::WorldHash()` passes the live
+  `GetParticles()` / `GetAudio()`.
+- Variable-dt hosts stay out of scope: the fixed-dt accumulator already
+  defines the sim clock, and wall-clock dt was never part of the contract.
+
+### Deliverables
+
+- [x] `HashParticles` / `HashAudio` free functions + `StateHash()` on both
+      subsystems; `WorldHashParts` extended to six digests
+- [x] `--determinism-test` simulate() now emits particles and plays/mixes a
+      probe clip from the pinned stream; same-seed checks cover all six
+      parts, plus focused digest-mutation checks (emit+update moves the
+      particle hash; play+mix moves the audio hash; pause freezes it)
+- [x] Version **1.51.0**: version.h, CMake project version, consumer
+      `find_package(fake2d 1.51)`, verify-package/verify-consumer gates,
+      README badges
+
+### Deferred (still)
+
+- [ ] GPU skinning / compute deform (needs a real-GL validation path beyond
+      software rasterizers)
+- [ ] Phase 11 packaging e2e Linux/Windows legs (await first release tag)
+- [ ] IME composition preview (unsupported — no GLFW 3.4 preedit API)
+- [ ] Variable-dt lockstep (fixed_dt accumulator already pins the sim clock)
+
+### Verification
+
+- [x] `cmake --build build -j 8`: passes; `--determinism-test` **28 checks,
+      0 failures** (was 21)
+- [x] `ctest --test-dir build --output-on-failure`: **34/34** on macOS
+      (arm64, Release + fakelua)
+- [x] `env -u DISPLAY python3 tools/check-docs.py`: **35 demos**, 30 suites,
+      **5449 assertions** (was 5438 — the 11 new digest checks)
+- [x] `tools/verify-consumer.sh`: PASS, consumer prints **1.51.0** against
+      the exported package. Note: this Mac keeps a stale fake2d 1.50.0 under
+      `/usr/local`, which clang searches *before* `-isystem` prefixes; the
+      `/usr/local` install was refreshed to 1.51.0 to keep the gate honest
+- [ ] Remote Linux/Windows 1.51 runs await push

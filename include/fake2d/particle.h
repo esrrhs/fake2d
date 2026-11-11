@@ -65,6 +65,12 @@ public:
     /// Remove all emitters and particles.
     void Clear();
 
+    /// FNV-1a digest over the full deterministic state: emitter configs,
+    /// ring cursor, pool RNG and every particle slot in order. Same emit /
+    /// update sequence always yields the same digest — the particle half of
+    /// the engine world hash.
+    [[nodiscard]] std::uint64_t StateHash() const;
+
     [[nodiscard]] std::size_t ActiveCount() const { return active_count_; }
     [[nodiscard]] std::size_t EmitterCount() const;
 
