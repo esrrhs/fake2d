@@ -6,7 +6,7 @@ The guard compares three sources of truth:
   * include/fake2d/demos.h         -> runnable demos
   * examples/hello/CMakeLists.txt  -> registered self-test suites
 and the assertion total that the suites actually report. CI runs it after
-`ctest` and passes `--ctest-log` so the 30 suites are not executed a second
+`ctest` and passes `--ctest-log` so the 31 suites are not executed a second
 time; counts are parsed from the log (every suite must still have a PASS line).
 `--no-run` skips execution entirely (docs-only). Dynamic UI demo acceptance
 still runs via tools/check_ui_demos.py unless `--no-run`.

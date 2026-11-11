@@ -1383,3 +1383,63 @@ covers the two remaining simulated subsystems.
       `/usr/local`, which clang searches *before* `-isystem` prefixes; the
       `/usr/local` install was refreshed to 1.51.0 to keep the gate honest
 - [ ] Remote Linux/Windows 1.51 runs await push
+
+## Phase 74 — Flow fields: many-unit cost-to-go steering (1.52.x)
+
+Phase 18's A* answers "how does *this* unit reach the goal". RTS-scale
+chases ask it once per unit per repath — wasteful when the goal is shared.
+A flow field inverts the search: one Dijkstra rooted at the goal cell gives
+every reachable cell its cost-to-go, and each unit steers by local steepest
+descent.
+
+### Architectural intent
+
+- **Same legality as FindPath.** `BuildFlowField` runs Dijkstra from the
+  goal over the identical solidity grid, step costs (1 orthogonal, √2
+  diagonal) and no-corner-cut rule, so gradient descent reproduces A*
+  routes. `diagonal` selects the 8-way/4-way neighbour set.
+- **Field, not path.** `flow_cost_` stores one float per cell (-1 =
+  unreached); `FlowCostAt` / `FlowDirection` are const queries in the same
+  style as the physics raycast surface. `FlowDirection` returns the unit
+  vector toward the lowest-cost legal neighbour and buffers it for the
+  `map_flow_dir_x/y` readers.
+- **Invalidation is explicit.** `SetTile` clears the field — a stale field
+  would steer units through a freshly placed wall. Rebuild per goal move;
+  `ClearFlowField` / `map_flow_clear` drop it manually.
+- **Lua surface mirrors the path API**: `map_flow_build / clear / has /
+  cost / dir / dir_x / dir_y`.
+
+### Deliverables
+
+- [x] `Tilemap::BuildFlowField / ClearFlowField / HasFlowField /
+      FlowCostAt / FlowDirection / LastFlowDirection`; `SetTile`
+      invalidates; flow buffer members documented
+- [x] 7 Lua bindings registered after `map_clear_path`
+- [x] `--flow-test` suite (29 checks): wall-detour descent direction,
+      greedy-walk convergence to the goal cell, SetTile invalidation,
+      isolated-region -1 costs, Manhattan vs octile costs for 4/8-way,
+      solid-goal rejection, buffered reader parity
+- [x] 31st CTest suite (`flow`); README/SCRIPTING/build.yml suite counts
+      and assertion totals updated (5478)
+- [x] Version **1.52.0** across version.h, CMake, consumer gate, READMEs
+
+### Deferred (still)
+
+- [ ] GPU skinning / compute deform (needs a real-GL validation path beyond
+      software rasterizers)
+- [ ] Phase 11 packaging e2e Linux/Windows legs (await first release tag)
+- [ ] IME composition preview (unsupported — no GLFW 3.4 preedit API)
+- [ ] Cost-weighted flow fields (rivers/mud as traversal cost, not just
+      walls) — the Dijkstra already supports it; no map format expresses
+      per-cell cost yet
+
+### Verification
+
+- [x] `cmake --build build -j 8`: passes; `--flow-test` **29 checks,
+      0 failures**
+- [x] `ctest --test-dir build --output-on-failure`: **35/35** on macOS
+      (arm64, Release + fakelua)
+- [x] `env -u DISPLAY python3 tools/check-docs.py`: **35 demos**, 31 suites,
+      **5478 assertions**
+- [x] `tools/verify-consumer.sh`: PASS, consumer prints **1.52.0**
+- [ ] Remote Linux/Windows 1.52 runs await push

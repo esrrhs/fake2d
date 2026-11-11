@@ -1181,6 +1181,78 @@ void RegisterTilemapApi(fakelua::State *state, Engine *engine) {
                 }
             }));
 
+    // ---- flow fields (integrated cost-to-go, Phase 74) ---------------------
+    // One Dijkstra per goal; every unit then steers by local descent instead
+    // of paying for its own A*. map_flow_dir buffers its result for the
+    // dir_x/dir_y readers, same pattern as the physics raycast.
+    fakelua::RegisterNativeFunction(
+        state, "map_flow_build", false,
+        std::function<bool(fakelua::State *, std::int64_t, double, double,
+                           bool)>(
+            [engine](fakelua::State *, std::int64_t id, double gx, double gy,
+                     bool diagonal) {
+                Tilemap *map = engine->GetTilemaps().Get(static_cast<int>(id));
+                return map != nullptr &&
+                       map->BuildFlowField(static_cast<float>(gx),
+                                           static_cast<float>(gy), diagonal);
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_flow_clear", false,
+        std::function<void(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id) {
+                if (Tilemap *map = engine->GetTilemaps().Get(static_cast<int>(id))) {
+                    map->ClearFlowField();
+                }
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_flow_has", false,
+        std::function<bool(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id) {
+                const Tilemap *map = engine->GetTilemaps().Get(static_cast<int>(id));
+                return map != nullptr && map->HasFlowField();
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_flow_cost", false,
+        std::function<double(fakelua::State *, std::int64_t, double, double)>(
+            [engine](fakelua::State *, std::int64_t id, double x,
+                     double y) -> double {
+                const Tilemap *map = engine->GetTilemaps().Get(static_cast<int>(id));
+                return map ? static_cast<double>(
+                                 map->FlowCostAt(static_cast<float>(x),
+                                                 static_cast<float>(y)))
+                           : -1.0;
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_flow_dir", false,
+        std::function<bool(fakelua::State *, std::int64_t, double, double)>(
+            [engine](fakelua::State *, std::int64_t id, double x, double y) {
+                const Tilemap *map = engine->GetTilemaps().Get(static_cast<int>(id));
+                Vec2 dir;
+                return map != nullptr &&
+                       map->FlowDirection(static_cast<float>(x),
+                                          static_cast<float>(y), dir);
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_flow_dir_x", false,
+        std::function<double(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id) -> double {
+                const Tilemap *map = engine->GetTilemaps().Get(static_cast<int>(id));
+                return map ? static_cast<double>(map->LastFlowDirection().x) : 0.0;
+            }));
+
+    fakelua::RegisterNativeFunction(
+        state, "map_flow_dir_y", false,
+        std::function<double(fakelua::State *, std::int64_t)>(
+            [engine](fakelua::State *, std::int64_t id) -> double {
+                const Tilemap *map = engine->GetTilemaps().Get(static_cast<int>(id));
+                return map ? static_cast<double>(map->LastFlowDirection().y) : 0.0;
+            }));
+
     fakelua::RegisterNativeFunction(
         state, "map_layer_count", false,
         std::function<std::int64_t(fakelua::State *, std::int64_t)>(

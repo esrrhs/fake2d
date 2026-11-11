@@ -1487,6 +1487,38 @@ if map_find_path(map_id, cx, cy, px, py, true) then
 end
 ```
 
+### Flow fields (many-unit steering)
+
+When dozens of units chase the same goal, one A* per unit is wasteful. A
+**flow field** is a single Dijkstra rooted at the goal cell: afterwards every
+reachable cell knows its cost-to-go, and each unit just follows the local
+steepest descent — the same legality rules as `map_find_path` (solidity grid,
+no corner cutting on diagonals). Build once per goal move, steer every unit
+per frame.
+
+| Function | Description |
+|---|---|
+| `map_flow_build(id, gx, gy, diagonal) -> bool` | Build the field toward a world goal; false when the goal cell is blocked/off-map (any previous field is dropped). `diagonal` picks 8-way/4-way like `map_find_path`. |
+| `map_flow_has(id) -> bool` | A field is currently built. `map_flow_clear(id)` drops it; `map_set_tile` also invalidates it. |
+| `map_flow_cost(id, x, y) -> n` | Integrated cost-to-go in cell units (diagonal step = √2) at a world position; -1 off-map, inside a wall, or unreachable from the goal. |
+| `map_flow_dir(id, x, y) -> bool` | Unit direction toward the lowest-cost legal neighbour (steepest descent). False off-map/unreachable or already inside the goal cell. Buffers the vector for the readers below. |
+| `map_flow_dir_x(id)` / `map_flow_dir_y(id)` | Components of the last `map_flow_dir` result (0 after a failure). |
+
+```lua
+-- RTS wave: one field per objective, every unit steers by descent
+if not flow_ready and map_flow_build(nav, tx, ty, true) then
+    flow_ready = true
+end
+if flow_ready then
+    for _, u in ipairs(units) do
+        if map_flow_dir(nav, u.x, u.y) then
+            u.x = u.x + map_flow_dir_x(nav) * u.speed * dt
+            u.y = u.y + map_flow_dir_y(nav) * u.speed * dt
+        end
+    end
+end
+```
+
 ### Save storage
 
 Persistent number/string key/value slots, written as JSON under the engine
@@ -2419,7 +2451,7 @@ changes to the game repository are included.
 
 **Cross-platform verification / IME evidence (1.50):** The Build workflow
 requires the same shared gates on Linux (Xvfb/llvmpipe), macOS (CGL FBO) and
-Windows (Mesa llvmpipe): CTest (all 30 `--*-test` suites, UI stress seeds 42
+Windows (Mesa llvmpipe): CTest (all 31 `--*-test` suites, UI stress seeds 42
 and 1492026, `--ui-bench` complexity counters, and `fake2d-win-macro-compat`),
 `tools/check_ui_demos.py` (layout/features/variable/stress marker, grow/shrink/
 scroll metrics, overflow and screenshot colour floors, plus migrated-caller

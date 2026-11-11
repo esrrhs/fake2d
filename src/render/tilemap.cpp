@@ -701,6 +701,9 @@ void Tilemap::SetTile(int col, int row, std::uint32_t gid) {
             continue;
         }
         layer.gids[static_cast<std::size_t>(row) * cols_ + col] = gid;
+        // The cost-to-go field was computed against the old solidity; a
+        // stale field would steer units through the new wall.
+        flow_cost_.clear();
         return;
     }
 }
@@ -900,6 +903,173 @@ Vec2 Tilemap::PathPointAt(std::size_t index) const {
         return Vec2{0.0f, 0.0f};
     }
     return path_[index];
+}
+
+bool Tilemap::BuildFlowField(float goal_x, float goal_y, bool diagonal) {
+    flow_cost_.clear();
+    flow_diagonal_ = diagonal;
+    if (!IsValid()) {
+        return false;
+    }
+
+    const auto to_col = [&](float x) {
+        return static_cast<int>(std::floor(x / static_cast<float>(tile_width_)));
+    };
+    const auto to_row = [&](float y) {
+        return static_cast<int>(std::floor(y / static_cast<float>(tile_height_)));
+    };
+    const auto blocked = [&](int c, int r) {
+        return c < 0 || r < 0 || c >= cols_ || r >= rows_ || SolidAt(c, r);
+    };
+
+    const int gc = to_col(goal_x);
+    const int gr = to_row(goal_y);
+    if (blocked(gc, gr)) {
+        return false;
+    }
+
+    const std::size_t cells = static_cast<std::size_t>(cols_) *
+                              static_cast<std::size_t>(rows_);
+    const auto index = [&](int c, int r) {
+        return static_cast<std::size_t>(r) * static_cast<std::size_t>(cols_) +
+               static_cast<std::size_t>(c);
+    };
+
+    // Dijkstra rooted at the goal with the same step costs and corner rule
+    // as FindPath, so "follow the lowest neighbour" reproduces A* routes.
+    flow_cost_.assign(cells, -1.0f);
+    struct Node {
+        float cost;
+        std::size_t cell;
+        bool operator<(const Node &other) const { return cost > other.cost; }
+    };
+    std::priority_queue<Node> open;
+    const std::size_t goal = index(gc, gr);
+    flow_cost_[goal] = 0.0f;
+    open.push(Node{0.0f, goal});
+
+    static constexpr int kDirs[8][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1},
+                                        {1, 1}, {1, -1}, {-1, 1}, {-1, -1}};
+    const int dir_count = diagonal ? 8 : 4;
+    while (!open.empty()) {
+        const Node top = open.top();
+        open.pop();
+        if (top.cost > flow_cost_[top.cell]) {
+            continue; // stale heap entry superseded by a cheaper push
+        }
+        const int c = static_cast<int>(top.cell % static_cast<std::size_t>(cols_));
+        const int r = static_cast<int>(top.cell / static_cast<std::size_t>(cols_));
+        for (int d = 0; d < dir_count; ++d) {
+            const int nc = c + kDirs[d][0];
+            const int nr = r + kDirs[d][1];
+            if (blocked(nc, nr)) {
+                continue;
+            }
+            if (d >= 4 &&
+                (blocked(c + kDirs[d][0], r) || blocked(c, r + kDirs[d][1]))) {
+                continue; // no corner cutting, same as FindPath
+            }
+            const std::size_t nidx = index(nc, nr);
+            const float ncost =
+                top.cost + (d >= 4 ? kSqrt2 : 1.0f);
+            if (flow_cost_[nidx] < 0.0f || ncost < flow_cost_[nidx]) {
+                flow_cost_[nidx] = ncost;
+                open.push(Node{ncost, nidx});
+            }
+        }
+    }
+    return true;
+}
+
+float Tilemap::FlowCostAt(float x, float y) const {
+    if (!HasFlowField()) {
+        return -1.0f;
+    }
+    if (x < 0.0f || y < 0.0f) {
+        return -1.0f;
+    }
+    const int col = static_cast<int>(x) / tile_width_;
+    const int row = static_cast<int>(y) / tile_height_;
+    if (col < 0 || row < 0 || col >= cols_ || row >= rows_) {
+        return -1.0f;
+    }
+    return flow_cost_[static_cast<std::size_t>(row) *
+                          static_cast<std::size_t>(cols_) +
+                      static_cast<std::size_t>(col)];
+}
+
+bool Tilemap::FlowDirection(float x, float y, Vec2 &out) const {
+    out = {};
+    flow_dir_last_ = {};
+    if (!HasFlowField() || x < 0.0f || y < 0.0f) {
+        return false;
+    }
+    const int col = static_cast<int>(x) / tile_width_;
+    const int row = static_cast<int>(y) / tile_height_;
+    if (col < 0 || row < 0 || col >= cols_ || row >= rows_) {
+        return false;
+    }
+    const auto index = [&](int c, int r) {
+        return static_cast<std::size_t>(r) * static_cast<std::size_t>(cols_) +
+               static_cast<std::size_t>(c);
+    };
+    const auto blocked = [&](int c, int r) {
+        return c < 0 || r < 0 || c >= cols_ || r >= rows_ || SolidAt(c, r);
+    };
+    const float cost = flow_cost_[index(col, row)];
+    if (cost <= 0.0f) {
+        return false; // unreached (-1) or already inside the goal cell (0)
+    }
+
+    // Steepest descent: the legal neighbour with the lowest cost-to-go.
+    static constexpr int kDirs[8][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1},
+                                        {1, 1}, {1, -1}, {-1, 1}, {-1, -1}};
+    const int dir_count = flow_diagonal_ ? 8 : 4;
+    float best_cost = cost;
+    int best_c = -1;
+    int best_r = -1;
+    for (int d = 0; d < dir_count; ++d) {
+        const int nc = col + kDirs[d][0];
+        const int nr = row + kDirs[d][1];
+        if (blocked(nc, nr)) {
+            continue;
+        }
+        if (d >= 4 &&
+            (blocked(col + kDirs[d][0], row) || blocked(col, row + kDirs[d][1]))) {
+            continue;
+        }
+        const float ncost = flow_cost_[index(nc, nr)];
+        if (ncost >= 0.0f && ncost < best_cost) {
+            best_cost = ncost;
+            best_c = nc;
+            best_r = nr;
+        }
+    }
+    if (best_c < 0) {
+        return false;
+    }
+
+    const Vec2 target{(static_cast<float>(best_c) + 0.5f) *
+                          static_cast<float>(tile_width_),
+                      (static_cast<float>(best_r) + 0.5f) *
+                          static_cast<float>(tile_height_)};
+    Vec2 delta{target.x - x, target.y - y};
+    float len = std::sqrt(delta.x * delta.x + delta.y * delta.y);
+    if (len < 1e-4f) {
+        // Standing exactly on the neighbour's centre: fall back to the
+        // cell-to-cell vector so the direction never degenerates.
+        delta = {target.x - (static_cast<float>(col) + 0.5f) *
+                                   static_cast<float>(tile_width_),
+                 target.y - (static_cast<float>(row) + 0.5f) *
+                                   static_cast<float>(tile_height_)};
+        len = std::sqrt(delta.x * delta.x + delta.y * delta.y);
+    }
+    if (len < 1e-4f) {
+        return false;
+    }
+    out = {delta.x / len, delta.y / len};
+    flow_dir_last_ = out;
+    return true;
 }
 
 void Tilemap::DrawTileLayer(SpriteBatch &batch, const Layer &layer, int layer_index,
