@@ -127,7 +127,7 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 - [x] Replace the engine-only (`FAKE2D_WITH_FAKELUA=OFF`) tag build in `.github/workflows/release.yml` with full-FakeLua self-contained archives on Linux / macOS / Windows: bundled libfakelua + OpenSSL, `scripts/`, shaders, pre-generated demo maps, and a per-platform launcher
 - [x] Reusable packaging scripts under `tools/`: `package-macos.sh` (otool-driven dylib copy, `@executable_path/../lib`, real files only, ad-hoc codesign), `package-linux.sh` (ldd-resolved libs + patchelf `$ORIGIN` rpath), `package-windows.sh` (MSYS2 copy of MinGW runtime DLLs next to the exe); a dedicated Linux job generates the demo maps shared by all three packages
 - [x] The shipped engine needs no compiler — TCC is disabled in `script_host.cpp` and the interpreter is the automatic fallback when GCC JIT is absent, so the packages deliberately exclude the tinycc support tree that CI's `flua` logic runs require
-- [~] Verification: macOS packager validated locally on Apple Silicon (3 dylibs resolve from `@executable_path/../lib`, process reaches the GL layer); Linux/Windows packagers are syntax-checked and mirror the proven build.yml steps, pending end-to-end confirmation on the first release tag
+- [~] Verification: macOS packager validated end-to-end on Apple Silicon — `package-macos.sh` + `verify-package.sh` PASS on the staged `fake2d-1.50.0-macos-arm64` package (static asset tree, all UI/art/gameplay demo runs under `--strict-assets`, missing-texture negative proof, no runtime asset generation); Linux/Windows packagers are syntax-checked and mirror the proven build.yml steps, pending end-to-end confirmation on the first release tag
 
 ## Phase 12 — GL2 compatibility rendering path (1.6.x)
 
