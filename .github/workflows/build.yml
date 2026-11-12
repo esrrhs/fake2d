@@ -222,7 +222,7 @@ jobs:
       - name: Headless test suites (ctest)
         run: |
           export LD_LIBRARY_PATH="$FLINSTALL/lib:${LD_LIBRARY_PATH:-}"
-          # Shared CTest set also required on macOS and Windows: the 30
+          # Shared CTest set also required on macOS and Windows: the 31
           # --<suite>-test binaries, both UI stress seeds (42 / 1492026),
           # --ui-bench counter gates, and fake2d-win-macro-compat. On Linux
           # the CMake registration wraps every case in xvfb-run when available.
@@ -234,7 +234,7 @@ jobs:
       - name: Docs counts match the code
         run: |
           export LD_LIBRARY_PATH="$FLINSTALL/lib:${LD_LIBRARY_PATH:-}"
-          # Re-count from the ctest log (do not re-run the 30 suites) and
+          # Re-count from the ctest log (do not re-run the 31 suites) and
           # compare headline numbers against demos.h / entity_store.h / the
           # CMake suite list. Dynamic UI demo acceptance still runs here.
           python3 tools/check-docs.py --ctest-log build/ctest.log
@@ -435,7 +435,7 @@ jobs:
 
       - name: Installed package is consumable by another project
         run: |
-          # Shared find_package(fake2d 1.50) consumer (tools/verify-consumer.sh
+          # Shared find_package(fake2d 1.52) consumer (tools/verify-consumer.sh
           # and tools/consumer). The same gate is required on macOS and Windows.
           # FakeLua must be findable -- a real requirement on consumers, not a
           # test artifact -- so FLINSTALL is on CMAKE_PREFIX_PATH.
@@ -691,9 +691,9 @@ jobs:
           powershell -ExecutionPolicy Bypass -File tools/setup-mesa-windows.ps1 `
             -TargetDir build/bin
 
-      # Shared required gates. Same scripts as Linux: CTest (30 suites, both
+      # Shared required gates. Same scripts as Linux: CTest (31 suites, both
       # UI stress seeds, ui-bench, win_macro_compat), dynamic UI demo
-      # acceptance, catalog script-error scan, JIT/GL smoke, and the 1.50
+      # acceptance, catalog script-error scan, JIT/GL smoke, and the 1.52
       # find_package consumer. CGL/llvmpipe failures are blocking.
       - name: Headless test suites (ctest)
         if: runner.os == 'macOS'

@@ -4105,6 +4105,8 @@ int RunDeterminismTest(fake2d::Engine &engine) {
         fake2d::PhysicsWorld physics;
         fake2d::EntityStore entities;
         fake2d::Camera2D camera(1280.0f, 720.0f);
+        fake2d::ParticleSystem particles;
+        fake2d::AudioEngine audio;
         physics.SetGravity({0.0f, 900.0f});
 
         // Floor
@@ -4141,9 +4143,37 @@ int RunDeterminismTest(fake2d::Engine &engine) {
         camera.SetZoom(1.0f + rng.Range(0.0f, 0.25f));
         camera.SetRotation(rng.Range(-0.05f, 0.05f));
 
+        // Particle emitter whose spawn cadence and mix cursor are driven by
+        // the same pinned stream, so both digests are seed-sensitive.
+        const int emitter = particles.CreateEmitter();
+        if (emitter != 0) {
+            fake2d::ParticleConfig *pcfg = particles.Config(emitter);
+            pcfg->speed_min = 20.0f + rng.Range(0.0f, 10.0f);
+            pcfg->speed_max = pcfg->speed_min + rng.Range(10.0f, 30.0f);
+            pcfg->lifetime_min = 0.4f + rng.Range(0.0f, 0.2f);
+            pcfg->lifetime_max = pcfg->lifetime_min + rng.Range(0.2f, 0.5f);
+        }
+        {
+            std::vector<float> pcm(2205, 0.0f);
+            for (std::size_t i = 0; i < pcm.size(); ++i) {
+                pcm[i] = 0.25f * static_cast<float>((i * 37) % 11) / 10.0f;
+            }
+            (void)audio.AddClip("det_probe", pcm);
+        }
+        float mix_buf[2 * 256];
+
         constexpr float kDt = 1.0f / 60.0f;
         for (int step = 0; step < 90; ++step) {
             physics.Step(kDt);
+            particles.Update(kDt);
+            if (emitter != 0 && step % 15 == 0) {
+                particles.Emit(emitter, 4 + (step % 3),
+                               {rng.Range(0.0f, 640.0f), rng.Range(0.0f, 360.0f)});
+            }
+            if (step % 30 == 0) {
+                audio.Play("det_probe", 0.5f);
+            }
+            audio.Mix(mix_buf, 256);
             // Tiny script-like churn so entity + camera state evolve with the seed.
             if (step % 15 == 0) {
                 const auto id = entities.At(static_cast<std::size_t>(step / 15) % entities.Count());
@@ -4154,7 +4184,8 @@ int RunDeterminismTest(fake2d::Engine &engine) {
             }
         }
 
-        return fake2d::ComputeWorldHash(rng, physics, entities, camera);
+        return fake2d::ComputeWorldHash(rng, physics, entities, camera,
+                                        particles, audio);
     };
 
     const fake2d::WorldHashParts a = simulate(0xC0FFEEu);
@@ -4163,6 +4194,8 @@ int RunDeterminismTest(fake2d::Engine &engine) {
     check(a.physics == b.physics, "same seed: physics hash matches");
     check(a.entities == b.entities, "same seed: entities hash matches");
     check(a.camera == b.camera, "same seed: camera hash matches");
+    check(a.particles == b.particles, "same seed: particles hash matches");
+    check(a.audio == b.audio, "same seed: audio hash matches");
     check(a.combined == b.combined && a.combined != 0,
           "same seed: combined world hash matches and is non-zero");
 
@@ -4194,6 +4227,10 @@ int RunDeterminismTest(fake2d::Engine &engine) {
         const auto parts = engine.WorldHash();
         check(parts.rng == fake2d::HashRng(engine.GetRandom()),
               "Engine::WorldHash rng part matches HashRng");
+        check(parts.particles == fake2d::HashParticles(engine.GetParticles()),
+              "Engine::WorldHash particles part matches HashParticles");
+        check(parts.audio == fake2d::HashAudio(engine.GetAudio()),
+              "Engine::WorldHash audio part matches HashAudio");
         check(parts.combined == fake2d::ComputeWorldHash(engine).combined,
               "Engine::WorldHash matches free ComputeWorldHash");
         // Restore whatever Init left so later host tests are unaffected.
@@ -4221,6 +4258,45 @@ int RunDeterminismTest(fake2d::Engine &engine) {
         (void)w.CreateBody(cfg);
         const auto h2 = fake2d::HashPhysics(w);
         check(h1 != h2 && h2 != 0, "physics hash changes when bodies change");
+    }
+
+    // Particle digest: identical emit/update sequences hash identically and
+    // every mutation moves the digest.
+    {
+        fake2d::ParticleSystem ps;
+        const int em = ps.CreateEmitter();
+        check(em != 0, "particle emitter slot allocated");
+        const auto h0 = fake2d::HashParticles(ps);
+        ps.Emit(em, 8, {10.0f, 20.0f});
+        ps.Update(1.0f / 60.0f);
+        const auto h1 = fake2d::HashParticles(ps);
+        check(h0 != h1, "particle hash changes after emit + update");
+        ps.Emit(em, 8, {10.0f, 20.0f});
+        ps.Update(1.0f / 60.0f);
+        check(fake2d::HashParticles(ps) != h1,
+              "particle hash keeps evolving with the pool");
+    }
+
+    // Audio digest: clip registration alone does not move the voice state,
+    // but a played voice advancing through Mix does.
+    {
+        fake2d::AudioEngine ae;
+        std::vector<float> pcm(512, 0.1f);
+        check(ae.AddClip("probe", pcm), "audio probe clip registers headless");
+        float buf[2 * 64];
+        const auto a0 = fake2d::HashAudio(ae);
+        ae.Play("probe", 0.8f);
+        ae.Mix(buf, 64);
+        const auto a1 = fake2d::HashAudio(ae);
+        check(a0 != a1, "audio hash changes once a voice is live");
+        ae.Mix(buf, 64);
+        check(fake2d::HashAudio(ae) != a1,
+              "audio hash advances with the voice cursor");
+        ae.SetPaused(true);
+        const auto a2 = fake2d::HashAudio(ae);
+        ae.Mix(buf, 64);
+        check(fake2d::HashAudio(ae) == a2,
+              "paused mixer freezes the audio digest");
     }
 
     std::printf("[determinism] %s: %d checks, %d failures\n",
@@ -9619,6 +9695,152 @@ int RunMapObjectTest(fake2d::Engine &engine) {
 }
 
 // ---------------------------------------------------------------------------
+// Phase 74 self-test: flow fields (integrated cost-to-go steering).
+//
+// A 12x12 map, 16px cells. Column 5 is walled rows 0-10 with a gap at row 11,
+// so the right side must detour down, across and back up to reach the goal at
+// cell (2,6). gid 1 is solid (tileset tile property), 0 is empty.
+// ---------------------------------------------------------------------------
+int RunFlowTest(fake2d::Engine &engine) {
+    int failures = 0;
+    int checks = 0;
+    auto check = [&](bool ok, const char *what) {
+        ++checks;
+        if (!ok) {
+            ++failures;
+            std::printf("[flow] FAIL %s\n", what);
+        }
+    };
+    auto near = [](float a, float b, float eps = 0.01f) {
+        return std::fabs(a - b) < eps;
+    };
+
+    std::string doc = R"JSON({
+      "orientation": "orthogonal",
+      "width": 12, "height": 12,
+      "tilewidth": 16, "tileheight": 16,
+      "tilesets": [{
+        "firstgid": 1, "name": "t", "tilewidth": 16, "tileheight": 16,
+        "columns": 2, "tilecount": 2, "image": "",
+        "tiles": [{"id": 0, "properties": [
+          {"name": "solid", "type": "bool", "value": true}]}]
+      }],
+      "layers": [
+        {"name": "world", "type": "tilelayer", "visible": true,
+         "data": [)JSON";
+    // Tiled data is one flat row-major array; wall column 5 filled for
+    // rows 0..10, gap at row 11.
+    for (int r = 0; r < 12; ++r) {
+        for (int c = 0; c < 12; ++c) {
+            doc += (c == 5 && r <= 10) ? "1" : "0";
+            doc += (r == 11 && c == 11) ? "" : ",";
+        }
+    }
+    doc += R"JSON(]}]})JSON";
+
+    fake2d::Tilemap map;
+    check(map.LoadFromString(doc, ".", engine.GetResources()),
+          "flow map parses");
+    check(map.IsValid() && map.Cols() == 12 && map.Rows() == 12,
+          "flow map dimensions");
+
+    // Goal cell (2,6) -> world (40, 104); start cell (9,2) -> (152, 40).
+    check(map.BuildFlowField(40.0f, 104.0f, true), "flow build succeeds");
+    check(map.HasFlowField(), "flow field present");
+    check(near(map.FlowCostAt(40.0f, 104.0f), 0.0f), "goal cost is zero");
+    const float start_cost = map.FlowCostAt(152.0f, 40.0f);
+    check(start_cost > 0.0f, "start cost positive");
+    check(map.FlowCostAt(-8.0f, 40.0f) < 0.0f, "off-map cost is -1");
+    check(map.FlowCostAt(5.0f * 16.0f + 8.0f, 3.0f * 16.0f + 8.0f) < 0.0f,
+          "solid cell cost is -1");
+
+    // From the start the field must route *down* around the wall, not left
+    // through it: every legal descent neighbour has dy > 0.
+    fake2d::Vec2 dir;
+    check(map.FlowDirection(152.0f, 40.0f, dir), "flow dir at start");
+    check(dir.y > 0.4f, "start direction detours downward");
+    check(std::fabs(dir.x) <= 0.01f || dir.x < 0.0f,
+          "start direction never pushes into the wall");
+
+    // Greedy descent must reach the goal cell: the same rule a crowd of
+    // units would run, so a convergence failure here is a real bug.
+    {
+        float px = 152.0f;
+        float py = 40.0f;
+        int steps = 0;
+        bool arrived = false;
+        for (; steps < 20000; ++steps) {
+            fake2d::Vec2 step_dir;
+            if (!map.FlowDirection(px, py, step_dir)) {
+                break;
+            }
+            px += step_dir.x * 2.0f;
+            py += step_dir.y * 2.0f;
+            if (map.FlowCostAt(px, py) == 0.0f) {
+                arrived = true;
+                break;
+            }
+        }
+        check(arrived, "greedy descent reaches the goal cell");
+        check(steps < 20000, "greedy descent converges");
+    }
+
+    // Buffered reader agrees with the out-param on a fresh query.
+    {
+        fake2d::Vec2 again;
+        check(map.FlowDirection(152.0f, 40.0f, again), "re-query flow dir");
+        check(near(map.LastFlowDirection().x, again.x) &&
+                  near(map.LastFlowDirection().y, again.y),
+              "LastFlowDirection mirrors the last query");
+    }
+
+    // Closing the last gap isolates the right side completely.
+    map.SetTile(5, 11, 1);
+    check(!map.HasFlowField(), "SetTile invalidates the flow field");
+    check(map.BuildFlowField(40.0f, 104.0f, true),
+          "flow rebuild after wall change");
+    check(map.FlowCostAt(152.0f, 40.0f) < 0.0f,
+          "isolated region cost is -1");
+    fake2d::Vec2 dead_dir;
+    check(!map.FlowDirection(152.0f, 40.0f, dead_dir),
+          "isolated region has no direction");
+
+    // Reopen rows 0..10; only the (5,11) bump remains.
+    for (int r = 0; r <= 10; ++r) {
+        map.SetTile(5, r, 0);
+    }
+    check(map.BuildFlowField(40.0f, 104.0f, false),
+          "4-way flow build succeeds");
+    // Cell (7,8) -> (120,136): Manhattan distance to (2,6) is 5 + 2 = 7.
+    check(near(map.FlowCostAt(120.0f, 136.0f), 7.0f, 0.001f),
+          "4-way cost is Manhattan");
+    fake2d::Vec2 man_dir;
+    check(map.FlowDirection(120.0f, 136.0f, man_dir), "4-way dir exists");
+    check(near(man_dir.x, -1.0f, 0.001f) && near(man_dir.y, 0.0f, 0.001f),
+          "4-way dir points straight at the goal axis");
+
+    check(map.BuildFlowField(40.0f, 104.0f, true), "8-way rebuild");
+    // Same cell: 5 + 2*(sqrt(2)-1) ~= 5.8284.
+    check(near(map.FlowCostAt(120.0f, 136.0f), 5.828427f, 0.001f),
+          "8-way cost is octile");
+
+    // A goal inside a solid cell cannot seed a field. Only (5,11) is still
+    // walled after the reopen above.
+    check(!map.BuildFlowField(5.0f * 16.0f + 8.0f, 11.0f * 16.0f + 8.0f,
+                              true),
+          "solid goal rejected");
+    check(!map.HasFlowField(), "failed build leaves no field");
+
+    map.ClearFlowField();
+    check(!map.HasFlowField(), "clear drops the field");
+    check(map.FlowCostAt(40.0f, 104.0f) < 0.0f, "no field -> cost -1");
+
+    std::printf("[flow] %s: %d checks, %d failures\n",
+                failures == 0 ? "PASS" : "FAILED", checks, failures);
+    return failures == 0 ? 0 : 1;
+}
+
+// ---------------------------------------------------------------------------
 // Phase 30 self-test: Tiled tile animation.
 //
 // The clock is per tile *id*, not per cell (Tiled semantics), so the whole
@@ -11845,6 +12067,7 @@ int main(int argc, char **argv) {
     bool angry_demo = false;
     bool text_demo = false;
     bool map_object = false;
+    bool flow_test = false;
     bool tile_test = false;
     bool timestep_test = false;
     bool path_test = false;
@@ -12062,6 +12285,12 @@ int main(int argc, char **argv) {
         } else if (arg == "--map-object-test") {
             // Headless self-test of Tiled objectgroup parsing/queries.
             map_object = true;
+            cfg.headless = true;
+            cfg.script_entry.clear();
+            cfg.vsync = false;
+        } else if (arg == "--flow-test") {
+            // Headless self-test of flow-field cost-to-go steering.
+            flow_test = true;
             cfg.headless = true;
             cfg.script_entry.clear();
             cfg.vsync = false;
@@ -12342,6 +12571,9 @@ int main(int argc, char **argv) {
     }
     if (map_object) {
         return RunMapObjectTest(engine);
+    }
+    if (flow_test) {
+        return RunFlowTest(engine);
     }
     if (tile_test) {
         return RunTileTest(engine);

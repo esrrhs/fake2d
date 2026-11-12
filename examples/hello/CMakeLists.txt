@@ -25,7 +25,7 @@ add_custom_target(fake2d_copy_scripts ALL
 
 # --- CTest: one entry per headless self-test suite --------------------------
 # This is the shared suite list the Build workflow runs on Linux, macOS and
-# Windows (30 --<suite>-test binaries, both UI stress seeds, and --ui-bench).
+# Windows (31 --<suite>-test binaries, both UI stress seeds, and --ui-bench).
 # Everything runs from the repository root so the suites find assets/, scripts/
 # and the generated first-run files exactly as the demos do. Linux runners have
 # no display, so wrap the binary in xvfb-run when it is available; macOS uses
@@ -35,7 +35,7 @@ if (FAKE2D_BUILD_TESTS)
     find_program(FAKE2D_XVFB_RUN xvfb-run)
 
     set(FAKE2D_TEST_SUITES
-        art audio city combat contra determinism fog font fx gameplay launcher
+        art audio city combat contra determinism flow fog font fx gameplay launcher
         light map-object path phys-extended phys-filter phys-query phys-rigid
         platform post replay rt rts shmup skeleton snooker tile timestep ui vn)
 

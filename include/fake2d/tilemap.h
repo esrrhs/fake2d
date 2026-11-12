@@ -165,6 +165,35 @@ public:
     [[nodiscard]] Vec2 PathPointAt(std::size_t index) const;
     /// Drop the buffered path (e.g. when a chase target dies).
     void ClearPath() { path_.clear(); }
+
+    // --- flow fields (integrated cost-to-go, many-unit steering) ------------
+    /// Dijkstra over the same solidity grid and movement rules as FindPath,
+    /// but rooted at the *goal*: every reachable cell then knows its
+    /// cost-to-go, so a crowd of units steers with one field instead of one
+    /// A* each. `diagonal` picks 8-way (no corner cutting) or 4-way movement
+    /// exactly like FindPath. Returns false — and drops any previous field —
+    /// when the goal cell is blocked or off-map. Rebuild when the goal moves;
+    /// SetTile invalidates the field.
+    bool BuildFlowField(float goal_x, float goal_y, bool diagonal = true);
+    /// Drop the flow field (same effect as a fresh map).
+    void ClearFlowField() { flow_cost_.clear(); }
+    [[nodiscard]] bool HasFlowField() const {
+        return !flow_cost_.empty() &&
+               flow_cost_.size() ==
+                   static_cast<std::size_t>(cols_) * static_cast<std::size_t>(rows_);
+    }
+    /// Integrated cost in cell units (diagonal step = sqrt(2)) at a world
+    /// position; -1 when there is no field, the point is off-map, or the
+    /// cell cannot reach the goal.
+    [[nodiscard]] float FlowCostAt(float x, float y) const;
+    /// Unit direction from a world position toward the lowest-cost legal
+    /// neighbour — the steepest descent of the field. False when there is no
+    /// field, the point is off-map / unreachable, or it already sits inside
+    /// the goal cell (cost 0). The result is also buffered for
+    /// LastFlowDirection().
+    [[nodiscard]] bool FlowDirection(float x, float y, Vec2 &out) const;
+    /// Direction written by the most recent FlowDirection call.
+    [[nodiscard]] Vec2 LastFlowDirection() const { return flow_dir_last_; }
     /// Overwrite a cell in the first tile layer (used for collected coins).
     void SetTile(int col, int row, std::uint32_t gid);
     /// Gid of the first tile layer at the cell (0 empty).
@@ -268,6 +297,13 @@ private:
     /// Buffered A* result (world-space waypoints); mutable so FindPath can
     /// stay const like the other queries.
     mutable std::vector<Vec2> path_;
+    /// Buffered flow field: cost-to-go per cell in row-major order, -1 for
+    /// unreached cells. Empty (or wrongly sized) means "no field".
+    std::vector<float> flow_cost_;
+    /// Neighbour set the field was built with (8-way vs 4-way).
+    bool flow_diagonal_ = true;
+    /// Last FlowDirection result, for the buffered Lua readers.
+    mutable Vec2 flow_dir_last_{};
     /// Animation clock in seconds; double so a long session never loses
     /// frame resolution to float drift.
     double anim_time_ = 0.0;

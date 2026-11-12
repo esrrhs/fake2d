@@ -78,20 +78,34 @@ std::uint64_t HashRng(const Random &rng) {
     return HashMix(14695981039346656037ull, rng.State());
 }
 
+std::uint64_t HashParticles(const ParticleSystem &particles) {
+    return particles.StateHash();
+}
+
+std::uint64_t HashAudio(const AudioEngine &audio) {
+    return audio.StateHash();
+}
+
 WorldHashParts ComputeWorldHash(const Random &rng,
                                 const PhysicsWorld &physics,
                                 const EntityStore &entities,
-                                const Camera2D &camera) {
+                                const Camera2D &camera,
+                                const ParticleSystem &particles,
+                                const AudioEngine &audio) {
     WorldHashParts parts;
     parts.rng = HashRng(rng);
     parts.physics = HashPhysics(physics);
     parts.entities = HashEntities(entities);
     parts.camera = HashCamera(camera);
+    parts.particles = HashParticles(particles);
+    parts.audio = HashAudio(audio);
     std::uint64_t combined = 14695981039346656037ull;
     combined = HashMix(combined, parts.rng);
     combined = HashMix(combined, parts.physics);
     combined = HashMix(combined, parts.entities);
     combined = HashMix(combined, parts.camera);
+    combined = HashMix(combined, parts.particles);
+    combined = HashMix(combined, parts.audio);
     parts.combined = combined;
     return parts;
 }
@@ -99,7 +113,8 @@ WorldHashParts ComputeWorldHash(const Random &rng,
 WorldHashParts ComputeWorldHash(const Engine &engine) {
     return ComputeWorldHash(engine.GetRandom(), engine.GetPhysics(),
                             engine.GetEntities(),
-                            engine.GetRenderer().GetCamera());
+                            engine.GetRenderer().GetCamera(),
+                            engine.GetParticles(), engine.GetAudio());
 }
 
 } // namespace fake2d

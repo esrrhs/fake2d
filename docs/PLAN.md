@@ -127,7 +127,7 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 - [x] Replace the engine-only (`FAKE2D_WITH_FAKELUA=OFF`) tag build in `.github/workflows/release.yml` with full-FakeLua self-contained archives on Linux / macOS / Windows: bundled libfakelua + OpenSSL, `scripts/`, shaders, pre-generated demo maps, and a per-platform launcher
 - [x] Reusable packaging scripts under `tools/`: `package-macos.sh` (otool-driven dylib copy, `@executable_path/../lib`, real files only, ad-hoc codesign), `package-linux.sh` (ldd-resolved libs + patchelf `$ORIGIN` rpath), `package-windows.sh` (MSYS2 copy of MinGW runtime DLLs next to the exe); a dedicated Linux job generates the demo maps shared by all three packages
 - [x] The shipped engine needs no compiler — TCC is disabled in `script_host.cpp` and the interpreter is the automatic fallback when GCC JIT is absent, so the packages deliberately exclude the tinycc support tree that CI's `flua` logic runs require
-- [~] Verification: macOS packager validated locally on Apple Silicon (3 dylibs resolve from `@executable_path/../lib`, process reaches the GL layer); Linux/Windows packagers are syntax-checked and mirror the proven build.yml steps, pending end-to-end confirmation on the first release tag
+- [~] Verification: macOS packager validated end-to-end on Apple Silicon — `package-macos.sh` + `verify-package.sh` PASS on the staged `fake2d-1.50.0-macos-arm64` package (static asset tree, all UI/art/gameplay demo runs under `--strict-assets`, missing-texture negative proof, no runtime asset generation); Linux/Windows packagers are syntax-checked and mirror the proven build.yml steps, pending end-to-end confirmation on the first release tag
 
 ## Phase 12 — GL2 compatibility rendering path (1.6.x)
 
@@ -1323,3 +1323,123 @@ for measured Linux results and platform limitations.
   clipboard/gamepad and IME composition remain unverified/unsupported as above.
 - The inherited box desktop rejects the gameplay resize assertion; the complete
   docs gate above uses isolated Xvfb and exercises it successfully (no skip).
+
+## Phase 73 — Determinism lockstep: particles & audio digests (1.51.x)
+
+Phase 53 deferred "broader lockstep (variable-dt hosts, particle/audio
+digests)". This phase takes the headless-verifiable half: the world hash now
+covers the two remaining simulated subsystems.
+
+### Architectural intent
+
+- **`ParticleSystem::StateHash()`** digests the pool's own xorshift state,
+  ring cursor, active count, every emitter slot's used flag + full config,
+  and all 8192 particle slots in order — dead slots included, since their
+  stale fields are still deterministic state.
+- **`AudioEngine::StateHash()`** locks the mixer mutex and digests enabled /
+  paused / bus gains / listener pose plus every voice slot: cursor, pitch
+  step, gain envelope, fade state, positional pan/atten and the clip **name**
+  (never the `Clip*` — a heap address is not reproducible). Clip PCM, stream
+  decode windows beyond `window_start`, decoder pointers and output peaks
+  are inputs or derived metrics and stay unhashed.
+- `WorldHashParts` gains `particles` and `audio`; `combined` mixes six parts
+  in fixed order rng → physics → entities → camera → particles → audio, so
+  a failing gate still names the diverged subsystem. `ComputeWorldHash`
+  takes the two new references; `Engine::WorldHash()` passes the live
+  `GetParticles()` / `GetAudio()`.
+- Variable-dt hosts stay out of scope: the fixed-dt accumulator already
+  defines the sim clock, and wall-clock dt was never part of the contract.
+
+### Deliverables
+
+- [x] `HashParticles` / `HashAudio` free functions + `StateHash()` on both
+      subsystems; `WorldHashParts` extended to six digests
+- [x] `--determinism-test` simulate() now emits particles and plays/mixes a
+      probe clip from the pinned stream; same-seed checks cover all six
+      parts, plus focused digest-mutation checks (emit+update moves the
+      particle hash; play+mix moves the audio hash; pause freezes it)
+- [x] Version **1.51.0**: version.h, CMake project version, consumer
+      `find_package(fake2d 1.51)`, verify-package/verify-consumer gates,
+      README badges
+
+### Deferred (still)
+
+- [ ] GPU skinning / compute deform (needs a real-GL validation path beyond
+      software rasterizers)
+- [ ] Phase 11 packaging e2e Linux/Windows legs (await first release tag)
+- [ ] IME composition preview (unsupported — no GLFW 3.4 preedit API)
+- [ ] Variable-dt lockstep (fixed_dt accumulator already pins the sim clock)
+
+### Verification
+
+- [x] `cmake --build build -j 8`: passes; `--determinism-test` **28 checks,
+      0 failures** (was 21)
+- [x] `ctest --test-dir build --output-on-failure`: **34/34** on macOS
+      (arm64, Release + fakelua)
+- [x] `env -u DISPLAY python3 tools/check-docs.py`: **35 demos**, 30 suites,
+      **5449 assertions** (was 5438 — the 11 new digest checks)
+- [x] `tools/verify-consumer.sh`: PASS, consumer prints **1.51.0** against
+      the exported package. Note: this Mac keeps a stale fake2d 1.50.0 under
+      `/usr/local`, which clang searches *before* `-isystem` prefixes; the
+      `/usr/local` install was refreshed to 1.51.0 to keep the gate honest
+- [ ] Remote Linux/Windows 1.51 runs await push
+
+## Phase 74 — Flow fields: many-unit cost-to-go steering (1.52.x)
+
+Phase 18's A* answers "how does *this* unit reach the goal". RTS-scale
+chases ask it once per unit per repath — wasteful when the goal is shared.
+A flow field inverts the search: one Dijkstra rooted at the goal cell gives
+every reachable cell its cost-to-go, and each unit steers by local steepest
+descent.
+
+### Architectural intent
+
+- **Same legality as FindPath.** `BuildFlowField` runs Dijkstra from the
+  goal over the identical solidity grid, step costs (1 orthogonal, √2
+  diagonal) and no-corner-cut rule, so gradient descent reproduces A*
+  routes. `diagonal` selects the 8-way/4-way neighbour set.
+- **Field, not path.** `flow_cost_` stores one float per cell (-1 =
+  unreached); `FlowCostAt` / `FlowDirection` are const queries in the same
+  style as the physics raycast surface. `FlowDirection` returns the unit
+  vector toward the lowest-cost legal neighbour and buffers it for the
+  `map_flow_dir_x/y` readers.
+- **Invalidation is explicit.** `SetTile` clears the field — a stale field
+  would steer units through a freshly placed wall. Rebuild per goal move;
+  `ClearFlowField` / `map_flow_clear` drop it manually.
+- **Lua surface mirrors the path API**: `map_flow_build / clear / has /
+  cost / dir / dir_x / dir_y`.
+
+### Deliverables
+
+- [x] `Tilemap::BuildFlowField / ClearFlowField / HasFlowField /
+      FlowCostAt / FlowDirection / LastFlowDirection`; `SetTile`
+      invalidates; flow buffer members documented
+- [x] 7 Lua bindings registered after `map_clear_path`
+- [x] `--flow-test` suite (29 checks): wall-detour descent direction,
+      greedy-walk convergence to the goal cell, SetTile invalidation,
+      isolated-region -1 costs, Manhattan vs octile costs for 4/8-way,
+      solid-goal rejection, buffered reader parity
+- [x] 31st CTest suite (`flow`); README/SCRIPTING/build.yml suite counts
+      and assertion totals updated (5478)
+- [x] Version **1.52.0** across version.h, CMake, consumer gate, READMEs
+
+### Deferred (still)
+
+- [ ] GPU skinning / compute deform (needs a real-GL validation path beyond
+      software rasterizers)
+- [ ] Phase 11 packaging e2e Linux/Windows legs (await first release tag)
+- [ ] IME composition preview (unsupported — no GLFW 3.4 preedit API)
+- [ ] Cost-weighted flow fields (rivers/mud as traversal cost, not just
+      walls) — the Dijkstra already supports it; no map format expresses
+      per-cell cost yet
+
+### Verification
+
+- [x] `cmake --build build -j 8`: passes; `--flow-test` **29 checks,
+      0 failures**
+- [x] `ctest --test-dir build --output-on-failure`: **35/35** on macOS
+      (arm64, Release + fakelua)
+- [x] `env -u DISPLAY python3 tools/check-docs.py`: **35 demos**, 31 suites,
+      **5478 assertions**
+- [x] `tools/verify-consumer.sh`: PASS, consumer prints **1.52.0**
+- [ ] Remote Linux/Windows 1.52 runs await push

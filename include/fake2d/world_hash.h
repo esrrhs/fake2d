@@ -1,7 +1,9 @@
 #pragma once
 
+#include "fake2d/audio.h"
 #include "fake2d/camera.h"
 #include "fake2d/entity_store.h"
+#include "fake2d/particle.h"
 #include "fake2d/physics.h"
 #include "fake2d/rng.h"
 
@@ -30,8 +32,11 @@ struct WorldHashParts {
     std::uint64_t physics = 0;
     std::uint64_t entities = 0;
     std::uint64_t camera = 0;
-    /// Combined over the four parts in a fixed order (rng → physics →
-    /// entities → camera). Stable across runs when input + seed match.
+    std::uint64_t particles = 0;
+    std::uint64_t audio = 0;
+    /// Combined over the six parts in a fixed order (rng → physics →
+    /// entities → camera → particles → audio). Stable across runs when
+    /// input + seed match.
     std::uint64_t combined = 0;
 };
 
@@ -52,11 +57,21 @@ struct WorldHashParts {
 /// Hash the engine RNG stream state alone.
 [[nodiscard]] std::uint64_t HashRng(const Random &rng);
 
-/// Compose the four subsystem digests.
+/// Hash the particle pool: emitter configs, ring cursor, pool RNG and every
+/// slot in order (delegates to `ParticleSystem::StateHash`).
+[[nodiscard]] std::uint64_t HashParticles(const ParticleSystem &particles);
+
+/// Hash the mixer state: buses, pause, listener and every voice slot
+/// (delegates to `AudioEngine::StateHash`; clip PCM stays unhashed).
+[[nodiscard]] std::uint64_t HashAudio(const AudioEngine &audio);
+
+/// Compose the six subsystem digests.
 [[nodiscard]] WorldHashParts ComputeWorldHash(const Random &rng,
                                               const PhysicsWorld &physics,
                                               const EntityStore &entities,
-                                              const Camera2D &camera);
+                                              const Camera2D &camera,
+                                              const ParticleSystem &particles,
+                                              const AudioEngine &audio);
 
 /// Convenience: hash the live engine's RNG / physics / entities / camera.
 [[nodiscard]] WorldHashParts ComputeWorldHash(const Engine &engine);

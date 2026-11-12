@@ -1,5 +1,7 @@
 #include "fake2d/particle.h"
 
+#include "fake2d/world_hash.h"
+
 #include <cmath>
 
 namespace fake2d {
@@ -121,6 +123,65 @@ void ParticleSystem::Draw(SpriteBatch &batch) const {
         const Rect dst{p.pos.x - size * 0.5f, p.pos.y - size * 0.5f, size, size};
         batch.DrawSpriteRotated(white, src, dst, p.rotation, {size * 0.5f, size * 0.5f}, tint);
     }
+}
+
+namespace {
+
+void HashConfig(std::uint64_t &hash, const ParticleConfig &c) {
+    hash = HashMix(hash, c.lifetime_min);
+    hash = HashMix(hash, c.lifetime_max);
+    hash = HashMix(hash, c.speed_min);
+    hash = HashMix(hash, c.speed_max);
+    hash = HashMix(hash, c.angle);
+    hash = HashMix(hash, c.spread);
+    hash = HashMix(hash, c.start_size);
+    hash = HashMix(hash, c.end_size);
+    hash = HashMix(hash, c.gravity.x);
+    hash = HashMix(hash, c.gravity.y);
+    hash = HashMix(hash, c.drag);
+    hash = HashMix(hash, c.color.r);
+    hash = HashMix(hash, c.color.g);
+    hash = HashMix(hash, c.color.b);
+    hash = HashMix(hash, c.color.a);
+    hash = HashMix(hash, c.start_alpha);
+    hash = HashMix(hash, c.end_alpha);
+    hash = HashMix(hash, c.spin);
+}
+
+} // namespace
+
+std::uint64_t ParticleSystem::StateHash() const {
+    std::uint64_t hash = 14695981039346656037ull;
+    hash = HashMix(hash, rng_state_);
+    hash = HashMix(hash, cursor_);
+    hash = HashMix(hash, active_count_);
+    for (int i = 0; i < kMaxEmitters; ++i) {
+        hash = HashMix(hash, emitter_used_[i]);
+        HashConfig(hash, emitters_[i]);
+    }
+    for (const Particle &p : particles_) {
+        hash = HashMix(hash, p.alive);
+        hash = HashMix(hash, p.pos.x);
+        hash = HashMix(hash, p.pos.y);
+        hash = HashMix(hash, p.vel.x);
+        hash = HashMix(hash, p.vel.y);
+        hash = HashMix(hash, p.gravity.x);
+        hash = HashMix(hash, p.gravity.y);
+        hash = HashMix(hash, p.age);
+        hash = HashMix(hash, p.life);
+        hash = HashMix(hash, p.start_size);
+        hash = HashMix(hash, p.end_size);
+        hash = HashMix(hash, p.drag);
+        hash = HashMix(hash, p.rotation);
+        hash = HashMix(hash, p.spin);
+        hash = HashMix(hash, p.color.r);
+        hash = HashMix(hash, p.color.g);
+        hash = HashMix(hash, p.color.b);
+        hash = HashMix(hash, p.color.a);
+        hash = HashMix(hash, p.start_alpha);
+        hash = HashMix(hash, p.end_alpha);
+    }
+    return hash;
 }
 
 void ParticleSystem::Clear() {

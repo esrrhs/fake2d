@@ -948,9 +948,12 @@ the same input stream **and** seed produce a matching digest:
 ```
 
 `world_hash()` (and `Engine::WorldHash()`) mixes RNG state, every alive physics
-body in slot order, every active entity slot, and camera position/zoom/rotation.
-Viewport and content-scale are omitted so a Retina CI box matches a 1x host when
-gameplay state matches. The hash is a probe — keep it off the per-frame hot path.
+body in slot order, every active entity slot, camera position/zoom/rotation,
+the particle pool (emitter configs, ring cursor, pool RNG, every slot) and the
+audio mixer state (buses, pause, listener, every voice slot — clip PCM and
+output peaks excluded). Viewport and content-scale are omitted so a Retina CI
+box matches a 1x host when gameplay state matches. The hash is a probe — keep
+it off the per-frame hot path.
 
 #### Gamepad
 
@@ -995,7 +998,7 @@ These are safe no-ops in headless/CI runs (no window surface exists).
 | `rng_seed(n)`, `rng_state() -> n` | Seed / read the engine's deterministic stream (splitmix64: same seed → same sequence on every platform). Host CLI `--rng-seed N` pins the same stream at `Init` before the first script frame. |
 | `rng_float() -> [0,1)`, `rng_range(lo, hi) -> [lo,hi)`, `rng_int(lo, hi) -> n` | Uniform draws; `rng_int` is inclusive. |
 | `rng_chance(p) -> bool` | True with probability `p` (0 = never, ≥1 = always). |
-| `world_hash() -> int` | FNV-1a digest over RNG state + physics body poses + entity-store slots + camera pose (Phase 53). Returns the full 64-bit value as a signed integer so comparisons stay bit-exact. Not sampled every frame — call when you need a probe. |
+| `world_hash() -> int` | FNV-1a digest over RNG state + physics body poses + entity-store slots + camera pose + particle pool + audio mixer state (Phases 53/73). Returns the full 64-bit value as a signed integer so comparisons stay bit-exact. Not sampled every frame — call when you need a probe. |
 | `ease(name, t) -> n` | Easing curve at `t` in [0,1]: `linear`, `in_quad`, `out_quad`, `inout_quad`, `in_cubic`, `out_cubic`, `inout_cubic`, `out_back`, `out_elastic`. |
 | `lerp(a, b, t)`, `clamp01(t)`, `smoothstep(a, b, t)`, `approach(current, target, rate, dt)` | Interpolation helpers; `approach` closes `1 - exp(-rate·dt)` of the gap without overshooting. |
 | `stats_fps()`, `stats_frame_ms()`, `stats_draw_calls()` | Smoothed FPS, last frame duration in ms, and the renderer's draw calls — for a debug overlay. |
@@ -1480,6 +1483,38 @@ if map_find_path(map_id, cx, cy, px, py, true) then
     while i < n do
         -- move toward (map_path_x(map_id, i), map_path_y(map_id, i)) ...
         i = i + 1
+    end
+end
+```
+
+### Flow fields (many-unit steering)
+
+When dozens of units chase the same goal, one A* per unit is wasteful. A
+**flow field** is a single Dijkstra rooted at the goal cell: afterwards every
+reachable cell knows its cost-to-go, and each unit just follows the local
+steepest descent — the same legality rules as `map_find_path` (solidity grid,
+no corner cutting on diagonals). Build once per goal move, steer every unit
+per frame.
+
+| Function | Description |
+|---|---|
+| `map_flow_build(id, gx, gy, diagonal) -> bool` | Build the field toward a world goal; false when the goal cell is blocked/off-map (any previous field is dropped). `diagonal` picks 8-way/4-way like `map_find_path`. |
+| `map_flow_has(id) -> bool` | A field is currently built. `map_flow_clear(id)` drops it; `map_set_tile` also invalidates it. |
+| `map_flow_cost(id, x, y) -> n` | Integrated cost-to-go in cell units (diagonal step = √2) at a world position; -1 off-map, inside a wall, or unreachable from the goal. |
+| `map_flow_dir(id, x, y) -> bool` | Unit direction toward the lowest-cost legal neighbour (steepest descent). False off-map/unreachable or already inside the goal cell. Buffers the vector for the readers below. |
+| `map_flow_dir_x(id)` / `map_flow_dir_y(id)` | Components of the last `map_flow_dir` result (0 after a failure). |
+
+```lua
+-- RTS wave: one field per objective, every unit steers by descent
+if not flow_ready and map_flow_build(nav, tx, ty, true) then
+    flow_ready = true
+end
+if flow_ready then
+    for _, u in ipairs(units) do
+        if map_flow_dir(nav, u.x, u.y) then
+            u.x = u.x + map_flow_dir_x(nav) * u.speed * dt
+            u.y = u.y + map_flow_dir_y(nav) * u.speed * dt
+        end
     end
 end
 ```
@@ -2416,7 +2451,7 @@ changes to the game repository are included.
 
 **Cross-platform verification / IME evidence (1.50):** The Build workflow
 requires the same shared gates on Linux (Xvfb/llvmpipe), macOS (CGL FBO) and
-Windows (Mesa llvmpipe): CTest (all 30 `--*-test` suites, UI stress seeds 42
+Windows (Mesa llvmpipe): CTest (all 31 `--*-test` suites, UI stress seeds 42
 and 1492026, `--ui-bench` complexity counters, and `fake2d-win-macro-compat`),
 `tools/check_ui_demos.py` (layout/features/variable/stress marker, grow/shrink/
 scroll metrics, overflow and screenshot colour floors, plus migrated-caller
