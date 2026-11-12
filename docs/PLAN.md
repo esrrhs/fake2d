@@ -1287,8 +1287,10 @@ Native Windows/macOS runs are CI-wired, not claimed as executed on this Linux ho
 - [x] Existing Linux ctest and macOS/Windows direct test workflows include the new
       UI fixtures, complexity gates, seeded stress and demo smokes.
 - [x] Headless clipboard UTF-8 and password copy/cut/paste rules covered portably.
-- [~] macOS/Windows 1.50 remote runs await push; real desktop clipboard and physical
-      gamepad were not exercised on those platforms. Do not call them verified.
+- [~] macOS/Windows 1.50 remote CI runs later went green on the shared Build
+      gates (31-suite ctest incl. UI fixtures, consumer `find_package`); real
+      desktop clipboard and physical gamepad were still not exercised on
+      those platforms. Do not call them verified.
 
 ## Phase 71 — Caller migration diagnostics (1.50.x)
 - [x] Once-per-UISystem UI_UNSCOPED diagnostic, with scoped-silent regression.
@@ -1382,7 +1384,8 @@ covers the two remaining simulated subsystems.
       the exported package. Note: this Mac keeps a stale fake2d 1.50.0 under
       `/usr/local`, which clang searches *before* `-isystem` prefixes; the
       `/usr/local` install was refreshed to 1.51.0 to keep the gate honest
-- [ ] Remote Linux/Windows 1.51 runs await push
+- [x] Remote Linux/macOS/Windows 1.51+1.52 runs green on the
+      merged PR #3 Build (all three OS legs, 31 suites + consumer gate)
 
 ## Phase 74 — Flow fields: many-unit cost-to-go steering (1.52.x)
 
@@ -1442,4 +1445,3 @@ descent.
 - [x] `env -u DISPLAY python3 tools/check-docs.py`: **35 demos**, 31 suites,
       **5478 assertions**
 - [x] `tools/verify-consumer.sh`: PASS, consumer prints **1.52.0**
-- [ ] Remote Linux/Windows 1.52 runs await push
