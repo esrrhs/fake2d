@@ -1,9 +1,9 @@
 -- fake2d pure-Lua maze chase demo (--path-demo).
 --
--- Shows off the tilemap A* path finder: three chasers re-path to the player
--- through the maze every few tenths of a second, and the player itself
--- auto-navigates to the goal while there is no input (attract mode) so the
--- route is visible as a polyline.
+-- Shows off both grid routers: the three chasers share ONE flow field
+-- (integrated cost-to-go, rebuilt as the player moves) and steer by local
+-- descent, while the player's attract autopilot still runs A* and draws its
+-- polyline. P toggles the overlays: chaser cost field + player path.
 --
 -- Persistent state: file-level numeric locals (per-frame tables are reset at
 -- the frame boundary), plus C++-owned EntityStore slots for the chasers
@@ -44,6 +44,10 @@ local function reset_state()
     S.run_t = 0.0 + 0.0
     S.show_paths = true
     S.frame_n = 0 + 0
+    S.flow_t = 0.0 + 0.0    -- shared chaser field rebuild timer
+    S.flow_c = -1.0          -- goal cell the field was built for
+    S.flow_r = -1.0
+    S.flow_ok = false
 end
 
 local function cell_of(v)
@@ -111,78 +115,47 @@ local function reset_run()
         ent_set_num(id, 4, 0.0)
         i = i + 1
     end
+    S.flow_t = 0.0
 end
 
--- Walk `count` waypoints toward (tx, ty); returns true when the last one is
--- reached (or there is no path at all).
-local function follow_path(id, tx, ty, speed, dt)
-    local nav = to_int(ent_num(id, 7))
-    if nav <= 0.0 then nav = S.map_id end
-    local count = ent_num(id, 4)
-    if count < 1.0 then
-        return true
+-- Steer one chaser along the shared flow field. The direction points at the
+-- lowest-cost neighbouring cell centre, so the same axis-separated move as
+-- the A* followers keeps the 14px box from clipping wall corners.
+local function follow_flow(id, cx, cy, dt)
+    if S.flow_ok and map_flow_dir(S.map_id, cx, cy) then
+        local nx = cx + map_flow_dir_x(S.map_id) * chaser_speed * dt
+        if not blocked(nx, cy) then cx = nx end
+        local ny = cy + map_flow_dir_y(S.map_id) * chaser_speed * dt
+        if not blocked(cx, ny) then cy = ny end
+        ent_set_num(id, 0, cx)
+        ent_set_num(id, 1, cy)
     end
-    local idx = ent_num(id, 3)
-    if idx >= count then
-        return true
-    end
-    local wx = map_path_x(nav, idx)
-    local wy = map_path_y(nav, idx)
-    local dx = wx - tx
-    local dy = wy - ty
-    local dist = math.sqrt(dx * dx + dy * dy)
-    if dist < 4.0 then
-        ent_set_num(id, 3, idx + 1.0)
-        return ent_num(id, 3) >= count
-    end
-    local step = speed * dt
-    if step > dist then step = dist end
-    -- A* returns cell centres, so a straight diagonal step can clip a wall
-    -- corner. Move each axis independently: this slides along the free axis
-    -- instead of re-pathing into the same blocked corner every frame.
-    local moved = false
-    local nx = tx + dx / dist * step
-    if not blocked(nx, ty) then
-        tx = nx
-        ent_set_num(id, 0, nx)
-        moved = true
-    end
-    local ny = ty + dy / dist * step
-    if not blocked(tx, ny) then
-        ent_set_num(id, 1, ny)
-        moved = true
-    end
-    if not moved then
-        -- Fully wedged (both axes blocked): ask for a fresh search next frame.
-        ent_set_num(id, 2, 0.0)
-    end
-    return false
 end
 
 local function step_chasers(dt)
+    -- One field serves every chaser; rebuild when the player changes cell or
+    -- every quarter second (the maze is small enough that this is cheap).
+    local pc = cell_of(S.px)
+    local pr = cell_of(S.py)
+    S.flow_t = S.flow_t - dt
+    if S.flow_t <= 0.0 or pc ~= S.flow_c or pr ~= S.flow_r then
+        S.flow_t = 0.25
+        S.flow_c = pc
+        S.flow_r = pr
+        S.flow_ok = map_flow_build(S.map_id, S.px, S.py, true)
+    end
     local n = ent_count(TAG_CHASER)
     local i = 0
     while i < n do
         local id = ent_at(i, TAG_CHASER)
         local cx = ent_num(id, 0)
         local cy = ent_num(id, 1)
-        local nav = to_int(ent_num(id, 7))
-        if nav <= 0.0 then nav = S.map_id end
-        local t = ent_num(id, 2) - dt
-        if t <= 0.0 then
-            t = 0.35 + i * 0.05 -- staggered so they do not sync up
-            if map_find_path(nav, cx, cy, S.px, S.py, true) then
-                ent_set_num(id, 4, map_path_count(nav))
-                ent_set_num(id, 3, 1.0)
-            else
-                ent_set_num(id, 4, 0.0)
-            end
-        end
-        ent_set_num(id, 2, t)
-        follow_path(id, cx, cy, chaser_speed, dt)
+        follow_flow(id, cx, cy, dt)
+        cx = ent_num(id, 0)
+        cy = ent_num(id, 1)
         -- Catch: within half a tile of the player.
-        local dx = ent_num(id, 0) - S.px
-        local dy = ent_num(id, 1) - S.py
+        local dx = cx - S.px
+        local dy = cy - S.py
         if dx * dx + dy * dy < 144.0 then
             S.caught = S.caught + 1
             reset_run()
@@ -277,23 +250,23 @@ end
 
 local function draw_path_overlay()
     if not S.show_paths then return 0 end
-    local n = ent_count(TAG_CHASER)
-    local i = 0
-    while i < n do
-        local id = ent_at(i, TAG_CHASER)
-        local nav = to_int(ent_num(id, 7))
-        if nav <= 0.0 then nav = S.map_id end
-        local count = ent_num(id, 4)
-        if count >= 2.0 then
-            local k = 0.0
-            while k + 1.0 < count do
-                draw_line(map_path_x(nav, k), map_path_y(nav, k),
-                          map_path_x(nav, k + 1.0), map_path_y(nav, k + 1.0),
-                          0.95, 0.35, 0.35, 0.55)
-                k = k + 1.0
+    -- Shared chaser field: paint each reachable cell by its cost-to-go so the
+    -- gradient the chasers descend is visible (faint far, brighter near goal).
+    local cols = map_cols(S.map_id)
+    local rows = map_rows(S.map_id)
+    local c = 0
+    while c < cols do
+        local r = 0
+        while r < rows do
+            local cost = map_flow_cost(S.map_id, c * TILE + TILE * 0.5, r * TILE + TILE * 0.5)
+            if cost > 0.0 then
+                local a = cost * 0.004
+                if a > 0.20 then a = 0.20 end
+                draw_quad(c * TILE, r * TILE, TILE, TILE, 0.25, 0.45, 0.95, a)
             end
+            r = r + 1
         end
-        i = i + 1
+        c = c + 1
     end
     if S.player_wp_n >= 2.0 then
         local k = 0.0
@@ -313,7 +286,7 @@ local function draw_hud()
     local ox = camera_x()
     local oy = camera_y()
     draw_quad(ox, oy, vw, 46.0, 0.05, 0.07, 0.12, 0.82)
-    draw_text("MAZE CHASE - A* PATH FINDING", ox + 14.0, oy + 8.0, 0.55,
+    draw_text("MAZE CHASE - FLOW FIELD + A*", ox + 14.0, oy + 8.0, 0.55,
               0.90, 0.93, 1.0, 1.0)
     draw_text("ARROWS/WASD MOVE   P PATHS   ESC QUIT", ox + 14.0, oy + 28.0,
               0.42, 0.62, 0.68, 0.80, 1.0)
@@ -347,14 +320,14 @@ function update(dt)
         if S.nav_id == 0 then S.nav_id = S.map_id end
         read_spawns()
         S.spawns_read = true
-        -- remember each chaser's spawn cell for resets
+        -- Chasers share the flow field on S.map_id, so they need no per-actor
+        -- Tilemap instance; only remember each spawn cell for resets.
         local n = ent_count(TAG_CHASER)
         local i = 0
         while i < n do
             local id = ent_at(i, TAG_CHASER)
             ent_set_num(id, 5, ent_num(id, 0))
             ent_set_num(id, 6, ent_num(id, 1))
-            ent_set_num(id, 7, map_load("assets/path.json"))
             i = i + 1
         end
         S.px = S.sx

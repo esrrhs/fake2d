@@ -1424,6 +1424,10 @@ descent.
       solid-goal rejection, buffered reader parity
 - [x] 31st CTest suite (`flow`); README/SCRIPTING/build.yml suite counts
       and assertion totals updated (5478)
+- [x] `--path-demo` chasers switched to a shared flow field (one build per
+      goal-cell change, local descent + axis-separated collision); player
+      autopilot keeps A* — exercises every `map_flow_*` binding through real
+      FakeLua headless runs
 - [x] Version **1.52.0** across version.h, CMake, consumer gate, READMEs
 
 ### Deferred (still)
