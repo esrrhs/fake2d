@@ -3677,6 +3677,62 @@ int RunPlatformTest(fake2d::Engine &engine) {
     check(i18n.MissingCount() == 0, "missing tracking can be disabled");
     i18n.SetTrackMissing(true);
 
+    // ---- format-string safety (Phase 76) -----------------------------------
+    check(fake2d::I18n::FormatSignature("Save %s, %d left") == "sd",
+          "format signature keeps conversion order");
+    check(fake2d::I18n::FormatSignature("100%% done").empty(),
+          "escaped percent is not a conversion");
+    check(fake2d::I18n::FormatSignature("15% of the tax").empty(),
+          "a stray percent is not a conversion");
+    check(fake2d::I18n::FormatSignature("%1$s / %2$d") == "sd",
+          "positional arguments are skipped");
+    check(fake2d::I18n::FormatSignature("%.2f %*d %llu") == "fdu",
+          "flags, width, precision and length are skipped");
+
+    const auto fmt_dir = root / "fmt";
+    std::filesystem::create_directories(fmt_dir, ec);
+    const auto fmt_path = fmt_dir / "bad.tsv";
+    {
+        std::ofstream fmt(fmt_path, std::ios::binary);
+        fmt << "# name: Format pack\n"
+               "Sold %d units\tSold %s units\n"
+               "Save %s\t存档 %s\n"
+               "Hi %s, %d left\tHallo %d, %s left\n"
+               "Ratio %.2f\tVerhaeltnis %.1f\n"
+               "100% done\t100% fertig\n"
+               "Escaped 100%% ok\t100%% ok\n"
+               "Missing arg\tMissing %s arg\n";
+    }
+    fake2d::I18n fmt_i18n;
+    check(fmt_i18n.FormatGuard(), "format guard is on by default");
+    check(fmt_i18n.LoadFile(fmt_path.string(), "bad") == 4,
+          "guarded load keeps only matching conversions");
+    check(fmt_i18n.EntryCount("bad") == 4, "dropped entries are absent");
+    check(fmt_i18n.RejectedCount() == 3, "guard counts dropped entries");
+    check(fmt_i18n.RejectedKey(0) == "Sold %d units" &&
+              fmt_i18n.RejectedKey(1) == "Hi %s, %d left" &&
+              fmt_i18n.RejectedKey(2) == "Missing arg",
+          "dropped keys are reported in file order");
+    check(fmt_i18n.RejectedKey(99).empty(), "rejected-key index bounds");
+    check(fmt_i18n.SetLanguage("bad") &&
+              fmt_i18n.Translate("Save %s") == "存档 %s",
+          "matching translation survives the guard");
+    check(fmt_i18n.Translate("Sold %d units") == "Sold %d units" &&
+              !fmt_i18n.Has("Sold %d units"),
+          "a dropped entry falls back to the source string");
+    fmt_i18n.SetFormatGuard(false);
+    check(!fmt_i18n.FormatGuard() &&
+              fmt_i18n.LoadFile(fmt_path.string(), "bad") == 7 &&
+              fmt_i18n.EntryCount("bad") == 7,
+          "guard off loads every entry verbatim");
+    fmt_i18n.ClearRejected();
+    check(fmt_i18n.RejectedCount() == 0 && fmt_i18n.RejectedKey(0).empty(),
+          "rejected report can be cleared");
+    fmt_i18n.SetFormatGuard(true);
+    check(fmt_i18n.LoadDirectory(fmt_dir.string(), "bad") &&
+              fmt_i18n.RejectedCount() == 3,
+          "a full load resets and re-runs the guard");
+
     // ---- app paths ---------------------------------------------------------
     const auto user = root / "user";
     fake2d::AppPaths::SetUserDir(user.string());

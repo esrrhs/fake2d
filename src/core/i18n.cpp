@@ -121,7 +121,57 @@ const char *PunctWest(unsigned cp) {
     }
 }
 
+// ---- printf format safety -----------------------------------------------
+// Ported from the 1627 project's platform/i18n.cpp (fmt_sig): a translated
+// format string with a different conversion sequence is dropped at load time
+// instead of crashing the caller's printf at runtime.
+
+// Everything between '%' and the conversion character. A space is
+// deliberately NOT a modifier: "15% done" must not parse "% d" into a
+// conversion, otherwise two harmless stray percents could disagree.
+bool IsFormatModifier(char c) {
+    if (c >= '0' && c <= '9') return true;
+    switch (c) {
+        case '.': case '-': case '+': case '#': case '*': case '$':
+        case 'h': case 'l': case 'L': case 'z': case 'j': case 't':
+        case 'q': case 'I':
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool IsFormatConversion(char c) {
+    switch (c) {
+        case 'd': case 'i': case 'o': case 'u': case 'x': case 'X':
+        case 'e': case 'E': case 'f': case 'F': case 'g': case 'G':
+        case 'a': case 'A': case 'c': case 's': case 'p': case 'n':
+            return true;
+        default:
+            return false;
+    }
+}
+
 } // namespace
+
+std::string I18n::FormatSignature(std::string_view text) {
+    std::string signature;
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        if (text[i] != '%' || i + 1 >= text.size()) continue;
+        if (text[i + 1] == '%') {   // escaped percent, not a conversion
+            ++i;
+            continue;
+        }
+        std::size_t j = i + 1;
+        while (j < text.size() && IsFormatModifier(text[j])) ++j;
+        if (j < text.size() && IsFormatConversion(text[j])) {
+            signature.push_back(text[j]);
+            i = j;
+        }
+        // A stray '%' followed by ordinary text contributes nothing.
+    }
+    return signature;
+}
 
 I18n::~I18n() = default;
 
@@ -147,6 +197,7 @@ bool I18n::LoadDirectory(const std::string &dir, std::string_view default_code) 
     languages_.clear();
     current_.clear();
     ClearMissing();
+    ClearRejected();
     seg_caches_.clear();
 
     std::error_code ec;
@@ -230,7 +281,18 @@ int I18n::LoadFile(const std::string &path, std::string_view code) {
         if (key.empty()) {
             continue;
         }
-        language->entries[key] = Unescape(std::string_view(line).substr(tab + 1));
+        const std::string value = Unescape(std::string_view(line).substr(tab + 1));
+        // A translation that changes the ordered printf conversions would be
+        // undefined behaviour at the call site. Drop just that entry so the
+        // source string renders verbatim instead, and keep a diagnostic.
+        if (format_guard_ && FormatSignature(key) != FormatSignature(value)) {
+            ++rejected_count_;
+            if (rejected_order_.size() < kMaxRejected) {
+                rejected_order_.push_back(key);
+            }
+            continue;
+        }
+        language->entries[key] = value;
         ++parsed;
     }
     return parsed;
@@ -362,6 +424,17 @@ void I18n::ClearMissing() {
     missing_order_.clear();
 }
 
+std::string_view I18n::RejectedKey(std::size_t index) const {
+    return index < rejected_order_.size()
+               ? std::string_view(rejected_order_[index])
+               : std::string_view{};
+}
+
+void I18n::ClearRejected() {
+    rejected_count_ = 0;
+    rejected_order_.clear();
+}
+
 bool I18n::Has(std::string_view key) const {
     const LanguagePack *language = Find(current_);
     return language != nullptr &&
@@ -381,6 +454,7 @@ void I18n::Clear() {
     languages_.clear();
     current_.clear();
     ClearMissing();
+    ClearRejected();
     seg_caches_.clear();
 }
 

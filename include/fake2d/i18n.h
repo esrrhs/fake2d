@@ -65,6 +65,29 @@ public:
     [[nodiscard]] const LanguagePack *GetLanguage(std::size_t index) const;
     [[nodiscard]] std::size_t EntryCount(std::string_view code) const;
 
+    // --- format-string safety (development aid) --------------------------
+    /// Ordered printf conversion sequence of a format string: "Save %s, %d
+    /// left" -> "sd". Flags, width, precision, length modifiers and
+    /// positional arguments ("%1$s") are skipped; "%%" and a stray percent
+    /// followed by ordinary text ("15% done") contribute nothing. Exposed so
+    /// pack linters can validate translations without loading them.
+    [[nodiscard]] static std::string FormatSignature(std::string_view text);
+
+    /// Guarded loads drop a translation whose conversion sequence differs
+    /// from its source key. A mismatched "%s"/"%d" is undefined behaviour at
+    /// the caller's printf, so falling back to the source string is safer
+    /// than shipping the bad entry. Enabled by default; disable for packs
+    /// that use a non-printf placeholder syntax ("{0}", "$name", ...).
+    void SetFormatGuard(bool guard) { format_guard_ = guard; }
+    [[nodiscard]] bool FormatGuard() const { return format_guard_; }
+
+    /// Entries dropped by the guard since the last ClearRejected() or full
+    /// LoadDirectory(). This count is unbounded; the key list below is capped.
+    [[nodiscard]] std::size_t RejectedCount() const { return rejected_count_; }
+    /// Dropped source key at a stable index ("" when out of range).
+    [[nodiscard]] std::string_view RejectedKey(std::size_t index) const;
+    void ClearRejected();
+
     // --- missing-key diagnostics (development aid) -----------------------
     /// Record keys that the active pack does not define (capped at 512) so a
     /// release build can report untranslated strings instead of silently
@@ -97,9 +120,14 @@ private:
     LanguagePack *Find(std::string_view code);
     [[nodiscard]] const LanguagePack *Find(std::string_view code) const;
 
+    static constexpr std::size_t kMaxRejected = 512;
+
     std::vector<LanguagePack> languages_;
     std::string current_;
     bool track_missing_ = true;
+    bool format_guard_ = true;
+    std::size_t rejected_count_ = 0;
+    std::vector<std::string> rejected_order_;
     // Filled from const Translate() calls (diagnostics, not game state).
     mutable std::unordered_set<std::string> missing_;
     mutable std::vector<std::string> missing_order_;

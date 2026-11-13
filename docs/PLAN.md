@@ -1496,3 +1496,103 @@ sentence rendered raw Chinese under a non-CJK pack.
 - [x] `python3 tools/check-docs.py`: **35 demos**, 31 suites,
       **5485 assertions**
 - [x] `tools/verify-consumer.sh`: PASS, consumer prints **1.53.0**
+
+## Phase 76 — printf format-string guard for translations (1.54.x)
+
+Phase 75 surveyed the sibling 1627 project and ported its segmented CJK
+fallback. The same `platform/i18n.cpp` had a second, independent safety net
+that fake2d never picked up: `fmt_sig()` compares the `printf` conversion
+sequence of a source key with its translation and drops the entry when they
+differ. fake2d's `I18n::LoadFile` accepted every translation verbatim, so a
+pack that turned `"Sold %d units"` into `"Sold %s units"` shipped undefined
+behaviour straight to the caller's `snprintf` — a crash class no amount of
+missing-key diagnostics would catch.
+
+### Architectural intent
+
+- **Fail at load, not at the call site.** A mismatched entry is dropped so
+  the key renders verbatim. That is the same degradation a missing entry
+  already produces, and it is the only failure mode a UI can survive.
+- **Ordered conversions only.** `FormatSignature` returns just the ordered
+  conversion characters (`"Save %s, %d left"` → `"sd"`). Rewording,
+  changing width/precision (`%.2f` → `%.1f`) and translating argument text
+  stay legal; swapping `%s`/`%d` does not.
+- **Stray percents are text.** `%%` is skipped, and a percent followed by
+  ordinary text (`100% done`, `15% of the tax`) contributes no conversion —
+  which is why a space is deliberately not treated as a printf flag here.
+  Positional arguments (`%1$s`) and length/width modifiers are skipped too,
+  so parity with the source is what matters, not literal formatting.
+- **Guarded by default, switchable.** Pack formats that are not printf
+  (`{0}`, `$name`) can disable the guard; the flag lives on the `I18n`
+  instance so one game can run both kinds of packs.
+- **Diagnostics mirror missing-key tracking.** `RejectedCount()` is unbounded
+  and cheap; the key list is capped at 512 so a badly broken pack cannot
+  grow memory. A full `LoadDirectory` resets the report (it replaces the
+  pack set), while `LoadFile` appends so mod hot-reload keeps its history.
+
+### Deliverables
+
+- [x] `I18n::FormatSignature` (static, public — pack linters can use it
+      without loading); private `IsFormatModifier` / `IsFormatConversion`
+- [x] `SetFormatGuard` / `FormatGuard` (on by default), `RejectedCount` /
+      `RejectedKey` / `ClearRejected`; `LoadFile` drops on mismatch,
+      `LoadDirectory` and `Clear` reset the report
+- [x] 6 Lua bindings: `i18n_set_format_guard`, `i18n_format_guard`,
+      `i18n_format_signature`, `i18n_rejected_count`, `i18n_rejected_key`,
+      `i18n_clear_rejected`
+- [x] Platform self-test: 16 checks (signature edge cases, guard on/off,
+      drop counts and key order, source fallback, clear, full-load reset)
+- [x] SCRIPTING.md i18n table rows + a paragraph on the failure mode
+- [x] Version **1.54.0** everywhere — and the long-standing `version.h` drift
+      fixed in the same pass (`MINOR` had stayed at 52 while
+      `VERSION_STRING` said 1.53.0, so the macros reported 1.52.0)
+
+### Verification
+
+- [x] `cmake --build build -j 8`: passes; `--platform-test` **106 checks,
+      0 failures** (16 new)
+- [x] Mutation proof: forcing the guard condition false fails 6 assertions;
+      dropping `$` from the modifier set fails the positional-argument check.
+      Both restored from `/tmp` copies (never `git checkout`) and re-verified
+      green.
+- [x] `ctest --test-dir build --output-on-failure`: **35/35** on macOS
+      (arm64, Release + fakelua)
+- [x] `cmake --build build_no-lua -j 8`: passes (skeleton build)
+- [x] `python3 tools/check-docs.py`: **35 demos**, 31 suites,
+      **5501 assertions**
+- [x] `tools/verify-consumer.sh`: PASS, consumer prints **1.54.0**
+
+### Deferred — next sinks identified by the same 1627 survey
+
+The survey was broader than one fix. These are ordered by (value ÷ risk) and
+none is in this phase:
+
+- [ ] **Public window/GL-context surface + single-frame pump.** 1627 calls
+      GLFW directly in 7 places (`SetWindowIcon`, `glfwGetVideoModes`,
+      `SwapInterval`, focus query, and `bootstrap.cpp`'s loading-frame
+      `SwapBuffers`/`PollEvents`). `src/platform/window.h` already implements
+      all of it internally; the gap is only that `Engine` never promoted it.
+      Lowest-cost real API gap on the list.
+- [ ] **System CJK font discovery.** The candidate path list exists three
+      times: `Font::LoadDefault` (latin only), `examples/hello/main.cpp`, and
+      1627's `ui_system_bridge.cpp`. One `Font::AddSystemFallbacks()` would
+      retire two copies.
+- [ ] **Typed settings + key bindings.** `AppPaths::ConfigPath()` and
+      `SaveStore`'s key/value layer exist, but nothing provides typed
+      getters, clamping, a bindings table or change callbacks — every game
+      writes its own INI. 1627's `platform/config.hpp` is the reference.
+- [ ] **`log::Config` completion.** 1627 disables `crash_reports` because it
+      wants minidumps and a cross-platform error dialog on top; both are
+      small and generic.
+- [ ] **`Font` pixel-snapping, letter spacing, font sets.** 1627 bypasses
+      `DrawText` per glyph to round subpixel origins; the engine could own
+      that as an option instead of forcing hosts down to `GetGlyph`.
+- [ ] **Region-map helper** (color-id picking + CPU overlay + world-space
+      label layout) from `map_view.cpp` — highest value, highest coupling;
+      leave the 11 colouring rules and geography in the game.
+
+Note for whoever picks these up: 1627 is currently *behind* the engine in
+several places and can delete code with no engine change — `map_view.cpp`'s
+4 raw GL calls should be `Texture2D::UpdateRegion`, and its hand-written
+i18n/save/settings should converge on `I18n` / `SaveStore` / `AppPaths`.
+The engine gaps above are the ones that survive that cleanup.

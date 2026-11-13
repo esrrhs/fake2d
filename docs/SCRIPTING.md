@@ -1594,6 +1594,9 @@ which makes partial packs safe. `zh`/`ja`/`ko` codes are reported as CJK by
 | `i18n_entry_count() -> n` | Entries in the active pack. |
 | `i18n_missing_count() -> n`, `i18n_missing_key(i) -> s` | Source strings the active pack does not define (deduplicated, capped at 512) — a release-build "untranslated" report. |
 | `i18n_clear_missing()`, `i18n_set_track_missing(on)` | Reset the report / disable recording. |
+| `i18n_set_format_guard(on)`, `i18n_format_guard() -> bool` | Toggle/query printf format-string validation (on by default). A translation whose ordered conversion sequence differs from its source key is dropped at load time, so a `%s`/`%d` mismatch falls back to the source string instead of crashing at the call site. Turn it off for packs that use `{0}` / `$name` placeholders. |
+| `i18n_format_signature(text) -> s` | Ordered conversion sequence of a format string: `"Save %s, %d left"` → `"sd"`. Flags, width, precision, length modifiers and positional arguments (`%1$s`) are skipped; `%%` and a stray percent followed by ordinary text (`15% done`) contribute nothing. Use it to lint packs offline. |
+| `i18n_rejected_count() -> n`, `i18n_rejected_key(i) -> s`, `i18n_clear_rejected()` | Entries the guard dropped since the last full `i18n_load` (the key list is capped at 512) — a release-build "bad translation" report. |
 
 TSV values support `\n`, `\t` and `\\` escapes, and a UTF-8 BOM on the first
 line is ignored (editors on Windows write one). `i18n_load` replaces the
@@ -1602,6 +1605,13 @@ the keys themselves); use `i18n_add_file` to merge extra packs afterwards.
 The engine loads `<resource root>/assets/lang` automatically at startup when
 that directory exists (or `EngineConfig.localization_dir`, activating
 `EngineConfig.language`), so most games need no explicit `i18n_load`.
+
+Format strings are guarded at load time: a translation that changes the
+ordered `printf` conversions (`"Sold %d"` → `"Sold %s"`) is dropped, leaving
+the key to render verbatim. That is the safe failure mode — the mismatch
+would otherwise be undefined behaviour in the caller's `snprintf`. Only the
+ordered sequence is compared, so reordering words, changing width/precision
+(`%.2f` → `%.1f`) or translating argument text is fine.
 
 ### App paths & user data
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
 # Install fake2d from a build tree and compile a throwaway consumer that
-# declares no C++ standard, then run it to confirm find_package(fake2d 1.53)
-# and the 1.53 UI APIs work.
+# declares no C++ standard, then run it to confirm find_package(fake2d 1.54)
+# and the 1.54 UI APIs work.
 #
 #   tools/verify-consumer.sh [--build-dir DIR] [--prefix DIR]
 #
@@ -117,8 +117,8 @@ fi
 
 OUTPUT=$("$BIN")
 echo "$OUTPUT"
-echo "$OUTPUT" | grep -F "consumer: 1.53" >/dev/null || {
-    echo "verify-consumer: ERROR: consumer did not print the 1.53 version line" >&2
+echo "$OUTPUT" | grep -F "consumer: 1.54" >/dev/null || {
+    echo "verify-consumer: ERROR: consumer did not print the 1.54 version line" >&2
     exit 1
 }
 echo "verify-consumer: PASS"

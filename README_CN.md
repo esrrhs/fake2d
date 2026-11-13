@@ -7,7 +7,7 @@
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-brightgreen.svg)](https://en.cppreference.com/w/cpp/23)
 [![OpenGL](https://img.shields.io/badge/OpenGL-3.3%20Core%20%7C%202.1-orange.svg)](https://www.opengl.org/)
 [![FakeLua](https://img.shields.io/badge/Script-FakeLua-red.svg)](https://github.com/esrrhs/fakelua)
-[![Version](https://img.shields.io/badge/version-1.53.0-informational.svg)](include/fake2d/version.h)
+[![Version](https://img.shields.io/badge/version-1.54.0-informational.svg)](include/fake2d/version.h)
 
 **Fake2D** 是基于 [FakeLua](https://github.com/esrrhs/fakelua) 驱动的现代化、轻量级、高性能 2D 游戏引擎：
 - **C++23 宿主引擎**：掌管窗口管理、GPU 渲染管线、空间物理、音频混音与底层资源生命周期；
@@ -44,14 +44,14 @@ Fake2D 不仅是渲染器，更是一套自洽完备的 2D 游戏开发平台：
 - **实时 2D 光照与投影阴影**：点光源带径向柔和衰减，每个遮挡物向外投影硬阴影，光源移动时阴影随之扫过场景。整个通道只用一张生成的衰减贴图与一次 Multiply 混合，并按混合状态合批——64 个运动光照打满 256 个遮挡物槽位仍是 4 个 Draw Call、0.7 ms。遮挡物支持矩形、多边形与实时物理刚体，每道阴影都被约束在自己的光照圆内，每帧阴影四边形预算兜住最坏情况；
 - **2D 骨骼动画**：骨骼层级由关键帧剪辑驱动，一套走路循环是一串角度而不是两百张图。骨架从 JSON 载入（bones / slots / attachments / skins / clips 的 Spine 风格结构），逐通道线性或阶梯插值，交叉淡入淡出时旧剪辑仍在底层继续播放，时间轴事件跨过循环接缝也能命中当帧，并支持双臂两骨 IK 与指向 IK。代价是量出来的：一张图集上的 12 个部件只需 1 个 Draw Call，12 个士兵加起来仍是 1 个；
 - **即时模式 UI（Immediate-Mode UI）**：开箱即用的 UI 控件库（Panel、Button、盒内 Text、Slider、Checkbox、TextInput、ScrollArea、ProgressBar、RadioButton、Combo、可拖拽 Window、Tab 标签页、Tree 折叠树、Tooltip）。 **1.47.0 统一切换盒模型 API（破坏性变更）**：光标排版、同帧固定/弹性列、滚动高度自动测量、嵌套裁剪求交、文字/控件统一审计与共享布局常量。**1.48.0 新增**：内容自适应盒、约束/流式/网格/分隔条、参考分辨率/关系、主题/九宫格、富文本/选区剪贴板、多行输入、禁用态/图片/模态菜单、键盘手柄焦点、虚拟列表、代码驱动动画和分页；**1.49.0 新增**：显式同帧布局/交互边界（不会重跑调用方）、按稳定 ID 缓存高度和保持锚点的变高虚拟列表、真实 UI 性能基准、带种子的动态压力测试、撤销重做、拖选/双击词选和密码输入；**1.50.0 新增**：富文本按样式/行批处理与复杂度门槛、预算内文本行预测量、未包帧调用限频诊断；不含可视化编辑器，GLFW 预编辑预览仍不支持。详见 [迁移/API](docs/SCRIPTING.md#ui)。
-- **文本与平台能力层**：UTF-8 按需字形图集（原生支持 CJK/日文/韩文，`font_load` 可载入任意 TTF/TTC/OTF，缺字自动回退字体）、中文逐字换行与英文按词换行（含禁则与 kerning）、旋转/阴影/描边/自动缩字、运行时切换的 TSV 语言包（BOM 兼容、缺 key 报告）、跨平台资源/用户目录、带 CRC 与 `.bak` 回滚的 v2 存档容器、实体快照存读、文件日志与崩溃报告、离线成就镜像、`mod.json` 模组管理器，以及可选 Steamworks 适配层（成就 / Rich Presence / 语言 / 云存档开关，未链接 SDK 时自动降级为零依赖 stub）。
+- **文本与平台能力层**：UTF-8 按需字形图集（原生支持 CJK/日文/韩文，`font_load` 可载入任意 TTF/TTC/OTF，缺字自动回退字体）、中文逐字换行与英文按词换行（含禁则与 kerning）、旋转/阴影/描边/自动缩字、运行时切换的 TSV 语言包（BOM 兼容、缺 key 报告、printf 格式串校验）、跨平台资源/用户目录、带 CRC 与 `.bak` 回滚的 v2 存档容器、实体快照存读、文件日志与崩溃报告、离线成就镜像、`mod.json` 模组管理器，以及可选 Steamworks 适配层（成就 / Rich Presence / 语言 / 云存档开关，未链接 SDK 时自动降级为零依赖 stub）。
 - **玩法基础工具**：确定性 splitmix64 随机数、命名缓动曲线与帧率无关的 `Approach`、可重绑的输入动作映射、窗口尺寸/resizable/最小尺寸/光标控制、音频 pitch/循环/停止，以及运行时 FPS / 帧耗时 / draw call 统计。
 - **2.5D 清版动作套件**：全局游戏时间缩放 + 命中停顿 `time_set_scale`/`time_hitstop`（脚本、物理、动画、粒子一起定格）；每个实体 16 个数值 + 4 个字符串槽、最多 512 个实体，足以承载完整角色阵容；动画剪辑池扩至 128；配合 `draw_set_z` + `batch_set_sorted` 实现深度正确的横版 y 排序。
 
 ### 5. 现代化工程化与极佳开发者体验
 - **JIT 脚本热重载**：支持 GCC JIT 与解释器双模式，在运行中修改 Lua 脚本保存即刻生效，无需重启进程；
 - **无头测试与 CI/CD**：内置原生 `--headless`、`--frames N`、`--screenshot`、`--ai` 与 `--record`/`--replay` 参数，可在无物理显示器的虚拟机、Docker 容器中运行自动化回归验证与帧缓冲像素级比对；
-- **31 项内置自测试套件**：5485 断言，涵盖刚体动力学、关节、休眠、防穿透、物理查询、碰撞过滤、时间步长、地图对象、A\* 寻路、离屏 FBO、即时 UI、后处理链、战争迷雾、2D 光照与阴影包含性、骨骼层级/剪辑播放/交叉淡入/IK/时间轴事件、音频混音、动画瓦片、UTF-8/CJK 文本与字体回退、平台能力层、CJK 分段回退翻译、确定性随机、粒子与音频混音器状态、缓动、实体快照、输入动作、窗口控制、游戏时间缩放/命中停顿、16 槽实体角色、128 剪辑动画池、飞机大战素材管线、城市建造地形/建筑图集/基础地图、RTS 地形/单位/建筑/地图管线与视觉小说背景/立绘素材等，既有用例包含变异测试（Mutation-tested）验证，新增 UI 盒模型用例覆盖几何与像素边界；
+- **31 项内置自测试套件**：5501 断言，涵盖刚体动力学、关节、休眠、防穿透、物理查询、碰撞过滤、时间步长、地图对象、A\* 寻路、离屏 FBO、即时 UI、后处理链、战争迷雾、2D 光照与阴影包含性、骨骼层级/剪辑播放/交叉淡入/IK/时间轴事件、音频混音、动画瓦片、UTF-8/CJK 文本与字体回退、平台能力层、CJK 分段回退翻译与 printf 格式串校验、确定性随机、粒子与音频混音器状态、缓动、实体快照、输入动作、窗口控制、游戏时间缩放/命中停顿、16 槽实体角色、128 剪辑动画池、飞机大战素材管线、城市建造地形/建筑图集/基础地图、RTS 地形/单位/建筑/地图管线与视觉小说背景/立绘素材等，既有用例包含变异测试（Mutation-tested）验证，新增 UI 盒模型用例覆盖几何与像素边界；
 - **开箱即用独立打包**：提供自动化打包脚本，一键生成包含依赖库的独立二进制压缩包，分发给玩家免安装环境。
 
 ---
@@ -182,7 +182,7 @@ cmake --install build
 其他工程从此无需引用 fake2d 源码，`find_package` 一行接入：
 
 ```cmake
-find_package(fake2d 1.53 REQUIRED CONFIG)
+find_package(fake2d 1.54 REQUIRED CONFIG)
 add_executable(my_game main.cpp)
 target_link_libraries(my_game PRIVATE fake2d::fake2d)   # GLFW/OpenGL/FakeLua 随之自动链上
 ```
@@ -289,7 +289,7 @@ target_link_libraries(my_game PRIVATE fake2d::fake2d)   # GLFW/OpenGL/FakeLua �
 
 ### 无头模式与自动化 CI 验证（Headless & Testing）
 
-Fake2D 原生支持无头运行模式，可在无物理显示器的 CI 上完整运行图形与逻辑。Build 工作流在 Linux（Xvfb/llvmpipe）、macOS（CGL FBO）和 Windows（Mesa llvmpipe）上共用同一组入口：`ctest`（31 组套件、两个 `--ui-stress` seed、`--ui-bench` 与 `fake2d-win-macro-compat`）、`tools/check_ui_demos.py`、`tools/run_demo_scripts.py`（退出码加上 `syntax error` / `CompileFile` / `update()` 日志扫描）、`tools/run_gpu_smoke.py`，以及 `tools/verify-consumer.sh`（`find_package(fake2d 1.53)`）。长游戏里程碑截图和完整的 staged 包 `tools/verify-package.sh` 仍只在 Linux Build 上强制执行。短的 `linux assets` 任务只负责上传生成的地图，这样 macOS/Windows 不必等完整 Linux 测试门禁；`linux tests` 与它并行启动。fakelua 安装树按镜像、架构、编译器、OpenSSL 和 `FAKELUA_REF` 缓存。缓存同时保存 TinyCC 运行时头文件（`lib/tcc/include`），并在恢复后把它们放回 libtcc 编译进二进制的 `CONFIG_TCCDIR`，这样构建树不在时 TCC/INTERP fixture 仍能编译。`tools/check-docs.py --ctest-log` 复用 CTest 的 PASS 计数，不再把 31 组套件跑第二遍。这些无头门使用内存剪贴板和注入的焦点/手柄事件，并不表示已在真实桌面上验收过系统剪贴板、物理手柄或 IME 组合预览。GLFW 3.4 仍无公开 preedit API，行内 IME 预览仍明确未实现。
+Fake2D 原生支持无头运行模式，可在无物理显示器的 CI 上完整运行图形与逻辑。Build 工作流在 Linux（Xvfb/llvmpipe）、macOS（CGL FBO）和 Windows（Mesa llvmpipe）上共用同一组入口：`ctest`（31 组套件、两个 `--ui-stress` seed、`--ui-bench` 与 `fake2d-win-macro-compat`）、`tools/check_ui_demos.py`、`tools/run_demo_scripts.py`（退出码加上 `syntax error` / `CompileFile` / `update()` 日志扫描）、`tools/run_gpu_smoke.py`，以及 `tools/verify-consumer.sh`（`find_package(fake2d 1.54)`）。长游戏里程碑截图和完整的 staged 包 `tools/verify-package.sh` 仍只在 Linux Build 上强制执行。短的 `linux assets` 任务只负责上传生成的地图，这样 macOS/Windows 不必等完整 Linux 测试门禁；`linux tests` 与它并行启动。fakelua 安装树按镜像、架构、编译器、OpenSSL 和 `FAKELUA_REF` 缓存。缓存同时保存 TinyCC 运行时头文件（`lib/tcc/include`），并在恢复后把它们放回 libtcc 编译进二进制的 `CONFIG_TCCDIR`，这样构建树不在时 TCC/INTERP fixture 仍能编译。`tools/check-docs.py --ctest-log` 复用 CTest 的 PASS 计数，不再把 31 组套件跑第二遍。这些无头门使用内存剪贴板和注入的焦点/手柄事件，并不表示已在真实桌面上验收过系统剪贴板、物理手柄或 IME 组合预览。GLFW 3.4 仍无公开 preedit API，行内 IME 预览仍明确未实现。
 
 
 ```bash
@@ -336,7 +336,7 @@ xvfb-run ./build/bin/fake2d_hello --light-bench        # 光照合批：Draw Cal
 xvfb-run ./build/bin/fake2d_hello --skeleton-test      # 骨骼层级、剪辑、交叉淡入、IK 与时间轴事件
 xvfb-run ./build/bin/fake2d_hello --audio-test         # 纯软件混音核心、包络、流式播放
 xvfb-run ./build/bin/fake2d_hello --font-test          # UTF-8/CJK 字形图集、换行、旋转与自动缩字
-xvfb-run ./build/bin/fake2d_hello --platform-test      # 语言包、用户目录、存档 v2、Steam stub、UI 文本
+xvfb-run ./build/bin/fake2d_hello --platform-test      # 语言包与格式串校验、用户目录、存档 v2、Steam stub、UI 文本
 xvfb-run ./build/bin/fake2d_hello --gameplay-test      # 随机数、缓动、实体快照、输入动作、窗口
 xvfb-run ./build/bin/fake2d_hello --determinism-test   # 同种子世界哈希一致性（Phase 53）
 xvfb-run ./build/bin/fake2d_hello --combat-test        # 时间缩放、命中停顿、16 槽角色、动画池

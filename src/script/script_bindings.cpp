@@ -3515,6 +3515,41 @@ void RegisterI18nApi(fakelua::State *state, Engine *engine) {
             [engine](fakelua::State *, bool track) {
                 engine->GetI18n().SetTrackMissing(track);
             }));
+    // Format-string safety: mismatched printf conversions are dropped at
+    // load time instead of crashing at the caller (see I18n::FormatSignature).
+    fakelua::RegisterNativeFunction(
+        state, "i18n_set_format_guard", false,
+        std::function<void(fakelua::State *, bool)>(
+            [engine](fakelua::State *, bool guard) {
+                engine->GetI18n().SetFormatGuard(guard);
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "i18n_format_guard", false,
+        std::function<bool(fakelua::State *)>(
+            [engine](fakelua::State *) { return engine->GetI18n().FormatGuard(); }));
+    fakelua::RegisterNativeFunction(
+        state, "i18n_format_signature", false,
+        std::function<std::string(fakelua::State *, std::string_view)>(
+            [](fakelua::State *, std::string_view text) -> std::string {
+                return I18n::FormatSignature(text);
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "i18n_rejected_count", false,
+        std::function<std::int64_t(fakelua::State *)>(
+            [engine](fakelua::State *) -> std::int64_t {
+                return static_cast<std::int64_t>(engine->GetI18n().RejectedCount());
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "i18n_rejected_key", false,
+        std::function<std::string(fakelua::State *, double)>(
+            [engine](fakelua::State *, double index) -> std::string {
+                return std::string(engine->GetI18n().RejectedKey(
+                    static_cast<std::size_t>(index)));
+            }));
+    fakelua::RegisterNativeFunction(
+        state, "i18n_clear_rejected", false,
+        std::function<void(fakelua::State *)>(
+            [engine](fakelua::State *) { engine->GetI18n().ClearRejected(); }));
 }
 
 void RegisterPlatformApi(fakelua::State *state, Engine *engine) {

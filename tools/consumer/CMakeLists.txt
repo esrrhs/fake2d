@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
 project(fake2d_consumer CXX)
-find_package(fake2d 1.53 REQUIRED CONFIG)
+find_package(fake2d 1.54 REQUIRED CONFIG)
 add_executable(consumer main.cpp)
 target_link_libraries(consumer PRIVATE fake2d::fake2d)
