@@ -1587,6 +1587,7 @@ which makes partial packs safe. `zh`/`ja`/`ko` codes are reported as CJK by
 | `i18n_set_language(code) -> bool` | Switch at runtime; the next frame draws the new language. |
 | `i18n_language() -> code` | Active language code. |
 | `i18n_t(text) -> s` | Translate `text` through the active pack. |
+| `i18n_t_seg(text) -> s` | `i18n_t` plus segmented fallback: on an exact miss, CJK source text is scanned codepoint by codepoint and dictionary entries are longest-matched piecewise (full-width punctuation maps west, spaces appear at script boundaries). Pack entries containing `%` or `\n`, identity translations and keys over 120 bytes stay whole-string only. Returns the input unchanged for CJK packs, non-CJK input, or when nothing matches. Results are memoized per language. |
 | `i18n_has(text) -> bool` | Whether the active pack defines `text`. |
 | `i18n_is_cjk([code]) -> bool` | Whether the given (or active) language is CJK. |
 | `i18n_language_count() -> n`, `i18n_language_code(i) -> s`, `i18n_language_name(i) -> s` | Enumerate packs (sorted by code) for a language picker. |

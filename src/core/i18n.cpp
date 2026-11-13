@@ -5,7 +5,9 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <unordered_map>
 #include <utility>
+#include <vector>
 
 namespace fake2d {
 
@@ -52,7 +54,76 @@ std::string ToLower(std::string_view text) {
     return out;
 }
 
+// ---- segmented fallback (CJK source -> non-CJK pack) ---------------------
+// Ported from the 1627 project, where dictionary longest-match segmentation
+// carries the whole UI when packs only cover part of the source strings.
+
+unsigned DecodeOne(std::string_view s, std::size_t i, std::size_t &len) {
+    const unsigned char c = static_cast<unsigned char>(s[i]);
+    if (c < 0x80) { len = 1; return c; }
+    if ((c >> 5) == 6 && i + 1 < s.size()) {
+        len = 2;
+        return ((c & 0x1f) << 6) | (static_cast<unsigned char>(s[i + 1]) & 0x3f);
+    }
+    if ((c >> 4) == 14 && i + 2 < s.size()) {
+        len = 3;
+        return ((c & 0x0f) << 12) | ((static_cast<unsigned char>(s[i + 1]) & 0x3f) << 6) |
+               (static_cast<unsigned char>(s[i + 2]) & 0x3f);
+    }
+    if ((c >> 3) == 30 && i + 3 < s.size()) {
+        len = 4;
+        return ((c & 0x07) << 18) | ((static_cast<unsigned char>(s[i + 1]) & 0x3f) << 12) |
+               ((static_cast<unsigned char>(s[i + 2]) & 0x3f) << 6) |
+               (static_cast<unsigned char>(s[i + 3]) & 0x3f);
+    }
+    len = 1;
+    return c;
+}
+
+bool IsCjkCodepoint(unsigned cp) {
+    return (cp >= 0x3400 && cp <= 0x9fff) || (cp >= 0x3000 && cp <= 0x303f) ||
+           (cp >= 0xff00 && cp <= 0xffef);
+}
+
+bool HasCjk(std::string_view s) {
+    for (std::size_t i = 0, l = 0; i < s.size(); i += l) {
+        if (IsCjkCodepoint(DecodeOne(s, i, l))) return true;
+    }
+    return false;
+}
+
+void AppendPiece(std::string &out, std::string_view piece) {
+    if (piece.empty()) return;
+    const char a = out.empty() ? ' ' : out.back();
+    const char b = piece.front();
+    if ((std::isalnum(static_cast<unsigned char>(a)) || a == ')') &&
+        (std::isalnum(static_cast<unsigned char>(b)) || b == '(')) {
+        out += ' ';
+    }
+    out.append(piece);
+}
+
+const char *PunctWest(unsigned cp) {
+    switch (cp) {
+        case 0xff0c: case 0x3001: return ", ";   // ， 、
+        case 0x3002: return ". ";                 // 。
+        case 0xff1a: return ": ";                 // ：
+        case 0xff1b: return "; ";                 // ；
+        case 0xff08: return " (";                 // （
+        case 0xff09: return ")";                  // ）
+        case 0x300c: case 0x300d: case 0x300e: case 0x300f: return "\"";  // 「」『』
+        case 0x3010: return "[";                  // 【
+        case 0x3011: return "] ";                // 】
+        case 0x3000: return "  ";                 // 　
+        case 0xff01: return "! ";                 // ！
+        case 0xff1f: return "? ";                 // ？
+        default: return nullptr;
+    }
+}
+
 } // namespace
+
+I18n::~I18n() = default;
 
 I18n::LanguagePack *I18n::Find(std::string_view code) {
     for (LanguagePack &language : languages_) {
@@ -76,6 +147,7 @@ bool I18n::LoadDirectory(const std::string &dir, std::string_view default_code) 
     languages_.clear();
     current_.clear();
     ClearMissing();
+    seg_caches_.clear();
 
     std::error_code ec;
     std::vector<std::string> files;
@@ -115,6 +187,8 @@ int I18n::LoadFile(const std::string &path, std::string_view code) {
         languages_.push_back(LanguagePack{std::string(code), std::string(code), {}});
         language = &languages_.back();
     }
+    // Entries just changed: drop this pack's segment index and memo.
+    seg_caches_.erase(std::string(code));
 
     int parsed = 0;
     std::string line;
@@ -199,6 +273,85 @@ std::string_view I18n::Translate(std::string_view key) const {
     return it->second;
 }
 
+std::string I18n::TranslateSegmented(std::string_view key) const {
+    const LanguagePack *language = Find(current_);
+    if (language == nullptr) {
+        return std::string(key);
+    }
+    const auto exact = language->entries.find(std::string(key));
+    if (exact != language->entries.end()) {
+        return exact->second;
+    }
+    // Fallback only makes sense translating CJK source into a non-CJK pack.
+    if (IsCjk() || !HasCjk(key)) {
+        return std::string(key);
+    }
+
+    SegCache &cache = seg_caches_[current_];
+    if (const auto hit = cache.memo.find(std::string(key));
+        hit != cache.memo.end()) {
+        return hit->second;
+    }
+    if (!cache.built) {
+        for (const auto &[k, v] : language->entries) {
+            if (k.empty() || k.size() > 120 || k.find('%') != std::string::npos ||
+                k.find('\n') != std::string::npos) {
+                continue;
+            }
+            std::size_t l = 0;
+            const unsigned cp = DecodeOne(k, 0, l);
+            if (!IsCjkCodepoint(cp) || v == k) {
+                continue;
+            }
+            cache.by_first[cp].push_back({&k, &v});
+        }
+        for (auto &[cp, list] : cache.by_first) {
+            std::sort(list.begin(), list.end(),
+                      [](const SegCache::Entry &a, const SegCache::Entry &b) {
+                          return a.key->size() > b.key->size();
+                      });
+        }
+        cache.built = true;
+    }
+
+    std::string out;
+    out.reserve(key.size() + 16);
+    for (std::size_t i = 0; i < key.size();) {
+        std::size_t l = 0;
+        const unsigned cp = DecodeOne(key, i, l);
+        if (IsCjkCodepoint(cp)) {
+            bool hit = false;
+            if (const auto it = cache.by_first.find(cp); it != cache.by_first.end()) {
+                for (const SegCache::Entry &e : it->second) {
+                    if (key.compare(i, e.key->size(), *e.key) == 0) {
+                        AppendPiece(out, *e.value);
+                        i += e.key->size();
+                        hit = true;
+                        break;
+                    }
+                }
+            }
+            if (hit) continue;
+            if (const char *p = PunctWest(cp)) {
+                out += p;
+            } else {
+                out.append(key.substr(i, l));
+            }
+            i += l;
+        } else {
+            out.append(key.substr(i, l));
+            i += l;
+        }
+    }
+    while (!out.empty() && out.back() == ' ') out.pop_back();
+
+    constexpr std::size_t kMemoCap = 60000;
+    if (cache.memo.size() < kMemoCap) {
+        cache.memo.emplace(std::string(key), out);
+    }
+    return out;
+}
+
 std::string_view I18n::MissingKey(std::size_t index) const {
     return index < missing_order_.size() ? std::string_view(missing_order_[index])
                                          : std::string_view{};
@@ -228,6 +381,7 @@ void I18n::Clear() {
     languages_.clear();
     current_.clear();
     ClearMissing();
+    seg_caches_.clear();
 }
 
 } // namespace fake2d

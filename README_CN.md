@@ -7,7 +7,7 @@
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-brightgreen.svg)](https://en.cppreference.com/w/cpp/23)
 [![OpenGL](https://img.shields.io/badge/OpenGL-3.3%20Core%20%7C%202.1-orange.svg)](https://www.opengl.org/)
 [![FakeLua](https://img.shields.io/badge/Script-FakeLua-red.svg)](https://github.com/esrrhs/fakelua)
-[![Version](https://img.shields.io/badge/version-1.52.0-informational.svg)](include/fake2d/version.h)
+[![Version](https://img.shields.io/badge/version-1.53.0-informational.svg)](include/fake2d/version.h)
 
 **Fake2D** 是基于 [FakeLua](https://github.com/esrrhs/fakelua) 驱动的现代化、轻量级、高性能 2D 游戏引擎：
 - **C++23 宿主引擎**：掌管窗口管理、GPU 渲染管线、空间物理、音频混音与底层资源生命周期；
@@ -51,7 +51,7 @@ Fake2D 不仅是渲染器，更是一套自洽完备的 2D 游戏开发平台：
 ### 5. 现代化工程化与极佳开发者体验
 - **JIT 脚本热重载**：支持 GCC JIT 与解释器双模式，在运行中修改 Lua 脚本保存即刻生效，无需重启进程；
 - **无头测试与 CI/CD**：内置原生 `--headless`、`--frames N`、`--screenshot`、`--ai` 与 `--record`/`--replay` 参数，可在无物理显示器的虚拟机、Docker 容器中运行自动化回归验证与帧缓冲像素级比对；
-- **31 项内置自测试套件**：5478 断言，涵盖刚体动力学、关节、休眠、防穿透、物理查询、碰撞过滤、时间步长、地图对象、A\* 寻路、离屏 FBO、即时 UI、后处理链、战争迷雾、2D 光照与阴影包含性、骨骼层级/剪辑播放/交叉淡入/IK/时间轴事件、音频混音、动画瓦片、UTF-8/CJK 文本与字体回退、平台能力层、确定性随机、粒子与音频混音器状态、缓动、实体快照、输入动作、窗口控制、游戏时间缩放/命中停顿、16 槽实体角色、128 剪辑动画池、飞机大战素材管线、城市建造地形/建筑图集/基础地图、RTS 地形/单位/建筑/地图管线与视觉小说背景/立绘素材等，既有用例包含变异测试（Mutation-tested）验证，新增 UI 盒模型用例覆盖几何与像素边界；
+- **31 项内置自测试套件**：5485 断言，涵盖刚体动力学、关节、休眠、防穿透、物理查询、碰撞过滤、时间步长、地图对象、A\* 寻路、离屏 FBO、即时 UI、后处理链、战争迷雾、2D 光照与阴影包含性、骨骼层级/剪辑播放/交叉淡入/IK/时间轴事件、音频混音、动画瓦片、UTF-8/CJK 文本与字体回退、平台能力层、CJK 分段回退翻译、确定性随机、粒子与音频混音器状态、缓动、实体快照、输入动作、窗口控制、游戏时间缩放/命中停顿、16 槽实体角色、128 剪辑动画池、飞机大战素材管线、城市建造地形/建筑图集/基础地图、RTS 地形/单位/建筑/地图管线与视觉小说背景/立绘素材等，既有用例包含变异测试（Mutation-tested）验证，新增 UI 盒模型用例覆盖几何与像素边界；
 - **开箱即用独立打包**：提供自动化打包脚本，一键生成包含依赖库的独立二进制压缩包，分发给玩家免安装环境。
 
 ---
@@ -182,7 +182,7 @@ cmake --install build
 其他工程从此无需引用 fake2d 源码，`find_package` 一行接入：
 
 ```cmake
-find_package(fake2d 1.52 REQUIRED CONFIG)
+find_package(fake2d 1.53 REQUIRED CONFIG)
 add_executable(my_game main.cpp)
 target_link_libraries(my_game PRIVATE fake2d::fake2d)   # GLFW/OpenGL/FakeLua 随之自动链上
 ```
@@ -289,7 +289,7 @@ target_link_libraries(my_game PRIVATE fake2d::fake2d)   # GLFW/OpenGL/FakeLua �
 
 ### 无头模式与自动化 CI 验证（Headless & Testing）
 
-Fake2D 原生支持无头运行模式，可在无物理显示器的 CI 上完整运行图形与逻辑。Build 工作流在 Linux（Xvfb/llvmpipe）、macOS（CGL FBO）和 Windows（Mesa llvmpipe）上共用同一组入口：`ctest`（31 组套件、两个 `--ui-stress` seed、`--ui-bench` 与 `fake2d-win-macro-compat`）、`tools/check_ui_demos.py`、`tools/run_demo_scripts.py`（退出码加上 `syntax error` / `CompileFile` / `update()` 日志扫描）、`tools/run_gpu_smoke.py`，以及 `tools/verify-consumer.sh`（`find_package(fake2d 1.52)`）。长游戏里程碑截图和完整的 staged 包 `tools/verify-package.sh` 仍只在 Linux Build 上强制执行。短的 `linux assets` 任务只负责上传生成的地图，这样 macOS/Windows 不必等完整 Linux 测试门禁；`linux tests` 与它并行启动。fakelua 安装树按镜像、架构、编译器、OpenSSL 和 `FAKELUA_REF` 缓存。缓存同时保存 TinyCC 运行时头文件（`lib/tcc/include`），并在恢复后把它们放回 libtcc 编译进二进制的 `CONFIG_TCCDIR`，这样构建树不在时 TCC/INTERP fixture 仍能编译。`tools/check-docs.py --ctest-log` 复用 CTest 的 PASS 计数，不再把 31 组套件跑第二遍。这些无头门使用内存剪贴板和注入的焦点/手柄事件，并不表示已在真实桌面上验收过系统剪贴板、物理手柄或 IME 组合预览。GLFW 3.4 仍无公开 preedit API，行内 IME 预览仍明确未实现。
+Fake2D 原生支持无头运行模式，可在无物理显示器的 CI 上完整运行图形与逻辑。Build 工作流在 Linux（Xvfb/llvmpipe）、macOS（CGL FBO）和 Windows（Mesa llvmpipe）上共用同一组入口：`ctest`（31 组套件、两个 `--ui-stress` seed、`--ui-bench` 与 `fake2d-win-macro-compat`）、`tools/check_ui_demos.py`、`tools/run_demo_scripts.py`（退出码加上 `syntax error` / `CompileFile` / `update()` 日志扫描）、`tools/run_gpu_smoke.py`，以及 `tools/verify-consumer.sh`（`find_package(fake2d 1.53)`）。长游戏里程碑截图和完整的 staged 包 `tools/verify-package.sh` 仍只在 Linux Build 上强制执行。短的 `linux assets` 任务只负责上传生成的地图，这样 macOS/Windows 不必等完整 Linux 测试门禁；`linux tests` 与它并行启动。fakelua 安装树按镜像、架构、编译器、OpenSSL 和 `FAKELUA_REF` 缓存。缓存同时保存 TinyCC 运行时头文件（`lib/tcc/include`），并在恢复后把它们放回 libtcc 编译进二进制的 `CONFIG_TCCDIR`，这样构建树不在时 TCC/INTERP fixture 仍能编译。`tools/check-docs.py --ctest-log` 复用 CTest 的 PASS 计数，不再把 31 组套件跑第二遍。这些无头门使用内存剪贴板和注入的焦点/手柄事件，并不表示已在真实桌面上验收过系统剪贴板、物理手柄或 IME 组合预览。GLFW 3.4 仍无公开 preedit API，行内 IME 预览仍明确未实现。
 
 
 ```bash

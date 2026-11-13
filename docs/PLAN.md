@@ -1449,3 +1449,50 @@ descent.
 - [x] `env -u DISPLAY python3 tools/check-docs.py`: **35 demos**, 31 suites,
       **5478 assertions**
 - [x] `tools/verify-consumer.sh`: PASS, consumer prints **1.52.0**
+
+## Phase 75 — Segmented i18n fallback for CJK source games (1.53.x)
+
+Surveying the sibling 1627 project (a 53k-line FakeLua grand-strategy game
+on system-installed fake2d) surfaced one clean engine gap: its
+`platform/i18n.cpp` implements CJK-aware segmented fallback — when a whole
+source string misses the pack, dictionary entries are longest-matched
+piecewise with western punctuation mapping and script-boundary spacing.
+fake2d's `I18n::Translate` was exact-match only, so every partially covered
+sentence rendered raw Chinese under a non-CJK pack.
+
+### Architectural intent
+
+- **Opt-in, not automatic.** `Translate` keeps verbatim passthrough;
+  `TranslateSegmented` / `i18n_t_seg` is the explicit fallback path so games
+  choose per call site (exact-first semantics preserved).
+- **Direction-aware.** Segmentation only runs when the active pack is
+  non-CJK and the key contains CJK codepoints — it translates CJK *source*
+  games outward, never the reverse.
+- **Format strings stay whole.** Entries containing `%` or `\n`, identity
+  translations and keys over 120 bytes are excluded from the segment index;
+  they must be translated as complete strings.
+- **Per-language caches.** Segment index + bounded result memo (60k) keyed
+  by language code; `LoadFile`/`LoadDirectory`/`Clear` invalidate, so mod
+  hot-reload stays correct. Memoized strings are returned by value (owned),
+  unlike `Translate`'s pack-view.
+
+### Deliverables
+
+- [x] `I18n::TranslateSegmented` + private `SegCache` (first-codepoint
+      index, longest-key-first candidates, UTF-8 decode, punctuation map,
+      boundary spacing)
+- [x] `i18n_t_seg` Lua binding next to `i18n_t`
+- [x] Platform self-test: 7 segmented checks (piecewise terms, punctuation,
+      pass-through tails, non-CJK miss, exact-hit precedence, CJK-pack
+      no-op)
+- [x] SCRIPTING.md i18n table row; version **1.53.0** everywhere
+
+### Verification
+
+- [x] `cmake --build build -j 8`; `--platform-test` **90 checks,
+      0 failures** (7 new segmented cases)
+- [x] `ctest --test-dir build --output-on-failure`: **35/35** on macOS
+      (arm64, Release + fakelua)
+- [x] `python3 tools/check-docs.py`: **35 demos**, 31 suites,
+      **5485 assertions**
+- [x] `tools/verify-consumer.sh`: PASS, consumer prints **1.53.0**

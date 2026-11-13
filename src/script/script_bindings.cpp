@@ -3449,6 +3449,14 @@ void RegisterI18nApi(fakelua::State *state, Engine *engine) {
             [engine](fakelua::State *, std::string_view key) -> std::string {
                 return std::string(engine->GetI18n().Translate(key));
             }));
+    // Segmented fallback: dictionary longest-match for CJK source text that
+    // only partially exists in the active pack (see I18n::TranslateSegmented).
+    fakelua::RegisterNativeFunction(
+        state, "i18n_t_seg", false,
+        std::function<std::string(fakelua::State *, std::string_view)>(
+            [engine](fakelua::State *, std::string_view key) -> std::string {
+                return engine->GetI18n().TranslateSegmented(key);
+            }));
     fakelua::RegisterNativeFunction(
         state, "i18n_has", false,
         std::function<bool(fakelua::State *, std::string_view)>(

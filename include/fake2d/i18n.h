@@ -49,6 +49,18 @@ public:
     [[nodiscard]] std::string_view Translate(std::string_view key) const;
     [[nodiscard]] bool Has(std::string_view key) const;
 
+    /// Segmented fallback for CJK source text. On an exact miss the key is
+    /// scanned codepoint by codepoint and dictionary entries starting with a
+    /// CJK codepoint are longest-matched piecewise; full-width punctuation is
+    /// mapped to western forms and spaces inserted at script boundaries.
+    /// Entries containing '%' or '\n', identity translations and keys longer
+    /// than 120 bytes are excluded from the segment index, so format strings
+    /// still have to be translated whole. Returns the input unchanged when
+    /// the active pack is CJK, the key has no CJK, or nothing matches.
+    /// Results are memoized per language (bounded); the returned string is
+    /// owned, unlike Translate's view into the pack.
+    [[nodiscard]] std::string TranslateSegmented(std::string_view key) const;
+
     [[nodiscard]] std::size_t LanguageCount() const { return languages_.size(); }
     [[nodiscard]] const LanguagePack *GetLanguage(std::size_t index) const;
     [[nodiscard]] std::size_t EntryCount(std::string_view code) const;
@@ -66,7 +78,22 @@ public:
 
     void Clear();
 
+    ~I18n();
+
 private:
+    // Segment index + result memo for TranslateSegmented, one per language
+    // code. `key`/`value` point into the pack's entries (unordered_map nodes
+    // are stable); caches are dropped wholesale on pack reload.
+    struct SegCache {
+        struct Entry {
+            const std::string *key;
+            const std::string *value;
+        };
+        std::unordered_map<unsigned, std::vector<Entry>> by_first;
+        bool built = false;
+        std::unordered_map<std::string, std::string> memo;
+    };
+
     LanguagePack *Find(std::string_view code);
     [[nodiscard]] const LanguagePack *Find(std::string_view code) const;
 
@@ -76,6 +103,9 @@ private:
     // Filled from const Translate() calls (diagnostics, not game state).
     mutable std::unordered_set<std::string> missing_;
     mutable std::vector<std::string> missing_order_;
+    // Per-language segment index + result memo for TranslateSegmented,
+    // keyed by language code so pack reloads only drop that pack's cache.
+    mutable std::unordered_map<std::string, SegCache> seg_caches_;
 };
 
 } // namespace fake2d

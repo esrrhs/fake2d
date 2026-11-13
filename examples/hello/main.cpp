@@ -3599,6 +3599,9 @@ int RunPlatformTest(fake2d::Engine &engine) {
         std::ofstream en(lang_dir / "en.tsv", std::ios::binary);
         en << "# name: English\n"
               "Hello\tHi\n"
+              "存档\tSave\n"
+              "太仓\tTreasury\n"
+              "加派\tSurcharge\n"
               "Broken line without a tab\n";
     }
 
@@ -3626,6 +3629,25 @@ int RunPlatformTest(fake2d::Engine &engine) {
     check(i18n.LoadFile((root / "en_mod.tsv").string(), "en") == 1,
           "mod file appends entries");
     check(i18n.Translate("Hello") == "Hey", "later files override");
+
+    // ---- segmented fallback (CJK source -> non-CJK pack) -------------------
+    // en is active here. Whole-string misses get dictionary longest-match.
+    check(i18n.TranslateSegmented("存档太仓") == "Save Treasury",
+          "segmented: adjacent CJK terms translate piecewise");
+    check(i18n.TranslateSegmented("存档。") == "Save.",
+          "segmented: full-width punctuation maps west");
+    check(i18n.TranslateSegmented("你好存档") == "你好Save",
+          "segmented: unmatched CJK passes through verbatim");
+    check(i18n.TranslateSegmented("加派税") == "Surcharge税",
+          "segmented: partial term leaves the tail in place");
+    check(i18n.TranslateSegmented("Hello World") == "Hello World",
+          "segmented: non-CJK miss passes through");
+    check(i18n.TranslateSegmented("Hello") == "Hey",
+          "segmented: exact hit still wins over fallback");
+    i18n.SetLanguage("zh");
+    check(i18n.TranslateSegmented("存档太仓") == "存档太仓",
+          "segmented: CJK pack never segments");
+    i18n.SetLanguage("en");
 
     // UTF-8 BOM: editors on Windows write one; it must not corrupt the first
     // comment/key.
