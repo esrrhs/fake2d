@@ -6,6 +6,7 @@ set(FAKE2D_SOURCES
     core/save_store.cpp
     core/entity_store.cpp
     core/i18n.cpp
+    core/text_utils.cpp
     core/app_paths.cpp
     core/log.cpp
     core/achievements.cpp

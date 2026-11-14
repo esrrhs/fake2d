@@ -94,9 +94,14 @@ public:
 
     /// Submit glyph quads into the batch. (x, y) is the top-left of the line
     /// box; scale multiplies the rasterized pixel height. Returns the end pen x.
+    /// With snap_pixels the quad origin of every glyph is rounded to the
+    /// device-pixel grid: fractional pen positions would otherwise be
+    /// bilinear-sampled into blur at small sizes. Advances stay unrounded so
+    /// measure() and draw() agree; only the emitted quads move.
     float DrawText(SpriteBatch &batch, std::string_view text,
                    float x, float y, float scale = 1.0f,
-                   const Color &tint = Color::White(), bool kerning = true) const;
+                   const Color &tint = Color::White(), bool kerning = true,
+                   bool snap_pixels = false) const;
 
     /// Alignment for DrawTextEx: 0 = left, 1 = centered, 2 = right.
     enum TextAlign { AlignLeft = 0, AlignCenter = 1, AlignRight = 2 };
@@ -105,10 +110,11 @@ public:
     /// (width = wrap_width); align places each line inside the box. Latin
     /// words wrap at spaces; CJK runs wrap between characters. A single word
     /// longer than wrap_width still occupies its own line. Returns the y just
-    /// below the last line (next line's top).
+    /// below the last line (next line's top). See DrawText for snap_pixels.
     float DrawTextEx(SpriteBatch &batch, std::string_view text,
                      float x, float y, float scale, int align, float wrap_width,
-                     const Color &tint = Color::White()) const;
+                     const Color &tint = Color::White(),
+                     bool snap_pixels = false) const;
 
     /// Height text would occupy when laid out exactly as DrawTextEx places it
     /// (lines × line height at this scale), without submitting any quads.

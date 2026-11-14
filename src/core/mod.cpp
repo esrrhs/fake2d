@@ -27,11 +27,18 @@ bool ReadManifest(const std::filesystem::path &dir, ModManager::ModInfo &info) {
     if (!doc.is_object()) {
         return false;
     }
-    info.path = dir.string();
-    info.name = doc.value("name", dir.filename().string());
-    info.version = doc.value("version", std::string{});
-    info.enabled = doc.value("enabled", true);
-    info.load_order = doc.value("load_order", 0);
+    // A present-but-wrong-typed field (e.g. "enabled": "yes") would throw
+    // type_error from value(); a bad manifest must skip the mod, not
+    // terminate the host.
+    try {
+        info.path = dir.string();
+        info.name = doc.value("name", dir.filename().string());
+        info.version = doc.value("version", std::string{});
+        info.enabled = doc.value("enabled", true);
+        info.load_order = doc.value("load_order", 0);
+    } catch (const std::exception &) {
+        return false;
+    }
     return !info.name.empty();
 }
 

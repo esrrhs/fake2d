@@ -535,7 +535,8 @@ float Font::MeasureText(std::string_view text, bool kerning) const {
 }
 
 float Font::DrawText(SpriteBatch &batch, std::string_view text,
-                     float x, float y, float scale, const Color &tint, bool kerning) const {
+                     float x, float y, float scale, const Color &tint, bool kerning,
+                     bool snap_pixels) const {
     if (!texture_.IsValid()) {
         return x;
     }
@@ -555,17 +556,33 @@ float Font::DrawText(SpriteBatch &batch, std::string_view text,
         if (!glyph) {
             continue;
         }
-        pen_x += kerning ? KernAdvance(previous, glyph) : 0;
+        // Kern is measured at PixelHeight like advance, so it must scale with
+        // the draw scale too — otherwise DrawText at scale != 1 disagrees with
+        // MeasureText() * scale for kerned pairs.
+        pen_x += kerning ? KernAdvance(previous, glyph) * scale : 0;
         if (glyph->atlas.width > 0.0f && glyph->atlas.height > 0.0f) {
-            const Vec2 corners[4] = {
-                {pen_x + glyph->offset.x * scale, y + glyph->offset.y * scale},
-                {pen_x + (glyph->offset.x + glyph->size.x) * scale,
-                 y + glyph->offset.y * scale},
-                {pen_x + (glyph->offset.x + glyph->size.x) * scale,
-                 y + (glyph->offset.y + glyph->size.y) * scale},
-                {pen_x + glyph->offset.x * scale,
-                 y + (glyph->offset.y + glyph->size.y) * scale},
-            };
+            Vec2 corners[4];
+            if (snap_pixels) {
+                // Snap rounds only the quad origin; advances stay fractional
+                // so measure() and draw() walk the same pen. Right/bottom
+                // edges grow from the rounded origin (a rounded origin plus
+                // the unrounded size is what a sprite-style draw produces).
+                const float gx = std::round(pen_x + glyph->offset.x * scale);
+                const float gy = std::round(y + glyph->offset.y * scale);
+                corners[0] = {gx, gy};
+                corners[1] = {gx + glyph->size.x * scale, gy};
+                corners[2] = {gx + glyph->size.x * scale, gy + glyph->size.y * scale};
+                corners[3] = {gx, gy + glyph->size.y * scale};
+            } else {
+                corners[0] = {pen_x + glyph->offset.x * scale,
+                              y + glyph->offset.y * scale};
+                corners[1] = {pen_x + (glyph->offset.x + glyph->size.x) * scale,
+                              y + glyph->offset.y * scale};
+                corners[2] = {pen_x + (glyph->offset.x + glyph->size.x) * scale,
+                              y + (glyph->offset.y + glyph->size.y) * scale};
+                corners[3] = {pen_x + glyph->offset.x * scale,
+                              y + (glyph->offset.y + glyph->size.y) * scale};
+            }
             const Rect &a = glyph->atlas;
             const Vec2 uvs[4] = {
                 {a.x / atlas_w, a.y / atlas_h},
@@ -634,7 +651,7 @@ float Font::DrawTextRotated(SpriteBatch &batch, std::string_view text,
 
 float Font::DrawTextEx(SpriteBatch &batch, std::string_view text,
                        float x, float y, float scale, int align, float wrap_width,
-                       const Color &tint) const {
+                       const Color &tint, bool snap_pixels) const {
     if (!texture_.IsValid()) {
         return y;
     }
@@ -647,7 +664,7 @@ float Font::DrawTextEx(SpriteBatch &batch, std::string_view text,
         } else if (align == AlignRight) {
             ox = -w;
         }
-        DrawText(batch, text, x + ox, y, scale, tint);
+        DrawText(batch, text, x + ox, y, scale, tint, true, snap_pixels);
         return y + line_height_ * scale;
     }
 
@@ -749,7 +766,7 @@ float Font::DrawTextEx(SpriteBatch &batch, std::string_view text,
         } else if (align == AlignRight) {
             ox = wrap_width - w;
         }
-        DrawText(batch, line, x + ox, pen_y, scale, tint);
+        DrawText(batch, line, x + ox, pen_y, scale, tint, true, snap_pixels);
         pen_y += lh;
 
         i = scan;
