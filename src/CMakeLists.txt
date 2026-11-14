@@ -44,7 +44,8 @@ set(FAKE2D_SOURCES
 
 if (FAKE2D_WITH_FAKELUA)
     list(APPEND FAKE2D_SOURCES
-        script/script_host.cpp
+        script/rule_host.cpp
+    script/script_host.cpp
         script/script_bindings.cpp
     )
 else ()
