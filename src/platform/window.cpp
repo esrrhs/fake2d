@@ -28,6 +28,12 @@ bool Window::CreateGLFW(const WindowDesc &desc, int major, int minor, bool core_
     }
     if (desc.headless) {
         glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+#if defined(__APPLE__)
+        // Headless 截图必须与显示器 backing scale 无关：Retina 屏会把不可见窗口的
+        // framebuffer 放大到 2x，而 content scale 随显示状态在 1x/2x 间漂移（逐进程
+        // 不定），截图基线因此不可复现。headless 钉死 1x，可见窗口不受影响。
+        glfwWindowHint(GLFW_COCOA_RETINA_FRAMEBUFFER, GLFW_FALSE);
+#endif
     }
     glfwWindowHint(GLFW_RESIZABLE, desc.resizable ? GLFW_TRUE : GLFW_FALSE);
 
