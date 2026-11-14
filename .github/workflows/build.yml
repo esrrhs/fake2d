@@ -435,7 +435,7 @@ jobs:
 
       - name: Installed package is consumable by another project
         run: |
-          # Shared find_package(fake2d 1.54) consumer (tools/verify-consumer.sh
+          # Shared find_package(fake2d 1.55) consumer (tools/verify-consumer.sh
           # and tools/consumer). The same gate is required on macOS and Windows.
           # FakeLua must be findable -- a real requirement on consumers, not a
           # test artifact -- so FLINSTALL is on CMAKE_PREFIX_PATH.
@@ -693,7 +693,7 @@ jobs:
 
       # Shared required gates. Same scripts as Linux: CTest (31 suites, both
       # UI stress seeds, ui-bench, win_macro_compat), dynamic UI demo
-      # acceptance, catalog script-error scan, JIT/GL smoke, and the 1.54
+      # acceptance, catalog script-error scan, JIT/GL smoke, and the 1.55
       # find_package consumer. CGL/llvmpipe failures are blocking.
       - name: Headless test suites (ctest)
         if: runner.os == 'macOS'

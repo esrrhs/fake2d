@@ -139,8 +139,8 @@ done
 
 run_check ui-stress --headless --ui-stress --frames 300 --ui-stress-seed 42
 run_check ui-bench --headless --ui-bench
-# The staged binary must be the 1.54 release and execute its portable complexity gate.
-grep -F 'version=1.54.0' "$TMP/ui-bench.log" >/dev/null || fail "stale UI package version"
+# The staged binary must be the 1.55 release and execute its portable complexity gate.
+grep -F 'version=1.55.0' "$TMP/ui-bench.log" >/dev/null || fail "stale UI package version"
 grep -F 'rich_batches_max=' "$TMP/ui-bench.log" >/dev/null || fail "missing rich batch counters"
 
 run_check art --art-test

@@ -356,6 +356,16 @@ void Input::NewFrame(void *native_window) {
         ApplyAiOverlay(true);
         return;
     }
+    if (glfwGetWindowAttrib(window, GLFW_VISIBLE) == GLFW_FALSE) {
+        // An invisible (headless) window never receives real input events,
+        // but macOS still maps the global cursor into its coordinate space —
+        // polling would make hover states follow the physical pointer, so
+        // screenshot baselines differed run to run with the same binary and
+        // seed. Treat it like no window at all: only InjectFrame and the AI
+        // overlay feed the snapshot.
+        ApplyAiOverlay(true);
+        return;
+    }
 
     std::copy(keys_, keys_ + kKeyCount, prev_keys_);
     std::copy(buttons_, buttons_ + kButtonCount, prev_buttons_);

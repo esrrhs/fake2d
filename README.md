@@ -7,7 +7,7 @@
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-brightgreen.svg)](https://en.cppreference.com/w/cpp/23)
 [![OpenGL](https://img.shields.io/badge/OpenGL-3.3%20Core%20%7C%202.1-orange.svg)](https://www.opengl.org/)
 [![FakeLua](https://img.shields.io/badge/Script-FakeLua-red.svg)](https://github.com/esrrhs/fakelua)
-[![Version](https://img.shields.io/badge/version-1.54.0-informational.svg)](include/fake2d/version.h)
+[![Version](https://img.shields.io/badge/version-1.55.0-informational.svg)](include/fake2d/version.h)
 
 **Fake2D** is a modern, lightweight, high-performance 2D game engine powered by [FakeLua](https://github.com/esrrhs/fakelua):
 - **C++23 Host Engine**: Controls window management, GPU rendering pipelines, 2D physics, multi-bus audio mixing, and native resource lifecycles;
@@ -168,7 +168,7 @@ cmake --install build
 Other projects no longer need the fake2d sources; `find_package` is enough:
 
 ```cmake
-find_package(fake2d 1.54 REQUIRED CONFIG)
+find_package(fake2d 1.55 REQUIRED CONFIG)
 add_executable(my_game main.cpp)
 target_link_libraries(my_game PRIVATE fake2d::fake2d)   # GLFW/OpenGL/FakeLua come along automatically
 ```
@@ -311,7 +311,7 @@ that round trip about a second instead of five; `--jit` compiles natively anyway
 
 ### Headless Verification & Testing
 
-Fake2D supports first-class headless execution in display-less CI environments (e.g. Linux with xvfb). The Build workflow uses the same shared entry points on Linux (Xvfb/llvmpipe), macOS (CGL FBO) and Windows (Mesa llvmpipe): `ctest` (the 31 suites, both `--ui-stress` seeds, `--ui-bench`, and `fake2d-win-macro-compat`), `tools/check_ui_demos.py`, `tools/run_demo_scripts.py` (exit code plus `syntax error` / `CompileFile` / `update()` log scan), `tools/run_gpu_smoke.py`, and `tools/verify-consumer.sh` (`find_package(fake2d 1.54)`). Long gameplay milestone screenshots and full staged-package `tools/verify-package.sh` stay Linux-only on Build. A short `linux assets` job uploads the generated maps so macOS/Windows do not wait for the full Linux test gate; `linux tests` starts in parallel. Fakelua installs are cached under a key that includes image, arch, compiler, OpenSSL and `FAKELUA_REF`. The cache also stores TinyCC's runtime headers (`lib/tcc/include`) and rematerializes them at libtcc's baked `CONFIG_TCCDIR` after a restore, so TCC/INTERP fixtures still compile once the build tree is gone. `tools/check-docs.py --ctest-log` reuses CTest PASS counts instead of running the 31 suites twice. These headless gates use the in-memory Input clipboard and injected focus/gamepad events; they are not a real-desktop clipboard, physical gamepad, or IME composition pass. GLFW 3.4 still has no public preedit API, so inline IME preview remains unsupported.
+Fake2D supports first-class headless execution in display-less CI environments (e.g. Linux with xvfb). The Build workflow uses the same shared entry points on Linux (Xvfb/llvmpipe), macOS (CGL FBO) and Windows (Mesa llvmpipe): `ctest` (the 31 suites, both `--ui-stress` seeds, `--ui-bench`, and `fake2d-win-macro-compat`), `tools/check_ui_demos.py`, `tools/run_demo_scripts.py` (exit code plus `syntax error` / `CompileFile` / `update()` log scan), `tools/run_gpu_smoke.py`, and `tools/verify-consumer.sh` (`find_package(fake2d 1.55)`). Long gameplay milestone screenshots and full staged-package `tools/verify-package.sh` stay Linux-only on Build. A short `linux assets` job uploads the generated maps so macOS/Windows do not wait for the full Linux test gate; `linux tests` starts in parallel. Fakelua installs are cached under a key that includes image, arch, compiler, OpenSSL and `FAKELUA_REF`. The cache also stores TinyCC's runtime headers (`lib/tcc/include`) and rematerializes them at libtcc's baked `CONFIG_TCCDIR` after a restore, so TCC/INTERP fixtures still compile once the build tree is gone. `tools/check-docs.py --ctest-log` reuses CTest PASS counts instead of running the 31 suites twice. These headless gates use the in-memory Input clipboard and injected focus/gamepad events; they are not a real-desktop clipboard, physical gamepad, or IME composition pass. GLFW 3.4 still has no public preedit API, so inline IME preview remains unsupported.
 
 
 ```bash

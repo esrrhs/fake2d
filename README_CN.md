@@ -7,7 +7,7 @@
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-brightgreen.svg)](https://en.cppreference.com/w/cpp/23)
 [![OpenGL](https://img.shields.io/badge/OpenGL-3.3%20Core%20%7C%202.1-orange.svg)](https://www.opengl.org/)
 [![FakeLua](https://img.shields.io/badge/Script-FakeLua-red.svg)](https://github.com/esrrhs/fakelua)
-[![Version](https://img.shields.io/badge/version-1.54.0-informational.svg)](include/fake2d/version.h)
+[![Version](https://img.shields.io/badge/version-1.55.0-informational.svg)](include/fake2d/version.h)
 
 **Fake2D** 是基于 [FakeLua](https://github.com/esrrhs/fakelua) 驱动的现代化、轻量级、高性能 2D 游戏引擎：
 - **C++23 宿主引擎**：掌管窗口管理、GPU 渲染管线、空间物理、音频混音与底层资源生命周期；
@@ -182,7 +182,7 @@ cmake --install build
 其他工程从此无需引用 fake2d 源码，`find_package` 一行接入：
 
 ```cmake
-find_package(fake2d 1.54 REQUIRED CONFIG)
+find_package(fake2d 1.55 REQUIRED CONFIG)
 add_executable(my_game main.cpp)
 target_link_libraries(my_game PRIVATE fake2d::fake2d)   # GLFW/OpenGL/FakeLua 随之自动链上
 ```
@@ -289,7 +289,7 @@ target_link_libraries(my_game PRIVATE fake2d::fake2d)   # GLFW/OpenGL/FakeLua �
 
 ### 无头模式与自动化 CI 验证（Headless & Testing）
 
-Fake2D 原生支持无头运行模式，可在无物理显示器的 CI 上完整运行图形与逻辑。Build 工作流在 Linux（Xvfb/llvmpipe）、macOS（CGL FBO）和 Windows（Mesa llvmpipe）上共用同一组入口：`ctest`（31 组套件、两个 `--ui-stress` seed、`--ui-bench` 与 `fake2d-win-macro-compat`）、`tools/check_ui_demos.py`、`tools/run_demo_scripts.py`（退出码加上 `syntax error` / `CompileFile` / `update()` 日志扫描）、`tools/run_gpu_smoke.py`，以及 `tools/verify-consumer.sh`（`find_package(fake2d 1.54)`）。长游戏里程碑截图和完整的 staged 包 `tools/verify-package.sh` 仍只在 Linux Build 上强制执行。短的 `linux assets` 任务只负责上传生成的地图，这样 macOS/Windows 不必等完整 Linux 测试门禁；`linux tests` 与它并行启动。fakelua 安装树按镜像、架构、编译器、OpenSSL 和 `FAKELUA_REF` 缓存。缓存同时保存 TinyCC 运行时头文件（`lib/tcc/include`），并在恢复后把它们放回 libtcc 编译进二进制的 `CONFIG_TCCDIR`，这样构建树不在时 TCC/INTERP fixture 仍能编译。`tools/check-docs.py --ctest-log` 复用 CTest 的 PASS 计数，不再把 31 组套件跑第二遍。这些无头门使用内存剪贴板和注入的焦点/手柄事件，并不表示已在真实桌面上验收过系统剪贴板、物理手柄或 IME 组合预览。GLFW 3.4 仍无公开 preedit API，行内 IME 预览仍明确未实现。
+Fake2D 原生支持无头运行模式，可在无物理显示器的 CI 上完整运行图形与逻辑。Build 工作流在 Linux（Xvfb/llvmpipe）、macOS（CGL FBO）和 Windows（Mesa llvmpipe）上共用同一组入口：`ctest`（31 组套件、两个 `--ui-stress` seed、`--ui-bench` 与 `fake2d-win-macro-compat`）、`tools/check_ui_demos.py`、`tools/run_demo_scripts.py`（退出码加上 `syntax error` / `CompileFile` / `update()` 日志扫描）、`tools/run_gpu_smoke.py`，以及 `tools/verify-consumer.sh`（`find_package(fake2d 1.55)`）。长游戏里程碑截图和完整的 staged 包 `tools/verify-package.sh` 仍只在 Linux Build 上强制执行。短的 `linux assets` 任务只负责上传生成的地图，这样 macOS/Windows 不必等完整 Linux 测试门禁；`linux tests` 与它并行启动。fakelua 安装树按镜像、架构、编译器、OpenSSL 和 `FAKELUA_REF` 缓存。缓存同时保存 TinyCC 运行时头文件（`lib/tcc/include`），并在恢复后把它们放回 libtcc 编译进二进制的 `CONFIG_TCCDIR`，这样构建树不在时 TCC/INTERP fixture 仍能编译。`tools/check-docs.py --ctest-log` 复用 CTest 的 PASS 计数，不再把 31 组套件跑第二遍。这些无头门使用内存剪贴板和注入的焦点/手柄事件，并不表示已在真实桌面上验收过系统剪贴板、物理手柄或 IME 组合预览。GLFW 3.4 仍无公开 preedit API，行内 IME 预览仍明确未实现。
 
 
 ```bash
