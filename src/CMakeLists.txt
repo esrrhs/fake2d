@@ -5,7 +5,9 @@ set(FAKE2D_SOURCES
     core/resource_manager.cpp
     core/save_store.cpp
     core/entity_store.cpp
+    core/font_set.cpp
     core/i18n.cpp
+    core/province_map.cpp
     core/text_utils.cpp
     core/app_paths.cpp
     core/log.cpp
