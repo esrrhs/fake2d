@@ -172,6 +172,43 @@ bool RuleHost::CompilePrelude(const std::string &path, const char *push_rule, co
     return true;
 }
 
+bool RuleHost::CompileSetWithFallback(const std::vector<std::string> &files, bool &gcc,
+                                      const char *log_prefix, const ProgressFn &notify,
+                                      const std::function<void()> &on_retry, const LintTagFn &lint_tag) {
+    std::string failed_path, failed_err;
+    auto try_pass = [&](bool use_gcc) {
+        fakelua::CompileConfig cc;
+        cc.debug_mode = false;
+        cc.disable_jit[fakelua::JIT_TCC] = true;
+        if (!use_gcc) cc.disable_jit[fakelua::JIT_GCC] = true;
+        for (const auto &p : files) {
+            if (notify) notify(p);
+            try {
+                fakelua::CompileFile(impl_->state, p, cc);
+            } catch (const std::exception &e) {
+                failed_path = p;
+                failed_err = e.what();
+                return false;
+            }
+        }
+        return true;
+    };
+    if (try_pass(gcc)) {
+        for (const auto &p : files) LintUnit(impl_->state, p, lint_tag(p).c_str(), impl_->check);
+        return true;
+    }
+    const std::string gcc_err = failed_err, gcc_path = failed_path;
+    if (on_retry) on_retry();
+    gcc = false;
+    if (try_pass(false)) {
+        for (const auto &p : files) LintUnit(impl_->state, p, lint_tag(p).c_str(), impl_->check);
+        return true;
+    }
+    host_log(std::string(log_prefix) + ": compile " + gcc_path + " failed: " + gcc_err +
+             "; interpreter: " + failed_err);
+    return false;
+}
+
 bool RuleHost::HasEntry(const char *rule, bool gcc) const {
     return fakelua::HasEntryFunction(impl_->state, gcc ? fakelua::JIT_GCC : fakelua::JIT_INTERP, rule) ||
            fakelua::HasEntryFunction(impl_->state, fakelua::JIT_INTERP, rule);

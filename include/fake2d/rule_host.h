@@ -51,6 +51,17 @@ class RuleHost {
     /// "<prefix>: compile <path> failed: …" / "<prefix>: <push> missing in <path>"。
     bool CompilePrelude(const std::string &path, const char *push_rule, const char *log_prefix);
 
+    /// 一组上下文分块的后端回落：全组先按 *gcc 逐个编译（notify 逐文件回报）；
+    /// 任一失败则 on_retry()（宿主借此卷回进度）、*gcc 置 false，全组从头按解释器
+    /// 重编（FakeLua 允许重定义；按名调用必须同后端）。两边都失败打
+    /// "<prefix>: compile <path> failed: <gcc>; interpreter: <interp>" 并返回 false。
+    /// 全组成功后按最终后端逐文件 lint。lint_tag 由调用方按路径给出。
+    using ProgressFn = std::function<void(const std::string &path)>;
+    using LintTagFn = std::function<std::string(const std::string &path)>;
+    bool CompileSetWithFallback(const std::vector<std::string> &files, bool &gcc, const char *log_prefix,
+                                const ProgressFn &notify, const std::function<void()> &on_retry,
+                                const LintTagFn &lint_tag);
+
     bool HasEntry(const char *rule, bool gcc) const;
 
   private:
