@@ -38,31 +38,34 @@ class RuleHost {
     /// lint 已注册名表（装载期点名用，可空 = 跳过 lint 的原生核对）。
     void SetNativeChecker(NativeChecker check);
 
-    /// 编译单文件并 lint。gcc=false 走解释器。失败打
-    /// "<prefix>: compile <path> failed: <what>" 并返回 false。
-    bool CompileUnit(const std::string &path, bool gcc, const char *log_prefix, const char *lint_tag);
+    /// 编译单文件。interp=true 走解释器（默认口径），false 试 GCC-JIT。失败打
+    /// "<prefix>: compile <path> failed: <what>" 并返回 false。lint 由调用方按
+    /// 「全族编译完再点名」的时序调 LintUnit（跨文件引用的 Lua 函数须先全部编入）。
+    bool CompileUnit(const std::string &path, bool interp, const char *log_prefix);
 
-    /// 后端回落梯子：*gcc 为真时先编 GCC，失败自动置 false 退解释器重编；两边都失败
-    /// 打 "<prefix>: compile <path> failed: <gcc>; interpreter: <interp>" 并返回 false。
-    bool CompileUnitWithFallback(const std::string &path, bool &gcc, const char *log_prefix,
-                                 const char *lint_tag);
+    /// 单文件 lint：按名收集 md_*/u_* 调用点，未注册且无任何后端入口的原语逐个点名。
+    void LintUnit(const std::string &path, const char *lint_tag);
 
-    /// data.lua 式前导件：强制解释器编译 + 入口检查 + 调用推送规则。失败分别打
-    /// "<prefix>: compile <path> failed: …" / "<prefix>: <push> missing in <path>"。
+    /// 后端回落梯子：*interp 为 false 时先编 GCC，失败自动置 true 退解释器重编；两边都
+    /// 失败打 "<prefix>: compile <path> failed: <gcc>; interpreter: <interp>" 并返回 false。
+    bool CompileUnitWithFallback(const std::string &path, bool &interp, const char *log_prefix);
+
+    /// data.lua 式前导件：强制解释器编译 + 入口检查 + 调用推送规则（含 lint）。
+    /// 失败分别打 "<prefix>: compile <path> failed: …" / "<prefix>: <push> missing in <path>"。
     bool CompilePrelude(const std::string &path, const char *push_rule, const char *log_prefix);
 
-    /// 一组上下文分块的后端回落：全组先按 *gcc 逐个编译（notify 逐文件回报）；
-    /// 任一失败则 on_retry()（宿主借此卷回进度）、*gcc 置 false，全组从头按解释器
+    /// 一组上下文分块的后端回落：全组先按 *interp 逐个编译（notify 逐文件回报）；
+    /// 任一失败则 on_retry()（宿主借此卷回进度）、*interp 置 true，全组从头按解释器
     /// 重编（FakeLua 允许重定义；按名调用必须同后端）。两边都失败打
     /// "<prefix>: compile <path> failed: <gcc>; interpreter: <interp>" 并返回 false。
     /// 全组成功后按最终后端逐文件 lint。lint_tag 由调用方按路径给出。
     using ProgressFn = std::function<void(const std::string &path)>;
     using LintTagFn = std::function<std::string(const std::string &path)>;
-    bool CompileSetWithFallback(const std::vector<std::string> &files, bool &gcc, const char *log_prefix,
+    bool CompileSetWithFallback(const std::vector<std::string> &files, bool &interp, const char *log_prefix,
                                 const ProgressFn &notify, const std::function<void()> &on_retry,
                                 const LintTagFn &lint_tag);
 
-    bool HasEntry(const char *rule, bool gcc) const;
+    bool HasEntry(const char *rule, bool interp) const;
 
   private:
     struct Impl;

@@ -65,8 +65,8 @@ std::vector<std::string> RuleHost::DiscoverChunks(const std::string &dir, std::s
 
 // 装载期把脚本里按名调用的原语逐个核对：FakeLua 对未注册名不报错（按名调用回 0/nil），
 // 拼错一个名字就是「判定悄悄走了另一支」——位对拍与像素门禁都看不出来。干净时一行不打。
-static void LintUnit(fakelua::State *state, const std::string &path, const char *lint_tag,
-                     const RuleHost::NativeChecker &check) {
+static void LintUnitImpl(fakelua::State *state, const std::string &path, const std::string &lint_tag,
+                         const RuleHost::NativeChecker &check) {
     std::ifstream in(path);
     if (!in) return;
     std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
@@ -97,29 +97,30 @@ static void LintUnit(fakelua::State *state, const std::string &path, const char 
     }
 }
 
-bool RuleHost::CompileUnit(const std::string &path, bool gcc, const char *log_prefix, const char *lint_tag) {
+bool RuleHost::CompileUnit(const std::string &path, bool interp, const char *log_prefix) {
     fakelua::CompileConfig cc;
     cc.debug_mode = false;
     cc.disable_jit[fakelua::JIT_TCC] = true;
-    if (!gcc) cc.disable_jit[fakelua::JIT_GCC] = true;
+    if (interp) cc.disable_jit[fakelua::JIT_GCC] = true;
     try {
         fakelua::CompileFile(impl_->state, path, cc);
     } catch (const std::exception &e) {
         host_log(std::string(log_prefix) + ": compile " + path + " failed: " + e.what());
         return false;
     }
-    LintUnit(impl_->state, path, lint_tag, impl_->check);
     return true;
 }
 
-bool RuleHost::CompileUnitWithFallback(const std::string &path, bool &gcc, const char *log_prefix,
-                                       const char *lint_tag) {
+void RuleHost::LintUnit(const std::string &path, const char *lint_tag) {
+}
+
+bool RuleHost::CompileUnitWithFallback(const std::string &path, bool &interp, const char *log_prefix) {
     std::string first_err;
     {
         fakelua::CompileConfig cc;
         cc.debug_mode = false;
         cc.disable_jit[fakelua::JIT_TCC] = true;
-        if (!gcc) cc.disable_jit[fakelua::JIT_GCC] = true;
+        if (interp) cc.disable_jit[fakelua::JIT_GCC] = true;
         try {
             fakelua::CompileFile(impl_->state, path, cc);
         } catch (const std::exception &e) {
@@ -127,10 +128,9 @@ bool RuleHost::CompileUnitWithFallback(const std::string &path, bool &gcc, const
         }
     }
     if (first_err.empty()) {
-        LintUnit(impl_->state, path, lint_tag, impl_->check);
         return true;
     }
-    gcc = false;   // 后端回落：GCC 编不过整层退解释器，上下文脚本必须同一后端
+    interp = true;   // 后端回落：GCC 编不过整层退解释器，上下文脚本必须同一后端
     fakelua::CompileConfig cc;
     cc.debug_mode = false;
     cc.disable_jit[fakelua::JIT_TCC] = true;
@@ -142,7 +142,6 @@ bool RuleHost::CompileUnitWithFallback(const std::string &path, bool &gcc, const
                  "; interpreter: " + e.what());
         return false;
     }
-    LintUnit(impl_->state, path, lint_tag, impl_->check);
     return true;
 }
 
@@ -157,7 +156,7 @@ bool RuleHost::CompilePrelude(const std::string &path, const char *push_rule, co
         host_log(std::string(log_prefix) + ": compile " + path + " failed: " + e.what());
         return false;
     }
-    LintUnit(impl_->state, path, std::filesystem::path(path).filename().string().c_str(), impl_->check);
+    LintUnitImpl(impl_->state, path, std::filesystem::path(path).filename().string().c_str(), impl_->check);
     if (!fakelua::HasEntryFunction(impl_->state, fakelua::JIT_INTERP, push_rule)) {
         host_log(std::string(log_prefix) + ": " + push_rule + " missing in " + path);
         return false;
@@ -172,15 +171,15 @@ bool RuleHost::CompilePrelude(const std::string &path, const char *push_rule, co
     return true;
 }
 
-bool RuleHost::CompileSetWithFallback(const std::vector<std::string> &files, bool &gcc,
+bool RuleHost::CompileSetWithFallback(const std::vector<std::string> &files, bool &interp,
                                       const char *log_prefix, const ProgressFn &notify,
                                       const std::function<void()> &on_retry, const LintTagFn &lint_tag) {
     std::string failed_path, failed_err;
-    auto try_pass = [&](bool use_gcc) {
+    auto try_pass = [&](bool use_interp) {
         fakelua::CompileConfig cc;
         cc.debug_mode = false;
         cc.disable_jit[fakelua::JIT_TCC] = true;
-        if (!use_gcc) cc.disable_jit[fakelua::JIT_GCC] = true;
+        if (use_interp) cc.disable_jit[fakelua::JIT_GCC] = true;
         for (const auto &p : files) {
             if (notify) notify(p);
             try {
@@ -193,15 +192,15 @@ bool RuleHost::CompileSetWithFallback(const std::vector<std::string> &files, boo
         }
         return true;
     };
-    if (try_pass(gcc)) {
-        for (const auto &p : files) LintUnit(impl_->state, p, lint_tag(p).c_str(), impl_->check);
+    if (try_pass(interp)) {
+        for (const auto &p : files) LintUnitImpl(impl_->state, p, lint_tag(p).c_str(), impl_->check);
         return true;
     }
     const std::string gcc_err = failed_err, gcc_path = failed_path;
     if (on_retry) on_retry();
-    gcc = false;
-    if (try_pass(false)) {
-        for (const auto &p : files) LintUnit(impl_->state, p, lint_tag(p).c_str(), impl_->check);
+    interp = true;
+    if (try_pass(true)) {
+        for (const auto &p : files) LintUnitImpl(impl_->state, p, lint_tag(p).c_str(), impl_->check);
         return true;
     }
     host_log(std::string(log_prefix) + ": compile " + gcc_path + " failed: " + gcc_err +
@@ -209,8 +208,8 @@ bool RuleHost::CompileSetWithFallback(const std::vector<std::string> &files, boo
     return false;
 }
 
-bool RuleHost::HasEntry(const char *rule, bool gcc) const {
-    return fakelua::HasEntryFunction(impl_->state, gcc ? fakelua::JIT_GCC : fakelua::JIT_INTERP, rule) ||
+bool RuleHost::HasEntry(const char *rule, bool interp) const {
+    return fakelua::HasEntryFunction(impl_->state, interp ? fakelua::JIT_INTERP : fakelua::JIT_GCC, rule) ||
            fakelua::HasEntryFunction(impl_->state, fakelua::JIT_INTERP, rule);
 }
 

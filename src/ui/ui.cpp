@@ -1102,10 +1102,11 @@ float UISystem::Text(std::string_view text, float scale, UITextOverflow overflow
     if (needs_text_clip) {
         clips.push_back({{box.content.x, box.content.y, width, box.content.height}, active_scrolls_});
     }
+    const bool deferred = !scrolls_.empty() || deferred_ > 0;
     const auto ids = active_scrolls_;
     auto command = [this, drawn = std::move(drawn), x, y, used, width, wrap, align, text_color,
-                    height, clips = std::move(clips), ids, needs_text_clip]() {
-        if (needs_text_clip)
+                    height, clips = std::move(clips), ids, needs_text_clip, deferred]() {
+        if (needs_text_clip || deferred)
             ApplyLayoutClip(clips);
         if (height > 0)
             renderer_->DrawTextEx(drawn, x * scale_ + scale_offset_.x,
@@ -1113,7 +1114,7 @@ float UISystem::Text(std::string_view text, float scale, UITextOverflow overflow
                                   used * scale_, wrap ? align : 0, wrap ? width * scale_ : 0,
                                   text_color);
     };
-    if (scrolls_.empty() && deferred_ == 0) {
+    if (!deferred) {
         command();
         if (needs_text_clip)
             ApplyLayoutClip(box.clips);
