@@ -522,13 +522,8 @@ void Renderer::SetClipRect(const Rect &points_rect) {
     if (!ready_) {
         return;
     }
-    // Clip state is sampled at flush time, but quads/lines may sit buffered
-    // across the boundary — flush first so a rect only ever clips the draws
-    // submitted while it is active.
-    batch_.Flush();
-    batch_.FlushLines();
     if (points_rect.width <= 0.0f || points_rect.height <= 0.0f) {
-        batch_.ClearClipRect();
+        ClearClipRect();
         return;
     }
     // Logical points (top-left origin) -> GL window coords (physical pixels,
@@ -538,19 +533,36 @@ void Renderer::SetClipRect(const Rect &points_rect) {
     const float cs = target ? 1.0f : camera_.ContentScale();
     const float surface_height = target ? static_cast<float>(target->Height())
                                         : static_cast<float>(height_);
-    batch_.SetClipRectPhysical(Rect{
+    const Rect phys{
         points_rect.x * cs,
         surface_height - (points_rect.y + points_rect.height) * cs,
         points_rect.width * cs,
-        points_rect.height * cs});
+        points_rect.height * cs};
+    if (batch_.ClipActive()) {
+        const Rect &cur = batch_.ClipRect();
+        if (std::abs(phys.x - cur.x) < 1e-3f && std::abs(phys.y - cur.y) < 1e-3f &&
+            std::abs(phys.width - cur.width) < 1e-3f && std::abs(phys.height - cur.height) < 1e-3f) {
+            return;
+        }
+    }
+    // Clip state is sampled at flush time, but quads/lines may sit buffered
+    // across the boundary — flush first so a rect only ever clips the draws
+    // submitted while it is active.
+    if (batch_.HasPendingDraws()) {
+        batch_.Flush();
+        batch_.FlushLines();
+    }
+    batch_.SetClipRectPhysical(phys);
 }
 
 void Renderer::ClearClipRect() {
-    if (!ready_) {
+    if (!ready_ || !batch_.ClipActive()) {
         return;
     }
-    batch_.Flush();
-    batch_.FlushLines();
+    if (batch_.HasPendingDraws()) {
+        batch_.Flush();
+        batch_.FlushLines();
+    }
     batch_.ClearClipRect();
 }
 

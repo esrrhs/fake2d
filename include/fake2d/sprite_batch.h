@@ -111,6 +111,11 @@ public:
     void SetClipRectPhysical(const Rect &rect) { clip_ = rect; clip_active_ = rect.width > 0.0f && rect.height > 0.0f; }
     void ClearClipRect() { clip_active_ = false; }
     [[nodiscard]] bool ClipActive() const { return clip_active_; }
+    [[nodiscard]] const Rect &ClipRect() const { return clip_; }
+    [[nodiscard]] bool HasPendingDraws() const {
+        return current_quads_ > 0 || !commands_.empty() || current_mesh_indices_ > 0 ||
+               !mesh_commands_.empty() || current_lines_ > 0;
+    }
 
     // --- line primitives (GL_LINES, flushed after quads at End) ---
     void DrawLine(const Vec2 &a, const Vec2 &b, const Color &color);

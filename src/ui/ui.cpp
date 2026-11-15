@@ -1094,12 +1094,19 @@ float UISystem::Text(std::string_view text, float scale, UITextOverflow overflow
     Record("text", last_rect_);
     box.cursor += height;
     auto clips = box.clips;
-    // Prevent glyph bearings / a single oversized codepoint from escaping.
-    clips.push_back({{box.content.x, box.content.y, width, box.content.height}, active_scrolls_});
+    // Prevent glyph bearings / a single oversized codepoint from escaping,
+    // but skip pushing a per-text clip when the text fits comfortably inside box.content.
+    const bool needs_text_clip =
+        width <= 0 || box.content.height <= 0 || measured > width - 4.0f ||
+        y < box.content.y || y + height > box.content.y + box.content.height - 1.0f;
+    if (needs_text_clip) {
+        clips.push_back({{box.content.x, box.content.y, width, box.content.height}, active_scrolls_});
+    }
     const auto ids = active_scrolls_;
     auto command = [this, drawn = std::move(drawn), x, y, used, width, wrap, align, text_color,
-                    height, clips = std::move(clips), ids]() {
-        ApplyLayoutClip(clips);
+                    height, clips = std::move(clips), ids, needs_text_clip]() {
+        if (needs_text_clip)
+            ApplyLayoutClip(clips);
         if (height > 0)
             renderer_->DrawTextEx(drawn, x * scale_ + scale_offset_.x,
                                   (y - ScrollTranslation(ids)) * scale_ + scale_offset_.y,
@@ -1108,7 +1115,8 @@ float UISystem::Text(std::string_view text, float scale, UITextOverflow overflow
     };
     if (scrolls_.empty() && deferred_ == 0) {
         command();
-        ApplyLayoutClip(box.clips);
+        if (needs_text_clip)
+            ApplyLayoutClip(box.clips);
     } else
         pending_draws_.push_back(std::move(command));
     return height;
@@ -1434,6 +1442,33 @@ void UISystem::Panel(const Color &fill, const Color &border) {
                     border);
             renderer_->DrawQuad(mapped, fill);
         }
+    };
+    if (scrolls_.empty() && deferred_ == 0)
+        command();
+    else
+        pending_draws_.push_back(std::move(command));
+}
+
+void UISystem::FillRect(float x, float y, float w, float h, const Color &fill, const Color &border) {
+    if (boxes_.empty() || w <= 0 || h <= 0)
+        return;
+    const auto &box = boxes_.back();
+    const Rect r{box.content.x + x, box.content.y + y, w, h};
+    const auto clips = box.clips;
+    const auto ids = active_scrolls_;
+    const float border_width = ThemeMetric("border");
+    auto command = [this, r, clips, ids, fill, border, border_width]() {
+        Rect draw_r = r;
+        draw_r.y -= ScrollTranslation(ids);
+        ApplyLayoutClip(clips);
+        if (!renderer_)
+            return;
+        if (border.a > 0)
+            renderer_->DrawQuad(
+                MapRect({draw_r.x - border_width, draw_r.y - border_width,
+                         draw_r.width + 2 * border_width, draw_r.height + 2 * border_width}),
+                border);
+        renderer_->DrawQuad(MapRect(draw_r), fill);
     };
     if (scrolls_.empty() && deferred_ == 0)
         command();

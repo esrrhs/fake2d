@@ -283,9 +283,7 @@ void SpriteBatch::ApplyClip() const {
 }
 
 void SpriteBatch::RestoreClip() {
-    if (glIsEnabled(GL_SCISSOR_TEST)) {
-        glDisable(GL_SCISSOR_TEST);
-    }
+    glDisable(GL_SCISSOR_TEST);
 }
 
 void SpriteBatch::FlushImmediate() {
@@ -304,6 +302,9 @@ void SpriteBatch::FlushImmediate() {
 
     glBindVertexArray(vao_);
     glBindBuffer(GL_ARRAY_BUFFER, vbo_);
+    glBufferData(GL_ARRAY_BUFFER,
+                 static_cast<GLsizeiptr>(max_quads_ * 4 * sizeof(Vertex2D)),
+                 nullptr, GL_DYNAMIC_DRAW);
     glBufferSubData(GL_ARRAY_BUFFER, 0,
                     static_cast<GLsizeiptr>(current_quads_ * 4 * sizeof(Vertex2D)),
                     vertices_.data());
@@ -318,7 +319,9 @@ void SpriteBatch::FlushImmediate() {
 
     ApplyClip();
     glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(current_quads_ * 6), GL_UNSIGNED_INT, nullptr);
-    RestoreClip();
+    if (clip_active_) {
+        RestoreClip();
+    }
 
     glBindVertexArray(0);
     glBindTexture(GL_TEXTURE_2D, 0);

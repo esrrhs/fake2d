@@ -181,6 +181,8 @@ class UISystem {
     // All widgets use the current box width and advance its cursor by h.
     // Panel and Window decorate the current box without advancing it.
     void Panel(const Color &fill, const Color &border = Color::Clear());
+    void FillRect(float x, float y, float w, float h, const Color &fill,
+                  const Color &border = Color::Clear());
     bool Button(std::string_view key, float h, std::string_view text, float scale = 0.0f);
     float Slider(std::string_view key, float h, float value, float min_value, float max_value);
     bool Checkbox(std::string_view key, float size, bool checked, std::string_view label = {},
