@@ -155,7 +155,10 @@ class UISystem {
                UITextOverflow overflow = UITextOverflow::Wrap, int align = 0,
                const Color &tint = Color::White(), float min_scale = 0.35f);
     [[nodiscard]] float AvailWidth() const;
+    [[nodiscard]] float AvailHeight() const;
     [[nodiscard]] Rect LastRect() const { return last_rect_; }
+    [[nodiscard]] float AutoHeight(std::string_view key, float fallback = 0.0f) const;
+    void RecordAutoHeight(std::string_view key);
     void Row(float gap = 0.0f, const std::vector<float> &columns = {});
     void Col(float fixed_width = 0.0f);
     void ColEnd();
@@ -495,6 +498,7 @@ class UISystem {
     };
     std::unordered_map<std::string, TweenState> tweens_;
     std::unordered_map<std::string, int> pages_;
+    std::unordered_map<std::string, float> auto_heights_;
     Rect last_rect_{};
     Rect paint_bounds_{};
     std::vector<AuditRect> audit_;

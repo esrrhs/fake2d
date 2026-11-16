@@ -879,6 +879,25 @@ bool UISystem::IsHovered(std::string_view key) const {
 // Cursor layout is immediate-mode; values and declaration order belong to the caller.
 float UISystem::AvailWidth() const { return boxes_.empty() ? 0.0f : boxes_.back().content.width; }
 
+float UISystem::AvailHeight() const {
+    if (boxes_.empty())
+        return 0.0f;
+    const auto &b = boxes_.back();
+    if (b.auto_height || b.content.height > 1e8f)
+        return 0.0f;
+    return std::max(0.0f, b.content.height - b.cursor);
+}
+
+float UISystem::AutoHeight(std::string_view key, float fallback) const {
+    auto it = auto_heights_.find(std::string(key));
+    return it == auto_heights_.end() ? fallback : it->second;
+}
+
+void UISystem::RecordAutoHeight(std::string_view key) {
+    if (last_rect_.height > 0.0f)
+        auto_heights_[std::string(key)] = last_rect_.height;
+}
+
 float UISystem::ScrollTranslation(const std::vector<std::size_t> &ids) const {
     float dy = 0;
     for (const auto id : ids)
@@ -1209,6 +1228,8 @@ void UISystem::RowEnd() {
 void UISystem::ScrollBegin(std::string_view key, float view_height) {
     if (boxes_.empty())
         return;
+    if (view_height <= 0.0f)
+        view_height = AvailHeight();
     const auto &parent = boxes_.back();
     const Rect viewport{parent.content.x, parent.content.y + parent.cursor, parent.content.width,
                         std::max(0.0f, view_height)};
