@@ -184,6 +184,10 @@ class UISystem {
     // All widgets use the current box width and advance its cursor by h.
     // Panel and Window decorate the current box without advancing it.
     void Panel(const Color &fill, const Color &border = Color::Clear());
+    void DrawNineSliceAt(const Texture2D *texture, float corner,
+                         const Color &tint = Color::White());
+    void DrawSpriteAt(const Texture2D *texture, float x, float y, float w, float h,
+                      const Color &tint = Color::White());
     void FillRect(float x, float y, float w, float h, const Color &fill,
                   const Color &border = Color::Clear());
     bool Button(std::string_view key, float h, std::string_view text, float scale = 0.0f);

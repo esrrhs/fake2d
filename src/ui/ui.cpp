@@ -1030,6 +1030,7 @@ void UISystem::FlushDraws() {
     pending_draws_.clear();
     for (auto &command : commands)
         command();
+    ApplyLayoutClip(boxes_.empty() ? std::vector<LayoutClip>{} : boxes_.back().clips);
 }
 
 void UISystem::Record(std::string_view kind, const Rect &r) {
@@ -1464,6 +1465,68 @@ void UISystem::Panel(const Color &fill, const Color &border) {
                     border);
             renderer_->DrawQuad(mapped, fill);
         }
+    };
+    if (scrolls_.empty() && deferred_ == 0)
+        command();
+    else
+        pending_draws_.push_back(std::move(command));
+}
+
+void UISystem::DrawNineSliceAt(const Texture2D *texture, float corner, const Color &tint) {
+    if (boxes_.empty() || !texture || !texture->IsValid())
+        return;
+    const auto box = boxes_.back();
+    last_rect_ = box.content;
+    paint_bounds_ = last_rect_;
+    Record("panel", last_rect_);
+    const auto ids = active_scrolls_;
+    const Rect src{0.0f, 0.0f, static_cast<float>(texture->Width()),
+                   static_cast<float>(texture->Height())};
+    auto command = [this, box, ids, texture, src, corner, tint]() {
+        Rect r = box.content;
+        r.x -= box.padding;
+        r.y -= box.padding;
+        r.width += box.padding * 2.0f;
+        r.height = box.measured ? box.measured->height
+                                : (box.content.height + box.padding * 2.0f);
+        r.y -= ScrollTranslation(ids);
+        ApplyLayoutClip(box.clips);
+        if (!renderer_)
+            return;
+        const Rect mapped = MapRect(r);
+        renderer_->DrawNineSlice(*texture, src, mapped, corner * scale_, corner * scale_, tint);
+    };
+    if (scrolls_.empty() && deferred_ == 0)
+        command();
+    else
+        pending_draws_.push_back(std::move(command));
+}
+
+void UISystem::DrawSpriteAt(const Texture2D *texture, float x, float y, float w, float h,
+                            const Color &tint) {
+    if (!texture || !texture->IsValid() || w <= 0 || h <= 0)
+        return;
+    float ox = 0.0f, oy = 0.0f;
+    std::vector<LayoutClip> clips;
+    if (!boxes_.empty()) {
+        ox = boxes_.back().content.x;
+        oy = boxes_.back().content.y;
+        clips = boxes_.back().clips;
+    }
+    const Rect dst{ox + x, oy + y, w, h};
+    const Rect src{0.0f, 0.0f, static_cast<float>(texture->Width()),
+                   static_cast<float>(texture->Height())};
+    const auto ids = active_scrolls_;
+    Color col = tint;
+    if (IsDisabled())
+        col.a *= .4f;
+    auto command = [this, texture, src, dst, col, clips, ids]() {
+        ApplyLayoutClip(clips);
+        if (!renderer_)
+            return;
+        Rect r = dst;
+        r.y -= ScrollTranslation(ids);
+        renderer_->DrawSprite(*texture, src, MapRect(r), col);
     };
     if (scrolls_.empty() && deferred_ == 0)
         command();
