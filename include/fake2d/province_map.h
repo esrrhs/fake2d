@@ -5,6 +5,7 @@
 // province), from which the host needs adjacency, centroids and shoreline
 // anchors. Pure geometry: no gameplay, no RNG, deterministic output.
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
