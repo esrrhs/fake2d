@@ -2,6 +2,7 @@
 #include "fake2d/ease.h"
 #include <cstdlib>
 #include <cctype>
+#include <filesystem>
 
 #include <algorithm>
 #include <chrono>
@@ -76,6 +77,22 @@ std::size_t Utf8Length(std::string_view s) {
     return n;
 }
 
+Rect RectIntersectHelper(const Rect &a, const Rect &b) {
+    const float x0 = std::max(a.x, b.x);
+    const float y0 = std::max(a.y, b.y);
+    const float x1 = std::min(a.x + a.width, b.x + b.width);
+    const float y1 = std::min(a.y + a.height, b.y + b.height);
+    return Rect{x0, y0, std::max(0.0f, x1 - x0), std::max(0.0f, y1 - y0)};
+}
+
+bool TryLoadFontPathHelper(Renderer &r, const std::string &path, float px) {
+    std::error_code ec;
+    if (path.empty() || !std::filesystem::exists(path, ec)) {
+        return false;
+    }
+    return r.LoadFont(path, px);
+}
+
 } // namespace
 
 void UISystem::Bind(const Input *input, const Camera2D *camera, Renderer *renderer) {
@@ -90,6 +107,10 @@ void UISystem::NewFrame() {
     recording_ = resolving_ = frame_submitted_ = false;
     dismissed_overlay_ = false;
     resolving_allowed_ = true;
+    pointer_over_prev_ = pointer_over_;
+    pointer_over_ = false;
+    manual_modal_ = false;
+    suppress_ = false;
     text_activated_.clear();
     list_views_.clear();
     active_list_view_.clear();
@@ -285,6 +306,25 @@ void UISystem::DrawTooltip() {
     ApplyLayoutClip(boxes_.empty() ? std::vector<LayoutClip>{} : boxes_.back().clips);
 }
 
+bool UISystem::TrackPressWidget(WidgetState &state, bool hover) {
+    const bool mouse_down = CanInteract() && input_->MouseDown(0);
+    const bool mouse_released = input_->MouseReleased(0);
+    bool clicked = false;
+    if (hover) {
+        pointer_over_ = true;
+        if (state.pressed && mouse_released) {
+            clicked = true;
+            ++click_count_;
+        }
+        state.pressed = (mouse_down && (!resolving_ || input_->MousePressed(0))) ||
+                        (state.pressed && !mouse_released && hover);
+    } else {
+        state.pressed = false;
+    }
+    state.hover = hover;
+    return clicked;
+}
+
 bool UISystem::PaintButton(std::string_view key, float offset_x, float offset_y, float w, float h,
                            std::string_view text, float text_scale) {
     if (camera_ == nullptr || renderer_ == nullptr || input_ == nullptr) {
@@ -298,21 +338,7 @@ bool UISystem::PaintButton(std::string_view key, float offset_x, float offset_y,
     const Rect bounds{p.x, p.y, w, h};
     const Vec2 mouse = Mouse();
     const bool hover = bounds.Contains(mouse) && MouseVisible();
-    const bool mouse_down = CanInteract() && input_->MouseDown(0);
-    const bool mouse_released = input_->MouseReleased(0);
-
-    bool clicked = false;
-    if (hover) {
-        if (state.pressed && mouse_released) {
-            clicked = true;
-        }
-        state.pressed = (mouse_down && (!resolving_ || input_->MousePressed(0))) ||
-                        (state.pressed && !mouse_released && hover);
-    } else {
-        // Drag outside cancels the press.
-        state.pressed = false;
-    }
-    state.hover = hover;
+    const bool clicked = TrackPressWidget(state, hover);
 
     Color fill;
     Color label_color = ThemeColor("text");
@@ -383,6 +409,7 @@ float UISystem::PaintSlider(std::string_view key, float offset_x, float offset_y
     const bool mouse_released = input_->MouseReleased(0);
 
     if (mouse_pressed && hover) {
+        ++click_count_;
         state.dragging = true;
         state.pressed = true;
         if (thumb.Contains(mouse)) {
@@ -403,6 +430,9 @@ float UISystem::PaintSlider(std::string_view key, float offset_x, float offset_y
     if (mouse_released || !mouse_down) {
         state.dragging = false;
         state.pressed = false;
+    }
+    if (hover || state.dragging) {
+        pointer_over_ = true;
     }
     state.hover = hover;
 
@@ -430,20 +460,7 @@ bool UISystem::PaintCheckbox(std::string_view key, float offset_x, float offset_
     const Vec2 mouse = Mouse();
     const Rect bounds{p.x, p.y, size, size};
     const bool hover = bounds.Contains(mouse) && MouseVisible();
-    const bool mouse_down = CanInteract() && input_->MouseDown(0);
-    const bool mouse_released = input_->MouseReleased(0);
-
-    bool clicked = false;
-    if (hover) {
-        if (state.pressed && mouse_released) {
-            clicked = true;
-        }
-        state.pressed = (mouse_down && (!resolving_ || input_->MousePressed(0))) ||
-                        (state.pressed && !mouse_released && hover);
-    } else {
-        state.pressed = false;
-    }
-    state.hover = hover;
+    const bool clicked = TrackPressWidget(state, hover);
 
     Quad({p.x - 2.0f, p.y - 2.0f, size + 4.0f, size + 4.0f},
          hover ? ThemeColor("hover") : ThemeColor("border"));
@@ -594,20 +611,7 @@ bool UISystem::PaintRadioButton(std::string_view key, float offset_x, float offs
     const Rect bounds{p.x, p.y, size, size};
     const Vec2 mouse = Mouse();
     const bool hover = bounds.Contains(mouse) && MouseVisible();
-    const bool mouse_down = CanInteract() && input_->MouseDown(0);
-    const bool mouse_released = input_->MouseReleased(0);
-
-    bool clicked = false;
-    if (hover) {
-        if (state.pressed && mouse_released) {
-            clicked = true;
-        }
-        state.pressed = (mouse_down && (!resolving_ || input_->MousePressed(0))) ||
-                        (state.pressed && !mouse_released && hover);
-    } else {
-        state.pressed = false;
-    }
-    state.hover = hover;
+    const bool clicked = TrackPressWidget(state, hover);
 
     Quad({p.x - 2.0f, p.y - 2.0f, size + 4.0f, size + 4.0f},
          hover ? ThemeColor("hover") : ThemeColor("border"));
@@ -644,8 +648,10 @@ bool UISystem::PaintComboBegin(std::string_view key, float offset_x, float offse
 
     bool clicked = false;
     if (hover) {
+        pointer_over_ = true;
         if (state.pressed && mouse_released) {
             clicked = true;
+            ++click_count_;
         }
         state.pressed = (mouse_down && (!resolving_ || input_->MousePressed(0))) ||
                         (state.pressed && !mouse_released && hover);
@@ -654,6 +660,7 @@ bool UISystem::PaintComboBegin(std::string_view key, float offset_x, float offse
         // list is a popup that swallows the gesture, and users flick it.
         if (state.pressed && mouse_released) {
             clicked = true;
+            ++click_count_;
         }
         state.pressed = mouse_down;
     }
@@ -697,20 +704,7 @@ bool UISystem::PaintComboItem(std::string_view key, float offset_x, float offset
     const Rect bounds{p.x, p.y, w, h};
     const Vec2 mouse = Mouse();
     const bool hover = bounds.Contains(mouse) && MouseVisible();
-    const bool mouse_down = CanInteract() && input_->MouseDown(0);
-    const bool mouse_released = input_->MouseReleased(0);
-
-    bool clicked = false;
-    if (hover) {
-        if (state.pressed && mouse_released) {
-            clicked = true;
-        }
-        state.pressed = (mouse_down && (!resolving_ || input_->MousePressed(0))) ||
-                        (state.pressed && !mouse_released && hover);
-    } else {
-        state.pressed = false;
-    }
-    state.hover = hover;
+    const bool clicked = TrackPressWidget(state, hover);
 
     const Color fill = hover ? ThemeColor("hover") : (selected ? kThumb : ThemeColor("field"));
     Quad(bounds, fill);
@@ -782,20 +776,7 @@ bool UISystem::PaintTab(std::string_view key, float offset_x, float offset_y, fl
     const Rect bounds{p.x, p.y, w, h};
     const Vec2 mouse = Mouse();
     const bool hover = bounds.Contains(mouse) && MouseVisible();
-    const bool mouse_down = CanInteract() && input_->MouseDown(0);
-    const bool mouse_released = input_->MouseReleased(0);
-
-    bool clicked = false;
-    if (hover) {
-        if (state.pressed && mouse_released) {
-            clicked = true;
-        }
-        state.pressed = (mouse_down && (!resolving_ || input_->MousePressed(0))) ||
-                        (state.pressed && !mouse_released && hover);
-    } else {
-        state.pressed = false;
-    }
-    state.hover = hover;
+    const bool clicked = TrackPressWidget(state, hover);
 
     // Active tabs are brighter; the box API never grows beyond declared h.
     const float grow = 0.0f;
@@ -831,20 +812,7 @@ bool UISystem::PaintTree(std::string_view key, float offset_x, float offset_y, f
     const Rect bounds{p.x, p.y, w, h};
     const Vec2 mouse = Mouse();
     const bool hover = bounds.Contains(mouse) && MouseVisible();
-    const bool mouse_down = CanInteract() && input_->MouseDown(0);
-    const bool mouse_released = input_->MouseReleased(0);
-
-    bool clicked = false;
-    if (hover) {
-        if (state.pressed && mouse_released) {
-            clicked = true;
-        }
-        state.pressed = (mouse_down && (!resolving_ || input_->MousePressed(0))) ||
-                        (state.pressed && !mouse_released && hover);
-    } else {
-        state.pressed = false;
-    }
-    state.hover = hover;
+    const bool clicked = TrackPressWidget(state, hover);
 
     Quad(bounds, hover ? ThemeColor("hover") : Color::Clear());
     // Disclosure triangle in three bars: widening to the right reads as ">",
@@ -1033,7 +1001,7 @@ void UISystem::FlushDraws() {
     ApplyLayoutClip(boxes_.empty() ? std::vector<LayoutClip>{} : boxes_.back().clips);
 }
 
-void UISystem::Record(std::string_view kind, const Rect &r) {
+void UISystem::Record(std::string_view kind, const Rect &r, std::string_view name) {
     Rect bounds = boxes_.empty() ? Rect{-scale_offset_.x / scale_, -scale_offset_.y / scale_,
                                         camera_ ? camera_->ViewportWidth() / scale_ : 0,
                                         camera_ ? camera_->ViewportHeight() / scale_ : 0}
@@ -1047,7 +1015,7 @@ void UISystem::Record(std::string_view kind, const Rect &r) {
     const bool overflow = r.x < bounds.x - epsilon || r.y < bounds.y - epsilon ||
                           r.x + r.width > bounds.x + bounds.width + epsilon ||
                           r.y + r.height > bounds.y + bounds.height + epsilon;
-    audit_.push_back({std::string(kind), r, bounds, overflow});
+    audit_.push_back({std::string(kind), r, bounds, overflow, std::string(name)});
     if (audit_enabled_ && overflow)
         std::fprintf(stderr,
                      "[UI_OVERFLOW] %.*s rect=(%.1f,%.1f,%.1f,%.1f) box=(%.1f,%.1f,%.1f,%.1f)\n",
@@ -1357,7 +1325,7 @@ bool UISystem::SetLayoutToken(std::string_view name, float value) {
     return true;
 }
 
-Rect UISystem::Allocate(float height, std::string_view kind) {
+Rect UISystem::Allocate(float height, std::string_view kind, std::string_view name) {
     if (boxes_.empty()) {
         last_rect_ = {};
         return {};
@@ -1366,7 +1334,7 @@ Rect UISystem::Allocate(float height, std::string_view kind) {
     last_rect_ = {box.content.x, box.content.y + box.cursor, box.content.width,
                   std::max(0.0f, height)};
     paint_bounds_ = last_rect_;
-    Record(kind, last_rect_);
+    Record(kind, last_rect_, name);
     box.cursor += last_rect_.height;
     return last_rect_;
 }
@@ -1565,7 +1533,7 @@ bool UISystem::Button(std::string_view key, float h, std::string_view text, floa
         scale = ThemeMetric("font_scale");
     if (boxes_.empty())
         return false;
-    const Rect r = Allocate(h, "button");
+    const Rect r = Allocate(h, "button", key);
     if (recording_ && !resolving_) {
         QueueInteraction(
             key, r,
@@ -1584,7 +1552,7 @@ float UISystem::Slider(std::string_view key, float h, float value, float min_val
                        float max_value) {
     if (boxes_.empty())
         return value;
-    const Rect r = Allocate(h, "slider");
+    const Rect r = Allocate(h, "slider", key);
     if (recording_ && !resolving_) {
         QueueInteraction(
             key, r,
@@ -1626,7 +1594,7 @@ bool UISystem::Checkbox(std::string_view key, float size, bool checked, std::str
         return false;
     size = std::max(0.0f, std::min(size, AvailWidth()));
     const float line = renderer_ ? renderer_->GetFont().LineHeight() * scale : 0;
-    const Rect r = Allocate(std::max(size, line), "checkbox");
+    const Rect r = Allocate(std::max(size, line), "checkbox", key);
     if (recording_ && !resolving_) {
         QueueInteraction(
             key, r,
@@ -1652,7 +1620,7 @@ bool UISystem::RadioButton(std::string_view key, float size, bool selected, std:
         return false;
     size = std::max(0.0f, std::min(size, AvailWidth()));
     const float line = renderer_ ? renderer_->GetFont().LineHeight() * scale : 0;
-    const Rect r = Allocate(std::max(size, line), "radio");
+    const Rect r = Allocate(std::max(size, line), "radio", key);
     if (recording_ && !resolving_) {
         QueueInteraction(
             key, r,
@@ -1676,7 +1644,7 @@ bool UISystem::ComboBegin(std::string_view key, float h, std::string_view label,
         scale = ThemeMetric("font_scale");
     if (boxes_.empty())
         return false;
-    const Rect r = Allocate(h, "combo");
+    const Rect r = Allocate(h, "combo", key);
     if (recording_ && !resolving_) {
         QueueInteraction(
             key, r,
@@ -1697,7 +1665,7 @@ bool UISystem::ComboItem(std::string_view key, float h, std::string_view label, 
         scale = ThemeMetric("font_scale");
     if (boxes_.empty())
         return false;
-    const Rect r = Allocate(h, "combo_item");
+    const Rect r = Allocate(h, "combo_item", key);
     if (recording_ && !resolving_) {
         QueueInteraction(
             key, r,
@@ -1738,7 +1706,7 @@ bool UISystem::Tab(std::string_view key, float h, std::string_view label, bool a
         scale = ThemeMetric("font_scale");
     if (boxes_.empty())
         return false;
-    const Rect r = Allocate(h, "tab");
+    const Rect r = Allocate(h, "tab", key);
     if (recording_ && !resolving_) {
         QueueInteraction(
             key, r,
@@ -1758,7 +1726,7 @@ bool UISystem::Tree(std::string_view key, float h, std::string_view label, bool 
         scale = ThemeMetric("font_scale");
     if (boxes_.empty())
         return false;
-    const Rect r = Allocate(h, "tree");
+    const Rect r = Allocate(h, "tree", key);
     if (recording_ && !resolving_) {
         QueueInteraction(
             key, r,
@@ -2028,8 +1996,9 @@ void UISystem::DisabledEnd() {
         disabled_.pop_back();
 }
 bool UISystem::CanInteract() const {
-    return !(recording_ && dismissed_overlay_) && (!resolving_ || resolving_allowed_) &&
-           !IsDisabled() && (modal_.empty() || in_modal_) && (popup_.empty() || in_popup_);
+    return !suppress_ && !(recording_ && dismissed_overlay_) &&
+           (!resolving_ || resolving_allowed_) && !IsDisabled() &&
+           (modal_.empty() || in_modal_) && (popup_.empty() || in_popup_);
 }
 bool UISystem::FocusWidget(std::string_view key, const Rect &r, bool text, bool adjustable) {
     if (!recording_ && !resolving_ && !unscoped_warned_) {
@@ -2112,7 +2081,7 @@ bool UISystem::ImageButton(std::string_view key, const Texture2D *texture, const
     if (boxes_.empty())
         return false;
     if (recording_ && !resolving_) {
-        const Rect r = Allocate(height, "image button");
+        const Rect r = Allocate(height, "image button", key);
         QueueInteraction(key, r, [=, this, k = std::string(key), l = std::string(label)] {
             frame_results_[k] = ImageButton(k, texture, src, height, l);
         });
@@ -3583,6 +3552,318 @@ std::size_t UISystem::Selection(std::string_view key, bool end) const {
         return 0;
     return end ? std::max(it->second.caret, it->second.anchor)
                : std::min(it->second.caret, it->second.anchor);
+}
+
+void UISystem::BlockInput(const Rect &r) {
+    if (suppress_) {
+        return;
+    }
+    if (r.Contains(RawMouse()) && MouseVisible()) {
+        pointer_over_ = true;
+    }
+}
+
+float UISystem::LogicalWidth() const {
+    if (reference_w_ > 0.0f) {
+        return reference_w_;
+    }
+    return camera_ ? camera_->ViewportWidth() / std::max(1e-6f, scale_) : 0.0f;
+}
+
+float UISystem::LogicalHeight() const {
+    if (reference_h_ > 0.0f) {
+        return reference_h_;
+    }
+    return camera_ ? camera_->ViewportHeight() / std::max(1e-6f, scale_) : 0.0f;
+}
+
+bool UISystem::HoveredRect(const Rect &r) const {
+    if (!CanInteract() || !MouseVisible()) {
+        return false;
+    }
+    return r.Contains(RawMouse());
+}
+
+bool UISystem::InvisibleButton(std::string_view key, const Rect &rect, const Color &hover_tint) {
+    Record("button", rect, key);
+    if (!camera_ || !renderer_ || !input_) {
+        return false;
+    }
+    const std::string key_str(key);
+    WidgetState &state = widgets_[key_str];
+    const bool hover = rect.Contains(RawMouse()) && CanInteract() && MouseVisible();
+    const bool clicked = TrackPressWidget(state, hover);
+    if (hover && hover_tint.a > 0.0f) {
+        DrawQuadAt(rect, hover_tint);
+    }
+    return clicked;
+}
+
+void UISystem::DrawQuadAt(const Rect &rect, const Color &color) {
+    if (!renderer_ || rect.width <= 0.0f || rect.height <= 0.0f) {
+        return;
+    }
+    const auto clips = boxes_.empty() ? std::vector<LayoutClip>{} : boxes_.back().clips;
+    const auto ids = active_scrolls_;
+    auto command = [this, rect, clips, ids, color]() {
+        Rect r = rect;
+        r.y -= ScrollTranslation(ids);
+        ApplyLayoutClip(clips);
+        renderer_->DrawQuad(MapRect(r), color);
+    };
+    if (scrolls_.empty() && deferred_ == 0) {
+        command();
+    } else {
+        pending_draws_.push_back(std::move(command));
+    }
+}
+
+void UISystem::DrawFrameAt(const Rect &rect, const Color &color, float thickness) {
+    if (!renderer_ || thickness <= 0.0f || rect.width <= 0.0f || rect.height <= 0.0f) {
+        return;
+    }
+    DrawQuadAt({rect.x, rect.y, rect.width, thickness}, color);
+    DrawQuadAt({rect.x, rect.y + rect.height - thickness, rect.width, thickness}, color);
+    DrawQuadAt({rect.x, rect.y, thickness, rect.height}, color);
+    DrawQuadAt({rect.x + rect.width - thickness, rect.y, thickness, rect.height}, color);
+}
+
+void UISystem::DrawSpriteRect(const Texture2D *texture, const Rect &src, const Rect &dst,
+                              const Color &tint) {
+    if (!renderer_ || !texture || !texture->IsValid() || dst.width <= 0.0f || dst.height <= 0.0f) {
+        return;
+    }
+    const auto clips = boxes_.empty() ? std::vector<LayoutClip>{} : boxes_.back().clips;
+    const auto ids = active_scrolls_;
+    Color col = tint;
+    if (IsDisabled()) {
+        col.a *= 0.4f;
+    }
+    auto command = [this, texture, src, dst, col, clips, ids]() {
+        Rect r = dst;
+        r.y -= ScrollTranslation(ids);
+        ApplyLayoutClip(clips);
+        renderer_->DrawSprite(*texture, src, MapRect(r), col);
+    };
+    if (scrolls_.empty() && deferred_ == 0) {
+        command();
+    } else {
+        pending_draws_.push_back(std::move(command));
+    }
+}
+
+float UISystem::MeasureTextPx(std::string_view text, float px, int face) const {
+    if (text_hooks_.measure) {
+        return text_hooks_.measure(text, px, face);
+    }
+    return renderer_ ? renderer_->MeasureText(text, px / 32.0f) : 0.0f;
+}
+
+float UISystem::MeasureWrappedTextPx(std::string_view text, float px, float wrap_w, int face) const {
+    if (text_hooks_.measure_wrapped) {
+        return text_hooks_.measure_wrapped(text, px, wrap_w, face);
+    }
+    return renderer_ ? renderer_->GetFont().MeasureTextEx(text, px / 32.0f, wrap_w) : 0.0f;
+}
+
+float UISystem::DrawTextPx(float x, float y, std::string_view text, float px,
+                           const Color &color, int align, int face) {
+    if (!renderer_ || text.empty()) {
+        return 0.0f;
+    }
+    const float w = MeasureTextPx(text, px, face);
+    const auto clips = boxes_.empty() ? std::vector<LayoutClip>{} : boxes_.back().clips;
+    const auto ids = active_scrolls_;
+    auto command = [this, s = std::string(text), x, y, px, color, align, face, clips, ids]() {
+        ApplyLayoutClip(clips);
+        const float yy = (y - ScrollTranslation(ids)) * scale_ + scale_offset_.y;
+        const float xx = x * scale_ + scale_offset_.x;
+        if (text_hooks_.draw) {
+            text_hooks_.draw(renderer_->GetSpriteBatch(), s, xx, yy, px * scale_, color, align, face);
+        } else {
+            const float sc = (px / 32.0f) * scale_;
+            const float mw = renderer_->MeasureText(s, sc);
+            const float ax = align == 1 ? (xx - mw * 0.5f) : (align == 2 ? xx - mw : xx);
+            renderer_->DrawTextEx(s, ax, yy, sc, 0, 0, color);
+        }
+    };
+    if (scrolls_.empty() && deferred_ == 0) {
+        command();
+    } else {
+        pending_draws_.push_back(std::move(command));
+    }
+    return w;
+}
+
+float UISystem::DrawWrappedTextPx(float x, float y, float wrap_w, std::string_view text, float px,
+                                  const Color &color, int face) {
+    if (!renderer_ || text.empty()) {
+        return 0.0f;
+    }
+    const float h = MeasureWrappedTextPx(text, px, wrap_w, face);
+    const auto clips = boxes_.empty() ? std::vector<LayoutClip>{} : boxes_.back().clips;
+    const auto ids = active_scrolls_;
+    auto command = [this, s = std::string(text), x, y, wrap_w, px, color, face, clips, ids]() {
+        ApplyLayoutClip(clips);
+        const float yy = (y - ScrollTranslation(ids)) * scale_ + scale_offset_.y;
+        const float xx = x * scale_ + scale_offset_.x;
+        if (text_hooks_.draw_wrapped) {
+            text_hooks_.draw_wrapped(renderer_->GetSpriteBatch(), s, xx, yy,
+                                     px * scale_, wrap_w * scale_, color, face);
+        } else {
+            renderer_->DrawTextEx(s, xx, yy, (px / 32.0f) * scale_, 0, wrap_w * scale_, color);
+        }
+    };
+    if (scrolls_.empty() && deferred_ == 0) {
+        command();
+    } else {
+        pending_draws_.push_back(std::move(command));
+    }
+    return h;
+}
+
+const Texture2D *UITextureCache::GetOrLoad(const std::string &name,
+                                           const std::string &root_dir,
+                                           const std::string &default_subdir) {
+    if (name.empty()) {
+        return nullptr;
+    }
+    if (const auto it = cache_.find(name); it != cache_.end()) {
+        return it->second.get();
+    }
+    if (failed_.count(name)) {
+        return nullptr;
+    }
+    std::string rel = (name.find('/') != std::string::npos) ? name : (default_subdir + name);
+    std::string path = root_dir.empty() ? rel : (root_dir + "/" + rel);
+    std::error_code ec;
+    if (!std::filesystem::exists(path, ec)) {
+        failed_[name] = true;
+        return nullptr;
+    }
+    auto tex = std::make_unique<Texture2D>();
+    if (!tex->LoadFromFile(path, TextureFilter::Linear, TextureWrap::Clamp)) {
+        failed_[name] = true;
+        return nullptr;
+    }
+    const Texture2D *ptr = tex.get();
+    cache_.emplace(name, std::move(tex));
+    return ptr;
+}
+
+void UITextureCache::Clear() {
+    cache_.clear();
+    failed_.clear();
+}
+
+void UITipTracker::BeginFrame() {
+    scroll_stack_.clear();
+    entries_.clear();
+    polled_rect_ = {};
+    fallback_tip_.clear();
+}
+
+void UITipTracker::PushScroll(std::string key, const Rect &viewport, float offset) {
+    Rect vp = viewport;
+    for (const auto &sc : scroll_stack_) {
+        vp = RectIntersectHelper(vp, sc.viewport);
+    }
+    scroll_stack_.push_back({std::move(key), vp, offset});
+}
+
+void UITipTracker::PopScroll() {
+    if (!scroll_stack_.empty()) {
+        scroll_stack_.pop_back();
+    }
+}
+
+float UITipTracker::CurrentScrollOffset() const {
+    float off = 0.0f;
+    for (const auto &s : scroll_stack_) {
+        off += s.offset;
+    }
+    return off;
+}
+
+Rect UITipTracker::ToScreenRect(Rect r) const {
+    r.y -= CurrentScrollOffset();
+    for (const auto &s : scroll_stack_) {
+        r = RectIntersectHelper(r, s.viewport);
+    }
+    return r;
+}
+
+void UITipTracker::RecordEntry(const Rect &r, std::string text) {
+    if (text.empty() || r.width <= 0.0f || r.height <= 0.0f) {
+        return;
+    }
+    entries_.push_back({r, std::move(text)});
+}
+
+void UITipTracker::RecordClippedEntry(const Rect &r, std::string text) {
+    if (text.empty()) {
+        return;
+    }
+    RecordEntry(ToScreenRect(r), std::move(text));
+}
+
+void UITipTracker::RecordOccluder(const Rect &r) {
+    if (r.width <= 0.0f || r.height <= 0.0f) {
+        return;
+    }
+    entries_.push_back({r, std::string{}});
+}
+
+std::string UITipTracker::Poll(Vec2 mouse, std::string_view fallback_override) {
+    if (mouse.x < -1000.0f || mouse.y < -1000.0f) {
+        polled_rect_ = {};
+        return {};
+    }
+    for (int i = static_cast<int>(entries_.size()) - 1; i >= 0; --i) {
+        const auto &e = entries_[static_cast<std::size_t>(i)];
+        if (e.rect.width > 0.0f && e.rect.height > 0.0f && e.rect.Contains(mouse)) {
+            if (e.text.empty()) {
+                polled_rect_ = {};
+                return {};
+            }
+            polled_rect_ = e.rect;
+            return e.text;
+        }
+    }
+    const std::string_view fb = fallback_override.empty() ? std::string_view(fallback_tip_) : fallback_override;
+    if (!fb.empty()) {
+        polled_rect_ = {mouse.x - 10.0f, mouse.y - 10.0f, 20.0f, 20.0f};
+        return std::string(fb);
+    }
+    polled_rect_ = {};
+    return {};
+}
+
+bool EnsureSystemCjkFonts(Renderer &renderer, const std::string &primary_font_path, float pixel_height) {
+    static const char *const kSysFonts[] = {
+        "/System/Library/Fonts/Hiragino Sans GB.ttc",
+        "/System/Library/Fonts/STHeiti Medium.ttc",
+        "/System/Library/Fonts/Supplemental/Songti.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+        "C:/Windows/Fonts/msyh.ttc",
+    };
+    bool ok = TryLoadFontPathHelper(renderer, primary_font_path, pixel_height);
+    if (!ok) {
+        for (const char *p : kSysFonts) {
+            if (TryLoadFontPathHelper(renderer, p, pixel_height)) {
+                ok = true;
+                break;
+            }
+        }
+    }
+    if (!ok) {
+        return false;
+    }
+    for (const char *p : kSysFonts) {
+        renderer.AddFallbackFont(p, pixel_height);
+    }
+    return true;
 }
 
 } // namespace fake2d

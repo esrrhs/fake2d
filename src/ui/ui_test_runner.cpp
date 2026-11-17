@@ -10,7 +10,6 @@
 namespace fake2d {
 
 UITestReport RunUITests(Engine &engine,
-                        ImmediateGui &gui,
                         const std::vector<UITestTarget> &targets,
                         const std::vector<UITestCustomCheck> &custom_checks,
                         const UITestConfig &config) {
@@ -37,12 +36,6 @@ UITestReport RunUITests(Engine &engine,
         std::fprintf(stderr, "\n--------------------------------------------------\n");
         std::fprintf(stderr, "[UI_TEST] Testing Target: %s\n", target.name.c_str());
 
-        gui.audit_bounds = true;
-        gui.collect_clickables = true;
-        gui.mouse_locked = false;
-        gui.click_override = false;
-        gui.down_override = false;
-        gui.mouse_override = {-1.0f, -1.0f};
         in.InjectFrame({-10000.0f, -10000.0f}, {}, {});
         uisys.NewFrame();
 
@@ -53,63 +46,52 @@ UITestReport RunUITests(Engine &engine,
             target.render_frame();
         }
 
-        std::size_t box_violations = 0;
+        struct ClickItem {
+            std::string kind;
+            std::string name;
+            Rect rect;
+        };
+        std::vector<ClickItem> buttons;
+        std::size_t target_violations = 0;
         for (const auto &a : uisys.AuditRects()) {
             const bool interactive = a.kind == "button" || a.kind == "tab" ||
                                      a.kind == "checkbox" || a.kind == "slider" ||
                                      a.kind == "image button" || a.kind == "combo" ||
                                      a.kind == "combo_item";
             if (interactive && a.rect.width > 0.0f && a.rect.height > 0.0f) {
-                gui.clickables.push_back({
-                    static_cast<int>(gui.clickables.size()),
-                    "box_" + a.kind,
-                    a.kind,
-                    "",
-                    a.rect,
-                    true,
-                    false,
-                });
+                buttons.push_back({a.kind, a.name, a.rect});
             }
             if (a.overflow) {
-                ++box_violations;
+                ++target_violations;
                 std::fprintf(stderr,
-                             "    - [BOX OVERFLOW] '%s' rect=(%.1f,%.1f,%.1f,%.1f) bounds=(%.1f,%.1f,%.1f,%.1f)\n",
-                             a.kind.c_str(), a.rect.x, a.rect.y, a.rect.width, a.rect.height,
+                             "    - [BOX OVERFLOW] '%s' (%s) rect=(%.1f,%.1f,%.1f,%.1f) bounds=(%.1f,%.1f,%.1f,%.1f)\n",
+                             a.kind.c_str(), a.name.c_str(), a.rect.x, a.rect.y, a.rect.width, a.rect.height,
                              a.bounds.x, a.bounds.y, a.bounds.width, a.bounds.height);
             }
         }
 
-        const std::size_t target_violations = gui.violations.size() + box_violations;
         report.violations += target_violations;
-        if (!gui.violations.empty()) {
-            std::fprintf(stderr, "  [OVERFLOW FAIL] %zu bounds violations detected:\n", gui.violations.size());
-            for (const auto &v : gui.violations) {
-                std::fprintf(stderr, "    - [%s] '%s' (x=%.1f y=%.1f w=%.1f h=%.1f) : %s\n",
-                             v.type.c_str(), v.label.c_str(), v.elem.x, v.elem.y,
-                             v.elem.width, v.elem.height, v.reason.c_str());
-            }
-        }
         if (target_violations > 0) {
-            std::fprintf(stderr, "  [OVERFLOW FAIL] %zu overflow violations total (box: %zu).\n",
-                         target_violations, box_violations);
+            std::fprintf(stderr, "  [OVERFLOW FAIL] %zu overflow violations total.\n", target_violations);
         } else {
             std::fprintf(stderr, "  [BOUNDS PASS] 0 overflow violations.\n");
         }
 
-        auto buttons = gui.clickables;
         std::fprintf(stderr, "  Registered %zu clickable widgets.\n", buttons.size());
 
         std::size_t target_btn_errors = 0;
         for (std::size_t b_idx = 0; b_idx < buttons.size(); ++b_idx) {
             const auto &btn = buttons[b_idx];
-            const bool box_widget = btn.type.rfind("box_", 0) == 0;
+            const std::size_t before_errs = config.get_error_count ? config.get_error_count() : 0;
 
-            auto reset_target = [&]() {
+            const Vec2 logical_center{btn.rect.x + btn.rect.width * 0.5f,
+                                      btn.rect.y + btn.rect.height * 0.5f};
+            const Vec2 win_center = uisys.LogicalToWindow(logical_center);
+
+            auto reset_and_draw = [&]() {
                 if (target.reset_state) {
                     target.reset_state();
                 }
-            };
-            auto draw_once = [&]() {
                 uisys.NewFrame();
                 if (target.render_frame) {
                     target.render_frame();
@@ -119,36 +101,17 @@ UITestReport RunUITests(Engine &engine,
                 }
             };
 
-            const std::size_t before_errs = config.get_error_count ? config.get_error_count() : 0;
-            const Vec2 center{btn.rect.x + btn.rect.width * 0.5f,
-                              btn.rect.y + btn.rect.height * 0.5f};
-
-            if (box_widget) {
-                reset_target();
-                in.InjectFrame(center, {}, {0});
-                draw_once();
-                reset_target();
-                in.InjectFrame(center, {}, {});
-                draw_once();
-                in.InjectFrame({-10000.0f, -10000.0f}, {}, {});
-            } else {
-                gui.mouse_override = center;
-                gui.mouse_locked = true;
-                gui.click_override = true;
-                gui.down_override = true;
-                if (target.on_immediate_click) {
-                    target.on_immediate_click(center);
-                }
-                reset_target();
-                draw_once();
-                gui.mouse_override = {-1.0f, -1.0f};
-            }
+            in.InjectFrame(win_center, {}, {0});
+            reset_and_draw();
+            in.InjectFrame(win_center, {}, {});
+            reset_and_draw();
+            in.InjectFrame({-10000.0f, -10000.0f}, {}, {});
 
             const std::size_t after_errs = config.get_error_count ? config.get_error_count() : 0;
             if (after_errs > before_errs) {
                 target_btn_errors += (after_errs - before_errs);
                 std::fprintf(stderr, "  [CLICK ERROR] Button #%zu (%s '%s' at %.1f,%.1f) triggered %zu script error(s)!\n",
-                             b_idx, btn.type.c_str(), btn.label.c_str(), btn.rect.x, btn.rect.y,
+                             b_idx, btn.kind.c_str(), btn.name.c_str(), btn.rect.x, btn.rect.y,
                              (after_errs - before_errs));
             }
             report.buttons_tested++;
@@ -176,12 +139,6 @@ UITestReport RunUITests(Engine &engine,
         std::fprintf(stderr, "\n--------------------------------------------------\n");
         std::fprintf(stderr, "[UI_TEST] Testing Target: %s\n", check.name.c_str());
         report.targets_tested++;
-        gui.audit_bounds = false;
-        gui.collect_clickables = false;
-        gui.mouse_locked = false;
-        gui.click_override = false;
-        gui.down_override = false;
-        gui.mouse_override = {-1.0f, -1.0f};
         if (check.run) {
             report.script_errors += check.run();
         }
@@ -199,11 +156,7 @@ UITestReport RunUITests(Engine &engine,
     std::fprintf(stderr, "Total FakeLua Script Errors:   %zu\n", report.script_errors);
     std::fprintf(stderr, "Execution Time:                %.2f seconds\n", report.elapsed_seconds);
     std::fprintf(stderr, "======================================================================\n");
-    if (report.Passed()) {
-        std::fprintf(stderr, "FINAL VERDICT: [PASS]\n");
-    } else {
-        std::fprintf(stderr, "FINAL VERDICT: [FAIL]\n");
-    }
+    std::fprintf(stderr, report.Passed() ? "FINAL VERDICT: [PASS]\n" : "FINAL VERDICT: [FAIL]\n");
     std::fprintf(stderr, "======================================================================\n\n");
 
     return report;

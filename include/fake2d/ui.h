@@ -176,10 +176,49 @@ class UISystem {
         Rect rect;
         Rect bounds;
         bool overflow = false;
+        std::string name;
     };
     void SetAudit(bool enabled) { audit_enabled_ = enabled; }
     [[nodiscard]] const std::vector<AuditRect> &AuditRects() const { return audit_; }
     [[nodiscard]] std::size_t OverflowCount() const;
+
+    // Input capture, blocking, modal/suppress, clock, screen/root primitives, and multi-face text hooks
+    struct TextHooks {
+        std::function<float(SpriteBatch &, std::string_view, float x, float y, float px, const Color &, int align, int face)> draw;
+        std::function<float(SpriteBatch &, std::string_view, float x, float y, float px, float wrap_w, const Color &, int face)> draw_wrapped;
+        std::function<float(std::string_view, float px, int face)> measure;
+        std::function<float(std::string_view, float px, float wrap_w, int face)> measure_wrapped;
+    };
+    void SetTextHooks(TextHooks hooks) { text_hooks_ = std::move(hooks); }
+    void BlockInput(const Rect &r);
+    void SetModal(bool modal) { manual_modal_ = modal; }
+    [[nodiscard]] bool IsModal() const { return manual_modal_ || !modal_.empty() || !popup_.empty(); }
+    void SetSuppress(bool suppress) { suppress_ = suppress; }
+    [[nodiscard]] bool IsSuppressed() const { return suppress_; }
+    [[nodiscard]] bool MouseOverUI() const { return pointer_over_prev_; }
+    [[nodiscard]] bool WantsMouse() const { return pointer_over_prev_ || IsModal(); }
+    [[nodiscard]] int ClickCount() const { return click_count_; }
+    void SetClockSeconds(float seconds) { clock_seconds_ = seconds; }
+    [[nodiscard]] float ClockSeconds() const { return clock_seconds_; }
+    [[nodiscard]] Vec2 LogicalMouse() const { return RawMouse(); }
+    [[nodiscard]] Vec2 LogicalToWindow(const Vec2 &logical_pos) const {
+        return {logical_pos.x * scale_ + scale_offset_.x, logical_pos.y * scale_ + scale_offset_.y};
+    }
+    [[nodiscard]] float LogicalWidth() const;
+    [[nodiscard]] float LogicalHeight() const;
+    [[nodiscard]] bool HoveredRect(const Rect &r) const;
+    bool InvisibleButton(std::string_view key, const Rect &rect,
+                         const Color &hover_tint = {1.0f, 0.9f, 0.6f, 0.06f});
+    void DrawQuadAt(const Rect &rect, const Color &color);
+    void DrawFrameAt(const Rect &rect, const Color &color, float thickness = 1.0f);
+    void DrawSpriteRect(const Texture2D *texture, const Rect &src, const Rect &dst,
+                        const Color &tint = Color::White());
+    float DrawTextPx(float x, float y, std::string_view text, float px,
+                     const Color &color = Color::White(), int align = 0, int face = 0);
+    float DrawWrappedTextPx(float x, float y, float wrap_w, std::string_view text, float px,
+                            const Color &color = Color::White(), int face = 0);
+    [[nodiscard]] float MeasureTextPx(std::string_view text, float px, int face = 0) const;
+    [[nodiscard]] float MeasureWrappedTextPx(std::string_view text, float px, float wrap_w, int face = 0) const;
 
     // All widgets use the current box width and advance its cursor by h.
     // Panel and Window decorate the current box without advancing it.
@@ -259,7 +298,7 @@ class UISystem {
     [[nodiscard]] bool PaintTree(std::string_view key, float offset_x, float offset_y, float w,
                                  float h, std::string_view label, bool open,
                                  float text_scale = 0.6f);
-    Rect Allocate(float height, std::string_view kind);
+    Rect Allocate(float height, std::string_view kind, std::string_view name = {});
     void Quad(const Rect &rect, const Color &tint);
     float String(std::string_view text, float x, float y, float scale, const Color &tint,
                  bool clipped = false, bool kerning = true);
@@ -283,6 +322,7 @@ class UISystem {
         std::size_t caret = 0, anchor = 0;
         std::string text; // text field content
     };
+    bool TrackPressWidget(WidgetState &state, bool hover);
 
     [[nodiscard]] WidgetState *Find(std::string_view key);
     /// Mouse in the same space widgets are laid out in (screen + world origin).
@@ -328,7 +368,7 @@ class UISystem {
     };
     void PushAbsolute(const Rect &rect, float padding, float reserve);
     void ApplyLayoutClip(const std::vector<LayoutClip> &clips);
-    void Record(std::string_view kind, const Rect &rect);
+    void Record(std::string_view kind, const Rect &rect, std::string_view name = {});
     std::string Ellipsize(std::string_view text, float width, float scale) const;
     float ScrollTranslation(const std::vector<std::size_t> &ids) const;
     std::vector<LayoutBox> boxes_;
@@ -521,6 +561,68 @@ class UISystem {
     float tip_delay_ = 0.3f;
     double tip_hover_since_ = 0.0;
     std::string tip_hover_key_;
+    bool pointer_over_ = false;
+    bool pointer_over_prev_ = false;
+    bool manual_modal_ = false;
+    bool suppress_ = false;
+    int click_count_ = 0;
+    float clock_seconds_ = 0.0f;
+    TextHooks text_hooks_;
 };
+
+/// Cached file-backed `Texture2D` loader with negative memoization.
+class UITextureCache {
+  public:
+    const Texture2D *GetOrLoad(const std::string &name,
+                               const std::string &root_dir,
+                               const std::string &default_subdir = "assets/ui/");
+    void Clear();
+
+  private:
+    std::unordered_map<std::string, std::unique_ptr<Texture2D>> cache_;
+    std::unordered_map<std::string, bool> failed_;
+};
+
+/// Scroll-clipped tooltip entry + occluder hit-testing stack.
+class UITipTracker {
+  public:
+    struct ScrollScope {
+        std::string key;
+        Rect viewport{};
+        float offset = 0.0f;
+    };
+
+    void BeginFrame();
+    void PushScroll(std::string key, const Rect &viewport, float offset);
+    void PopScroll();
+    [[nodiscard]] float CurrentScrollOffset() const;
+    [[nodiscard]] Rect ToScreenRect(Rect r) const;
+
+    void RecordEntry(const Rect &r, std::string text);
+    void RecordClippedEntry(const Rect &r, std::string text);
+    void RecordOccluder(const Rect &r);
+    void SetFallbackTip(std::string text) { fallback_tip_ = std::move(text); }
+    [[nodiscard]] const std::string &FallbackTip() const { return fallback_tip_; }
+
+    [[nodiscard]] std::string Poll(Vec2 mouse, std::string_view fallback_tip = {});
+    [[nodiscard]] const Rect &PolledRect() const { return polled_rect_; }
+
+  private:
+    struct TipEntry {
+        Rect rect{};
+        std::string text;
+    };
+
+    std::vector<ScrollScope> scroll_stack_;
+    std::vector<TipEntry> entries_;
+    Rect polled_rect_{};
+    std::string fallback_tip_;
+};
+
+/// Ensure `renderer` has at least one primary or OS CJK fallback font loaded,
+/// plus fallback fonts registered for missing glyphs. Returns true if usable.
+bool EnsureSystemCjkFonts(Renderer &renderer,
+                          const std::string &primary_font_path,
+                          float pixel_height = 32.0f);
 
 } // namespace fake2d

@@ -12,10 +12,9 @@
 #include "fake2d/math.h"
 #include "fake2d/sprite_batch.h"
 #include "fake2d/texture.h"
+#include "fake2d/ui.h"
 
 namespace fake2d {
-
-class Renderer;
 
 struct ImmediateViolation {
     std::string type;
@@ -74,58 +73,6 @@ struct ImmediateTextCallbacks {
     std::function<float(std::string_view, float px, float w, int face)> measure_wrapped;
     std::function<void(float render_scale)> set_render_scale;
 };
-
-/// Cached file-backed `Texture2D` loader with negative memoization.
-class UITextureCache {
-  public:
-    const Texture2D *GetOrLoad(const std::string &name,
-                               const std::string &root_dir,
-                               const std::string &default_subdir = "assets/ui/");
-    void Clear();
-
-  private:
-    std::unordered_map<std::string, std::unique_ptr<Texture2D>> cache_;
-    std::unordered_map<std::string, bool> failed_;
-};
-
-/// Scroll-clipped tooltip entry + occluder hit-testing stack.
-class UITipTracker {
-  public:
-    struct ScrollScope {
-        std::string key;
-        Rect viewport{};
-        float offset = 0.0f;
-    };
-
-    void BeginFrame();
-    void PushScroll(std::string key, const Rect &viewport, float offset);
-    void PopScroll();
-    [[nodiscard]] float CurrentScrollOffset() const;
-    [[nodiscard]] Rect ToScreenRect(Rect r) const;
-
-    void RecordEntry(const Rect &r, std::string text);
-    void RecordClippedEntry(const Rect &r, std::string text);
-    void RecordOccluder(const Rect &r);
-
-    [[nodiscard]] std::string Poll(Vec2 mouse, std::string_view fallback_tip = {});
-    [[nodiscard]] const Rect &PolledRect() const { return polled_rect_; }
-
-  private:
-    struct TipEntry {
-        Rect rect{};
-        std::string text; // Empty string indicates an occluder blocking underlying entries.
-    };
-
-    std::vector<ScrollScope> scroll_stack_;
-    std::vector<TipEntry> entries_;
-    Rect polled_rect_{};
-};
-
-/// Ensure `renderer` has at least one primary or OS CJK fallback font loaded,
-/// plus fallback fonts registered for missing glyphs. Returns true if usable.
-bool EnsureSystemCjkFonts(Renderer &renderer,
-                          const std::string &primary_font_path,
-                          float pixel_height = 32.0f);
 
 /// Immediate-mode 2D GUI toolkit with deterministic layout auditing, clickable
 /// widget collection, clipped nested scroll viewports, and textured/beveled chrome.

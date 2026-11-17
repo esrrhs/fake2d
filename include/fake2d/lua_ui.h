@@ -4,9 +4,10 @@
 #include <functional>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "fake2d/math.h"
-#include "fake2d/ui_immediate.h"
+#include "fake2d/ui.h"
 
 namespace fakelua {
 class State;
@@ -16,7 +17,6 @@ struct CVar;
 namespace fake2d {
 
 class Engine;
-class Renderer;
 
 /// Lossless float-precision color pool indexed by 1-based integer handles (`0` = unset).
 class ColorPool {
@@ -50,11 +50,10 @@ struct UIButtonStylePreset {
     bool has_active_variant = false;
 };
 
-/// Host context connecting `Engine`, `ImmediateGui`, `UITipTracker`, `UITextureCache`,
-/// and `ColorPool` to the generic `u_*` and `ui_*` FakeLua bindings.
+/// Host context connecting `Engine` (`UISystem`), `UITipTracker`, `UITextureCache`,
+/// and `ColorPool` to the generic UI FakeLua bindings.
 struct LuaUIHost {
     Engine *engine = nullptr;
-    ImmediateGui *gui = nullptr;
     UITipTracker *tips = nullptr;
     UITextureCache *textures = nullptr;
     ColorPool *colors = nullptr;
@@ -71,11 +70,11 @@ struct LuaUIHost {
 /// `vsnprintf`-compatible formatter reading conversion specifiers from FakeLua variadic arguments.
 [[nodiscard]] std::string FormatFromLuaArgs(fakelua::State *s, fakelua::CVar *args, int n);
 
-/// Register generic immediate-mode rendering & widget Lua primitives (`u_*`).
-void RegisterImmediateGuiLuaApi(fakelua::State *s, LuaUIHost *host);
+/// Register pure color pool, `vsnprintf`, and UTF-8 utility helpers (`u_col`, `u_hex`, `u_theme`, `u_strf`, ...).
+void RegisterCommonUILuaApi(fakelua::State *s, LuaUIHost *host);
 
-/// Register generic box-layout `UISystem` Lua primitives (`ui_*`), cached sprite helpers,
-/// and scroll-aware tooltip hit-testing (`ui_tip*`).
+/// Register full `UISystem` layout, screen-space draw, hit-test, input capture, cached sprite,
+/// and scroll-aware tooltip hit-testing Lua primitives (`ui_*`).
 void RegisterLayoutUILuaApi(fakelua::State *s, LuaUIHost *host);
 
 } // namespace fake2d
