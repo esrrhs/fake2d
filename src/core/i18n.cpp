@@ -414,6 +414,31 @@ std::string I18n::TranslateSegmented(std::string_view key) const {
     return out;
 }
 
+std::string_view I18n::TranslateSegmentedView(std::string_view key) const {
+    const LanguagePack *language = Find(current_);
+    if (language == nullptr) {
+        return key;
+    }
+    const auto exact = language->entries.find(std::string(key));
+    if (exact != language->entries.end()) {
+        return exact->second;
+    }
+    if (IsCjk() || !HasCjk(key) || language->entries.empty()) {
+        return key;
+    }
+    SegCache &cache = seg_caches_[current_];
+    if (const auto hit = cache.memo.find(std::string(key)); hit != cache.memo.end()) {
+        return hit->second;
+    }
+    constexpr std::size_t kMemoCap = 60000;
+    if (cache.memo.size() >= kMemoCap) {
+        return key;
+    }
+    std::string val = TranslateSegmented(key);
+    auto [it, inserted] = cache.memo.emplace(std::string(key), std::move(val));
+    return it->second;
+}
+
 std::string_view I18n::MissingKey(std::size_t index) const {
     return index < missing_order_.size() ? std::string_view(missing_order_[index])
                                          : std::string_view{};

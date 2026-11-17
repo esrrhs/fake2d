@@ -65,6 +65,16 @@ public:
     /// Draw solid color quad.
     void DrawQuad(const Rect &dst, const Color &color);
 
+    /// Draw a solid rectangular border frame inset along each edge.
+    void DrawFrame(const Rect &dst, const Color &color, float thickness = 1.0f);
+
+    /// Draw a vertically shaded quad split into `steps` non-overlapping bands.
+    void DrawGradientV(const Rect &dst, const Color &top, const Color &bottom, int steps = 8);
+
+    /// Draw a cubic Bezier stroke whose width linearly tapers from `w0` to `w1`.
+    void DrawBezierTapered(const Vec2 &p0, const Vec2 &c0, const Vec2 &c1, const Vec2 &p1,
+                           float w0, float w1, const Color &color);
+
     /// Draw entire texture mapped to dst rect.
     void DrawSprite(const Texture2D &texture, const Rect &dst, const Color &tint = Color::White());
 

@@ -30,6 +30,15 @@ struct Config {
     /// Reported in the session header and crash reports.
     std::string app_name = "fake2d";
     std::string version;
+    /// Optional std::set_terminate hook, Windows minidump (via dbghelp.dll),
+    /// env var name to skip crash handler installation, and optional modal dialog.
+    bool terminate_handler = false;
+    bool windows_minidump = false;
+    std::string disable_crash_env;
+    std::string no_dialog_env;
+    std::string crash_dialog_title;
+    std::string crash_dialog_body_prefix;
+    std::string crash_dialog_body_suffix;
 };
 
 /// Start logging. Returns false when the file could not be opened (stderr
@@ -39,6 +48,9 @@ void Shutdown();
 [[nodiscard]] bool Active();
 /// Absolute/relative path of the open log file ("" when stderr-only).
 [[nodiscard]] const std::string &Path();
+
+/// Cross-platform native error alert (MessageBoxW / osascript / zenity / stderr fallback).
+void ErrorDialog(std::string_view title, std::string_view message);
 
 /// Core entry point (level is free-form: "info", "warn", "error", ...).
 void Write(std::string_view level, std::string_view message);

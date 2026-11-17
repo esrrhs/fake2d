@@ -60,6 +60,9 @@ public:
     /// Results are memoized per language (bounded); the returned string is
     /// owned, unlike Translate's view into the pack.
     [[nodiscard]] std::string TranslateSegmented(std::string_view key) const;
+    /// Stable view into the memoized segmented result (or `key` verbatim when
+    /// unmatched / memo cap reached). Valid until the next Clear() or pack reload.
+    [[nodiscard]] std::string_view TranslateSegmentedView(std::string_view key) const;
 
     [[nodiscard]] std::size_t LanguageCount() const { return languages_.size(); }
     [[nodiscard]] const LanguagePack *GetLanguage(std::size_t index) const;

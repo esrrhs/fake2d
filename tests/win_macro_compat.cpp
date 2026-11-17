@@ -15,8 +15,19 @@
 #define NEAR near
 
 #include "fake2d/engine.h"
+#include "fake2d/i18n.h"
 #include "fake2d/lighting.h"
+#include "fake2d/log.h"
+#include "fake2d/object_snapshot.h"
+#include "fake2d/procedural_tex.h"
+#include "fake2d/province_overlay.h"
 #include "fake2d/renderer.h"
+#include "fake2d/save_store.h"
+#include "fake2d/ui_immediate.h"
+#include "fake2d/ui_test_runner.h"
+#ifdef FAKE2D_WITH_FAKELUA
+#include "fake2d/lua_ui.h"
+#endif
 
 // A later windows.h (the gl.h path on MinGW) would re-define the macros
 // after the public headers have already been processed.

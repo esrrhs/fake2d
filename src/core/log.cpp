@@ -2,7 +2,9 @@
 
 #include <atomic>
 #include <cstdio>
+#include <cstdlib>
 #include <ctime>
+#include <exception>
 #include <filesystem>
 #include <mutex>
 #include <string>
@@ -11,8 +13,8 @@
 #include <windows.h>
 #else
 #include <csignal>
-#include <cstdlib>
 #include <execinfo.h>
+#include <sys/wait.h>
 #include <unistd.h>
 #endif
 
@@ -54,28 +56,60 @@ void WriteCrashReport(const char *reason) {
     const std::string report = dir + "/crash-" + stamp + ".txt";
 
     std::FILE *file = std::fopen(report.c_str(), "w");
-    if (file == nullptr) {
-        return;
-    }
-    std::fprintf(file, "%s %s crash report\nreason: %s\nlog: %s\n\nbacktrace:\n",
-                 g_config.app_name.c_str(), g_config.version.c_str(), reason,
-                 g_path.c_str());
+    if (file != nullptr) {
+        std::fprintf(file, "%s %s crash report\nreason: %s\nlog: %s\n\nbacktrace:\n",
+                     g_config.app_name.c_str(), g_config.version.c_str(), reason,
+                     g_path.c_str());
 #if defined(_WIN32)
-    void *frames[64];
-    const USHORT count = CaptureStackBackTrace(0, 64, frames, nullptr);
-    for (USHORT i = 0; i < count; ++i) {
-        std::fprintf(file, "  #%u %p\n", static_cast<unsigned>(i), frames[i]);
-    }
+        void *frames[64];
+        const USHORT count = CaptureStackBackTrace(0, 64, frames, nullptr);
+        for (USHORT i = 0; i < count; ++i) {
+            std::fprintf(file, "  #%u %p\n", static_cast<unsigned>(i), frames[i]);
+        }
 #else
-    void *frames[64];
-    const int count = backtrace(frames, 64);
-    backtrace_symbols_fd(frames, count, fileno(file));
+        void *frames[64];
+        const int count = backtrace(frames, 64);
+        std::fflush(file);
+        backtrace_symbols_fd(frames, count, fileno(file));
 #endif
-    std::fclose(file);
+        std::fclose(file);
+    }
+    Error(std::string("[fatal] ") + reason + " — report: " + report);
+    if (!g_config.crash_dialog_title.empty()) {
+        std::string msg;
+        if (!g_config.crash_dialog_body_prefix.empty()) msg += g_config.crash_dialog_body_prefix + "\n\n";
+        msg += reason;
+        msg += "\n\nCrash report:\n" + report;
+        if (!g_config.crash_dialog_body_suffix.empty()) msg += "\n\n" + g_config.crash_dialog_body_suffix;
+        ErrorDialog(g_config.crash_dialog_title, msg);
+    }
 }
 
 #if defined(_WIN32)
+void WriteMiniDump(EXCEPTION_POINTERS *info) {
+    if (!g_config.windows_minidump || !info) return;
+    HMODULE dbghelp = LoadLibraryA("dbghelp.dll");
+    if (!dbghelp) return;
+    struct MiniDumpInfo { DWORD ThreadId; PEXCEPTION_POINTERS ExceptionPointers; BOOL ClientPointers; };
+    using Fn = BOOL(WINAPI *)(HANDLE, DWORD, HANDLE, DWORD, MiniDumpInfo *, void *, void *);
+    auto fn = reinterpret_cast<Fn>(GetProcAddress(dbghelp, "MiniDumpWriteDump"));
+    if (fn) {
+        const std::string dir = g_config.dir.empty() ? std::string(".") : g_config.dir;
+        char stamp[64];
+        Stamp(stamp, sizeof stamp, "%Y%m%d-%H%M%S");
+        const std::string dmp = dir + "/crash-" + stamp + ".dmp";
+        HANDLE h = CreateFileA(dmp.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (h != INVALID_HANDLE_VALUE) {
+            MiniDumpInfo mei{GetCurrentThreadId(), info, FALSE};
+            fn(GetCurrentProcess(), GetCurrentProcessId(), h, 0 /* MiniDumpNormal */, &mei, nullptr, nullptr);
+            CloseHandle(h);
+        }
+    }
+    FreeLibrary(dbghelp);
+}
+
 LONG WINAPI UnhandledFilter(EXCEPTION_POINTERS *info) {
+    WriteMiniDump(info);
     char reason[128];
     std::snprintf(reason, sizeof reason, "unhandled exception 0x%08lx",
                   static_cast<unsigned long>(
@@ -101,6 +135,9 @@ void FatalSignal(int sig) {
 #endif
 
 void InstallCrashHandler() {
+    if (!g_config.disable_crash_env.empty() && std::getenv(g_config.disable_crash_env.c_str())) {
+        return;
+    }
 #if defined(_WIN32)
     SetUnhandledExceptionFilter(UnhandledFilter);
 #else
@@ -108,6 +145,18 @@ void InstallCrashHandler() {
         std::signal(sig, FatalSignal);
     }
 #endif
+    if (g_config.terminate_handler) {
+        std::set_terminate([] {
+            std::string what = "std::terminate (uncaught exception)";
+            if (auto e = std::current_exception()) {
+                try { std::rethrow_exception(e); }
+                catch (const std::exception &x) { what += ": "; what += x.what(); }
+                catch (...) {}
+            }
+            WriteCrashReport(what.c_str());
+            std::_Exit(3);
+        });
+    }
 }
 
 } // namespace
@@ -178,5 +227,45 @@ void Write(std::string_view level, std::string_view message) {
 void Info(std::string_view message) { Write("info", message); }
 void Warn(std::string_view message) { Write("warn", message); }
 void Error(std::string_view message) { Write("error", message); }
+
+void ErrorDialog(std::string_view title, std::string_view message) {
+    Error(std::string(title) + ": " + std::string(message));
+    if (std::getenv("FAKE2D_NO_DIALOG")) return;
+    if (!g_config.no_dialog_env.empty() && std::getenv(g_config.no_dialog_env.c_str())) return;
+    const std::string t(title), m(message);
+#if defined(_WIN32)
+    auto wide = [](const std::string &s) {
+        int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
+        std::wstring w(n > 0 ? n : 1, 0);
+        if (n > 0) MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, w.data(), n);
+        return w;
+    };
+    MessageBoxW(nullptr, wide(m).c_str(), wide(t).c_str(), MB_OK | MB_ICONERROR);
+#else
+    [[maybe_unused]] auto esc = [](const std::string &s) {
+        std::string o;
+        for (char c : s) {
+            if (c == '"' || c == '\\') o += '\\';
+            o += c;
+        }
+        return o;
+    };
+    pid_t pid = fork();
+    if (pid == 0) {
+#if defined(__APPLE__)
+        std::string script = "display alert \"" + esc(t) + "\" message \"" + esc(m) + "\" as critical";
+        execlp("osascript", "osascript", "-e", script.c_str(), static_cast<char *>(nullptr));
+#else
+        execlp("zenity", "zenity", "--error", "--no-wrap", ("--title=" + t).c_str(), ("--text=" + m).c_str(), static_cast<char *>(nullptr));
+        execlp("kdialog", "kdialog", "--title", t.c_str(), "--error", m.c_str(), static_cast<char *>(nullptr));
+        execlp("xmessage", "xmessage", "-center", (t + "\n\n" + m).c_str(), static_cast<char *>(nullptr));
+#endif
+        _exit(127);
+    } else if (pid > 0) {
+        int st = 0;
+        waitpid(pid, &st, 0);
+    }
+#endif
+}
 
 } // namespace fake2d::log

@@ -30,6 +30,8 @@ set(FAKE2D_SOURCES
     render/tilemap.cpp
     render/render_target.cpp
     render/image_write.cpp
+    render/procedural_tex.cpp
+    render/province_overlay.cpp
     scene/node.cpp
     scene/scene.cpp
     platform/window.cpp
@@ -40,12 +42,16 @@ set(FAKE2D_SOURCES
     physics/physics_world.cpp
     gameplay/character.cpp
     ui/ui.cpp
+    ui/ui_immediate.cpp
+    ui/ui_test_runner.cpp
 )
 
 if (FAKE2D_WITH_FAKELUA)
     list(APPEND FAKE2D_SOURCES
+        script/lua_ui.cpp
+        script/object_snapshot.cpp
         script/rule_host.cpp
-    script/script_host.cpp
+        script/script_host.cpp
         script/script_bindings.cpp
     )
 else ()

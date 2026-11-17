@@ -79,6 +79,25 @@ public:
     static bool RenameSlot(std::string_view from, std::string_view to,
                            std::string_view dir);
 
+    // --- generic path-based binary containers (magic|ver|hlen|hdr|crc|body) ---
+    struct ContainerInfo {
+        std::string header;
+        std::uint32_t container_ver = 0;
+        std::uint32_t payload_bytes = 0;
+        std::uint32_t payload_crc = 0;
+        bool legacy = false;
+    };
+    [[nodiscard]] static std::uint32_t Crc32(std::string_view data);
+    [[nodiscard]] static bool AtomicWriteFile(const std::string &path, std::string_view bytes,
+                                              std::string *error_out = nullptr);
+    [[nodiscard]] static bool SaveContainer(const std::string &path, const char magic[4],
+                                            std::uint32_t container_ver, std::string_view header,
+                                            std::string_view payload, std::string *error_out = nullptr);
+    static bool LoadContainer(const std::string &path, const char magic[4],
+                              std::uint32_t max_container_ver, std::string &payload_out,
+                              ContainerInfo &info_out, std::string *error_out = nullptr);
+    [[nodiscard]] static std::string ParseHeaderValue(std::string_view header, std::string_view key);
+
 private:
     struct Value {
         bool is_string = false;

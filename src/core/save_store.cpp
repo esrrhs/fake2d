@@ -19,7 +19,7 @@ constexpr const char *kBlobExt = ".sav";
 constexpr char kBlobMagic[4] = {'F', '2', 'S', 'V'};
 constexpr std::uint32_t kBlobContainerVersion = 1;
 
-std::uint32_t Crc32(const std::string &data) {
+std::uint32_t ComputeCrc32(std::string_view data) {
     static std::uint32_t table[256];
     static bool ready = false;
     if (!ready) {
@@ -86,7 +86,7 @@ bool ParseBlob(std::string raw, std::string &payload, SaveStore::BlobInfo &info)
         }
         const std::uint32_t crc = ReadU32(raw, 16 + header_len);
         const std::string body = raw.substr(payload_offset);
-        if (Crc32(body) != crc) {
+        if (ComputeCrc32(body) != crc) {
             return false;
         }
         payload = body;
@@ -100,7 +100,7 @@ bool ParseBlob(std::string raw, std::string &payload, SaveStore::BlobInfo &info)
     payload = std::move(raw);
     info.game_version = 0;
     info.payload_bytes = static_cast<std::uint32_t>(payload.size());
-    info.payload_crc = Crc32(payload);
+    info.payload_crc = ComputeCrc32(payload);
     return true;
 }
 
@@ -267,7 +267,7 @@ bool SaveStore::SaveBlob(std::string_view slot, std::string_view dir,
     AppendU32(buf, game_version);
     AppendU32(buf, static_cast<std::uint32_t>(header.size()));
     buf.append(header);
-    AppendU32(buf, Crc32(std::string(payload)));
+    AppendU32(buf, ComputeCrc32(payload));
     buf.append(payload);
 
     std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
@@ -387,6 +387,122 @@ bool SaveStore::RenameSlot(std::string_view from, std::string_view to,
         }
     }
     return true;
+}
+
+std::uint32_t SaveStore::Crc32(std::string_view data) { return ComputeCrc32(data); }
+
+bool SaveStore::AtomicWriteFile(const std::string &path, std::string_view bytes,
+                                std::string *error_out) {
+    std::error_code ec;
+    const auto parent = std::filesystem::path(path).parent_path();
+    if (!parent.empty()) std::filesystem::create_directories(parent, ec);
+    const std::string tmp = path + ".tmp";
+    {
+        std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
+        if (!out) {
+            if (error_out) *error_out = "open temp failed";
+            return false;
+        }
+        out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+        out.flush();
+        if (!out.good()) {
+            out.close();
+            std::filesystem::remove(tmp, ec);
+            if (error_out) *error_out = "write failed";
+            return false;
+        }
+    }
+    std::filesystem::rename(tmp, path, ec);
+    if (!ec) return true;
+    // Last-resort fallback for filesystems/locks rejecting atomic replace.
+    std::error_code ec2;
+    std::filesystem::remove(path, ec2);
+    std::filesystem::rename(tmp, path, ec);
+    if (ec) {
+        if (error_out) *error_out = ec.message();
+        std::filesystem::remove(tmp, ec2);
+        return false;
+    }
+    return true;
+}
+
+bool SaveStore::SaveContainer(const std::string &path, const char magic[4],
+                              std::uint32_t container_ver, std::string_view header,
+                              std::string_view payload, std::string *error_out) {
+    if (!magic || header.size() > 16u * 1024u * 1024u) {
+        if (error_out) *error_out = "invalid header";
+        return false;
+    }
+    std::string out;
+    out.reserve(12 + header.size() + 4 + payload.size());
+    out.append(magic, 4);
+    AppendU32(out, container_ver);
+    AppendU32(out, static_cast<std::uint32_t>(header.size()));
+    out.append(header);
+    AppendU32(out, ComputeCrc32(payload));
+    out.append(payload);
+    return AtomicWriteFile(path, out, error_out);
+}
+
+bool SaveStore::LoadContainer(const std::string &path, const char magic[4],
+                              std::uint32_t max_container_ver, std::string &payload_out,
+                              ContainerInfo &info_out, std::string *error_out) {
+    info_out = ContainerInfo{};
+    payload_out.clear();
+    std::string raw;
+    if (!ReadWholeFile(path, raw)) {
+        if (error_out) *error_out = "unreadable";
+        return false;
+    }
+    if (raw.empty()) {
+        if (error_out) *error_out = "empty file";
+        return false;
+    }
+    if (magic && raw.size() >= 16 && std::memcmp(raw.data(), magic, 4) == 0) {
+        info_out.legacy = false;
+        const std::uint32_t cver = ReadU32(raw, 4);
+        const std::uint32_t hlen = ReadU32(raw, 8);
+        if (cver > max_container_ver) {
+            if (error_out) *error_out = "newer save format";
+            return false;
+        }
+        if (12u + static_cast<std::size_t>(hlen) + 4u > raw.size()) {
+            if (error_out) *error_out = "truncated";
+            return false;
+        }
+        info_out.container_ver = cver;
+        info_out.header = raw.substr(12, hlen);
+        const std::uint32_t crc = ReadU32(raw, 12 + hlen);
+        payload_out = raw.substr(12 + hlen + 4);
+        info_out.payload_bytes = static_cast<std::uint32_t>(payload_out.size());
+        info_out.payload_crc = crc;
+        if (ComputeCrc32(payload_out) != crc) {
+            if (error_out) *error_out = "checksum mismatch (corrupted)";
+            return false;
+        }
+        return true;
+    }
+    info_out.legacy = true;
+    payload_out = std::move(raw);
+    info_out.payload_bytes = static_cast<std::uint32_t>(payload_out.size());
+    info_out.payload_crc = ComputeCrc32(payload_out);
+    return true;
+}
+
+std::string SaveStore::ParseHeaderValue(std::string_view header, std::string_view key) {
+    std::size_t pos = 0;
+    while (pos < header.size()) {
+        std::size_t nl = header.find('\n', pos);
+        if (nl == std::string_view::npos) nl = header.size();
+        std::string_view line = header.substr(pos, nl - pos);
+        if (!line.empty() && line.back() == '\r') line.remove_suffix(1);
+        const std::size_t eq = line.find('=');
+        if (eq != std::string_view::npos && line.substr(0, eq) == key) {
+            return std::string(line.substr(eq + 1));
+        }
+        pos = nl + 1;
+    }
+    return {};
 }
 
 } // namespace fake2d

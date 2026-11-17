@@ -897,6 +897,55 @@ void SpriteBatch::DrawCircleOutline(const Vec2 &center, float radius, int segmen
     }
 }
 
+void SpriteBatch::DrawFrame(const Rect &dst, const Color &color, float thickness) {
+    if (thickness <= 0.0f || dst.width <= 0.0f || dst.height <= 0.0f) {
+        return;
+    }
+    DrawQuad(Rect{dst.x, dst.y, dst.width, thickness}, color);
+    DrawQuad(Rect{dst.x, dst.y + dst.height - thickness, dst.width, thickness}, color);
+    DrawQuad(Rect{dst.x, dst.y, thickness, dst.height}, color);
+    DrawQuad(Rect{dst.x + dst.width - thickness, dst.y, thickness, dst.height}, color);
+}
+
+void SpriteBatch::DrawGradientV(const Rect &dst, const Color &top, const Color &bottom, int steps) {
+    if (steps <= 0 || dst.width <= 0.0f || dst.height <= 0.0f) {
+        return;
+    }
+    for (int i = 0; i < steps; ++i) {
+        const float t = (static_cast<float>(i) + 0.5f) / static_cast<float>(steps);
+        const Color mid{
+            top.r + (bottom.r - top.r) * t,
+            top.g + (bottom.g - top.g) * t,
+            top.b + (bottom.b - top.b) * t,
+            top.a + (bottom.a - top.a) * t,
+        };
+        const float y0 = std::round(dst.y + dst.height * static_cast<float>(i) / static_cast<float>(steps));
+        const float y1 = std::round(dst.y + dst.height * static_cast<float>(i + 1) / static_cast<float>(steps));
+        if (y1 > y0) {
+            DrawQuad(Rect{dst.x, y0, dst.width, y1 - y0}, mid);
+        }
+    }
+}
+
+void SpriteBatch::DrawBezierTapered(const Vec2 &p0, const Vec2 &c0, const Vec2 &c1, const Vec2 &p1,
+                                    float w0, float w1, const Color &color) {
+    const float chord = std::hypot(c0.x - p0.x, c0.y - p0.y) +
+                        std::hypot(c1.x - c0.x, c1.y - c0.y) +
+                        std::hypot(p1.x - c1.x, p1.y - c1.y);
+    const float step_px = std::max(1.2f, std::min(w0, w1) * 0.42f);
+    const int k_steps = std::clamp(static_cast<int>(std::ceil(chord / step_px)), 32, 180);
+    for (int i = 0; i <= k_steps; ++i) {
+        const float t = static_cast<float>(i) / static_cast<float>(k_steps);
+        const float mt = 1.0f - t;
+        const float mt2 = mt * mt;
+        const float t2 = t * t;
+        const float px = mt2 * mt * p0.x + 3.0f * mt2 * t * c0.x + 3.0f * mt * t2 * c1.x + t2 * t * p1.x;
+        const float py = mt2 * mt * p0.y + 3.0f * mt2 * t * c0.y + 3.0f * mt * t2 * c1.y + t2 * t * p1.y;
+        const float w = w0 * mt + w1 * t;
+        DrawQuad(Rect{px - w * 0.5f, py - w * 0.5f, w, w}, color);
+    }
+}
+
 void SpriteBatch::FlushLines() {
     if (current_lines_ == 0 ||
         (!glcaps::legacy_mode && !line_vao_) || !current_shader_) {
