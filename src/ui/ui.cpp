@@ -4279,6 +4279,17 @@ void UITextureCache::Clear() {
     failed_.clear();
 }
 
+void UITextureCache::EvictPrefix(std::string_view prefix) {
+    for (auto it = cache_.begin(); it != cache_.end();) {
+        if (it->first.rfind(prefix, 0) == 0) it = cache_.erase(it);
+        else ++it;
+    }
+    for (auto it = failed_.begin(); it != failed_.end();) {
+        if (it->first.rfind(prefix, 0) == 0) it = failed_.erase(it);
+        else ++it;
+    }
+}
+
 void UITipTracker::BeginFrame() {
     scroll_stack_.clear();
     entries_.clear();

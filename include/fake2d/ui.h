@@ -635,6 +635,9 @@ class UITextureCache {
                                const std::string &root_dir,
                                const std::string &default_subdir = "assets/ui/");
     void Clear();
+    /// 按名字前缀驱逐（如开屏大图进游戏后不再绘制）：纹理析构须在 GL context current 时调用；
+    /// 被驱逐的名字同时从 failed_ 摘除，之后 GetOrLoad 可按需重载（如退回主菜单）。
+    void EvictPrefix(std::string_view prefix);
 
   private:
     std::unordered_map<std::string, std::unique_ptr<Texture2D>> cache_;
