@@ -42,7 +42,6 @@ set(FAKE2D_SOURCES
     physics/physics_world.cpp
     gameplay/character.cpp
     ui/ui.cpp
-    ui/ui_immediate.cpp
     ui/ui_test_runner.cpp
 )
 

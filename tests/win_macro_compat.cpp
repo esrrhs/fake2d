@@ -23,7 +23,7 @@
 #include "fake2d/province_overlay.h"
 #include "fake2d/renderer.h"
 #include "fake2d/save_store.h"
-#include "fake2d/ui_immediate.h"
+#include "fake2d/ui.h"
 #include "fake2d/ui_test_runner.h"
 #ifdef FAKE2D_WITH_FAKELUA
 #include "fake2d/lua_ui.h"
