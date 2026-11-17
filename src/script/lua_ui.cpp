@@ -80,6 +80,10 @@ inline double ArgNum(LS *s, CVar *a, int n, int i) {
     return fakelua::inter::FakeluaToNativeDouble(s, fakelua::inter::GetNativeArg(s, a, n, i));
 }
 
+inline bool ArgBool(LS *s, CVar *a, int n, int i) {
+    return fakelua::inter::FakeluaToNativeBool(s, fakelua::inter::GetNativeArg(s, a, n, i));
+}
+
 template <typename Sig, typename F>
 void Reg(LS *s, LuaUIHost *host, const char *name, F fn) {
     if (host && host->note_native) {
@@ -377,6 +381,40 @@ void RegisterLayoutUILuaApi(LS *s, LuaUIHost *host) {
                         static_cast<float>(w), static_cast<float>(h), static_cast<float>(pad));
             }
         });
+    RegVar(s, host, "ui_push_inset", 4, [ui_sys](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) {
+            const float l = static_cast<float>(ArgNum(st, a, n, 0));
+            const float t = static_cast<float>(ArgNum(st, a, n, 1));
+            const float r = static_cast<float>(ArgNum(st, a, n, 2));
+            const float b = static_cast<float>(ArgNum(st, a, n, 3));
+            const float w = n > 4 ? static_cast<float>(ArgNum(st, a, n, 4)) : 0.0f;
+            const float h = n > 5 ? static_cast<float>(ArgNum(st, a, n, 5)) : -1.0f;
+            u->PushInset(l, t, r, b, w, h);
+        }
+        return 0.0;
+    });
+    RegVar(s, host, "ui_push_fill", 0, [ui_sys](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) {
+            const float reserve_bottom = n > 0 ? static_cast<float>(ArgNum(st, a, n, 0)) : 0.0f;
+            const float pad = n > 1 ? static_cast<float>(ArgNum(st, a, n, 1)) : 0.0f;
+            u->PushFill(reserve_bottom, pad);
+        }
+        return 0.0;
+    });
+    RegVar(s, host, "ui_push_anchor", 4, [ui_sys](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) {
+            const std::string h_align = ArgStr(st, a, n, 0);
+            const std::string v_align = ArgStr(st, a, n, 1);
+            const float w = static_cast<float>(ArgNum(st, a, n, 2));
+            const float h = static_cast<float>(ArgNum(st, a, n, 3));
+            const float ix = n > 4 ? static_cast<float>(ArgNum(st, a, n, 4)) : 0.0f;
+            const float iy = n > 5 ? static_cast<float>(ArgNum(st, a, n, 5)) : 0.0f;
+            const float pad = n > 6 ? static_cast<float>(ArgNum(st, a, n, 6)) : 0.0f;
+            const bool overlay = n > 7 ? ArgBool(st, a, n, 7) : true;
+            u->PushAnchor(h_align, v_align, w, h, ix, iy, pad, overlay);
+        }
+        return 0.0;
+    });
     Reg<void(LS *)>(s, host, "ui_pop", [ui_sys](LS *) {
         if (auto *u = ui_sys()) u->Pop();
     });
@@ -502,7 +540,9 @@ void RegisterLayoutUILuaApi(LS *s, LuaUIHost *host) {
             auto *u = ui_sys();
             if (!u) return;
             const float vw = u->AvailWidth();
-            const float vh = h > 0.0 ? static_cast<float>(h) : u->AvailHeight();
+            const float vh = h > 0.0 ? static_cast<float>(h)
+                                     : (h < 0.0 ? std::max(0.0f, u->AvailHeight() + static_cast<float>(h))
+                                                : u->AvailHeight());
             const float outer_off = host->tips ? host->tips->CurrentScrollOffset() : 0.0f;
             u->ScrollBegin(key, static_cast<float>(h));
             u->Push(0.0f, 0.0f, 1.0f, 0.0f, 0.0f);
@@ -522,6 +562,11 @@ void RegisterLayoutUILuaApi(LS *s, LuaUIHost *host) {
         auto *u = ui_sys();
         return u ? u->LayoutToken(name) : 0.0;
     });
+    Reg<bool(LS *, std::string, double)>(
+        s, host, "ui_set_token", [ui_sys](LS *, std::string name, double value) -> bool {
+            auto *u = ui_sys();
+            return u && u->SetLayoutToken(name, static_cast<float>(value));
+        });
     Reg<void(LS *, std::string)>(s, host, "ui_tip", [host, ui_sys](LS *, std::string t) {
         auto *u = ui_sys();
         if (!u || t.empty() || !host->tips || u->IsSuppressed()) return;
@@ -645,6 +690,9 @@ void RegisterLayoutUILuaApi(LS *s, LuaUIHost *host) {
         });
     Reg<void(LS *, std::string)>(s, host, "ui_remember", [ui_sys](LS *, std::string name) {
         if (auto *u = ui_sys()) u->Remember(name);
+    });
+    Reg<void(LS *, std::string)>(s, host, "ui_remember_box", [ui_sys](LS *, std::string name) {
+        if (auto *u = ui_sys()) u->RememberBox(name);
     });
     Reg<double(LS *, std::string, std::string)>(s, host, "ui_named", [ui_sys](LS *, std::string name, std::string field) -> double {
         auto *u = ui_sys();

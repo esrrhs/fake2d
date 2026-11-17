@@ -100,8 +100,9 @@ class UISystem {
     bool SetScale(float reference_w, float reference_h, std::string_view mode = "contain");
     [[nodiscard]] float Scale() const { return scale_; }
     void Remember(std::string_view name);
+    void RememberBox(std::string_view name);
     [[nodiscard]] Rect NamedRect(std::string_view name) const;
-    // Relation edges: left/right/top/bottom/center_x/center_y; empty target = parent.
+    // Relation edges: left/right/left_of/top/bottom/center_x/center_y/overlay; empty target = parent.
     bool PushRelated(std::string_view target, std::string_view edge, float offset, float width,
                      float height, float padding = 0, float right_inset = -1);
     [[nodiscard]] float ThemeMetric(std::string_view name) const;
@@ -150,6 +151,15 @@ class UISystem {
     // Phase 54–56: cursor-box layout, independent of caller-owned values.
     // Nested x/y are relative to the parent's current cursor; Pop reserves y+h.
     void Push(float x, float y, float w, float h, float padding = 0.0f);
+    // Asymmetric edge insets inside current parent (or viewport); h < 0 fills AvailHeight, h == 0 auto-heights.
+    void PushInset(float left, float top, float right, float bottom, float w = 0.0f,
+                   float h = -1.0f);
+    // Fill remaining vertical space of current parent, optionally reserving space at bottom.
+    void PushFill(float reserve_bottom = 0.0f, float padding = 0.0f);
+    // Anchor a box to an edge/center/stretch of current parent or logical viewport.
+    void PushAnchor(std::string_view h_align, std::string_view v_align, float width, float height,
+                    float inset_x = 0.0f, float inset_y = 0.0f, float padding = 0.0f,
+                    bool overlay = true);
     void Pop();
     float Text(std::string_view text, float scale = 0.0f,
                UITextOverflow overflow = UITextOverflow::Wrap, int align = 0,
@@ -363,12 +373,14 @@ class UISystem {
     };
     struct LayoutBox {
         Rect content;
+        Rect outer_rect{};
         float cursor = 0.0f;
         float reserve = 0.0f;
         bool auto_height = false, overlay = false;
         std::uint32_t box_id = 0;
         std::size_t audit_start = 0;
         float padding = 0, y_offset = 0;
+        float pad_left = 0, pad_top = 0, pad_right = 0, pad_bottom = 0, extra_reserve = 0;
         Constraints limits;
         std::shared_ptr<Rect> measured;
         std::vector<LayoutClip> clips;
@@ -419,7 +431,11 @@ class UISystem {
     std::vector<std::function<void()>> scroll_resolvers_;
     std::unordered_map<std::string, ScrollState> scroll_states_;
     std::unordered_map<std::string, float> tokens_{
-        {"panel_width", 600.0f}, {"sidebar_inset", 410.0f}, {"menu_icon_spacing_cap", 64.0f}};
+        {"panel_width", 600.0f},   {"sidebar_inset", 410.0f},    {"menu_icon_spacing_cap", 64.0f},
+        {"sheet_pad_x", 14.0f},    {"sheet_pad_top", 8.0f},      {"sheet_pad_bottom", 12.0f},
+        {"sheet_header_h", 40.0f}, {"sheet_header_pad_y", 5.0f}, {"sheet_btn_size", 22.0f},
+        {"card_pad", 8.0f},        {"card_pad_lg", 12.0f},       {"gap_sm", 4.0f},
+        {"gap_md", 8.0f},          {"gap_lg", 12.0f}};
     struct InteractionNode {
         std::string key, modal, popup;
         Rect rect;

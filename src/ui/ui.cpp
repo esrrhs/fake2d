@@ -912,6 +912,11 @@ void UISystem::PushAbsolute(const Rect &r, float padding, float reserve) {
     LayoutBox box;
     box.box_id = box_sequence_++;
     box.audit_start = audit_.size();
+    box.outer_rect = r;
+    box.pad_left = pad;
+    box.pad_top = pad;
+    box.pad_right = pad;
+    box.pad_bottom = pad;
     box.content = {r.x + pad, r.y + pad, std::max(0.0f, r.width - 2 * pad),
                    std::max(0.0f, r.height - 2 * pad)};
     box.reserve = reserve;
@@ -942,10 +947,120 @@ void UISystem::Push(float x, float y, float w, float h, float padding) {
     box.auto_height = automatic;
     box.y_offset = y_offset;
     box.padding = std::max(0.0f, std::min(padding, w * .5f));
+    box.pad_left = box.padding;
+    box.pad_top = box.padding;
+    box.pad_right = box.padding;
+    box.pad_bottom = box.padding;
     if (automatic) {
         box.measured = std::make_shared<Rect>(Rect{x, y, w, h});
         box.clips.back().measured = box.measured;
         ++deferred_;
+    }
+}
+
+void UISystem::PushInset(float left, float top, float right, float bottom, float w, float h) {
+    const auto limits = next_limits_;
+    next_limits_ = {};
+    const float l = std::max(0.0f, left);
+    const float t = std::max(0.0f, top);
+    const float r = std::max(0.0f, right);
+    const float b = std::max(0.0f, bottom);
+    const float avail_w = boxes_.empty() ? LogicalWidth() : AvailWidth();
+    const float avail_h = boxes_.empty() ? LogicalHeight() : AvailHeight();
+    const float outer_w = std::clamp(w > 0.0f ? w : avail_w, limits.min_w, limits.max_w);
+    const float content_w = std::max(0.0f, outer_w - l - r);
+
+    if (h == 0.0f) {
+        // Auto-height inset box: starts at (l, t) and also reserves bottom edge margin.
+        next_limits_ = limits;
+        Push(l, t, content_w, 0.0f, 0.0f);
+        boxes_.back().extra_reserve = b;
+        return;
+    }
+
+    const float slot_h = h > 0.0f ? std::clamp(h, limits.min_h, limits.max_h)
+                                  : std::max(0.0f, avail_h);
+    const float content_h = std::max(0.0f, slot_h - t - b);
+    const float base_x = boxes_.empty() ? (camera_ ? -scale_offset_.x / scale_ : 0.0f)
+                                        : boxes_.back().content.x;
+    const float base_y = boxes_.empty() ? (camera_ ? -scale_offset_.y / scale_ : 0.0f)
+                                        : (boxes_.back().content.y + boxes_.back().cursor);
+    const Rect content_rect{base_x + l, base_y + t, content_w, content_h};
+    Record("box", content_rect);
+    PushAbsolute(content_rect, 0.0f, slot_h);
+    auto &box = boxes_.back();
+    box.limits = limits;
+    box.y_offset = t;
+    box.pad_left = l;
+    box.pad_top = t;
+    box.pad_right = r;
+    box.pad_bottom = b;
+}
+
+void UISystem::PushFill(float reserve_bottom, float padding) {
+    const float avail_w = boxes_.empty() ? LogicalWidth() : AvailWidth();
+    const float avail_h = boxes_.empty() ? LogicalHeight() : AvailHeight();
+    const float h = std::max(0.0f, avail_h - std::max(0.0f, reserve_bottom));
+    Push(0.0f, 0.0f, avail_w, h, padding);
+}
+
+void UISystem::PushAnchor(std::string_view h_align, std::string_view v_align,
+                          float width, float height, float inset_x, float inset_y,
+                          float padding, bool overlay) {
+    Rect pr{0.0f, 0.0f, LogicalWidth(), LogicalHeight()};
+    float cur_y = 0.0f;
+    const bool had_parent = !boxes_.empty();
+    if (had_parent) {
+        pr = boxes_.back().content;
+        cur_y = boxes_.back().cursor;
+    } else if (camera_) {
+        pr.x = -scale_offset_.x / scale_;
+        pr.y = -scale_offset_.y / scale_;
+    }
+    const auto limits = next_limits_;
+    next_limits_ = {};
+
+    float w = std::clamp(std::max(0.0f, width), limits.min_w, limits.max_w);
+    float x = pr.x + inset_x;
+    if (h_align == "stretch") {
+        x = pr.x + inset_x;
+        w = std::max(0.0f, pr.width - 2.0f * inset_x);
+    } else if (h_align == "right") {
+        x = pr.x + pr.width - w - inset_x;
+    } else if (h_align == "center") {
+        x = pr.x + (pr.width - w) * 0.5f + inset_x;
+    }
+
+    float h = height;
+    float y = pr.y + inset_y;
+    if (v_align == "stretch") {
+        y = pr.y + inset_y;
+        h = std::clamp(std::max(0.0f, pr.height - 2.0f * inset_y), limits.min_h, limits.max_h);
+    } else if (v_align == "bottom") {
+        if (h > 0.0f) {
+            h = std::clamp(h, limits.min_h, limits.max_h);
+            y = pr.y + pr.height - h - inset_y;
+        } else {
+            // Auto-height bottom anchor treats inset_y as distance from bottom edge to box top.
+            y = pr.y + pr.height - inset_y;
+        }
+    } else if (v_align == "center") {
+        if (h > 0.0f) {
+            h = std::clamp(h, limits.min_h, limits.max_h);
+            y = pr.y + (pr.height - h) * 0.5f + inset_y;
+        } else {
+            y = pr.y + inset_y;
+        }
+    } else if (h > 0.0f) {
+        h = std::clamp(h, limits.min_h, limits.max_h);
+    }
+
+    next_limits_ = limits;
+    Push(had_parent ? (x - pr.x) : x, had_parent ? (y - pr.y - cur_y) : y, w, h, padding);
+    if (had_parent && overlay) {
+        boxes_.back().reserve = 0.0f;
+        boxes_.back().overlay = true;
+        boxes_.back().y_offset = 0.0f;
     }
 }
 
@@ -958,7 +1073,7 @@ void UISystem::Pop() {
         const float h =
             std::clamp(box.cursor + box.padding * 2, box.limits.min_h, box.limits.max_h);
         box.measured->height = h;
-        advance = std::max(0.0f, box.y_offset + h);
+        advance = std::max(0.0f, box.y_offset + h + box.extra_reserve);
         last_rect_ = *box.measured;
         for (std::size_t i = box.audit_start; i < audit_.size(); ++i) {
             auto &entry = audit_[i];
@@ -1265,7 +1380,9 @@ void UISystem::RowEnd() {
 void UISystem::ScrollBegin(std::string_view key, float view_height) {
     if (boxes_.empty())
         return;
-    if (view_height <= 0.0f)
+    if (view_height < 0.0f)
+        view_height = std::max(0.0f, AvailHeight() + view_height);
+    else if (view_height == 0.0f)
         view_height = AvailHeight();
     const auto &parent = boxes_.back();
     const Rect viewport{parent.content.x, parent.content.y + parent.cursor, parent.content.width,
@@ -1995,18 +2112,40 @@ Vec2 UISystem::RawMouse() const {
             (m.y - scale_offset_.y) / scale_ + world_origin_.y};
 }
 void UISystem::Remember(std::string_view name) { named_rects_[std::string(name)] = last_rect_; }
+void UISystem::RememberBox(std::string_view name) {
+    if (boxes_.empty()) {
+        named_rects_[std::string(name)] = {};
+        return;
+    }
+    const auto &b = boxes_.back();
+    named_rects_[std::string(name)] = (b.auto_height && b.measured) ? *b.measured : b.outer_rect;
+}
 Rect UISystem::NamedRect(std::string_view name) const {
     auto it = named_rects_.find(std::string(name));
     return it == named_rects_.end() ? Rect{} : it->second;
 }
 bool UISystem::PushRelated(std::string_view target, std::string_view edge, float offset,
                            float width, float height, float padding, float right_inset) {
-    if (boxes_.empty())
+    if (target.empty() && boxes_.empty())
         return false;
-    const auto parent = boxes_.back();
     if (!target.empty() && named_rects_.find(std::string(target)) == named_rects_.end())
         return false;
-    const Rect r = target.empty() ? parent.content : NamedRect(target);
+    const bool has_parent = !boxes_.empty();
+    const Rect pr = has_parent ? boxes_.back().content : Rect{};
+    const float cur_y = has_parent ? boxes_.back().cursor : 0.0f;
+    const Rect r = target.empty() ? pr : NamedRect(target);
+    if (edge == "overlay") {
+        Push(has_parent ? (r.x - pr.x) : r.x,
+             has_parent ? (r.y - pr.y - cur_y) : r.y,
+             width > 0.0f ? width : r.width,
+             height > 0.0f ? height : r.height, padding);
+        if (has_parent) {
+            boxes_.back().reserve = 0;
+            boxes_.back().overlay = true;
+            boxes_.back().y_offset = 0;
+        }
+        return true;
+    }
     float x = r.x, y = r.y;
     if (edge == "right")
         x += r.width + offset;
@@ -2024,13 +2163,16 @@ bool UISystem::PushRelated(std::string_view target, std::string_view edge, float
         y += (r.height - height) * .5f + offset;
     else
         return false;
-    if (right_inset >= 0)
-        width = std::max(0.0f, parent.content.x + parent.content.width - right_inset - x);
-    Push(x - parent.content.x, y - parent.content.y - parent.cursor, width, height, padding);
+    if (right_inset >= 0 && has_parent)
+        width = std::max(0.0f, pr.x + pr.width - right_inset - x);
+    Push(has_parent ? (x - pr.x) : x,
+         has_parent ? (y - pr.y - cur_y) : y, width, height, padding);
     // Relations are overlays, not additional flow reservations.
-    boxes_.back().reserve = 0;
-    boxes_.back().overlay = true;
-    boxes_.back().y_offset = 0;
+    if (has_parent) {
+        boxes_.back().reserve = 0;
+        boxes_.back().overlay = true;
+        boxes_.back().y_offset = 0;
+    }
     return true;
 }
 float UISystem::ThemeMetric(std::string_view name) const {

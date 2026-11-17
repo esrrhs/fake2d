@@ -838,6 +838,49 @@ void RunUI149Checks(fake2d::Engine &engine, const std::function<void(bool, const
                       [](const auto &iss) { return iss.category == "overlap"; }),
           "151: sibling button overlap caught by overlap audit");
 
+    // 152: Modern inset, flex fill, anchor, token, and overlay relation checks
+    check(ui.LayoutToken("sheet_pad_x") > 0.0f && ui.LayoutToken("sheet_header_h") > 0.0f,
+          "152: default sheet layout tokens initialized");
+    const auto inset_issues = run_layout_audit([&]() {
+        ui.Push(10, 10, 200, 160, 0);
+        ui.RememberBox("card_outer");
+        ui.PushInset(14, 5, 14, 5, 0, 40);
+        check(std::abs(ui.AvailWidth() - 172.0f) < 0.5f, "152: PushInset horizontal insets");
+        ui.BeginAlignGroup("hdr_inset", "center_y|no_overlap");
+        ui.Row(6, {-1, 22, 22});
+        ui.RowAlign(1);
+        ui.Col(0);
+        ui.Text("Header", 0.4f, fake2d::UITextOverflow::Ellipsis, 0);
+        ui.ColEnd();
+        ui.Col(0);
+        ui.Button("hdr_q_inset", 22, "?", 0.4f);
+        ui.ColEnd();
+        ui.Col(0);
+        ui.Button("hdr_x_inset", 22, "x", 0.4f);
+        ui.ColEnd();
+        ui.RowEnd();
+        ui.EndAlignGroup();
+        ui.Pop();
+        ui.PushInset(14, 8, 14, 12, 0, -1);
+        check(std::abs(ui.AvailWidth() - 172.0f) < 0.5f && std::abs(ui.AvailHeight() - 100.0f) < 0.5f,
+              "152: PushInset remaining-height flex body");
+        ui.Button("body_fill_btn", 28, "Body", 0.4f);
+        ui.Pop();
+        ui.Pop();
+
+        if (ui.PushRelated("card_outer", "overlay", 0, 0, 0, 0)) {
+            ui.PushAnchor("right", "bottom", 60, 24, 14, 12, 0, true);
+            ui.Button("anchored_ok", 24, "OK", 0.4f);
+            ui.Pop();
+            ui.Pop();
+        }
+    });
+    check(inset_issues.empty(), "152: PushInset + PushAnchor + overlay layout passes AuditLayout");
+    const auto anchored_r = ui.WidgetRect("anchored_ok");
+    check(std::abs(anchored_r.x - (10.0f + 200.0f - 60.0f - 14.0f)) < 1.0f &&
+              std::abs(anchored_r.y - (10.0f + 160.0f - 24.0f - 12.0f)) < 1.0f,
+          "152: PushRelated(overlay) + PushAnchor bottom-right places widget accurately");
+
     renderer.GetRenderTargets().Destroy(target);
 }
 
