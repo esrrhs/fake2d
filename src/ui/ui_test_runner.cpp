@@ -36,6 +36,16 @@ UITestReport RunUITests(Engine &engine,
         std::fprintf(stderr, "\n--------------------------------------------------\n");
         std::fprintf(stderr, "[UI_TEST] Testing Target: %s\n", target.name.c_str());
 
+        // Warm up 1 frame so auto-height / cached layouts settle before auditing
+        in.InjectFrame({-10000.0f, -10000.0f}, {}, {});
+        uisys.NewFrame();
+        if (target.reset_state) {
+            target.reset_state();
+        }
+        if (target.render_frame) {
+            target.render_frame();
+        }
+
         in.InjectFrame({-10000.0f, -10000.0f}, {}, {});
         uisys.NewFrame();
 
@@ -52,29 +62,29 @@ UITestReport RunUITests(Engine &engine,
             Rect rect;
         };
         std::vector<ClickItem> buttons;
-        std::size_t target_violations = 0;
         for (const auto &a : uisys.AuditRects()) {
             const bool interactive = a.kind == "button" || a.kind == "tab" ||
                                      a.kind == "checkbox" || a.kind == "slider" ||
                                      a.kind == "image button" || a.kind == "combo" ||
                                      a.kind == "combo_item";
-            if (interactive && a.rect.width > 0.0f && a.rect.height > 0.0f) {
+            if (!a.suppressed && interactive && a.rect.width > 0.0f && a.rect.height > 0.0f) {
                 buttons.push_back({a.kind, a.name, a.rect});
             }
-            if (a.overflow) {
-                ++target_violations;
-                std::fprintf(stderr,
-                             "    - [BOX OVERFLOW] '%s' (%s) rect=(%.1f,%.1f,%.1f,%.1f) bounds=(%.1f,%.1f,%.1f,%.1f)\n",
-                             a.kind.c_str(), a.name.c_str(), a.rect.x, a.rect.y, a.rect.width, a.rect.height,
-                             a.bounds.x, a.bounds.y, a.bounds.width, a.bounds.height);
-            }
+        }
+
+        const auto issues = uisys.AuditLayout();
+        const std::size_t target_violations = issues.size();
+        for (const auto &iss : issues) {
+            std::fprintf(stderr, "    - [LAYOUT %s:%s] %s\n",
+                         iss.category.c_str(), iss.rule.c_str(), iss.message.c_str());
         }
 
         report.violations += target_violations;
         if (target_violations > 0) {
-            std::fprintf(stderr, "  [OVERFLOW FAIL] %zu overflow violations total.\n", target_violations);
+            std::fprintf(stderr, "  [LAYOUT FAIL] %zu layout/alignment/overflow violations total.\n",
+                         target_violations);
         } else {
-            std::fprintf(stderr, "  [BOUNDS PASS] 0 overflow violations.\n");
+            std::fprintf(stderr, "  [LAYOUT PASS] 0 layout/alignment/overflow violations.\n");
         }
 
         std::fprintf(stderr, "  Registered %zu clickable widgets.\n", buttons.size());

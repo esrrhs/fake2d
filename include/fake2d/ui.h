@@ -177,10 +177,33 @@ class UISystem {
         Rect bounds;
         bool overflow = false;
         std::string name;
+        Rect clip_rect{0.0f, 0.0f, 1e9f, 1e9f};
+        std::uint32_t box_id = 0;
+        std::uint32_t root_box_id = 0;
+        std::uint32_t box_depth = 0;
+        int row_id = -1;
+        int col_index = -1;
+        int layer = 0;
+        bool suppressed = false;
+        bool in_scroll = false;
     };
+    struct LayoutIssue {
+        std::string category; // "overflow", "viewport", "overlap", "align_h", "align_v", "align_group"
+        std::string rule;
+        std::string a_name;
+        std::string b_name;
+        Rect a_rect{};
+        Rect b_rect{};
+        float delta = 0.0f;
+        std::string message;
+    };
+    void BeginAlignGroup(std::string_view key, std::string_view rules = "top|height|no_overlap");
+    void EndAlignGroup();
     void SetAudit(bool enabled) { audit_enabled_ = enabled; }
     [[nodiscard]] const std::vector<AuditRect> &AuditRects() const { return audit_; }
     [[nodiscard]] std::size_t OverflowCount() const;
+    [[nodiscard]] std::vector<LayoutIssue> AuditLayout() const;
+    [[nodiscard]] std::size_t LayoutIssueCount() const;
 
     // Input capture, blocking, modal/suppress, clock, screen/root primitives, and multi-face text hooks
     struct TextHooks {
@@ -191,7 +214,7 @@ class UISystem {
     };
     void SetTextHooks(TextHooks hooks) { text_hooks_ = std::move(hooks); }
     void BlockInput(const Rect &r);
-    void SetModal(bool modal) { manual_modal_ = modal; }
+    void SetModal(bool modal);
     [[nodiscard]] bool IsModal() const { return manual_modal_ || !modal_.empty() || !popup_.empty(); }
     void SetSuppress(bool suppress) { suppress_ = suppress; }
     [[nodiscard]] bool IsSuppressed() const { return suppress_; }
@@ -343,6 +366,7 @@ class UISystem {
         float cursor = 0.0f;
         float reserve = 0.0f;
         bool auto_height = false, overlay = false;
+        std::uint32_t box_id = 0;
         std::size_t audit_start = 0;
         float padding = 0, y_offset = 0;
         Constraints limits;
@@ -357,6 +381,18 @@ class UISystem {
         int align = 0;
         std::size_t cache_id = 0;
         std::vector<std::pair<std::size_t, float>> offsets;
+        std::size_t col_audit_start = 0;
+        std::vector<std::pair<std::size_t, std::size_t>> col_audit_ranges;
+    };
+    struct AlignGroupRecord {
+        std::string key;
+        std::string rules;
+        std::size_t depth = 0;
+        std::uint32_t parent_box_id = 0;
+        int layer = 0;
+        bool suppressed = false;
+        std::size_t audit_start = 0;
+        std::size_t audit_end = 0;
     };
     struct ScrollState {
         float height = 0, offset = 0;
@@ -368,6 +404,7 @@ class UISystem {
     };
     void PushAbsolute(const Rect &rect, float padding, float reserve);
     void ApplyLayoutClip(const std::vector<LayoutClip> &clips);
+    [[nodiscard]] Rect ComputeCurrentClipRect() const;
     void Record(std::string_view kind, const Rect &rect, std::string_view name = {});
     std::string Ellipsize(std::string_view text, float width, float scale) const;
     float ScrollTranslation(const std::vector<std::size_t> &ids) const;
@@ -564,9 +601,14 @@ class UISystem {
     bool pointer_over_ = false;
     bool pointer_over_prev_ = false;
     bool manual_modal_ = false;
+    int manual_modal_layer_ = 0;
+    int modal_layer_seq_ = 0;
     bool suppress_ = false;
     int click_count_ = 0;
     float clock_seconds_ = 0.0f;
+    std::uint32_t box_sequence_ = 1;
+    std::vector<AlignGroupRecord> align_stack_;
+    std::vector<AlignGroupRecord> align_groups_;
     TextHooks text_hooks_;
 };
 

@@ -437,6 +437,66 @@ void RegisterLayoutUILuaApi(LS *s, LuaUIHost *host) {
     Reg<void(LS *)>(s, host, "ui_row_end", [ui_sys](LS *) {
         if (auto *u = ui_sys()) u->RowEnd();
     });
+    Reg<void(LS *, std::int64_t)>(s, host, "ui_row_align", [ui_sys](LS *, std::int64_t align) {
+        if (auto *u = ui_sys()) u->RowAlign(static_cast<int>(align));
+    });
+    RegVar(s, host, "ui_constrain", 2, [ui_sys](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) {
+            const float min_w = static_cast<float>(ArgNum(st, a, n, 0));
+            const float max_w = static_cast<float>(ArgNum(st, a, n, 1));
+            const float min_h = n > 2 ? static_cast<float>(ArgNum(st, a, n, 2)) : 0.0f;
+            const float max_h = n > 3 ? static_cast<float>(ArgNum(st, a, n, 3)) : 1e9f;
+            u->Constrain(min_w, max_w, min_h, max_h);
+        }
+        return 0.0;
+    });
+    RegVar(s, host, "ui_align_begin", 1, [ui_sys](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) {
+            const std::string key = ArgStr(st, a, n, 0);
+            const std::string rules = n > 1 ? ArgStr(st, a, n, 1) : std::string("top|height|no_overlap");
+            u->BeginAlignGroup(key, rules);
+        }
+        return 0.0;
+    });
+    Reg<void(LS *)>(s, host, "ui_align_end", [ui_sys](LS *) {
+        if (auto *u = ui_sys()) u->EndAlignGroup();
+    });
+    RegVar(s, host, "ui_flow_begin", 0, [ui_sys](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) {
+            const float gap = n > 0 ? static_cast<float>(ArgNum(st, a, n, 0)) : -1.0f;
+            const float lgap = n > 1 ? static_cast<float>(ArgNum(st, a, n, 1)) : -1.0f;
+            u->FlowBegin(gap, lgap);
+        }
+        return 0.0;
+    });
+    Reg<void(LS *, double)>(s, host, "ui_flow_item", [ui_sys](LS *, double w) {
+        if (auto *u = ui_sys()) u->FlowItem(static_cast<float>(w));
+    });
+    Reg<void(LS *)>(s, host, "ui_flow_item_end", [ui_sys](LS *) {
+        if (auto *u = ui_sys()) u->FlowItemEnd();
+    });
+    Reg<void(LS *)>(s, host, "ui_flow_end", [ui_sys](LS *) {
+        if (auto *u = ui_sys()) u->FlowEnd();
+    });
+    RegVar(s, host, "ui_grid_begin", 1, [ui_sys](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) {
+            const int cols = static_cast<int>(ArgNum(st, a, n, 0));
+            const float gap = n > 1 ? static_cast<float>(ArgNum(st, a, n, 1)) : -1.0f;
+            std::vector<float> widths;
+            for (int i = 2; i < n; ++i) widths.push_back(static_cast<float>(ArgNum(st, a, n, i)));
+            u->GridBegin(cols, gap, widths);
+        }
+        return 0.0;
+    });
+    Reg<void(LS *)>(s, host, "ui_grid_cell", [ui_sys](LS *) {
+        if (auto *u = ui_sys()) u->GridCell();
+    });
+    Reg<void(LS *)>(s, host, "ui_grid_cell_end", [ui_sys](LS *) {
+        if (auto *u = ui_sys()) u->GridCellEnd();
+    });
+    Reg<void(LS *)>(s, host, "ui_grid_end", [ui_sys](LS *) {
+        if (auto *u = ui_sys()) u->GridEnd();
+    });
     Reg<void(LS *, std::string, double)>(
         s, host, "ui_scroll_begin", [host, ui_sys](LS *, std::string key, double h) {
             auto *u = ui_sys();

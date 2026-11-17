@@ -110,7 +110,12 @@ void UISystem::NewFrame() {
     pointer_over_prev_ = pointer_over_;
     pointer_over_ = false;
     manual_modal_ = false;
+    manual_modal_layer_ = 0;
+    modal_layer_seq_ = 0;
     suppress_ = false;
+    box_sequence_ = 1;
+    align_stack_.clear();
+    align_groups_.clear();
     text_activated_.clear();
     list_views_.clear();
     active_list_view_.clear();
@@ -905,6 +910,7 @@ void UISystem::ApplyLayoutClip(const std::vector<LayoutClip> &clips) {
 void UISystem::PushAbsolute(const Rect &r, float padding, float reserve) {
     const float pad = std::max(0.0f, std::min(padding, std::min(r.width, r.height) * 0.5f));
     LayoutBox box;
+    box.box_id = box_sequence_++;
     box.audit_start = audit_.size();
     box.content = {r.x + pad, r.y + pad, std::max(0.0f, r.width - 2 * pad),
                    std::max(0.0f, r.height - 2 * pad)};
@@ -956,6 +962,13 @@ void UISystem::Pop() {
         last_rect_ = *box.measured;
         for (std::size_t i = box.audit_start; i < audit_.size(); ++i) {
             auto &entry = audit_[i];
+            if (entry.clip_rect.y <= box.measured->y + box.measured->height &&
+                entry.clip_rect.y + entry.clip_rect.height > box.measured->y + box.measured->height) {
+                const float bottom = std::min(entry.clip_rect.y + entry.clip_rect.height,
+                                              box.measured->y + box.measured->height);
+                entry.clip_rect.y = std::max(entry.clip_rect.y, box.measured->y);
+                entry.clip_rect.height = std::max(0.0f, bottom - entry.clip_rect.y);
+            }
             if (entry.bounds.y == box.content.y && entry.bounds.height > 1e8f) {
                 entry.bounds.height = std::max(0.0f, h - box.padding * 2);
                 if ((entry.kind == "panel" || entry.kind == "window") && entry.rect.height > 1e8f)
@@ -1001,7 +1014,33 @@ void UISystem::FlushDraws() {
     ApplyLayoutClip(boxes_.empty() ? std::vector<LayoutClip>{} : boxes_.back().clips);
 }
 
+Rect UISystem::ComputeCurrentClipRect() const {
+    const float vw = LogicalWidth();
+    const float vh = LogicalHeight();
+    Rect cur{world_origin_.x, world_origin_.y, vw > 0.0f ? vw : 1e6f, vh > 0.0f ? vh : 1e6f};
+    if (boxes_.empty()) {
+        return cur;
+    }
+    for (const auto &c : boxes_.back().clips) {
+        Rect r = c.measured ? *c.measured : c.rect;
+        if (r.height > 1e8f) {
+            r.height = 1e6f;
+        }
+        r.y -= ScrollTranslation(c.scrolls);
+        const float right = std::min(cur.x + cur.width, r.x + r.width);
+        const float bottom = std::min(cur.y + cur.height, r.y + r.height);
+        cur.x = std::max(cur.x, r.x);
+        cur.y = std::max(cur.y, r.y);
+        cur.width = std::max(0.0f, right - cur.x);
+        cur.height = std::max(0.0f, bottom - cur.y);
+    }
+    return cur;
+}
+
 void UISystem::Record(std::string_view kind, const Rect &r, std::string_view name) {
+    if (resolving_ && kind != "tooltip" && kind != "widget text") {
+        return;
+    }
     Rect bounds = boxes_.empty() ? Rect{-scale_offset_.x / scale_, -scale_offset_.y / scale_,
                                         camera_ ? camera_->ViewportWidth() / scale_ : 0,
                                         camera_ ? camera_->ViewportHeight() / scale_ : 0}
@@ -1015,7 +1054,24 @@ void UISystem::Record(std::string_view kind, const Rect &r, std::string_view nam
     const bool overflow = r.x < bounds.x - epsilon || r.y < bounds.y - epsilon ||
                           r.x + r.width > bounds.x + bounds.width + epsilon ||
                           r.y + r.height > bounds.y + bounds.height + epsilon;
-    audit_.push_back({std::string(kind), r, bounds, overflow, std::string(name)});
+    AuditRect entry;
+    entry.kind = std::string(kind);
+    entry.rect = r;
+    entry.bounds = bounds;
+    entry.overflow = overflow;
+    entry.name = std::string(name);
+    entry.clip_rect = ComputeCurrentClipRect();
+    entry.box_id = boxes_.empty() ? 0 : boxes_.back().box_id;
+    entry.root_box_id = boxes_.empty() ? 0 : boxes_.front().box_id;
+    entry.box_depth = static_cast<std::uint32_t>(boxes_.size());
+    if (!rows_.empty() && boxes_.size() >= rows_.back().depth + 1) {
+        entry.row_id = static_cast<int>(rows_.back().cache_id);
+        entry.col_index = static_cast<int>(rows_.back().index) - 1;
+    }
+    entry.layer = manual_modal_ ? manual_modal_layer_ : ((!modal_.empty() || !popup_.empty()) ? 1 : 0);
+    entry.suppressed = suppress_;
+    entry.in_scroll = !scrolls_.empty();
+    audit_.push_back(std::move(entry));
     if (audit_enabled_ && overflow)
         std::fprintf(stderr,
                      "[UI_OVERFLOW] %.*s rect=(%.1f,%.1f,%.1f,%.1f) box=(%.1f,%.1f,%.1f,%.1f)\n",
@@ -1157,6 +1213,7 @@ void UISystem::Col(float fixed_width) {
     scroll_resolvers_.emplace_back();
     active_scrolls_.push_back(translation);
     row.offsets.push_back({translation, 0});
+    row.col_audit_start = audit_.size();
     row.x += width + row.gap;
     ++row.index;
     PushAbsolute(rect, 0, 0);
@@ -1171,6 +1228,7 @@ void UISystem::ColEnd() {
     const float h = std::clamp(b.cursor, b.limits.min_h, b.limits.max_h);
     rows_.back().height = std::max(rows_.back().height, h);
     rows_.back().offsets.back().second = h;
+    rows_.back().col_audit_ranges.push_back({rows_.back().col_audit_start, audit_.size()});
     active_scrolls_.pop_back();
     Pop();
 }
@@ -1178,15 +1236,25 @@ void UISystem::ColEnd() {
 void UISystem::RowEnd() {
     if (rows_.empty() || boxes_.size() != rows_.back().depth)
         return;
-    const float height = rows_.back().height;
-    auto &cache = row_offset_cache_[rows_.back().cache_id];
+    const auto &row = rows_.back();
+    const float height = row.height;
+    auto &cache = row_offset_cache_[row.cache_id];
     cache.clear();
-    for (const auto &offset : rows_.back().offsets) {
-        const float dy = -(height - offset.second) * (rows_.back().align == 1   ? .5f
-                                                      : rows_.back().align == 2 ? 1.0f
-                                                                                : 0.0f);
+    for (std::size_t col_i = 0; col_i < row.offsets.size(); ++col_i) {
+        const auto &offset = row.offsets[col_i];
+        const float dy = -(height - offset.second) * (row.align == 1   ? .5f
+                                                      : row.align == 2 ? 1.0f
+                                                                       : 0.0f);
         scroll_offsets_[offset.first] = dy;
         cache.push_back(dy);
+        if (std::abs(dy) > 1e-4f && col_i < row.col_audit_ranges.size()) {
+            const auto [a_start, a_end] = row.col_audit_ranges[col_i];
+            for (std::size_t k = a_start; k < a_end && k < audit_.size(); ++k) {
+                audit_[k].rect.y -= dy;
+                audit_[k].bounds.y -= dy;
+                audit_[k].clip_rect.y -= dy;
+            }
+        }
     }
     rows_.pop_back();
     boxes_.back().cursor += height;
@@ -1942,6 +2010,8 @@ bool UISystem::PushRelated(std::string_view target, std::string_view edge, float
     float x = r.x, y = r.y;
     if (edge == "right")
         x += r.width + offset;
+    else if (edge == "left_of")
+        x -= width + offset;
     else if (edge == "left")
         x += offset;
     else if (edge == "bottom")
@@ -3552,6 +3622,317 @@ std::size_t UISystem::Selection(std::string_view key, bool end) const {
         return 0;
     return end ? std::max(it->second.caret, it->second.anchor)
                : std::min(it->second.caret, it->second.anchor);
+}
+
+void UISystem::SetModal(bool modal) {
+    if (modal && !manual_modal_) {
+        manual_modal_layer_ = ++modal_layer_seq_;
+    } else if (!modal) {
+        manual_modal_layer_ = 0;
+    }
+    manual_modal_ = modal;
+}
+
+void UISystem::BeginAlignGroup(std::string_view key, std::string_view rules) {
+    AlignGroupRecord rec;
+    rec.key = std::string(key);
+    rec.rules = std::string(rules);
+    rec.depth = boxes_.size();
+    rec.parent_box_id = boxes_.empty() ? 0 : boxes_.back().box_id;
+    rec.layer = manual_modal_ ? manual_modal_layer_ : ((!modal_.empty() || !popup_.empty()) ? 1 : 0);
+    rec.suppressed = suppress_;
+    rec.audit_start = audit_.size();
+    align_stack_.push_back(std::move(rec));
+}
+
+void UISystem::EndAlignGroup() {
+    if (align_stack_.empty()) {
+        return;
+    }
+    AlignGroupRecord rec = std::move(align_stack_.back());
+    align_stack_.pop_back();
+    rec.audit_end = audit_.size();
+    align_groups_.push_back(std::move(rec));
+}
+
+namespace {
+
+bool IsInteractiveAuditKind(std::string_view kind) {
+    return kind == "button" || kind == "tab" || kind == "checkbox" || kind == "slider" ||
+           kind == "image button" || kind == "combo" || kind == "combo_item" ||
+           kind == "text input" || kind == "text area" || kind == "radio" || kind == "splitter";
+}
+
+Rect IntersectRects(const Rect &a, const Rect &b) {
+    const float x0 = std::max(a.x, b.x);
+    const float y0 = std::max(a.y, b.y);
+    const float x1 = std::min(a.x + a.width, b.x + b.width);
+    const float y1 = std::min(a.y + a.height, b.y + b.height);
+    return {x0, y0, std::max(0.0f, x1 - x0), std::max(0.0f, y1 - y0)};
+}
+
+std::string AuditDisplayName(const UISystem::AuditRect &a, std::size_t idx) {
+    if (!a.name.empty()) {
+        return a.name;
+    }
+    return a.kind + "#" + std::to_string(idx);
+}
+
+bool HasAlignRule(std::string_view rules, std::string_view token) {
+    std::size_t pos = 0;
+    while (pos < rules.size()) {
+        const std::size_t sep = rules.find_first_of("|, ", pos);
+        const std::string_view part =
+            sep == std::string_view::npos ? rules.substr(pos) : rules.substr(pos, sep - pos);
+        if (part == token) {
+            return true;
+        }
+        if (sep == std::string_view::npos) {
+            break;
+        }
+        pos = sep + 1;
+    }
+    return false;
+}
+
+} // namespace
+
+std::vector<UISystem::LayoutIssue> UISystem::AuditLayout() const {
+    std::vector<LayoutIssue> issues;
+
+    const float vw = LogicalWidth();
+    const float vh = LogicalHeight();
+    const bool has_vp = vw > 1.0f && vh > 1.0f;
+
+    // 1. Box overflow + Viewport containment
+    for (std::size_t i = 0; i < audit_.size(); ++i) {
+        const auto &a = audit_[i];
+        const std::string label = AuditDisplayName(a, i);
+        if (a.overflow) {
+            char buf[256];
+            std::snprintf(buf, sizeof(buf),
+                          "overflow: %s (%s) rect=(%.1f,%.1f,%.1f,%.1f) bounds=(%.1f,%.1f,%.1f,%.1f)",
+                          label.c_str(), a.kind.c_str(), a.rect.x, a.rect.y, a.rect.width, a.rect.height,
+                          a.bounds.x, a.bounds.y, a.bounds.width, a.bounds.height);
+            issues.push_back({"overflow", "bounds", label, "", a.rect, a.bounds, 1.0f, buf});
+        }
+        if (has_vp && !a.suppressed && IsInteractiveAuditKind(a.kind) &&
+            a.rect.width > 0.0f && a.rect.height > 0.0f) {
+            const Rect &check_r = a.in_scroll ? a.clip_rect : a.rect;
+            if (!a.in_scroll || (check_r.width > 0.5f && check_r.height > 0.5f)) {
+                const float dx0 = -check_r.x;
+                const float dy0 = -check_r.y;
+                const float dx1 = (check_r.x + check_r.width) - vw;
+                const float dy1 = (check_r.y + check_r.height) - vh;
+                const float max_out = std::max({dx0, dy0, dx1, dy1});
+                if (max_out > 0.5f) {
+                    char buf[256];
+                    std::snprintf(buf, sizeof(buf),
+                                  "viewport: %s (%s) rect=(%.1f,%.1f,%.1f,%.1f) outside (%.0fx%.0f)",
+                                  label.c_str(), a.kind.c_str(), check_r.x, check_r.y, check_r.width,
+                                  check_r.height, vw, vh);
+                    issues.push_back({"viewport", "screen", label, "", check_r, {0, 0, vw, vh}, max_out, buf});
+                }
+            }
+        }
+    }
+
+    // 2. Explicit AlignGroup hard constraints
+    for (const auto &g : align_groups_) {
+        std::vector<const AuditRect *> members;
+        const std::size_t end = std::min(g.audit_end, audit_.size());
+        for (std::size_t i = g.audit_start; i < end; ++i) {
+            const auto &a = audit_[i];
+            if (a.box_depth == g.depth && (a.kind == "box" || a.kind == "auto box")) {
+                members.push_back(&a);
+            }
+        }
+        if (members.empty()) {
+            for (std::size_t i = g.audit_start; i < end; ++i) {
+                const auto &a = audit_[i];
+                if (a.box_depth == g.depth && IsInteractiveAuditKind(a.kind)) {
+                    members.push_back(&a);
+                }
+            }
+        }
+        if (members.size() < 2) {
+            continue;
+        }
+        const Rect &ref = members.front()->rect;
+        const std::string ref_name = !members.front()->name.empty() ? members.front()->name : g.key + "[0]";
+        constexpr float kTol = 0.05f;
+        const struct RuleCheck {
+            const char *name;
+            float (*metric)(const Rect &);
+        } checks[] = {
+            {"left", [](const Rect &r) { return r.x; }},
+            {"right", [](const Rect &r) { return r.x + r.width; }},
+            {"center_x", [](const Rect &r) { return r.x + r.width * 0.5f; }},
+            {"top", [](const Rect &r) { return r.y; }},
+            {"bottom", [](const Rect &r) { return r.y + r.height; }},
+            {"center_y", [](const Rect &r) { return r.y + r.height * 0.5f; }},
+            {"width", [](const Rect &r) { return r.width; }},
+            {"height", [](const Rect &r) { return r.height; }},
+        };
+        for (const auto &rc : checks) {
+            if (!HasAlignRule(g.rules, rc.name)) {
+                continue;
+            }
+            const float expected = rc.metric(ref);
+            for (std::size_t m = 1; m < members.size(); ++m) {
+                const float actual = rc.metric(members[m]->rect);
+                const float delta = std::abs(actual - expected);
+                if (delta > kTol) {
+                    const std::string m_name =
+                        !members[m]->name.empty() ? members[m]->name : g.key + "[" + std::to_string(m) + "]";
+                    char buf[256];
+                    std::snprintf(buf, sizeof(buf),
+                                  "align_group '%s' rule '%s': '%s' (%.2f) != '%s' (%.2f), delta=%.2f",
+                                  g.key.c_str(), rc.name, m_name.c_str(), actual, ref_name.c_str(),
+                                  expected, delta);
+                    issues.push_back({"align_group", rc.name, ref_name, m_name,
+                                      ref, members[m]->rect, delta, buf});
+                }
+            }
+        }
+        if (HasAlignRule(g.rules, "no_overlap")) {
+            for (std::size_t i = 0; i < members.size(); ++i) {
+                for (std::size_t j = i + 1; j < members.size(); ++j) {
+                    const Rect inter = IntersectRects(members[i]->rect, members[j]->rect);
+                    if (inter.width > 0.5f && inter.height > 0.5f) {
+                        const std::string na = !members[i]->name.empty() ? members[i]->name : g.key;
+                        const std::string nb = !members[j]->name.empty() ? members[j]->name : g.key;
+                        char buf[256];
+                        std::snprintf(buf, sizeof(buf),
+                                      "align_group '%s' overlap: '%s' & '%s' inter=(%.1fx%.1f)",
+                                      g.key.c_str(), na.c_str(), nb.c_str(), inter.width, inter.height);
+                        issues.push_back({"align_group", "no_overlap", na, nb,
+                                          members[i]->rect, members[j]->rect,
+                                          std::min(inter.width, inter.height), buf});
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Pairwise same-layer interactive overlap & near-miss H/V alignment audit
+    struct VisItem {
+        std::size_t idx;
+        Rect vis;
+        std::string label;
+    };
+    std::vector<VisItem> visible;
+    visible.reserve(audit_.size());
+    for (std::size_t i = 0; i < audit_.size(); ++i) {
+        const auto &a = audit_[i];
+        if (a.suppressed || !IsInteractiveAuditKind(a.kind) ||
+            a.rect.width <= 0.5f || a.rect.height <= 0.5f) {
+            continue;
+        }
+        const Rect vis = IntersectRects(a.rect, a.clip_rect);
+        if (vis.width > 1.0f && vis.height > 1.0f) {
+            visible.push_back({i, vis, AuditDisplayName(a, i)});
+        }
+    }
+
+    for (std::size_t i = 0; i < visible.size(); ++i) {
+        const auto &va = visible[i];
+        const auto &a = audit_[va.idx];
+        for (std::size_t j = i + 1; j < visible.size(); ++j) {
+            const auto &vb = visible[j];
+            const auto &b = audit_[vb.idx];
+            if (a.layer != b.layer) {
+                continue;
+            }
+            const Rect inter = IntersectRects(va.vis, vb.vis);
+            if (inter.width > 1.5f && inter.height > 1.5f) {
+                const float area_a = va.vis.width * va.vis.height;
+                const float area_b = vb.vis.width * vb.vis.height;
+                const float area_inter = inter.width * inter.height;
+                const float min_area = std::min(area_a, area_b);
+                const float max_area = std::max(area_a, area_b);
+                const bool card_wrapper = (min_area > 0.0f && area_inter / min_area >= 0.85f &&
+                                           max_area >= 2.5f * min_area);
+                if (!card_wrapper) {
+                    char buf[256];
+                    std::snprintf(buf, sizeof(buf),
+                                  "overlap: '%s' (%.1f,%.1f,%.1fx%.1f) vs '%s' (%.1f,%.1f,%.1fx%.1f) inter=(%.1fx%.1f)",
+                                  va.label.c_str(), a.rect.x, a.rect.y, a.rect.width, a.rect.height,
+                                  vb.label.c_str(), b.rect.x, b.rect.y, b.rect.width, b.rect.height,
+                                  inter.width, inter.height);
+                    issues.push_back({"overlap", "no_overlap", va.label, vb.label,
+                                      a.rect, b.rect, std::min(inter.width, inter.height), buf});
+                }
+                continue;
+            }
+
+            // Horizontal peer strip (side-by-side neighbors) -> top / bottom / center_y alignment
+            const bool same_root = (a.root_box_id == b.root_box_id);
+            const bool cross_scroll = (!same_root && (a.in_scroll || b.in_scroll));
+            const float gap_x = std::max(va.vis.x - (vb.vis.x + vb.vis.width),
+                                         vb.vis.x - (va.vis.x + va.vis.width));
+            const float ov_y = std::min(va.vis.y + va.vis.height, vb.vis.y + vb.vis.height) -
+                               std::max(va.vis.y, vb.vis.y);
+            const float max_gap_x = same_root ? 80.0f : 12.0f;
+            if (!cross_scroll && gap_x >= -1.0f && gap_x <= max_gap_x &&
+                ov_y >= 0.5f * std::min(va.vis.height, vb.vis.height)) {
+                const float dt = std::abs(a.rect.y - b.rect.y);
+                const float db = std::abs((a.rect.y + a.rect.height) - (b.rect.y + b.rect.height));
+                const float dcy = std::abs((a.rect.y + a.rect.height * 0.5f) -
+                                           (b.rect.y + b.rect.height * 0.5f));
+                const bool same_h = std::abs(a.rect.height - b.rect.height) <= 0.5f;
+                const float err = same_h ? dt : std::min({dt, dcy, db});
+                const float limit = same_h ? 8.0f : 6.0f;
+                if (err > 0.5f && err <= limit) {
+                    char buf[256];
+                    std::snprintf(buf, sizeof(buf),
+                                  "align_h: '%s' y=%.1f h=%.1f vs '%s' y=%.1f h=%.1f (off by %.1f px)",
+                                  va.label.c_str(), a.rect.y, a.rect.height,
+                                  vb.label.c_str(), b.rect.y, b.rect.height, err);
+                    issues.push_back({"align_h", same_h ? "top" : "top|center_y|bottom",
+                                      va.label, vb.label, a.rect, b.rect, err, buf});
+                }
+            }
+
+            // Vertical column stack (adjacent above/below neighbors) -> left / right / center_x alignment
+            const float gap_y = std::max(va.vis.y - (vb.vis.y + vb.vis.height),
+                                         vb.vis.y - (va.vis.y + va.vis.height));
+            const float ov_x = std::min(va.vis.x + va.vis.width, vb.vis.x + vb.vis.width) -
+                               std::max(va.vis.x, vb.vis.x);
+            const bool same_box = (a.box_id == b.box_id && a.box_depth == b.box_depth);
+            const bool similar_w = std::min(a.rect.width, b.rect.width) >=
+                                   0.65f * std::max(a.rect.width, b.rect.width);
+            const bool check_v = !cross_scroll &&
+                                 (same_box ||
+                                  (same_root && a.box_depth == b.box_depth && similar_w && gap_y <= 24.0f) ||
+                                  (!same_root && similar_w && gap_y <= 12.0f));
+            if (check_v && gap_y >= -1.0f && gap_y <= 28.0f &&
+                ov_x >= 0.5f * std::min(va.vis.width, vb.vis.width)) {
+                const float dl = std::abs(a.rect.x - b.rect.x);
+                const float dr = std::abs((a.rect.x + a.rect.width) - (b.rect.x + b.rect.width));
+                const float dcx = std::abs((a.rect.x + a.rect.width * 0.5f) -
+                                           (b.rect.x + b.rect.width * 0.5f));
+                const bool same_w = std::abs(a.rect.width - b.rect.width) <= 0.5f;
+                const float err = same_w ? dl : std::min({dl, dcx, dr});
+                const float limit = same_w ? 8.0f : 6.0f;
+                if (err > 0.5f && err <= limit) {
+                    char buf[256];
+                    std::snprintf(buf, sizeof(buf),
+                                  "align_v: '%s' x=%.1f w=%.1f vs '%s' x=%.1f w=%.1f (off by %.1f px)",
+                                  va.label.c_str(), a.rect.x, a.rect.width,
+                                  vb.label.c_str(), b.rect.x, b.rect.width, err);
+                    issues.push_back({"align_v", same_w ? "left" : "left|center_x|right",
+                                      va.label, vb.label, a.rect, b.rect, err, buf});
+                }
+            }
+        }
+    }
+
+    return issues;
+}
+
+std::size_t UISystem::LayoutIssueCount() const {
+    return AuditLayout().size();
 }
 
 void UISystem::BlockInput(const Rect &r) {

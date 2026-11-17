@@ -768,6 +768,76 @@ void RunUI149Checks(fake2d::Engine &engine, const std::function<void(bool, const
     single_frame();
     check(ui.FocusedWidget() == "single-next",
           "149: cancelled text editing releases dpad navigation");
+
+    // 151: Layout alignment & hard AlignGroup audit checks
+    ui.SetAudit(true);
+    auto run_layout_audit = [&](auto &&fn) {
+        input.InjectFrame({-1000, -1000}, {}, {});
+        ui.NewFrame();
+        renderer.BeginFrame(0, 0, 0, 1);
+        renderer.BeginRenderTarget(target);
+        renderer.ClearActiveTarget({0, 0, 0, 1});
+        if (ui.BeginFrameUI()) {
+            fn();
+            ui.EndFrameUI();
+        }
+        renderer.EndRenderTarget();
+        renderer.EndFrame();
+        return ui.AuditLayout();
+    };
+    const auto clean_issues = run_layout_audit([&]() {
+        ui.BeginAlignGroup("hdr_ok", "top|bottom|center_y|height|no_overlap");
+        ui.Push(180, 10, 22, 22, 0);
+        ui.Button("hdr_help_ok", 22, "?", 0.4f);
+        ui.Pop();
+        ui.Push(208, 10, 22, 22, 0);
+        ui.Button("hdr_close_ok", 22, "x", 0.4f);
+        ui.Pop();
+        ui.EndAlignGroup();
+    });
+    check(clean_issues.empty(), "151: aligned header buttons pass AuditLayout cleanly");
+
+    const auto bad_hdr_issues = run_layout_audit([&]() {
+        ui.BeginAlignGroup("hdr_bad", "top|bottom|center_y|height|no_overlap");
+        ui.Push(180, 8, 22, 22, 0);
+        ui.Button("hdr_help_bad", 22, "?", 0.4f);
+        ui.Pop();
+        ui.Push(208, 10, 22, 22, 0);
+        ui.Button("hdr_close_bad", 22, "x", 0.4f);
+        ui.Pop();
+        ui.EndAlignGroup();
+    });
+    const bool caught_hdr_h = std::any_of(bad_hdr_issues.begin(), bad_hdr_issues.end(),
+                                          [](const auto &iss) { return iss.category == "align_h"; });
+    const bool caught_hdr_g = std::any_of(bad_hdr_issues.begin(), bad_hdr_issues.end(),
+                                          [](const auto &iss) { return iss.category == "align_group"; });
+    check(caught_hdr_h && caught_hdr_g,
+          "151: 2px top-right button misalignment caught by both align_h and align_group");
+
+    const auto bad_col_issues = run_layout_audit([&]() {
+        ui.Push(10, 10, 100, 24, 0);
+        ui.Button("col_a", 24, "A", 0.4f);
+        ui.Pop();
+        ui.Push(12, 40, 100, 24, 0);
+        ui.Button("col_b", 24, "B", 0.4f);
+        ui.Pop();
+    });
+    check(std::any_of(bad_col_issues.begin(), bad_col_issues.end(),
+                      [](const auto &iss) { return iss.category == "align_v"; }),
+          "151: 2px vertical column misalignment caught by align_v");
+
+    const auto bad_ov_issues = run_layout_audit([&]() {
+        ui.Push(10, 10, 80, 24, 0);
+        ui.Button("ov_a", 24, "A", 0.4f);
+        ui.Pop();
+        ui.Push(50, 14, 80, 24, 0);
+        ui.Button("ov_b", 24, "B", 0.4f);
+        ui.Pop();
+    });
+    check(std::any_of(bad_ov_issues.begin(), bad_ov_issues.end(),
+                      [](const auto &iss) { return iss.category == "overlap"; }),
+          "151: sibling button overlap caught by overlap audit");
+
     renderer.GetRenderTargets().Destroy(target);
 }
 
