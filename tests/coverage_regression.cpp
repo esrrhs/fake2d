@@ -21,12 +21,33 @@
 static int checks = 0;
 using namespace fake2d;
 
+// Read texture contents in a way that is valid on the OpenGL 3.3 core
+// profile Window::Create requests first. glGetTexImage is not in that
+// profile; Linux Mesa often still dispatches it, but a Windows 3.3 core
+// ICD (CI uses llvmpipe via opengl32) can SIGSEGV. Texture2D::Bind also
+// calls glActiveTexture, which on Windows is a function pointer filled
+// in only by fake2d_gl_load_functions() (Renderer::Init). This helper
+// is used before any Renderer exists, so it binds by texture id and
+// reads through a temporary FBO + glReadPixels (core-safe).
 static std::vector<unsigned char> pixels(const Texture2D &tex) {
     CHECK(tex.IsValid());
-    std::vector<unsigned char> data(static_cast<std::size_t>(tex.Width()) * tex.Height() * 4);
-    tex.Bind();
-    glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, data.data());
+    const int w = tex.Width();
+    const int h = tex.Height();
+    CHECK(w > 0 && h > 0);
+    std::vector<unsigned char> data(static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 4);
+    GLint prev_fbo = 0;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prev_fbo);
+    GLuint fbo = 0;
+    glGenFramebuffers(1, &fbo);
+    CHECK(fbo != 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                           static_cast<GLuint>(tex.Id()), 0);
+    CHECK(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+    glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, data.data());
     CHECK(glGetError() == GL_NO_ERROR);
+    glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(prev_fbo));
+    glDeleteFramebuffers(1, &fbo);
     return data;
 }
 
@@ -289,6 +310,10 @@ int main() {
         platform::Window window;
         platform::WindowDesc desc; desc.headless=true; desc.width=64; desc.height=64;
         CHECK(window.Create(desc));
+        // Windows resolves GL 3+ entry points (FBO, ActiveTexture, ...) only
+        // after this call. Renderer::Init does it for engine tests; this
+        // binary uses raw GL in procedural/overlay helpers first.
+        fake2d_gl_load_functions();
         procedural_tests(); overlay_tests();
 #ifdef FAKE2D_WITH_FAKELUA
         lua_ui_tests();
