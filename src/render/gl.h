@@ -20,14 +20,20 @@
 // NEAR/FAR) as empty macros, and wingdi.h #defines DrawText to
 // DrawTextA/DrawTextW (and DrawTextEx to DrawTextExA/W). Those collide
 // with identifiers in this library and in the hello tests (`auto near =`).
-// Scrub them on every platform so a Linux regression can inject the same
-// macros and fail here instead of only on Windows CI. This block must
-// stay after the GL includes: windows.h arrives through <GL/gl.h>.
+// wingdi.h also #defines GetObject to GetObjectA/GetObjectW, which
+// rewrites fakelua::NativeObject::GetObject at Windows call sites and
+// leaves an undefined GetObjectA reference. Scrub them on every platform
+// so a Linux regression can inject the same macros and fail here instead
+// of only on Windows CI. This block must stay after the GL includes:
+// windows.h arrives through <GL/gl.h>.
 #ifdef DrawText
 #undef DrawText
 #endif
 #ifdef DrawTextEx
 #undef DrawTextEx
+#endif
+#ifdef GetObject
+#undef GetObject
 #endif
 #ifdef near
 #undef near

@@ -350,6 +350,10 @@ static void shader_tests(){
     Shader sh;REQUIRE(!sh.IsValid());REQUIRE(!sh.LoadFromSource("bad shader",frag)&&!sh.IsValid());
     REQUIRE(!sh.LoadFromSource(vert,"bad shader")&&!sh.IsValid());
     REQUIRE(!sh.LoadFromSource(vert,"#version 330 core\nin vec3 uv;\nout vec4 color;\nvoid main(){color=vec4(uv,1);}")&&!sh.IsValid());
+    // Apple's software GL (macOS CGL headless) leaves a sticky glGetError()
+    // after expected compile/link failures. Drain it before the success path
+    // so the closing GL_NO_ERROR check reflects later operations only.
+    while(glGetError()!=GL_NO_ERROR){}
     REQUIRE(sh.LoadFromSource(vert,frag));auto original=sh.Id();Shader moved(std::move(sh));REQUIRE(!sh.IsValid()&&moved.Id()==original);
     Shader assigned;assigned=std::move(moved);REQUIRE(assigned.Id()==original&&!moved.IsValid());assigned=std::move(assigned);REQUIRE(assigned.Id()==original);
     assigned.Bind();assigned.SetVec4("tint",{.25f,.5f,.75f,1});float v[4]={};
@@ -365,7 +369,9 @@ static void shader_tests(){
         get_uniform(sh.Id(),glGetUniformLocation(sh.Id(),"tint"),v);REQUIRE(near_value(v[2],.6f));sh.Unbind();
         REQUIRE(sh.LoadFromSource("#version 120\nattribute vec2 a_pos;\nvoid main(){gl_Position=vec4(a_pos,0,1);}","void main(){gl_FragColor=vec4(1);}"));
     }
-    REQUIRE(glGetError()==GL_NO_ERROR);
+    const GLenum shader_err=glGetError();
+    if(shader_err!=GL_NO_ERROR)std::fprintf(stderr,"coverage deep shader_tests glGetError()=0x%x\n",shader_err);
+    REQUIRE(shader_err==GL_NO_ERROR);
 }
 static void input_tests(platform::Window &window){
     Input in;in.Attach(nullptr);in.SetClipboard("你好 clipboard");REQUIRE(in.Clipboard()=="你好 clipboard");

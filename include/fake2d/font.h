@@ -17,6 +17,11 @@
 // ... and DrawTextEx -> DrawTextExA/W, which masks the aligned-text API.
 #undef DrawTextEx
 #endif
+// wingdi.h GetObject -> GetObjectA/W masks fakelua::NativeObject::GetObject.
+// Not gated on _WIN32 so the compat test can inject the same macro.
+#ifdef GetObject
+#undef GetObject
+#endif
 // windef.h leaves these as empty macros (16-bit near/far pointers). They
 // break identifiers such as `auto near =` and `Vec2 far` once windows.h
 // has been included. Not gated on _WIN32 so the compat test can inject

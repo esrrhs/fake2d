@@ -1,10 +1,12 @@
-// Regression for MinGW/MSVC windef.h macros (`near`/`far` expand to empty).
+// Regression for MinGW/MSVC windef.h/wingdi.h macros (`near`/`far` expand
+// to empty, `GetObject` becomes GetObjectA/GetObjectW).
 //
 // Windows CI failed in examples/hello/main.cpp at `auto near =` after
-// render/gl.h pulled in windows.h. This file injects the same macros,
-// repeats that include order (public headers, then a later GL/windows
-// include), and uses the colliding identifiers so Linux/macOS catch the
-// break without waiting for a Windows job.
+// render/gl.h pulled in windows.h, and later in coverage_regression when
+// NativeObject::GetObject was rewritten to GetObjectA. This file injects
+// the same macros, repeats that include order (public headers, then a
+// later GL/windows include), and uses the colliding identifiers so
+// Linux/macOS catch the break without waiting for a Windows job.
 
 #include <cmath>
 #include <cstdlib>
@@ -13,6 +15,7 @@
 #define near
 #define FAR far
 #define NEAR near
+#define GetObject GetObjectA
 
 #include "fake2d/engine.h"
 #include "fake2d/i18n.h"
@@ -35,6 +38,7 @@
 #define near
 #define FAR far
 #define NEAR near
+#define GetObject GetObjectA
 #include "render/gl.h"
 
 int main() {
@@ -44,6 +48,13 @@ int main() {
         float far;
     };
     const ShadowPoint p{1.0f, 2.0f};
-    const bool ok = near(p.near, 1.0f) && near(p.far, 2.0f);
+    // If GetObject is still #defined to GetObjectA, this member pointer
+    // looks up a missing GetObjectA and fails to compile — the same
+    // rewrite that left an undefined reference on Windows CI.
+    struct NativeProbe {
+        void *GetObject() { return nullptr; }
+    };
+    void *(NativeProbe::*get_object)() = &NativeProbe::GetObject;
+    const bool ok = near(p.near, 1.0f) && near(p.far, 2.0f) && get_object != nullptr;
     return ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }
