@@ -78,6 +78,52 @@ bool TryLoadFontPathHelper(Renderer &r, const std::string &path, float px) {
     return r.LoadFont(path, px);
 }
 
+template <typename Entry>
+void AdvanceRing(const std::vector<Entry> &ring, int step, std::string &nav_focus,
+                 std::string &focused) {
+    if (!step || ring.empty()) {
+        return;
+    }
+    std::vector<std::size_t> scoped;
+    std::string trap_scope;
+    for (const auto &e : ring) {
+        if (!e.scope_id.empty()) {
+            trap_scope = e.scope_id;
+        }
+    }
+    if (!trap_scope.empty()) {
+        for (std::size_t i = 0; i < ring.size(); ++i) {
+            if (ring[i].scope_id == trap_scope) {
+                scoped.push_back(i);
+            }
+        }
+    }
+    if (scoped.empty()) {
+        int index = step > 0 ? -1 : 0;
+        for (std::size_t i = 0; i < ring.size(); ++i) {
+            if (ring[i].key == nav_focus) {
+                index = static_cast<int>(i);
+                break;
+            }
+        }
+        index = (index + step + static_cast<int>(ring.size())) % static_cast<int>(ring.size());
+        nav_focus = ring[static_cast<std::size_t>(index)].key;
+        focused = ring[static_cast<std::size_t>(index)].text ? nav_focus : "";
+        return;
+    }
+    int pos = step > 0 ? -1 : 0;
+    for (std::size_t i = 0; i < scoped.size(); ++i) {
+        if (ring[scoped[i]].key == nav_focus) {
+            pos = static_cast<int>(i);
+            break;
+        }
+    }
+    pos = (pos + step + static_cast<int>(scoped.size())) % static_cast<int>(scoped.size());
+    const auto &picked = ring[scoped[static_cast<std::size_t>(pos)]];
+    nav_focus = picked.key;
+    focused = picked.text ? nav_focus : "";
+}
+
 } // namespace
 
 void UISystem::Bind(const Input *input, const Camera2D *camera, Renderer *renderer) {
@@ -89,6 +135,9 @@ void UISystem::Bind(const Input *input, const Camera2D *camera, Renderer *render
 }
 
 void UISystem::NewFrame() {
+    const float raw_dt = clock_seconds_ - last_frame_clock_;
+    frame_dt_ = (raw_dt > 0.0001f && raw_dt < 0.25f) ? raw_dt : (1.0f / 60.0f);
+    last_frame_clock_ = clock_seconds_;
     ResetAutoLayoutFrame();
     recording_ = resolving_ = frame_submitted_ = false;
     dismissed_overlay_ = false;
@@ -102,6 +151,11 @@ void UISystem::NewFrame() {
     box_sequence_ = 1;
     align_stack_.clear();
     align_groups_.clear();
+    id_stack_.clear();
+    focus_scopes_.clear();
+    active_focus_scope_keys_.clear();
+    virtual_stack_.clear();
+    ime_cursor_rect_ = {};
     text_activated_.clear();
     list_views_.clear();
     active_list_view_.clear();
@@ -149,12 +203,7 @@ void UISystem::NewFrame() {
         }
         stick_held_ = stick;
         if (step && !prior_focus_.empty()) {
-            int index = it == prior_focus_.end() ? (step > 0 ? -1 : 0)
-                                                 : static_cast<int>(it - prior_focus_.begin());
-            index = (index + step + static_cast<int>(prior_focus_.size())) %
-                    static_cast<int>(prior_focus_.size());
-            nav_focus_ = prior_focus_[index].key;
-            focused_ = prior_focus_[index].text ? nav_focus_ : "";
+            AdvanceRing(prior_focus_, step, nav_focus_, focused_);
         }
     }
     next_limits_ = {};
@@ -237,14 +286,14 @@ bool UISystem::TrackPressWidget(WidgetState &state, bool hover) {
 }
 
 std::string_view UISystem::TextValue(std::string_view key) const {
-    if (const WidgetState *state = const_cast<UISystem *>(this)->Find(key)) {
+    if (const WidgetState *state = const_cast<UISystem *>(this)->Find(ResolveKeyLookup(key))) {
         return state->text;
     }
     return {};
 }
 
 void UISystem::SetTextValue(std::string_view key, std::string_view text) {
-    WidgetState &state = widgets_[std::string(key)];
+    WidgetState &state = widgets_[ScopedKey(key)];
     state.text = std::string(text);
     state.caret = state.anchor = state.text.size();
     state.undo.clear();
@@ -343,7 +392,7 @@ float UISystem::DrawFittedText(std::string_view text, float x, float y, float w,
 }
 
 bool UISystem::IsHovered(std::string_view key) const {
-    if (const WidgetState *state = const_cast<UISystem *>(this)->Find(key)) {
+    if (const WidgetState *state = const_cast<UISystem *>(this)->Find(ResolveKeyLookup(key))) {
         return state->hover;
     }
     return false;
@@ -1161,9 +1210,9 @@ bool UISystem::EditText(std::string_view key, const Rect &r, std::size_t max_cha
             DrawFittedText("click to type", r.x + 6, r.y + 6, width, scale, {.45f, .48f, .55f, 1});
         if (focused_draw) {
             const Vec2 c = caret_pos(s.caret);
-            renderer_->DrawQuad(
-                MapRect({r.x + 6 + c.x - scroll_x, r.y + 6 + c.y - scroll_y, 1.5f, lh}),
-                dim(ThemeColor("text")));
+            const Rect caret_r{r.x + 6 + c.x - scroll_x, r.y + 6 + c.y - scroll_y, 1.5f, lh};
+            renderer_->DrawQuad(MapRect(caret_r), dim(ThemeColor("text")));
+            UpdateImeCaret(caret_r);
         }
     }
     if (allow_input && changed && !history_action) {
@@ -1228,13 +1277,8 @@ void UISystem::NavigateCurrent() {
                         input_->GamepadButtonPressed(0, "a");
     }
     stick_held_ = stick;
-    if (step) {
-        int index = it == focus_ring_.end() ? (step > 0 ? -1 : 0)
-                                            : static_cast<int>(it - focus_ring_.begin());
-        index = (index + step + static_cast<int>(focus_ring_.size())) %
-                static_cast<int>(focus_ring_.size());
-        nav_focus_ = focus_ring_[index].key;
-        focused_ = focus_ring_[index].text ? nav_focus_ : "";
+    if (step && !focus_ring_.empty()) {
+        AdvanceRing(focus_ring_, step, nav_focus_, focused_);
     }
     if (!editing && nav_activate_) {
         auto target =
@@ -1309,18 +1353,21 @@ bool UISystem::EndFrameUI() {
     popup_just_opened_ = false;
     frame_submitted_ = true;
     ApplyClipRectDirect({0.0f, 0.0f, 1e9f, 1e9f});
+    if (inspector_enabled_) {
+        DrawInspectorOverlay();
+    }
     return true;
 }
 bool UISystem::Clicked(std::string_view key) const {
-    auto it = frame_results_.find(std::string(key));
+    auto it = frame_results_.find(ResolveKeyLookup(key));
     return it != frame_results_.end() && it->second != 0;
 }
 float UISystem::ResultNumber(std::string_view key, float fallback) const {
-    auto it = frame_results_.find(std::string(key));
+    auto it = frame_results_.find(ResolveKeyLookup(key));
     return it == frame_results_.end() ? fallback : it->second;
 }
 Rect UISystem::WidgetRect(std::string_view key) const {
-    auto it = widget_rects_.find(std::string(key));
+    auto it = widget_rects_.find(ResolveKeyLookup(key));
     return it == widget_rects_.end() ? Rect{} : it->second;
 }
 

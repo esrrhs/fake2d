@@ -1574,7 +1574,15 @@ void RegisterUiApi(fakelua::State *state, Engine *engine) {
             if (str == "center") return UIAxisAlign::Center;
             if (str == "end" || str == "right" || str == "bottom") return UIAxisAlign::End;
             if (str == "stretch" || str == "fill") return UIAxisAlign::Stretch;
+            if (str == "baseline") return UIAxisAlign::Baseline;
             return fallback;
+        }
+        UIScrollDir ScrollDir(int i) const {
+            if (i >= count) return UIScrollDir::Vertical;
+            const std::string str = S(i);
+            if (str == "h" || str == "horizontal") return UIScrollDir::Horizontal;
+            if (str == "both" || str == "hv" || str == "xy") return UIScrollDir::Both;
+            return UIScrollDir::Vertical;
         }
         Color C(int i) const { return {N(i, 1), N(i + 1, 1), N(i + 2, 1), N(i + 3, 1)}; }
         fakelua::CVar Nil() const { return fakelua::inter::NativeToFakeluaNil(state); }
@@ -2013,6 +2021,118 @@ void RegisterUiApi(fakelua::State *state, Engine *engine) {
     add("ui_next_pad", 4, [](UISystem &ui, const Args &a) {
         ui.NextPad(a.N(0), a.N(1), a.N(2), a.N(3));
         return a.Nil();
+    });
+    add("ui_next_shrink", 0, [](UISystem &ui, const Args &a) {
+        ui.NextShrink(a.count > 0 ? a.N(0) : 1.0f);
+        return a.Nil();
+    });
+    add("ui_next_aspect", 1, [](UISystem &ui, const Args &a) {
+        ui.NextAspect(a.N(0));
+        return a.Nil();
+    });
+    add("ui_next_span", 1, [](UISystem &ui, const Args &a) {
+        ui.NextSpan(a.count > 0 ? static_cast<int>(a.I(0)) : 1);
+        return a.Nil();
+    });
+    add("ui_next_margin", 1, [](UISystem &ui, const Args &a) {
+        const float l = a.N(0);
+        const float t = a.count > 1 ? a.N(1) : l;
+        const float r = a.count > 2 ? a.N(2) : l;
+        const float b = a.count > 3 ? a.N(3) : t;
+        ui.NextMargin(l, t, r, b);
+        return a.Nil();
+    });
+    add("ui_next_bg", 4, [](UISystem &ui, const Args &a) {
+        ui.NextBg(a.C(0), a.count > 4 ? a.N(4) : 0.0f);
+        return a.Nil();
+    });
+    add("ui_next_border", 4, [](UISystem &ui, const Args &a) {
+        ui.NextBorder(a.C(0), a.count > 4 ? a.N(4) : 1.0f);
+        return a.Nil();
+    });
+    add("ui_next_radius", 1, [](UISystem &ui, const Args &a) {
+        ui.NextRadius(a.N(0));
+        return a.Nil();
+    });
+    add("ui_next_shadow", 0, [](UISystem &ui, const Args &a) {
+        ui.NextShadow(a.N(0, 4.0f), a.N(1, 6.0f), a.N(2, 0.35f));
+        return a.Nil();
+    });
+    add("ui_next_alpha", 1, [](UISystem &ui, const Args &a) {
+        ui.NextAlpha(a.N(0, 1.0f));
+        return a.Nil();
+    });
+    add("ui_next_anim", 1, [](UISystem &ui, const Args &a) {
+        ui.NextTransition(a.S(0), a.N(1, 0.18f));
+        return a.Nil();
+    });
+    add("ui_zstack", 0, [](UISystem &ui, const Args &a) {
+        ui.ZStackBegin(a.N(0, 0.0f));
+        return a.Nil();
+    });
+    add("ui_zstack_end", 0, [](UISystem &ui, const Args &a) { ui.ZStackEnd(); return a.Nil(); });
+    add("ui_overlay", 0, [](UISystem &ui, const Args &a) {
+        ui.OverlayBegin(a.S(0, "right"), a.S(1, "top"), a.N(2, 0.0f), a.N(3, 0.0f));
+        return a.Nil();
+    });
+    add("ui_overlay_end", 0, [](UISystem &ui, const Args &a) { ui.OverlayEnd(); return a.Nil(); });
+    add("ui_anchor_to", 1, [](UISystem &ui, const Args &a) {
+        ui.AnchorToBegin(a.S(0), a.S(1, "bottom_start"), a.N(2, 4.0f),
+                         a.SizeSpec(3, UISize::Auto()), a.SizeSpec(4, UISize::Auto()));
+        return a.Nil();
+    });
+    add("ui_anchor_to_end", 0, [](UISystem &ui, const Args &a) { ui.AnchorToEnd(); return a.Nil(); });
+    add("ui_grid_begin", 1, [](UISystem &ui, const Args &a) {
+        ui.GridBegin(a.N(0), a.N(1, -1.0f), a.N(2, -1.0f), a.N(3, 0.0f));
+        return a.Nil();
+    });
+    add("ui_grid_end", 0, [](UISystem &ui, const Args &a) { ui.GridEnd(); return a.Nil(); });
+    add("ui_scroll_xy", 1, [](UISystem &ui, const Args &a) {
+        ui.ScrollBoxBegin(a.S(0), a.SizeSpec(1, UISize::Grow()), a.SizeSpec(2, UISize::Grow()),
+                          a.ScrollDir(3));
+        return a.Nil();
+    });
+    add("ui_scroll_x", 1, [](UISystem &ui, const Args &a) {
+        return a.Number(ui.ScrollOffsetX(a.S(0)));
+    });
+    add("ui_scroll_content_w", 1, [](UISystem &ui, const Args &a) {
+        return a.Number(ui.ScrollContentWidth(a.S(0)));
+    });
+    add("ui_set_scroll_x", 2, [](UISystem &ui, const Args &a) {
+        ui.SetScrollOffsetX(a.S(0), a.N(1));
+        return a.Nil();
+    });
+    add("ui_virtual_begin", 3, [](UISystem &ui, const Args &a) {
+        const int tot = a.count > 1 ? static_cast<int>(a.I(1)) : 0;
+        const int ov = a.count > 3 ? static_cast<int>(a.I(3)) : 1;
+        const auto vr = ui.VirtualBegin(a.S(0), tot, a.N(2, 24.0f), ov);
+        return a.Number(static_cast<float>(vr.count));
+    });
+    add("ui_virtual_first", 0, [](UISystem &ui, const Args &a) {
+        return a.Number(static_cast<float>(ui.LastVirtualRange().first));
+    });
+    add("ui_virtual_end", 0, [](UISystem &ui, const Args &a) { ui.VirtualEnd(); return a.Nil(); });
+    add("ui_cache_begin", 2, [](UISystem &ui, const Args &a) {
+        const std::uint64_t h = a.count > 1 ? static_cast<std::uint64_t>(a.I(1)) : 0;
+        return a.Bool(ui.CachedSubtreeBegin(a.S(0), h));
+    });
+    add("ui_cache_end", 0, [](UISystem &ui, const Args &a) { ui.CachedSubtreeEnd(); return a.Nil(); });
+    add("ui_push_id", 1, [](UISystem &ui, const Args &a) { ui.PushID(a.S(0)); return a.Nil(); });
+    add("ui_pop_id", 0, [](UISystem &ui, const Args &a) { ui.PopID(); return a.Nil(); });
+    add("ui_focus_scope_begin", 1, [](UISystem &ui, const Args &a) {
+        ui.FocusScopeBegin(a.S(0), a.count <= 1 || a.B(1));
+        return a.Nil();
+    });
+    add("ui_focus_scope_end", 0, [](UISystem &ui, const Args &a) { ui.FocusScopeEnd(); return a.Nil(); });
+    add("ui_inspector", 0, [](UISystem &ui, const Args &a) {
+        if (a.count > 0) ui.SetInspector(a.B(0));
+        else ui.ToggleInspector();
+        return a.Bool(ui.IsInspectorEnabled());
+    });
+    add("ui_ime_rect", 1, [](UISystem &ui, const Args &a) {
+        const Rect r = ui.ImeCursorRect();
+        const std::string f = a.S(0);
+        return a.Number(f == "x" ? r.x : f == "y" ? r.y : f == "w" ? r.width : f == "h" ? r.height : 0.0f);
     });
     add("ui_remember_box", 1, [](UISystem &ui, const Args &a) {
         ui.RememberBox(a.S(0));

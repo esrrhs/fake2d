@@ -154,7 +154,14 @@ UIAxisAlign ParseAxisAlign(const std::string &str, UIAxisAlign fallback) {
     if (str == "center") return UIAxisAlign::Center;
     if (str == "end" || str == "right" || str == "bottom") return UIAxisAlign::End;
     if (str == "stretch" || str == "fill") return UIAxisAlign::Stretch;
+    if (str == "baseline") return UIAxisAlign::Baseline;
     return fallback;
+}
+
+UIScrollDir ParseScrollDir(const std::string &str) {
+    if (str == "h" || str == "horizontal") return UIScrollDir::Horizontal;
+    if (str == "both" || str == "hv" || str == "xy") return UIScrollDir::Both;
+    return UIScrollDir::Vertical;
 }
 
 } // namespace
@@ -927,6 +934,180 @@ void RegisterLayoutUILuaApi(LS *s, LuaUIHost *host) {
                            static_cast<float>(r), static_cast<float>(b));
             }
         });
+    RegVar(s, host, "ui_next_shrink", 0, [ui_sys](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) u->NextShrink(n > 0 ? static_cast<float>(ArgNum(st, a, n, 0)) : 1.0f);
+        return 0.0;
+    });
+    Reg<void(LS *, double)>(s, host, "ui_next_aspect", [ui_sys](LS *, double r) {
+        if (auto *u = ui_sys()) u->NextAspect(static_cast<float>(r));
+    });
+    Reg<void(LS *, std::int64_t)>(s, host, "ui_next_span", [ui_sys](LS *, std::int64_t cols) {
+        if (auto *u = ui_sys()) u->NextSpan(static_cast<int>(cols));
+    });
+    RegVar(s, host, "ui_next_margin", 1, [ui_sys](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) {
+            const float l = static_cast<float>(ArgNum(st, a, n, 0));
+            const float t = n > 1 ? static_cast<float>(ArgNum(st, a, n, 1)) : l;
+            const float r = n > 2 ? static_cast<float>(ArgNum(st, a, n, 2)) : l;
+            const float b = n > 3 ? static_cast<float>(ArgNum(st, a, n, 3)) : t;
+            u->NextMargin(l, t, r, b);
+        }
+        return 0.0;
+    });
+    RegVar(s, host, "ui_next_bg", 1, [ui_sys, col_of](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) {
+            const Color c = col_of(static_cast<std::int64_t>(ArgNum(st, a, n, 0)));
+            const float rad = n > 1 ? static_cast<float>(ArgNum(st, a, n, 1)) : 0.0f;
+            u->NextBg(c, rad);
+        }
+        return 0.0;
+    });
+    RegVar(s, host, "ui_next_border", 1, [ui_sys, col_of](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) {
+            const Color c = col_of(static_cast<std::int64_t>(ArgNum(st, a, n, 0)));
+            const float w = n > 1 ? static_cast<float>(ArgNum(st, a, n, 1)) : 1.0f;
+            u->NextBorder(c, w);
+        }
+        return 0.0;
+    });
+    Reg<void(LS *, double)>(s, host, "ui_next_radius", [ui_sys](LS *, double r) {
+        if (auto *u = ui_sys()) u->NextRadius(static_cast<float>(r));
+    });
+    RegVar(s, host, "ui_next_shadow", 0, [ui_sys](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) {
+            const float oy = n > 0 ? static_cast<float>(ArgNum(st, a, n, 0)) : 4.0f;
+            const float sp = n > 1 ? static_cast<float>(ArgNum(st, a, n, 1)) : 6.0f;
+            const float al = n > 2 ? static_cast<float>(ArgNum(st, a, n, 2)) : 0.35f;
+            u->NextShadow(oy, sp, al);
+        }
+        return 0.0;
+    });
+    Reg<void(LS *, double)>(s, host, "ui_next_alpha", [ui_sys](LS *, double a) {
+        if (auto *u = ui_sys()) u->NextAlpha(static_cast<float>(a));
+    });
+    RegVar(s, host, "ui_next_anim", 1, [ui_sys](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) {
+            u->NextTransition(ArgStr(st, a, n, 0),
+                              n > 1 ? static_cast<float>(ArgNum(st, a, n, 1)) : 0.18f);
+        }
+        return 0.0;
+    });
+    RegVar(s, host, "ui_zstack", 0, [ui_sys](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) u->ZStackBegin(n > 0 ? static_cast<float>(ArgNum(st, a, n, 0)) : 0.0f);
+        return 0.0;
+    });
+    Reg<void(LS *)>(s, host, "ui_zstack_end", [ui_sys](LS *) {
+        if (auto *u = ui_sys()) u->ZStackEnd();
+    });
+    RegVar(s, host, "ui_overlay", 0, [ui_sys](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) {
+            u->OverlayBegin(n > 0 ? ArgStr(st, a, n, 0) : "right",
+                            n > 1 ? ArgStr(st, a, n, 1) : "top",
+                            n > 2 ? static_cast<float>(ArgNum(st, a, n, 2)) : 0.0f,
+                            n > 3 ? static_cast<float>(ArgNum(st, a, n, 3)) : 0.0f);
+        }
+        return 0.0;
+    });
+    Reg<void(LS *)>(s, host, "ui_overlay_end", [ui_sys](LS *) {
+        if (auto *u = ui_sys()) u->OverlayEnd();
+    });
+    RegVar(s, host, "ui_anchor_to", 1, [ui_sys](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) {
+            u->AnchorToBegin(ArgStr(st, a, n, 0),
+                             n > 1 ? ArgStr(st, a, n, 1) : "bottom_start",
+                             n > 2 ? static_cast<float>(ArgNum(st, a, n, 2)) : 4.0f,
+                             n > 3 ? ParseSizeSpec(st, a, n, 3, UISize::Auto()) : UISize::Auto(),
+                             n > 4 ? ParseSizeSpec(st, a, n, 4, UISize::Auto()) : UISize::Auto());
+        }
+        return 0.0;
+    });
+    Reg<void(LS *)>(s, host, "ui_anchor_to_end", [ui_sys](LS *) {
+        if (auto *u = ui_sys()) u->AnchorToEnd();
+    });
+    RegVar(s, host, "ui_grid_begin", 1, [ui_sys](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) {
+            u->GridBegin(static_cast<float>(ArgNum(st, a, n, 0)),
+                         n > 1 ? static_cast<float>(ArgNum(st, a, n, 1)) : -1.0f,
+                         n > 2 ? static_cast<float>(ArgNum(st, a, n, 2)) : -1.0f,
+                         n > 3 ? static_cast<float>(ArgNum(st, a, n, 3)) : 0.0f);
+        }
+        return 0.0;
+    });
+    Reg<void(LS *)>(s, host, "ui_grid_end", [ui_sys](LS *) {
+        if (auto *u = ui_sys()) u->GridEnd();
+    });
+    RegVar(s, host, "ui_scroll_xy", 1, [ui_sys](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) {
+            u->ScrollBoxBegin(ArgStr(st, a, n, 0),
+                              n > 1 ? ParseSizeSpec(st, a, n, 1, UISize::Grow()) : UISize::Grow(),
+                              n > 2 ? ParseSizeSpec(st, a, n, 2, UISize::Grow()) : UISize::Grow(),
+                              n > 3 ? ParseScrollDir(ArgStr(st, a, n, 3)) : UIScrollDir::Both);
+        }
+        return 0.0;
+    });
+    Reg<double(LS *, std::string)>(s, host, "ui_scroll_x", [ui_sys](LS *, std::string key) -> double {
+        auto *u = ui_sys();
+        return u ? u->ScrollOffsetX(key) : 0.0;
+    });
+    Reg<double(LS *, std::string)>(s, host, "ui_scroll_content_w", [ui_sys](LS *, std::string key) -> double {
+        auto *u = ui_sys();
+        return u ? u->ScrollContentWidth(key) : 0.0;
+    });
+    Reg<void(LS *, std::string, double)>(s, host, "ui_set_scroll_x", [ui_sys](LS *, std::string key, double off) {
+        if (auto *u = ui_sys()) u->SetScrollOffsetX(key, static_cast<float>(off));
+    });
+    RegVar(s, host, "ui_virtual_begin", 3, [ui_sys](LS *st, CVar *a, int n) -> double {
+        auto *u = ui_sys();
+        if (!u) return 0.0;
+        const auto vr = u->VirtualBegin(ArgStr(st, a, n, 0),
+                                        static_cast<int>(ArgNum(st, a, n, 1)),
+                                        static_cast<float>(ArgNum(st, a, n, 2)),
+                                        n > 3 ? static_cast<int>(ArgNum(st, a, n, 3)) : 1);
+        return static_cast<double>(vr.count);
+    });
+    Reg<double(LS *)>(s, host, "ui_virtual_first", [ui_sys](LS *) -> double {
+        auto *u = ui_sys();
+        return u ? static_cast<double>(u->LastVirtualRange().first) : 0.0;
+    });
+    Reg<void(LS *)>(s, host, "ui_virtual_end", [ui_sys](LS *) {
+        if (auto *u = ui_sys()) u->VirtualEnd();
+    });
+    Reg<bool(LS *, std::string, std::int64_t)>(
+        s, host, "ui_cache_begin", [ui_sys](LS *, std::string key, std::int64_t hash) -> bool {
+            auto *u = ui_sys();
+            return u && u->CachedSubtreeBegin(key, static_cast<std::uint64_t>(hash));
+        });
+    Reg<void(LS *)>(s, host, "ui_cache_end", [ui_sys](LS *) {
+        if (auto *u = ui_sys()) u->CachedSubtreeEnd();
+    });
+    Reg<void(LS *, std::string)>(s, host, "ui_push_id", [ui_sys](LS *, std::string id) {
+        if (auto *u = ui_sys()) u->PushID(id);
+    });
+    Reg<void(LS *)>(s, host, "ui_pop_id", [ui_sys](LS *) {
+        if (auto *u = ui_sys()) u->PopID();
+    });
+    RegVar(s, host, "ui_focus_scope_begin", 1, [ui_sys](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) {
+            u->FocusScopeBegin(ArgStr(st, a, n, 0), n <= 1 || ArgBool(st, a, n, 1));
+        }
+        return 0.0;
+    });
+    Reg<void(LS *)>(s, host, "ui_focus_scope_end", [ui_sys](LS *) {
+        if (auto *u = ui_sys()) u->FocusScopeEnd();
+    });
+    RegVar(s, host, "ui_inspector", 0, [ui_sys](LS *st, CVar *a, int n) -> bool {
+        auto *u = ui_sys();
+        if (!u) return false;
+        if (n > 0) u->SetInspector(ArgBool(st, a, n, 0));
+        else u->ToggleInspector();
+        return u->IsInspectorEnabled();
+    });
+    Reg<double(LS *, std::string)>(s, host, "ui_ime_rect", [ui_sys](LS *, std::string f) -> double {
+        auto *u = ui_sys();
+        if (!u) return 0.0;
+        const Rect r = u->ImeCursorRect();
+        return f == "x" ? r.x : f == "y" ? r.y : f == "w" ? r.width : f == "h" ? r.height : 0.0;
+    });
 
     // Dedicated heightless auto-sized widget aliases
     RegVar(s, host, "ui_btn", 2, [ui_sys](LS *st, CVar *a, int n) -> bool {

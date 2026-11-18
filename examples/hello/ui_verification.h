@@ -1275,6 +1275,240 @@ void RunUI149Checks(fake2d::Engine &engine, const std::function<void(bool, const
                   "156: AuditLayout catches collapsed 0px enabled interactive button");
         }
 
+        // 157: Modern UI framework features (shrink, aspect, baseline, ZStack/Overlay, AnchorTo,
+        // Grid/span, horizontal scroll, in-tree Virtual slice, margin/rounded/shadow/alpha,
+        // PushID/PopID, FocusScope trap, IME caret rect, transitions, subtree cache, Inspector)
+        {
+            host_ui.SetAudit(true);
+            auto render_custom = [&](auto &&fn, float dx_clock = 0.0f) {
+                if (dx_clock > 0.0f) {
+                    host_ui.SetClockSeconds(host_ui.ClockSeconds() + dx_clock);
+                }
+                input.InjectFrame({-1000.0f, -1000.0f}, {}, {});
+                host_ui.NewFrame();
+                renderer.BeginFrame(0, 0, 0, 1);
+                renderer.BeginRenderTarget(target);
+                renderer.ClearActiveTarget({0, 0, 0, 1});
+                host_ui.BeginFrameUI();
+                fn();
+                host_ui.EndFrameUI();
+                renderer.EndRenderTarget();
+                renderer.EndFrame();
+            };
+
+            // A. Flex-shrink, AspectRatio, Baseline alignment, ZStack + Overlay, Margin + Rounded/Shadow
+            render_custom([&]() {
+                host_ui.RootBegin(10, 10, fake2d::UISize::Fixed(200), fake2d::UISize::Auto(), 0);
+                host_ui.VStackBegin(8);
+
+                // Shrink: two 140px buttons inside 200px HStack with shrink=1 -> each shrinks to ~96px
+                host_ui.HStackBegin(8, 0, fake2d::UIAxisAlign::Center);
+                host_ui.NextWidth(fake2d::UISize::Fixed(140));
+                host_ui.NextShrink(1.0f);
+                host_ui.Button("sh_a", "LeftLong", 0.45f);
+                host_ui.NextWidth(fake2d::UISize::Fixed(140));
+                host_ui.NextShrink(1.0f);
+                host_ui.Button("sh_b", "RightLong", 0.45f);
+                host_ui.StackEnd();
+
+                // AspectRatio: Fixed width 100, Aspect(2.0) -> height 50
+                host_ui.NextSize(fake2d::UISize::Fixed(100), fake2d::UISize::Auto());
+                host_ui.NextAspect(2.0f);
+                host_ui.NextMargin(6, 4, 6, 4);
+                host_ui.NextBg({0.2f, 0.3f, 0.5f, 1.0f}, 8.0f);
+                host_ui.NextBorder({0.8f, 0.8f, 1.0f, 1.0f}, 1.5f);
+                host_ui.NextShadow(3.0f, 5.0f, 0.35f);
+                host_ui.NextAlpha(0.9f);
+                host_ui.VStackBegin();
+                host_ui.RememberBox("aspect_card");
+                host_ui.Text("Aspect 2:1", 0.4f);
+                host_ui.StackEnd();
+
+                // Baseline alignment: large vs small text aligned on baseline
+                host_ui.HStackBegin(8, 0, fake2d::UIAxisAlign::Baseline);
+                host_ui.Text("Big", 0.9f);
+                host_ui.Remember("base_big");
+                host_ui.Text("small", 0.4f);
+                host_ui.Remember("base_small");
+                host_ui.StackEnd();
+
+                // ZStack + Overlay badge on card corner
+                host_ui.NextSize(fake2d::UISize::Fixed(160), fake2d::UISize::Fixed(48));
+                host_ui.ZStackBegin(4);
+                host_ui.RememberBox("zs_box");
+                host_ui.Button("zs_base", "BaseCard", 0.45f);
+                host_ui.OverlayBegin("right", "top", 4, 4);
+                host_ui.Button("zs_badge", "!", 0.35f);
+                host_ui.OverlayEnd();
+                host_ui.ZStackEnd();
+
+                host_ui.StackEnd();
+                host_ui.RootEnd();
+            });
+            const auto sh_a = host_ui.WidgetRect("sh_a");
+            const auto sh_b = host_ui.WidgetRect("sh_b");
+            check(sh_a.width < 110.0f && std::abs(sh_a.width - sh_b.width) < 1.0f &&
+                      sh_a.x + sh_a.width + 8.0f + sh_b.width <= 211.0f,
+                  "157: flex-shrink compresses oversized HStack siblings proportionally");
+            const auto asp = host_ui.NamedRect("aspect_card");
+            check(std::abs(asp.width - 100.0f) < 0.5f && std::abs(asp.height - 50.0f) < 0.5f,
+                  "157: NextAspect(2.0) enforces 2:1 height from width");
+            check(asp.x >= 15.5f, "157: NextMargin shifts visual box inward cleanly");
+            const auto b_big = host_ui.NamedRect("base_big");
+            const auto b_sm = host_ui.NamedRect("base_small");
+            check(b_sm.y > b_big.y + 0.5f && b_sm.y + b_sm.height <= b_big.y + b_big.height + 1.0f,
+                  "157: UIAxisAlign::Baseline shifts smaller text down to match large text baseline");
+            const auto zs_box = host_ui.NamedRect("zs_box");
+            const auto zs_badge = host_ui.WidgetRect("zs_badge");
+            check(zs_badge.x > zs_box.x + zs_box.width * 0.5f && zs_badge.y <= zs_box.y + 12.0f,
+                  "157: ZStack + Overlay places badge at top-right inside local box");
+
+            // B. AnchorTo auto-flip near bottom edge + Responsive Grid with Span + Horizontal Scroll + In-tree Virtual
+            render_custom([&]() {
+                host_ui.RootBegin(10, 420, fake2d::UISize::Fixed(120), fake2d::UISize::Auto());
+                host_ui.Button("anc_trg", "Trigger", 0.45f);
+                host_ui.RootEnd();
+                host_ui.AnchorToBegin("anc_trg", "bottom_start", 4.0f, fake2d::UISize::Fixed(140),
+                                      fake2d::UISize::Fixed(90));
+                host_ui.Button("anc_pop", "FlippedAbove", 0.45f);
+                host_ui.AnchorToEnd();
+
+                host_ui.RootBegin(160, 10, fake2d::UISize::Fixed(340), fake2d::UISize::Auto(), 0);
+                host_ui.VStackBegin(8);
+                host_ui.GridBegin(100.0f, 8.0f, 8.0f, 0.0f);
+                host_ui.NextSpan(2);
+                host_ui.Button("g_wide", "Span2", 0.45f);
+                host_ui.Button("g_1", "One", 0.45f);
+                host_ui.Button("g_2", "Two", 0.45f);
+                host_ui.GridEnd();
+
+                host_ui.ScrollBoxBegin("h_scr", fake2d::UISize::Fixed(120), fake2d::UISize::Fixed(70),
+                                       fake2d::UIScrollDir::Both);
+                host_ui.NextWidth(fake2d::UISize::Fixed(300));
+                host_ui.Button("h_wide_btn", "VeryWideRow", 0.45f);
+                host_ui.ScrollBoxEnd();
+
+                host_ui.ScrollBoxBegin("v_scr", fake2d::UISize::Fixed(180), fake2d::UISize::Fixed(96),
+                                       fake2d::UIScrollDir::Vertical);
+                const auto vr = host_ui.VirtualBegin("v_scr", 200, 24.0f, 1);
+                for (int vi = 0; vi < vr.count; ++vi) {
+                    const int row = vr.first + vi;
+                    host_ui.PushID(row);
+                    host_ui.Button("item", "V_" + std::to_string(row), 0.45f);
+                    host_ui.PopID();
+                }
+                host_ui.VirtualEnd();
+                host_ui.ScrollBoxEnd();
+                host_ui.StackEnd();
+                host_ui.RootEnd();
+            });
+            const auto anc_t = host_ui.WidgetRect("anc_trg");
+            const auto anc_p = host_ui.WidgetRect("anc_pop");
+            check(anc_p.y + anc_p.height <= anc_t.y + 1.0f,
+                  "157: AnchorTo auto-flips popover above trigger near bottom viewport edge");
+            const auto gw = host_ui.WidgetRect("g_wide");
+            const auto g1 = host_ui.WidgetRect("g_1");
+            const auto g2 = host_ui.WidgetRect("g_2");
+            check(gw.width > g1.width * 1.8f && g2.y > gw.y + gw.height,
+                  "157: Grid auto-fits columns and supports NextSpan(2)");
+            check(host_ui.ScrollContentWidth("h_scr") >= 299.0f &&
+                      std::abs(host_ui.ScrollContentHeight("v_scr") - 4800.0f) < 30.0f,
+                  "157: Horizontal scroll tracks content_w and VirtualBegin preserves 200*24px height");
+            check(host_ui.WidgetRect("item/0").width == 0.0f && host_ui.WidgetRect("0/item").width > 10.0f,
+                  "157: PushID scopes child keys cleanly");
+
+            // C. Subtree Cache Hit/Invalidate, FocusScope Trap, IME Caret, Transition, Inspector
+            fake2d::Rect ime_reported{};
+            host_ui.SetImeRectCallback([&](const fake2d::Rect &cr) { ime_reported = cr; });
+            std::uint64_t ver = 1;
+            int cache_miss_builds = 0;
+            bool wide_anim = false;
+            host_ui.SetInspector(true);
+            auto render_cached_and_scoped = [&](float dt_s) {
+                host_ui.SetClockSeconds(host_ui.ClockSeconds() + dt_s);
+                host_ui.NewFrame();
+                renderer.BeginFrame(0, 0, 0, 1);
+                renderer.BeginRenderTarget(target);
+                renderer.ClearActiveTarget({0, 0, 0, 1});
+                host_ui.BeginFrameUI();
+                host_ui.RootBegin(10, 10, fake2d::UISize::Fixed(300), fake2d::UISize::Auto());
+                host_ui.VStackBegin(6);
+                host_ui.Button("outer_btn", "Outside", 0.45f);
+                host_ui.FocusScopeBegin("trap_box", true);
+                host_ui.Button("in_a", "InA", 0.45f);
+                host_ui.TextInput("ime_field", 16);
+                host_ui.FocusScopeEnd();
+
+                if (host_ui.CachedSubtreeBegin("memo_tree", ver)) {
+                    ++cache_miss_builds;
+                    host_ui.VStackBegin(4);
+                    host_ui.Button("memo_btn", ver == 1 ? "CachedV1" : "CachedV2", 0.45f);
+                    host_ui.StackEnd();
+                }
+                host_ui.CachedSubtreeEnd();
+
+                host_ui.NextWidth(fake2d::UISize::Fixed(wide_anim ? 220.0f : 80.0f));
+                host_ui.NextTransition("anim_box", 0.4f);
+                host_ui.Button("anim_btn", "Anim", 0.45f);
+
+                host_ui.StackEnd();
+                host_ui.RootEnd();
+                host_ui.EndFrameUI();
+                renderer.EndRenderTarget();
+                renderer.EndFrame();
+            };
+
+            auto &host_in = engine.GetInput();
+            host_in.InjectFrame({-1000, -1000}, {}, {});
+            render_cached_and_scoped(0.016f); // build 1 (miss)
+            const std::size_t hits_miss = host_ui.Stats().cached_subtrees_hit;
+            host_in.InjectFrame({-1000, -1000}, {}, {});
+            render_cached_and_scoped(0.016f); // hit!
+            const std::size_t hits_hit = host_ui.Stats().cached_subtrees_hit;
+            ver = 2;
+            host_in.InjectFrame({-1000, -1000}, {}, {});
+            render_cached_and_scoped(0.016f); // build 2 (invalidated!)
+            check(hits_miss == 0 && hits_hit == 1 && cache_miss_builds == 2 &&
+                      host_ui.WidgetRect("memo_btn").width > 10.0f,
+                  "157: CachedSubtree skips rebuild on hit, replays widgets, and invalidates on version bump");
+
+            // FocusScope trap: Tab stays between in_a and ime_field, never visits outer_btn
+            const fake2d::Vec2 in_a_pt = host_ui.LogicalToWindow(
+                {host_ui.WidgetRect("in_a").x + 5.0f, host_ui.WidgetRect("in_a").y + 5.0f});
+            host_in.InjectFrame(in_a_pt, {}, {0});
+            render_cached_and_scoped(0.016f);
+            host_in.InjectFrame(in_a_pt, {}, {});
+            render_cached_and_scoped(0.016f);
+            host_in.InjectFrame({-1000, -1000}, {"tab"}, {});
+            render_cached_and_scoped(0.016f);
+            const std::string after_tab1(host_ui.FocusedTextInput());
+            host_in.InjectFrame({-1000, -1000}, {}, {}); // release tab & draw focused caret for IME
+            render_cached_and_scoped(0.016f);
+            const fake2d::Rect ime_cur = host_ui.ImeCursorRect();
+            host_in.InjectFrame({-1000, -1000}, {"tab"}, {});
+            render_cached_and_scoped(0.016f);
+            const std::string after_tab2(host_ui.FocusedTextInput());
+            host_in.InjectFrame({-1000, -1000}, {}, {});
+            if (!(after_tab1 == "ime_field" && after_tab2.empty() && ime_reported.height > 1.0f &&
+                  ime_cur.height > 1.0f)) {
+                std::printf("157_IME_DBG tab1='%s' tab2='%s' ime_cb=%.1f ime_cur=%.1f\n",
+                            after_tab1.c_str(), after_tab2.c_str(), ime_reported.height,
+                            ime_cur.height);
+            }
+            check(after_tab1 == "ime_field" && after_tab2.empty() && ime_reported.height > 1.0f &&
+                      ime_cur.height > 1.0f,
+                  "157: FocusScope traps Tab cycle and EditText emits IME cursor rect");
+
+            // Transition interpolation + Inspector active cleanly
+            wide_anim = true;
+            host_in.InjectFrame({-1000, -1000}, {}, {});
+            render_cached_and_scoped(0.05f);
+            check(host_ui.IsInspectorEnabled() && host_ui.WidgetRect("anim_btn").width > 80.0f &&
+                      host_ui.WidgetRect("anim_btn").width < 220.0f,
+                  "157: NextTransition interpolates box width smoothly and Inspector stays active");
+            host_ui.SetInspector(false);
+        }
+
         host_ui.SetAudit(false);
         host_cam = saved_cam;
     }

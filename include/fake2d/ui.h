@@ -41,7 +41,9 @@ struct UISize {
     }
 };
 
-enum class UIAxisAlign : std::uint8_t { Start, Center, End, Stretch };
+enum class UIAxisAlign : std::uint8_t { Start, Center, End, Stretch, Baseline };
+
+enum class UIScrollDir : std::uint8_t { Vertical, Horizontal, Both };
 
 /// Two-Pass immediate-style 2D UI layout engine (Measure -> Arrange -> Commit/Paint).
 /// Widget state (hover, press, drag, focus, text, scroll) persists by string key across frames.
@@ -70,6 +72,7 @@ class UISystem {
     struct FrameStats {
         std::size_t rich_batches = 0, rich_glyphs = 0, premeasured_rows = 0;
         std::size_t nodes = 0, visible = 0, draw_commands = 0, tree_steps = 0, measured_rows = 0;
+        std::size_t cached_subtrees_hit = 0;
         double layout_ms = 0, interaction_ms = 0;
     };
     [[nodiscard]] const FrameStats &Stats() const { return frame_stats_; }
@@ -150,6 +153,9 @@ class UISystem {
                const Color &tint = Color::White(), float min_scale = 0.35f);
     [[nodiscard]] float ScrollContentHeight(std::string_view key) const;
     [[nodiscard]] float ScrollOffset(std::string_view key) const;
+    [[nodiscard]] float ScrollContentWidth(std::string_view key) const;
+    [[nodiscard]] float ScrollOffsetX(std::string_view key) const;
+    void SetScrollOffsetX(std::string_view key, float offset);
     [[nodiscard]] float LayoutToken(std::string_view name) const;
     bool SetLayoutToken(std::string_view name, float value);
     struct AuditRect {
@@ -170,6 +176,9 @@ class UISystem {
         bool suppressed = false;
         bool in_scroll = false;
         bool disabled = false;
+        float margin_l = 0, margin_t = 0, margin_r = 0, margin_b = 0;
+        float pad_l = 0, pad_t = 0, pad_r = 0, pad_b = 0;
+        float meas_w = 0, meas_h = 0;
     };
     struct LayoutIssue {
         std::string category; // "overflow", "viewport", "overlap", "align_h", "align_v", "align_group"
@@ -277,9 +286,32 @@ class UISystem {
     void TableRowEnd();
     void TableEnd();
     void ScrollBoxBegin(std::string_view key, UISize view_h = UISize::Grow());
+    void ScrollBoxBegin(std::string_view key, UISize view_w, UISize view_h,
+                        UIScrollDir dir = UIScrollDir::Vertical);
     void ScrollBoxEnd();
     void FlowBoxBegin(float col_gap = -1.0f, float row_gap = -1.0f);
     void FlowBoxEnd();
+    void ZStackBegin(float pad = 0.0f);
+    void ZStackEnd();
+    void OverlayBegin(std::string_view h_align = "end", std::string_view v_align = "start",
+                      float off_x = 0.0f, float off_y = 0.0f);
+    void OverlayEnd();
+    void AnchorToBegin(std::string_view target_key, std::string_view placement = "bottom_start",
+                       float gap = 4.0f, UISize w = UISize::Auto(), UISize h = UISize::Auto());
+    void AnchorToEnd();
+    void GridBegin(float min_col_w, float col_gap = -1.0f, float row_gap = -1.0f,
+                   float pad = 0.0f);
+    void GridEnd();
+    struct VirtualRange {
+        int first = 0;
+        int count = 0;
+    };
+    VirtualRange VirtualBegin(std::string_view key, int total_count, float item_h,
+                              int overscan = 1);
+    [[nodiscard]] const VirtualRange &LastVirtualRange() const { return last_virtual_range_; }
+    void VirtualEnd();
+    bool CachedSubtreeBegin(std::string_view key, std::uint64_t version_hash);
+    void CachedSubtreeEnd();
     void CanvasBegin(UISize w = UISize::Grow(), UISize h = UISize::Auto(), float pad = 0.0f);
     void CanvasEnd();
     void Spacer(float px = -1.0f);
@@ -287,14 +319,38 @@ class UISystem {
     bool ModalBegin(std::string_view key, UISize w = UISize::Auto(), UISize h = UISize::Auto());
     bool ListView(std::string_view key, UISize view_h = UISize::Grow());
 
-    // One-shot layout modifiers applied to the next child/container in Two-Pass layout.
+    // ID scoping stack, Focus Scopes, IME caret & live DevTools Inspector
+    void PushID(std::string_view id);
+    void PushID(int id);
+    void PopID();
+    [[nodiscard]] std::string ScopedKey(std::string_view key) const;
+    void FocusScopeBegin(std::string_view key, bool trap = true);
+    void FocusScopeEnd();
+    [[nodiscard]] Rect ImeCursorRect() const { return ime_cursor_rect_; }
+    void SetImeRectCallback(std::function<void(const Rect &)> cb) { ime_rect_cb_ = std::move(cb); }
+    void SetInspector(bool enabled) { inspector_enabled_ = enabled; }
+    [[nodiscard]] bool IsInspectorEnabled() const { return inspector_enabled_; }
+    void ToggleInspector() { inspector_enabled_ = !inspector_enabled_; }
+
+    // One-shot layout & visual style modifiers applied to the next child/container in Two-Pass layout.
     void NextSize(UISize w, UISize h);
     void NextWidth(UISize w);
     void NextHeight(UISize h);
     void NextGrow(float weight = 1.0f);
+    void NextShrink(float weight = 1.0f);
+    void NextAspect(float ratio);
+    void NextSpan(int cols = 1);
     void NextAlign(UIAxisAlign cross_align);
     void NextMainAlign(UIAxisAlign main_align);
     void NextPad(float l, float t, float r, float b);
+    void NextMargin(float l, float t, float r, float b);
+    void NextMargin(float all) { NextMargin(all, all, all, all); }
+    void NextBg(const Color &col, float radius = 0.0f);
+    void NextBorder(const Color &col, float width = 1.0f);
+    void NextRadius(float radius);
+    void NextShadow(float offset_y = 4.0f, float spread = 6.0f, float alpha = 0.35f);
+    void NextAlpha(float alpha);
+    void NextTransition(std::string_view anim_key, float duration_sec = 0.18f);
 
     // Heightless auto-sized widgets (intrinsic size computed from font & theme metrics).
     bool Button(std::string_view key, std::string_view text, float scale = 0.0f);
@@ -377,6 +433,7 @@ class UISystem {
     };
     struct ScrollState {
         float height = 0, offset = 0;
+        float width = 0, offset_x = 0;
     };
     void Record(std::string_view kind, const Rect &rect, std::string_view name = {});
     std::string Ellipsize(std::string_view text, float width, float scale) const;
@@ -508,7 +565,15 @@ class UISystem {
         Rect rect;
         bool text;
         bool adjustable;
+        std::string scope_id;
     };
+    struct FocusScopeRecord {
+        std::string id;
+        std::string prev_focus;
+        bool trap = true;
+    };
+    std::vector<FocusScopeRecord> focus_scopes_;
+    std::vector<std::string> active_focus_scope_keys_;
     std::vector<FocusEntry> focus_ring_, prior_focus_;
     bool nav_activate_ = false, stick_held_ = false;
     int nav_adjust_step_ = 0;
@@ -557,13 +622,24 @@ class UISystem {
     TextHooks text_hooks_;
     std::function<void(const Rect &clipped_rect, std::string_view text, bool is_occluder)> tip_recorder_;
 
-    // --- Two-Pass Auto-Layout Engine (ui_layout2.cpp) ---
+    // --- Two-Pass Auto-Layout Engine (ui_layout2.cpp & ui_modern.cpp) ---
     struct AutoLayoutMod {
         bool has_w = false, has_h = false, has_cross = false, has_main = false, has_pad = false;
+        bool has_margin = false, has_shrink = false, has_aspect = false, has_span = false;
+        bool has_bg = false, has_border = false, has_radius = false, has_shadow = false;
+        bool has_alpha = false, has_anim = false;
         UISize w{}, h{};
         UIAxisAlign cross = UIAxisAlign::Start;
         UIAxisAlign main = UIAxisAlign::Start;
         float pad_l = 0, pad_t = 0, pad_r = 0, pad_b = 0;
+        float margin_l = 0, margin_t = 0, margin_r = 0, margin_b = 0;
+        float shrink = 0.0f, aspect_ratio = 0.0f;
+        int col_span = 1;
+        Color bg_col{}, border_col{};
+        float border_w = 1.0f, radius = 0.0f, alpha_mul = 1.0f;
+        float shadow_off_y = 0.0f, shadow_spread = 0.0f, shadow_alpha = 0.0f;
+        std::string anim_key;
+        float anim_duration = 0.0f;
     };
     struct SolvedWidgetInfo {
         Rect rect{};
@@ -585,8 +661,8 @@ class UISystem {
     };
     struct AutoNode {
         enum class Kind : std::uint8_t {
-            Root, AnchorRoot, VStack, HStack, Table, TableRow, TableCell,
-            Flow, Scroll, Card, CustomBox, Spacer, Divider,
+            Root, AnchorRoot, VStack, HStack, ZStack, Grid, Table, TableRow, TableCell,
+            Flow, Scroll, Card, CustomBox, CachedBox, Spacer, Divider,
             Text, RichText, Button, Slider, Checkbox, RadioButton, ProgressBar,
             TextInput, TextPassword, TextArea, Tab, Tree, ComboBegin, ComboItem,
             Image, ImageButton, Splitter, Window, ListViewSlot
@@ -595,14 +671,20 @@ class UISystem {
         int parent = -1;
         std::vector<int> children;
         std::string key;
+        std::string anchor_target_key;
         std::string text;
         UISize width_spec = UISize::Auto();
         UISize height_spec = UISize::Auto();
         Constraints limits{};
         float pad_l = 0, pad_t = 0, pad_r = 0, pad_b = 0;
+        float margin_l = 0, margin_t = 0, margin_r = 0, margin_b = 0;
+        float shrink = 0.0f, aspect_ratio = 0.0f;
+        int col_span = 1;
+        float min_col_w = 120.0f;
         float gap = 0, line_gap = 0;
         UIAxisAlign cross_align = UIAxisAlign::Stretch;
         UIAxisAlign main_align = UIAxisAlign::Start;
+        UIScrollDir scroll_dir = UIScrollDir::Vertical;
         bool clip_children = false;
         bool block_input = false;
         bool overlay = false;
@@ -611,7 +693,12 @@ class UISystem {
         bool defer_commit = false;
         Rect clip_override{};
         bool draw_panel = false, themed_panel = false;
-        Color fill_col{}, border_col{}, track_col{};
+        bool has_bg = false, has_border = false, has_shadow = false;
+        Color fill_col{}, border_col{}, track_col{}, bg_col{}, custom_border_col{};
+        float border_w = 1.0f, radius = 0.0f, alpha_mul = 1.0f;
+        float shadow_off_y = 0.0f, shadow_spread = 0.0f, shadow_alpha = 0.0f;
+        std::string anim_key;
+        float anim_duration = 0.0f;
         bool has_btn_colors = false;
         Color btn_col{}, btn_hover{}, btn_pressed{}, btn_border{}, btn_text{};
         float scale = 0, min_scale = 0.35f;
@@ -636,16 +723,19 @@ class UISystem {
         int col_index = -1;
         int layer = 0;
         bool disabled = false, suppressed = false, in_scroll = false;
-        std::string modal_id, popup_id;
+        std::string modal_id, popup_id, focus_scope_id;
         std::string tip_text;
         std::string context_menu_key;
         std::string remember_name;
         bool is_modal_root = false;
+        bool cached_hit = false;
+        std::uint64_t cache_hash = 0;
         std::vector<int> align_group_ids;
         std::vector<AutoCustomCmd> custom_cmds;
         // Computed by Pass 1 & Pass 2
-        float meas_w = 0, meas_h = 0;
+        float meas_w = 0, meas_h = 0, baseline = 0;
         float content_height = 0, scroll_offset = 0;
+        float content_width = 0, scroll_offset_x = 0;
         Rect rect{};
         Rect content_rect{};
         Rect clip_rect{0.0f, 0.0f, 1e9f, 1e9f};
@@ -680,6 +770,19 @@ class UISystem {
                          bool hover, float scale, bool is_item);
     void DrawScrollbarVisual(const Rect &viewport, float content_h, float offset, bool hover,
                              bool dragging);
+    void DrawHScrollbarVisual(const Rect &viewport, float content_w, float offset_x, bool hover,
+                              bool dragging);
+    void DrawRoundedQuad(const Rect &r, float radius, const Color &color);
+    void DrawRoundedFrame(const Rect &r, float radius, float thickness, const Color &color);
+    void DrawDropShadow(const Rect &r, float radius, float off_y, float spread, float alpha);
+    void DrawNodeBackdrop(const Rect &r, const AutoNode &node);
+    void UpdateImeCaret(const Rect &caret_logical_rect);
+    void DrawInspectorOverlay();
+    [[nodiscard]] std::string ResolveKeyLookup(std::string_view key) const;
+    Rect ApplyTransitionBox(const AutoNode &node, const Rect &target_rect);
+    void CaptureSubtreeCache(int cached_box_idx);
+    bool ReplaySubtreeCache(int cached_box_idx, float origin_x, float origin_y,
+                            const Rect &parent_clip, bool in_scroll, std::uint32_t root_id);
 
     // Auto-layout entry points called from UISystem methods when InAutoLayout()
     float AutoText(std::string_view text, float scale, UITextOverflow overflow, int align,
@@ -725,6 +828,35 @@ class UISystem {
     std::unordered_map<std::string, SolvedWidgetInfo> prev_solved_widgets_;
     std::unordered_map<std::string, SolvedWidgetInfo> curr_solved_widgets_;
     std::unordered_map<std::string, Rect> prev_named_rects_;
+    std::vector<std::string> id_stack_;
+    Rect ime_cursor_rect_{};
+    Rect last_emitted_ime_rect_{};
+    std::function<void(const Rect &)> ime_rect_cb_;
+    bool inspector_enabled_ = false;
+    float last_frame_clock_ = 0.0f;
+    float frame_dt_ = 1.0f / 60.0f;
+    struct AnimBoxState {
+        Rect current{}, target{};
+        float elapsed = 0.0f, duration = 0.0f;
+        bool init = false;
+    };
+    std::unordered_map<std::string, AnimBoxState> anim_boxes_;
+    struct VirtualScope {
+        std::string key;
+        int total = 0, first = 0, count = 0;
+        float item_h = 24.0f;
+    };
+    std::vector<VirtualScope> virtual_stack_;
+    VirtualRange last_virtual_range_{};
+    struct CachedLayoutSnapshot {
+        std::uint64_t hash = 0;
+        float est_avail_w = -1.0f;
+        float font_scale = -1.0f;
+        float origin_x = 0.0f, origin_y = 0.0f;
+        float meas_w = 0.0f, meas_h = 0.0f, baseline = 0.0f;
+        std::vector<AutoNode> nodes; // subtree nodes (root at index 0, indices relative to 0)
+    };
+    std::unordered_map<std::string, CachedLayoutSnapshot> layout_cache_;
 };
 
 /// Cached file-backed `Texture2D` loader with negative memoization.

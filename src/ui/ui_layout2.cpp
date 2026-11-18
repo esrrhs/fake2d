@@ -91,6 +91,11 @@ int UISystem::AllocAutoNode(AutoNode::Kind kind) {
     node.layer = manual_modal_ ? manual_modal_layer_ : ((!modal_.empty() || !popup_.empty()) ? 1 : 0);
     node.modal_id = in_modal_ ? modal_ : "";
     node.popup_id = in_popup_ ? popup_ : "";
+    if (!active_focus_scope_keys_.empty()) {
+        node.focus_scope_id = active_focus_scope_keys_.back();
+    } else if (in_modal_ && !modal_.empty()) {
+        node.focus_scope_id = "@modal:" + modal_;
+    }
     node.align_group_ids = align_stack_;
 
     node.limits = next_limits_;
@@ -101,11 +106,13 @@ int UISystem::AllocAutoNode(AutoNode::Kind kind) {
 
     if (!auto_stack_.empty()) {
         const int p_idx = auto_stack_.back();
+        const auto &parent = auto_nodes_[static_cast<std::size_t>(p_idx)];
         node.parent = p_idx;
-        node.root_box_id = auto_nodes_[static_cast<std::size_t>(p_idx)].root_box_id;
-        node.box_depth = auto_nodes_[static_cast<std::size_t>(p_idx)].box_depth + 1;
-        node.in_scroll = auto_nodes_[static_cast<std::size_t>(p_idx)].in_scroll;
-        node.est_avail_w = auto_nodes_[static_cast<std::size_t>(p_idx)].est_avail_w;
+        node.root_box_id = parent.root_box_id;
+        node.box_depth = parent.box_depth + 1;
+        node.in_scroll = parent.in_scroll;
+        node.est_avail_w = parent.est_avail_w;
+        node.alpha_mul = parent.alpha_mul;
     } else {
         node.root_box_id = node.box_id;
         node.box_depth = 1;
@@ -133,8 +140,50 @@ int UISystem::AllocAutoNode(AutoNode::Kind kind) {
         node.pad_r = mod.pad_r;
         node.pad_b = mod.pad_b;
     }
+    if (mod.has_margin) {
+        node.margin_l = mod.margin_l;
+        node.margin_t = mod.margin_t;
+        node.margin_r = mod.margin_r;
+        node.margin_b = mod.margin_b;
+    }
+    if (mod.has_shrink) {
+        node.shrink = mod.shrink;
+    }
+    if (mod.has_aspect) {
+        node.aspect_ratio = mod.aspect_ratio;
+    }
+    if (mod.has_span) {
+        node.col_span = mod.col_span;
+    }
+    if (mod.has_bg) {
+        node.has_bg = true;
+        node.bg_col = mod.bg_col;
+    }
+    if (mod.has_border) {
+        node.has_border = true;
+        node.custom_border_col = mod.border_col;
+        node.border_w = mod.border_w;
+    }
+    if (mod.has_radius) {
+        node.radius = mod.radius;
+    }
+    if (mod.has_shadow) {
+        node.has_shadow = true;
+        node.shadow_off_y = mod.shadow_off_y;
+        node.shadow_spread = mod.shadow_spread;
+        node.shadow_alpha = mod.shadow_alpha;
+    }
+    if (mod.has_alpha) {
+        node.alpha_mul *= mod.alpha_mul;
+    }
+    if (mod.has_anim) {
+        node.anim_key = mod.anim_key;
+        node.anim_duration = mod.anim_duration;
+    }
+    node.est_avail_w = std::max(0.0f, node.est_avail_w - node.margin_l - node.margin_r);
     if (node.kind == AutoNode::Kind::Root || node.kind == AutoNode::Kind::AnchorRoot ||
         node.kind == AutoNode::Kind::VStack || node.kind == AutoNode::Kind::HStack ||
+        node.kind == AutoNode::Kind::ZStack || node.kind == AutoNode::Kind::Grid ||
         node.kind == AutoNode::Kind::Card || node.kind == AutoNode::Kind::Table ||
         node.kind == AutoNode::Kind::Flow || node.kind == AutoNode::Kind::CustomBox) {
         node.clip_children = true;
@@ -207,26 +256,78 @@ void UISystem::CloseAutoNode(int expected_idx) {
     float rx = root.use_screen_origin ? root.anchor_x : (ox + root.anchor_x);
     float ry = root.use_screen_origin ? root.anchor_y : (oy + root.anchor_y);
     if (root.kind == AutoNode::Kind::AnchorRoot) {
-        if (root.h_align == "stretch") {
-            rx = ox + root.inset_x;
-            rw = std::max(0.0f, vw - 2.0f * root.inset_x);
-        } else if (root.h_align == "right") {
-            rx = ox + vw - rw - root.inset_x;
-        } else if (root.h_align == "center") {
-            rx = ox + (vw - rw) * 0.5f + root.inset_x;
+        if (root.h_align == "anchor_to") {
+            Rect target{ox + vw * 0.5f, oy + vh * 0.5f, 0.0f, 0.0f};
+            if (!root.anchor_target_key.empty()) {
+                if (const auto it = curr_solved_widgets_.find(root.anchor_target_key);
+                    it != curr_solved_widgets_.end()) {
+                    target = it->second.rect;
+                } else if (const auto it2 = prev_solved_widgets_.find(root.anchor_target_key);
+                           it2 != prev_solved_widgets_.end()) {
+                    target = it2->second.rect;
+                } else if (const auto it3 = named_rects_.find(root.anchor_target_key);
+                           it3 != named_rects_.end()) {
+                    target = it3->second;
+                } else if (const auto it4 = prev_named_rects_.find(root.anchor_target_key);
+                           it4 != prev_named_rects_.end()) {
+                    target = it4->second;
+                }
+            }
+            const std::string &p = root.v_align;
+            const float g = root.gap;
+            if (p == "top_start" || p == "top_center" || p == "top_end" || p == "top") {
+                ry = target.y - g - rh;
+                if (ry < oy && target.y + target.height + g + rh <= oy + vh) {
+                    ry = target.y + target.height + g;
+                }
+                rx = (p == "top_end")      ? (target.x + target.width - rw)
+                     : (p == "top_center" || p == "top") ? (target.x + (target.width - rw) * 0.5f)
+                                           : target.x;
+            } else if (p == "right_start" || p == "right") {
+                rx = target.x + target.width + g;
+                if (rx + rw > ox + vw && target.x - g - rw >= ox) {
+                    rx = target.x - g - rw;
+                }
+                ry = target.y;
+            } else if (p == "left_start" || p == "left") {
+                rx = target.x - g - rw;
+                if (rx < ox && target.x + target.width + g + rw <= ox + vw) {
+                    rx = target.x + target.width + g;
+                }
+                ry = target.y;
+            } else {
+                ry = target.y + target.height + g;
+                if (ry + rh > oy + vh && target.y - g - rh >= oy) {
+                    ry = target.y - g - rh;
+                }
+                rx = (p == "bottom_end")      ? (target.x + target.width - rw)
+                     : (p == "bottom_center" || p == "bottom") ? (target.x + (target.width - rw) * 0.5f)
+                                              : target.x;
+            }
+            rx = std::clamp(rx, ox, std::max(ox, ox + vw - rw));
+            ry = std::clamp(ry, oy, std::max(oy, oy + vh - rh));
         } else {
-            rx = ox + root.inset_x;
-        }
+            if (root.h_align == "stretch") {
+                rx = ox + root.inset_x;
+                rw = std::max(0.0f, vw - 2.0f * root.inset_x);
+            } else if (root.h_align == "right") {
+                rx = ox + vw - rw - root.inset_x;
+            } else if (root.h_align == "center") {
+                rx = ox + (vw - rw) * 0.5f + root.inset_x;
+            } else {
+                rx = ox + root.inset_x;
+            }
 
-        if (root.v_align == "stretch") {
-            ry = oy + root.inset_y;
-            rh = std::max(0.0f, vh - 2.0f * root.inset_y);
-        } else if (root.v_align == "bottom") {
-            ry = oy + vh - rh - root.inset_y;
-        } else if (root.v_align == "center") {
-            ry = oy + (vh - rh) * 0.5f + root.inset_y;
-        } else {
-            ry = oy + root.inset_y;
+            if (root.v_align == "stretch") {
+                ry = oy + root.inset_y;
+                rh = std::max(0.0f, vh - 2.0f * root.inset_y);
+            } else if (root.v_align == "bottom") {
+                ry = oy + vh - rh - root.inset_y;
+            } else if (root.v_align == "center") {
+                ry = oy + (vh - rh) * 0.5f + root.inset_y;
+            } else {
+                ry = oy + root.inset_y;
+            }
         }
     }
 
@@ -253,6 +354,9 @@ void UISystem::CloseAutoNode(int expected_idx) {
     in_auto_commit_ = prev_commit;
     ApplyClipRectDirect({0.0f, 0.0f, 1e9f, 1e9f});
     last_rect_ = root.rect;
+    if (inspector_enabled_ && !recording_) {
+        DrawInspectorOverlay();
+    }
 }
 
 void UISystem::RootBegin(float x, float y, UISize w, UISize h, float pad, bool block_input) {
@@ -410,7 +514,7 @@ void UISystem::TableBegin(std::string_view key, const std::vector<UISize> &cols,
     const bool had_h = next_auto_mod_.has_h;
     const int idx = AllocAutoNode(AutoNode::Kind::Table);
     auto &node = auto_nodes_[static_cast<std::size_t>(idx)];
-    node.key = std::string(key);
+    node.key = ScopedKey(key);
     if (!had_w) {
         node.width_spec = UISize::Grow(1.0f);
     }
@@ -479,7 +583,7 @@ void UISystem::ScrollBoxBegin(std::string_view key, UISize view_h) {
     const bool had_h = next_auto_mod_.has_h;
     const int idx = AllocAutoNode(AutoNode::Kind::Scroll);
     auto &node = auto_nodes_[static_cast<std::size_t>(idx)];
-    node.key = std::string(key);
+    node.key = ScopedKey(key);
     if (!had_w) {
         node.width_spec = UISize::Grow(1.0f);
     }
@@ -777,7 +881,8 @@ bool UISystem::AutoButton(std::string_view key, UISize h_spec, std::string_view 
     const bool had_h = next_auto_mod_.has_h;
     const int idx = AllocAutoNode(AutoNode::Kind::Button);
     auto &node = auto_nodes_[static_cast<std::size_t>(idx)];
-    node.key = std::string(key);
+    const std::string skey = ScopedKey(key);
+    node.key = skey;
     node.text = std::string(text);
     node.scale = sc;
     if (!had_h) {
@@ -790,7 +895,7 @@ bool UISystem::AutoButton(std::string_view key, UISize h_spec, std::string_view 
     node.btn_border = ThemeColor("border");
     node.btn_text = ThemeColor("text");
 
-    return HitTestSolvedKey(key, false, false, true);
+    return HitTestSolvedKey(skey, false, false, true);
 }
 
 float UISystem::AutoSlider(std::string_view key, UISize h_spec, float value, float min_v, float max_v) {
@@ -798,7 +903,8 @@ float UISystem::AutoSlider(std::string_view key, UISize h_spec, float value, flo
     const bool had_h = next_auto_mod_.has_h;
     const int idx = AllocAutoNode(AutoNode::Kind::Slider);
     auto &node = auto_nodes_[static_cast<std::size_t>(idx)];
-    node.key = std::string(key);
+    const std::string skey = ScopedKey(key);
+    node.key = skey;
     if (!had_w) {
         node.width_spec = UISize::Grow(1.0f);
     }
@@ -815,8 +921,8 @@ float UISystem::AutoSlider(std::string_view key, UISize h_spec, float value, flo
             if (it != prev_solved_widgets_.end() && !it->second.disabled) {
                 const Rect r = it->second.rect;
                 const Rect vis = IntersectClip(r, it->second.clip_rect);
-                FocusWidget(key, r, false, true);
-                if (CanInteract() && nav_focus_ == key) {
+                FocusWidget(skey, r, false, true);
+                if (CanInteract() && nav_focus_ == skey) {
                     if (input_->KeyPressed("left") || input_->GamepadButtonPressed(0, "dpad_left")) {
                         next -= (max_v - min_v) * 0.05f;
                     }
@@ -874,14 +980,15 @@ bool UISystem::AutoCheckbox(std::string_view key, UISize sz_spec, bool checked,
     const bool had_h = next_auto_mod_.has_h;
     const int idx = AllocAutoNode(is_radio ? AutoNode::Kind::RadioButton : AutoNode::Kind::Checkbox);
     auto &node = auto_nodes_[static_cast<std::size_t>(idx)];
-    node.key = std::string(key);
+    const std::string skey = ScopedKey(key);
+    node.key = skey;
     node.checked = checked;
     node.text = std::string(label);
     node.scale = sc;
     if (!had_h) {
         node.height_spec = sz_spec;
     }
-    return HitTestSolvedKey(key, false, false, true);
+    return HitTestSolvedKey(skey, false, false, true);
 }
 
 bool UISystem::AutoTextInput(std::string_view key, UISize h_spec, std::size_t max_chars) {
@@ -889,7 +996,8 @@ bool UISystem::AutoTextInput(std::string_view key, UISize h_spec, std::size_t ma
     const bool had_h = next_auto_mod_.has_h;
     const int idx = AllocAutoNode(AutoNode::Kind::TextInput);
     auto &node = auto_nodes_[static_cast<std::size_t>(idx)];
-    node.key = std::string(key);
+    const std::string skey = ScopedKey(key);
+    node.key = skey;
     if (!had_w) {
         node.width_spec = UISize::Grow(1.0f);
     }
@@ -897,7 +1005,7 @@ bool UISystem::AutoTextInput(std::string_view key, UISize h_spec, std::size_t ma
         node.height_spec = h_spec;
     }
     node.max_chars = max_chars;
-    return !recording_ && input_ && CanInteract() && focused_ == key && input_->KeyPressed("enter");
+    return !recording_ && input_ && CanInteract() && focused_ == skey && input_->KeyPressed("enter");
 }
 
 void UISystem::AutoProgressBar(UISize h_spec, float value, const Color &fill, const Color &track) {
@@ -922,14 +1030,15 @@ bool UISystem::AutoTab(std::string_view key, UISize h_spec, std::string_view lab
     const bool had_h = next_auto_mod_.has_h;
     const int idx = AllocAutoNode(AutoNode::Kind::Tab);
     auto &node = auto_nodes_[static_cast<std::size_t>(idx)];
-    node.key = std::string(key);
+    const std::string skey = ScopedKey(key);
+    node.key = skey;
     node.text = std::string(label);
     node.checked = active;
     node.scale = sc;
     if (!had_h) {
         node.height_spec = h_spec;
     }
-    return HitTestSolvedKey(key, false, false, true);
+    return HitTestSolvedKey(skey, false, false, true);
 }
 
 bool UISystem::AutoTree(std::string_view key, UISize h_spec, std::string_view label, bool open,
@@ -938,14 +1047,15 @@ bool UISystem::AutoTree(std::string_view key, UISize h_spec, std::string_view la
     const bool had_h = next_auto_mod_.has_h;
     const int idx = AllocAutoNode(AutoNode::Kind::Tree);
     auto &node = auto_nodes_[static_cast<std::size_t>(idx)];
-    node.key = std::string(key);
+    const std::string skey = ScopedKey(key);
+    node.key = skey;
     node.text = std::string(label);
     node.checked = open;
     node.scale = sc;
     if (!had_h) {
         node.height_spec = h_spec;
     }
-    return HitTestSolvedKey(key, false, false, true);
+    return HitTestSolvedKey(skey, false, false, true);
 }
 
 bool UISystem::AutoCombo(std::string_view key, UISize h_spec, std::string_view label,
@@ -954,14 +1064,15 @@ bool UISystem::AutoCombo(std::string_view key, UISize h_spec, std::string_view l
     const bool had_h = next_auto_mod_.has_h;
     const int idx = AllocAutoNode(is_item ? AutoNode::Kind::ComboItem : AutoNode::Kind::ComboBegin);
     auto &node = auto_nodes_[static_cast<std::size_t>(idx)];
-    node.key = std::string(key);
+    const std::string skey = ScopedKey(key);
+    node.key = skey;
     node.text = std::string(label);
     node.checked = open_or_sel;
     node.scale = sc;
     if (!had_h) {
         node.height_spec = h_spec;
     }
-    return HitTestSolvedKey(key, false, false, true, !is_item);
+    return HitTestSolvedKey(skey, false, false, true, !is_item);
 }
 
 void UISystem::AutoImage(const Texture2D *texture, const Rect &src, UISize h_spec, const Color &tint) {
@@ -981,7 +1092,8 @@ bool UISystem::AutoImageButton(std::string_view key, const Texture2D *texture, c
     const bool had_h = next_auto_mod_.has_h;
     const int idx = AllocAutoNode(AutoNode::Kind::ImageButton);
     auto &node = auto_nodes_[static_cast<std::size_t>(idx)];
-    node.key = std::string(key);
+    const std::string skey = ScopedKey(key);
+    node.key = skey;
     node.texture = texture;
     node.tex_src = src;
     node.text = std::string(label);
@@ -989,7 +1101,7 @@ bool UISystem::AutoImageButton(std::string_view key, const Texture2D *texture, c
     if (!had_h) {
         node.height_spec = h_spec;
     }
-    return HitTestSolvedKey(key, false, false, true);
+    return HitTestSolvedKey(skey, false, false, true);
 }
 
 std::string UISystem::AutoRichText(std::string_view markup, float scale) {
@@ -1009,7 +1121,8 @@ float UISystem::AutoSplitter(std::string_view key, UISize h_spec, float initial,
     const bool had_h = next_auto_mod_.has_h;
     const int idx = AllocAutoNode(AutoNode::Kind::Splitter);
     auto &node = auto_nodes_[static_cast<std::size_t>(idx)];
-    node.key = std::string(key);
+    const std::string skey = ScopedKey(key);
+    node.key = skey;
     if (!had_w) {
         node.width_spec = UISize::Grow(1.0f);
     }
@@ -1027,7 +1140,7 @@ float UISystem::AutoSplitter(std::string_view key, UISize h_spec, float initial,
             const Rect r = pit->second.rect;
             const float eff_min = std::clamp(minimum, 0.0f, r.width * 0.5f);
             state.grab = std::clamp(state.grab, eff_min, std::max(eff_min, r.width - eff_min));
-            if (CanInteract() && nav_focus_ == key) {
+            if (CanInteract() && nav_focus_ == skey) {
                 state.grab = std::clamp(state.grab + nav_adjust_step_ * 8.0f, eff_min, r.width - eff_min);
             }
             const Rect divider{r.x + state.grab - 3.0f, r.y, 6.0f, r.height};
@@ -1043,7 +1156,7 @@ float UISystem::AutoSplitter(std::string_view key, UISize h_spec, float initial,
                 if (!input_->MouseDown(0)) {
                     state.dragging = false;
                 }
-                if (nav_focus_ == key) {
+                if (nav_focus_ == skey) {
                     if (input_->KeyPressed("left")) {
                         state.grab = std::max(eff_min, state.grab - 8.0f);
                     }
@@ -1069,7 +1182,7 @@ bool UISystem::AutoWindow(std::string_view key, std::string_view title, float sc
     const float sc = AutoWidgetTextScale(scale);
     const int idx = AllocAutoNode(AutoNode::Kind::Window);
     auto &node = auto_nodes_[static_cast<std::size_t>(idx)];
-    node.key = std::string(key);
+    node.key = ScopedKey(key);
     node.text = std::string(title);
     node.scale = sc;
     node.width_spec = UISize::Grow(1.0f);
@@ -1113,7 +1226,7 @@ bool UISystem::AutoTextArea(std::string_view key, UISize h_spec, std::size_t max
     const bool had_h = next_auto_mod_.has_h;
     const int idx = AllocAutoNode(AutoNode::Kind::TextArea);
     auto &node = auto_nodes_[static_cast<std::size_t>(idx)];
-    node.key = std::string(key);
+    node.key = ScopedKey(key);
     node.max_chars = max_chars;
     node.scale = sc;
     if (!had_w) {
@@ -1132,7 +1245,7 @@ bool UISystem::AutoTextPassword(std::string_view key, UISize h_spec, std::size_t
     const bool had_h = next_auto_mod_.has_h;
     const int idx = AllocAutoNode(AutoNode::Kind::TextPassword);
     auto &node = auto_nodes_[static_cast<std::size_t>(idx)];
-    node.key = std::string(key);
+    node.key = ScopedKey(key);
     node.max_chars = max_chars;
     node.scale = sc;
     if (!had_w) {
@@ -1266,7 +1379,7 @@ void UISystem::DrawRichTextSolved(const AutoNode &node, const Rect &r, const Rec
                     (popup_.empty() || popup_ == node.popup_id) && vis.width > 0.0f && vis.height > 0.0f) {
                     if (std::none_of(focus_ring_.begin(), focus_ring_.end(),
                                      [&](const FocusEntry &fe) { return fe.key == key; })) {
-                        focus_ring_.push_back({key, rr, false, false});
+                        focus_ring_.push_back({key, rr, false, false, node.focus_scope_id});
                     }
                 }
                 if (hover && input_ && input_->MousePressed(0)) {
@@ -1539,36 +1652,56 @@ std::string UISystem::RichText(std::string_view markup, float scale) {
 
 void UISystem::MeasureAutoNode(int idx, float avail_w, float avail_h) {
     auto &node = auto_nodes_[static_cast<std::size_t>(idx)];
+    if (node.kind == AutoNode::Kind::CachedBox && node.cached_hit) {
+        return;
+    }
     const float pad_x = node.pad_l + node.pad_r;
     const float pad_y = node.pad_t + node.pad_b;
+    const float mar_x = node.margin_l + node.margin_r;
+    const float mar_y = node.margin_t + node.margin_b;
+    const float vis_avail_w = (avail_w < 1e7f) ? std::max(0.0f, avail_w - mar_x) : avail_w;
+    const float vis_avail_h = (avail_h < 1e7f) ? std::max(0.0f, avail_h - mar_y) : avail_h;
 
     auto apply_explicit_size = [&](float w, float h) {
+        const bool fixed_w = node.width_spec.kind == UISizeKind::Fixed ||
+                             (node.width_spec.kind == UISizeKind::Percent && vis_avail_w < 1e7f);
+        const bool fixed_h = node.height_spec.kind == UISizeKind::Fixed ||
+                             (node.height_spec.kind == UISizeKind::Percent && vis_avail_h < 1e7f);
         if (node.width_spec.kind == UISizeKind::Fixed) {
             w = node.width_spec.value;
-        } else if (node.width_spec.kind == UISizeKind::Percent && avail_w < 1e7f) {
-            w = avail_w * node.width_spec.value;
+        } else if (node.width_spec.kind == UISizeKind::Percent && vis_avail_w < 1e7f) {
+            w = vis_avail_w * node.width_spec.value;
         }
         if (node.height_spec.kind == UISizeKind::Fixed) {
             h = node.height_spec.value;
-        } else if (node.height_spec.kind == UISizeKind::Percent && avail_h < 1e7f) {
-            h = avail_h * node.height_spec.value;
+        } else if (node.height_spec.kind == UISizeKind::Percent && vis_avail_h < 1e7f) {
+            h = vis_avail_h * node.height_spec.value;
         }
-        node.meas_w = std::clamp(w, node.limits.min_w, node.limits.max_w);
-        node.meas_h = std::clamp(h, node.limits.min_h, node.limits.max_h);
+        if (node.aspect_ratio > 0.0f) {
+            if (fixed_h && !fixed_w) {
+                w = h * node.aspect_ratio;
+            } else if (w > 0.0f) {
+                h = w / node.aspect_ratio;
+            }
+        }
+        const float cw = std::clamp(w, node.limits.min_w, node.limits.max_w);
+        const float ch = std::clamp(h, node.limits.min_h, node.limits.max_h);
+        node.meas_w = cw + mar_x;
+        node.meas_h = ch + mar_y;
     };
 
     const float target_w =
         node.width_spec.kind == UISizeKind::Fixed
             ? node.width_spec.value
-            : (node.width_spec.kind == UISizeKind::Percent && avail_w < 1e7f
-                   ? avail_w * node.width_spec.value
-                   : avail_w);
+            : (node.width_spec.kind == UISizeKind::Percent && vis_avail_w < 1e7f
+                   ? vis_avail_w * node.width_spec.value
+                   : vis_avail_w);
     const float target_h =
         node.height_spec.kind == UISizeKind::Fixed
             ? node.height_spec.value
-            : (node.height_spec.kind == UISizeKind::Percent && avail_h < 1e7f
-                   ? avail_h * node.height_spec.value
-                   : avail_h);
+            : (node.height_spec.kind == UISizeKind::Percent && vis_avail_h < 1e7f
+                   ? vis_avail_h * node.height_spec.value
+                   : vis_avail_h);
     const float inner_avail_w = std::max(0.0f, std::min(target_w, node.limits.max_w) - pad_x);
     const float inner_avail_h = std::max(0.0f, std::min(target_h, node.limits.max_h) - pad_y);
 
@@ -1577,6 +1710,7 @@ void UISystem::MeasureAutoNode(int idx, float avail_w, float avail_h) {
         const float sc = AutoWidgetTextScale(node.scale);
         const float line_h = FontLineHeightPx(sc);
         const float nat_w = renderer_ ? renderer_->MeasureText(node.text, sc) : 0.0f;
+        node.baseline = node.margin_t + node.pad_t + line_h * 0.8f;
         if (node.overflow == UITextOverflow::Wrap) {
             const float wrap_w = (inner_avail_w < 1e7f) ? inner_avail_w : nat_w;
             const float w = (wrap_w > 0.0f) ? std::min(nat_w, wrap_w) : 0.0f;
@@ -1597,6 +1731,7 @@ void UISystem::MeasureAutoNode(int idx, float avail_w, float avail_h) {
         const float py = ThemeMetric(node.kind == AutoNode::Kind::Tab ? "tab_pad_y" : "button_pad_y");
         const float tw = renderer_ ? renderer_->MeasureText(node.text, sc) : 0.0f;
         const float lh = FontLineHeightPx(sc);
+        node.baseline = node.margin_t + py + lh * 0.8f;
         apply_explicit_size(tw + 2.0f * px, lh + 2.0f * py);
         return;
     }
@@ -1608,6 +1743,7 @@ void UISystem::MeasureAutoNode(int idx, float avail_w, float avail_h) {
         const float py = ThemeMetric("button_pad_y");
         const float tw = renderer_ ? renderer_->MeasureText(node.text, sc) : 0.0f;
         const float lh = FontLineHeightPx(sc);
+        node.baseline = node.margin_t + py + lh * 0.8f;
         apply_explicit_size(tw + 2.0f * px + 18.0f, lh + 2.0f * py);
         return;
     }
@@ -1617,48 +1753,61 @@ void UISystem::MeasureAutoNode(int idx, float avail_w, float avail_h) {
         const float lh = FontLineHeightPx(sc);
         const float sz = node.height_spec.kind == UISizeKind::Fixed ? node.height_spec.value : std::max(14.0f, lh);
         const float tw = (renderer_ && !node.text.empty()) ? (8.0f + renderer_->MeasureText(node.text, sc)) : 0.0f;
+        node.baseline = node.margin_t + (sz - lh) * 0.5f + lh * 0.8f;
         apply_explicit_size(sz + tw, sz);
         return;
     }
     case AutoNode::Kind::ProgressBar: {
         apply_explicit_size(48.0f, ThemeMetric("bar_height"));
+        node.baseline = node.meas_h * 0.8f;
         return;
     }
     case AutoNode::Kind::Slider: {
         apply_explicit_size(80.0f, ThemeMetric("slider_height"));
+        node.baseline = node.meas_h * 0.8f;
         return;
     }
     case AutoNode::Kind::TextInput: {
         const float sc = ThemeMetric("font_scale");
         const float lh = FontLineHeightPx(sc);
-        apply_explicit_size(120.0f, lh + 2.0f * ThemeMetric("input_pad_y"));
+        const float py = ThemeMetric("input_pad_y");
+        node.baseline = node.margin_t + py + lh * 0.8f;
+        apply_explicit_size(120.0f, lh + 2.0f * py);
         return;
     }
     case AutoNode::Kind::TextArea: {
         const float sc = ThemeMetric("font_scale");
         const float lh = FontLineHeightPx(sc);
-        apply_explicit_size(120.0f, lh * 4.0f + 2.0f * ThemeMetric("input_pad_y"));
+        const float py = ThemeMetric("input_pad_y");
+        node.baseline = node.margin_t + py + lh * 0.8f;
+        apply_explicit_size(120.0f, lh * 4.0f + 2.0f * py);
         return;
     }
     case AutoNode::Kind::TextPassword: {
         const float sc = ThemeMetric("font_scale");
         const float lh = FontLineHeightPx(sc);
-        apply_explicit_size(120.0f, lh + 2.0f * ThemeMetric("input_pad_y"));
+        const float py = ThemeMetric("input_pad_y");
+        node.baseline = node.margin_t + py + lh * 0.8f;
+        apply_explicit_size(120.0f, lh + 2.0f * py);
         return;
     }
     case AutoNode::Kind::Splitter: {
         apply_explicit_size(120.0f, ThemeMetric("slider_height"));
+        node.baseline = node.meas_h * 0.8f;
         return;
     }
     case AutoNode::Kind::Window: {
-        const float bar_h = std::max(22.0f, FontLineHeightPx(node.scale) + 10.0f);
+        const float lh = FontLineHeightPx(node.scale);
+        const float bar_h = std::max(22.0f, lh + 10.0f);
         const float tw = renderer_ ? renderer_->MeasureText(node.text, node.scale) + 16.0f : 120.0f;
+        node.baseline = node.margin_t + (bar_h - lh) * 0.5f + lh * 0.8f;
         apply_explicit_size(tw, bar_h);
         return;
     }
     case AutoNode::Kind::RichText: {
         const float wrap_w = inner_avail_w < 1e7f ? inner_avail_w : 400.0f;
         const float h = MeasureRichTextHeight(node.text, node.scale, wrap_w);
+        node.baseline = node.margin_t + FontLineHeightPx(node.scale) * 0.8f;
         apply_explicit_size(wrap_w, h);
         return;
     }
@@ -1700,11 +1849,13 @@ void UISystem::MeasureAutoNode(int idx, float avail_w, float avail_h) {
     case AutoNode::Kind::VStack:
     case AutoNode::Kind::TableCell:
     case AutoNode::Kind::Card:
-    case AutoNode::Kind::CustomBox: {
+    case AutoNode::Kind::CustomBox:
+    case AutoNode::Kind::CachedBox: {
         float max_w = 0.0f;
         float sum_h = 0.0f;
         float cmd_w = 0.0f;
         float cmd_h = 0.0f;
+        float first_base = 0.0f;
         for (const auto &cmd : node.custom_cmds) {
             if (cmd.op != AutoCustomCmd::Op::NineSlice) {
                 cmd_w = std::max(cmd_w, cmd.rect.x + cmd.rect.width);
@@ -1719,12 +1870,81 @@ void UISystem::MeasureAutoNode(int idx, float avail_w, float avail_h) {
             if (c.kind == AutoNode::Kind::AnchorRoot && c.overlay) {
                 continue;
             }
+            if (count == 0) {
+                first_base = c.baseline;
+            }
             max_w = std::max(max_w, c.meas_w);
             sum_h += c.meas_h;
             ++count;
         }
         const float gaps = count > 1 ? node.gap * static_cast<float>(count - 1) : 0.0f;
+        auto_nodes_[static_cast<std::size_t>(idx)].baseline = node.margin_t + node.pad_t + first_base;
         apply_explicit_size(std::max(max_w, cmd_w) + pad_x, std::max(sum_h + gaps, cmd_h) + pad_y);
+        return;
+    }
+    case AutoNode::Kind::ZStack: {
+        float max_w = 0.0f, max_h = 0.0f, any_w = 0.0f, any_h = 0.0f, base = 0.0f;
+        bool has_flow = false;
+        const auto children = node.children;
+        for (const int cid : children) {
+            MeasureAutoNode(cid, inner_avail_w, inner_avail_h);
+            const auto &c = auto_nodes_[static_cast<std::size_t>(cid)];
+            any_w = std::max(any_w, c.meas_w);
+            any_h = std::max(any_h, c.meas_h);
+            if (!(c.kind == AutoNode::Kind::AnchorRoot && c.overlay)) {
+                if (!has_flow) {
+                    base = c.baseline;
+                }
+                has_flow = true;
+                max_w = std::max(max_w, c.meas_w);
+                max_h = std::max(max_h, c.meas_h);
+            }
+        }
+        auto_nodes_[static_cast<std::size_t>(idx)].baseline =
+            node.margin_t + node.pad_t + (has_flow ? base : 0.0f);
+        apply_explicit_size((has_flow ? max_w : any_w) + pad_x, (has_flow ? max_h : any_h) + pad_y);
+        return;
+    }
+    case AutoNode::Kind::Grid: {
+        const auto children = node.children;
+        const std::size_t n = children.size();
+        const float min_cw = std::max(16.0f, node.min_col_w);
+        const int ncols = (inner_avail_w < 1e7f)
+                              ? std::max(1, static_cast<int>(std::floor((inner_avail_w + node.gap) / (min_cw + node.gap))))
+                              : std::max(1, static_cast<int>(n));
+        const float col_gaps = ncols > 1 ? node.gap * static_cast<float>(ncols - 1) : 0.0f;
+        const float col_w = (inner_avail_w < 1e7f)
+                                ? std::max(1.0f, (inner_avail_w - col_gaps) / static_cast<float>(ncols))
+                                : min_cw;
+        int col = 0, rows_cnt = n > 0 ? 1 : 0;
+        float row_h = 0.0f, sum_h = 0.0f, max_base = 0.0f;
+        for (const int cid : children) {
+            const int span = std::clamp(auto_nodes_[static_cast<std::size_t>(cid)].col_span, 1, ncols);
+            if (col > 0 && col + span > ncols) {
+                sum_h += row_h + node.line_gap;
+                row_h = 0.0f;
+                col = 0;
+                ++rows_cnt;
+            }
+            const float cell_w = col_w * static_cast<float>(span) + node.gap * static_cast<float>(span - 1);
+            MeasureAutoNode(cid, cell_w, kUnbounded);
+            const auto &c = auto_nodes_[static_cast<std::size_t>(cid)];
+            row_h = std::max(row_h, c.meas_h);
+            if (rows_cnt == 1) {
+                max_base = std::max(max_base, c.baseline);
+            }
+            col += span;
+            if (col >= ncols && cid != children.back()) {
+                sum_h += row_h + node.line_gap;
+                row_h = 0.0f;
+                col = 0;
+                ++rows_cnt;
+            }
+        }
+        sum_h += row_h;
+        auto_nodes_[static_cast<std::size_t>(idx)].baseline = node.margin_t + node.pad_t + max_base;
+        const float total_w = col_w * static_cast<float>(ncols) + col_gaps;
+        apply_explicit_size(total_w + pad_x, sum_h + pad_y);
         return;
     }
     case AutoNode::Kind::HStack: {
@@ -1733,35 +1953,58 @@ void UISystem::MeasureAutoNode(int idx, float avail_w, float avail_h) {
         const float gaps = n > 1 ? node.gap * static_cast<float>(n - 1) : 0.0f;
         float fixed_w = 0.0f;
         float grow_sum = 0.0f;
+        float shrink_sum = 0.0f;
         for (const int cid : children) {
             MeasureAutoNode(cid, inner_avail_w, inner_avail_h);
             const auto &c = auto_nodes_[static_cast<std::size_t>(cid)];
             if (c.width_spec.kind == UISizeKind::Grow) {
                 grow_sum += c.width_spec.value;
             } else if (c.width_spec.kind == UISizeKind::Percent && inner_avail_w < 1e7f) {
-                fixed_w += std::clamp(inner_avail_w * c.width_spec.value, c.limits.min_w, c.limits.max_w);
+                fixed_w += std::clamp(inner_avail_w * c.width_spec.value, c.limits.min_w, c.limits.max_w) +
+                           c.margin_l + c.margin_r;
             } else {
                 fixed_w += c.meas_w;
+                if (c.shrink > 0.0f) {
+                    shrink_sum += c.shrink * c.meas_w;
+                }
             }
         }
-        // Re-measure Grow/Percent children with their actual allocated column widths so wrapped text heights match!
-        const float rem_w = std::max(0.0f, (inner_avail_w < 1e7f ? inner_avail_w : fixed_w) - fixed_w - gaps);
+        // Re-measure Grow / Percent / Shrink children with their allocated column widths!
+        const float budget_w = (inner_avail_w < 1e7f ? inner_avail_w : fixed_w);
+        const float diff_w = budget_w - fixed_w - gaps;
+        const float rem_w = std::max(0.0f, diff_w);
+        const float deficit_w = std::max(0.0f, -diff_w);
         float max_h = 0.0f;
         float total_w = 0.0f;
+        float max_base = 0.0f;
         for (const int cid : children) {
-            const auto spec = auto_nodes_[static_cast<std::size_t>(cid)].width_spec;
+            const auto &csnap = auto_nodes_[static_cast<std::size_t>(cid)];
+            const auto spec = csnap.width_spec;
             if (spec.kind == UISizeKind::Grow && grow_sum > 0.0f) {
                 const float cw = rem_w * (spec.value / grow_sum);
                 MeasureAutoNode(cid, cw, inner_avail_h);
                 const auto &c = auto_nodes_[static_cast<std::size_t>(cid)];
                 total_w += std::max(cw, c.meas_w);
                 max_h = std::max(max_h, c.meas_h);
+                max_base = std::max(max_base, c.baseline);
+            } else if (deficit_w > 0.0f && csnap.shrink > 0.0f && shrink_sum > 0.0f) {
+                const float cut = deficit_w * (csnap.shrink * csnap.meas_w / shrink_sum);
+                const float min_outer = csnap.limits.min_w + csnap.margin_l + csnap.margin_r;
+                const float shrunk_w = std::max(min_outer, csnap.meas_w - cut);
+                MeasureAutoNode(cid, shrunk_w, inner_avail_h);
+                auto &c_mut = auto_nodes_[static_cast<std::size_t>(cid)];
+                c_mut.meas_w = shrunk_w;
+                total_w += shrunk_w;
+                max_h = std::max(max_h, c_mut.meas_h);
+                max_base = std::max(max_base, c_mut.baseline);
             } else {
                 const auto &c = auto_nodes_[static_cast<std::size_t>(cid)];
                 total_w += c.meas_w;
                 max_h = std::max(max_h, c.meas_h);
+                max_base = std::max(max_base, c.baseline);
             }
         }
+        auto_nodes_[static_cast<std::size_t>(idx)].baseline = node.margin_t + node.pad_t + max_base;
         apply_explicit_size(total_w + gaps + pad_x, max_h + pad_y);
         return;
     }
@@ -1876,7 +2119,9 @@ void UISystem::MeasureAutoNode(int idx, float avail_w, float avail_h) {
     }
     case AutoNode::Kind::Scroll: {
         const float sb = ThemeMetric("scrollbar_width");
-        const float inner_w = std::max(0.0f, inner_avail_w - sb);
+        const bool want_v = (node.scroll_dir == UIScrollDir::Vertical || node.scroll_dir == UIScrollDir::Both);
+        const bool want_h = (node.scroll_dir == UIScrollDir::Horizontal || node.scroll_dir == UIScrollDir::Both);
+        const float inner_w = want_h ? kUnbounded : std::max(0.0f, inner_avail_w - (want_v ? sb : 0.0f));
         float sum_h = 0.0f;
         float max_w = 0.0f;
         const auto children = node.children;
@@ -1887,12 +2132,12 @@ void UISystem::MeasureAutoNode(int idx, float avail_w, float avail_h) {
             max_w = std::max(max_w, c.meas_w);
         }
         const float gaps = children.size() > 1 ? node.gap * static_cast<float>(children.size() - 1) : 0.0f;
-        const float content_h = sum_h + gaps + pad_y;
+        const float content_h = sum_h + gaps + pad_y + (want_h ? sb : 0.0f);
+        const float content_w = max_w + pad_x + (want_v ? sb : 0.0f);
         auto_nodes_[static_cast<std::size_t>(idx)].content_height = content_h;
-        // For Auto-height scrolls (e.g., dropdown lists with Constrain max_h), report content_h;
-        // for Grow scrolls, report min_h (0) so parent VStack shrinks-free and gives remaining space in Arrange.
+        auto_nodes_[static_cast<std::size_t>(idx)].content_width = content_w;
         const float pref_h = (node.height_spec.kind == UISizeKind::Grow) ? 0.0f : content_h;
-        apply_explicit_size(max_w + sb + pad_x, pref_h);
+        apply_explicit_size(max_w + (want_v ? sb : 0.0f) + pad_x, pref_h);
         return;
     }
     }
@@ -1905,12 +2150,18 @@ void UISystem::MeasureAutoNode(int idx, float avail_w, float avail_h) {
 void UISystem::ArrangeAutoNode(int idx, const Rect &final_rect, const Rect &parent_clip,
                                bool in_scroll, std::uint32_t root_id, int row_id, int col_idx) {
     auto &node = auto_nodes_[static_cast<std::size_t>(idx)];
-    node.rect = final_rect;
+    const Rect visual_rect{
+        final_rect.x + node.margin_l,
+        final_rect.y + node.margin_t,
+        std::max(0.0f, final_rect.width - node.margin_l - node.margin_r),
+        std::max(0.0f, final_rect.height - node.margin_t - node.margin_b),
+    };
+    node.rect = visual_rect;
     node.content_rect = {
-        final_rect.x + node.pad_l,
-        final_rect.y + node.pad_t,
-        std::max(0.0f, final_rect.width - node.pad_l - node.pad_r),
-        std::max(0.0f, final_rect.height - node.pad_t - node.pad_b),
+        visual_rect.x + node.pad_l,
+        visual_rect.y + node.pad_t,
+        std::max(0.0f, visual_rect.width - node.pad_l - node.pad_r),
+        std::max(0.0f, visual_rect.height - node.pad_t - node.pad_b),
     };
     node.clip_rect = node.clip_children ? IntersectClip(parent_clip, node.rect) : parent_clip;
     node.root_box_id = root_id;
@@ -1922,6 +2173,11 @@ void UISystem::ArrangeAutoNode(int idx, const Rect &final_rect, const Rect &pare
         node.col_index = col_idx;
     }
 
+    if (node.kind == AutoNode::Kind::CachedBox && node.cached_hit) {
+        ReplaySubtreeCache(idx, visual_rect.x, visual_rect.y, node.clip_rect, node.in_scroll, root_id);
+        return;
+    }
+
     const Rect cr = node.content_rect;
     const Rect clip = node.clip_rect;
     const int eff_row_id = node.row_id;
@@ -1930,12 +2186,12 @@ void UISystem::ArrangeAutoNode(int idx, const Rect &final_rect, const Rect &pare
     const std::size_t n = children.size();
 
     auto resolve_cross = [](UIAxisAlign align, const UISize &spec, float meas, float avail, float min_v,
-                            float max_v) -> float {
+                            float max_v, float margin = 0.0f) -> float {
         float v = meas;
         if (spec.kind == UISizeKind::Fixed) {
-            v = spec.value;
+            v = spec.value + margin;
         } else if (spec.kind == UISizeKind::Percent) {
-            v = avail * spec.value;
+            v = avail * spec.value + margin;
         } else if (spec.kind == UISizeKind::Grow || align == UIAxisAlign::Stretch) {
             v = avail;
         }
@@ -1948,13 +2204,15 @@ void UISystem::ArrangeAutoNode(int idx, const Rect &final_rect, const Rect &pare
     case AutoNode::Kind::VStack:
     case AutoNode::Kind::TableCell:
     case AutoNode::Kind::Card:
-    case AutoNode::Kind::CustomBox: {
+    case AutoNode::Kind::CustomBox:
+    case AutoNode::Kind::CachedBox: {
         if (n == 0) {
             return;
         }
         std::size_t flow_n = 0;
         float fixed_h = 0.0f;
         float grow_sum = 0.0f;
+        float shrink_sum = 0.0f;
         std::vector<float> child_h(n, 0.0f);
         for (std::size_t i = 0; i < n; ++i) {
             const auto &c = auto_nodes_[static_cast<std::size_t>(children[i])];
@@ -1967,25 +2225,39 @@ void UISystem::ArrangeAutoNode(int idx, const Rect &final_rect, const Rect &pare
             } else {
                 float h = c.meas_h;
                 if (c.height_spec.kind == UISizeKind::Percent) {
-                    h = std::clamp(cr.height * c.height_spec.value, c.limits.min_h, c.limits.max_h);
+                    h = std::clamp(cr.height * c.height_spec.value, c.limits.min_h, c.limits.max_h) +
+                        c.margin_t + c.margin_b;
                 }
                 child_h[i] = h;
                 fixed_h += h;
+                if (c.shrink > 0.0f) {
+                    shrink_sum += c.shrink * h;
+                }
             }
         }
         const float gaps = flow_n > 1 ? node.gap * static_cast<float>(flow_n - 1) : 0.0f;
-        const float rem_h = std::max(0.0f, cr.height - fixed_h - gaps);
+        const float diff_h = cr.height - fixed_h - gaps;
+        const float rem_h = std::max(0.0f, diff_h);
+        const float deficit_h = std::max(0.0f, -diff_h);
+        float total_used_h = gaps;
         for (std::size_t i = 0; i < n; ++i) {
             const auto &c = auto_nodes_[static_cast<std::size_t>(children[i])];
             if (c.kind == AutoNode::Kind::AnchorRoot && c.overlay) {
                 continue;
             }
             if (c.height_spec.kind == UISizeKind::Grow && grow_sum > 0.0f) {
-                child_h[i] = std::clamp(rem_h * (c.height_spec.value / grow_sum), c.limits.min_h, c.limits.max_h);
+                child_h[i] = std::clamp(rem_h * (c.height_spec.value / grow_sum),
+                                        c.limits.min_h + c.margin_t + c.margin_b,
+                                        c.limits.max_h + c.margin_t + c.margin_b);
+            } else if (deficit_h > 0.0f && c.shrink > 0.0f && shrink_sum > 0.0f) {
+                const float min_h = c.limits.min_h + c.margin_t + c.margin_b;
+                const float cut = deficit_h * (c.shrink * child_h[i] / shrink_sum);
+                child_h[i] = std::max(min_h, child_h[i] - cut);
             }
+            total_used_h += child_h[i];
         }
 
-        float y = cr.y;
+        float y = cr.y + AlignOffset(node.main_align, cr.height, total_used_h);
         for (std::size_t i = 0; i < n; ++i) {
             const int cid = children[i];
             const auto &c = auto_nodes_[static_cast<std::size_t>(cid)];
@@ -1998,7 +2270,7 @@ void UISystem::ArrangeAutoNode(int idx, const Rect &final_rect, const Rect &pare
                 if (c.h_align == "stretch") {
                     cx = cr.x + c.inset_x;
                     cw = std::clamp(std::max(0.0f, cr.width - 2.0f * c.inset_x), c.limits.min_w, c.limits.max_w);
-                } else if (c.h_align == "right") {
+                } else if (c.h_align == "right" || c.h_align == "end") {
                     cx = cr.x + cr.width - cw - c.inset_x;
                 } else if (c.h_align == "center") {
                     cx = cr.x + (cr.width - cw) * 0.5f + c.inset_x;
@@ -2007,7 +2279,7 @@ void UISystem::ArrangeAutoNode(int idx, const Rect &final_rect, const Rect &pare
                 if (c.v_align == "stretch") {
                     cy = cr.y + c.inset_y;
                     ch = std::clamp(std::max(0.0f, cr.height - 2.0f * c.inset_y), c.limits.min_h, c.limits.max_h);
-                } else if (c.v_align == "bottom") {
+                } else if (c.v_align == "bottom" || c.v_align == "end") {
                     cy = cr.y + cr.height - ch - c.inset_y;
                 } else if (c.v_align == "center") {
                     cy = cr.y + (cr.height - ch) * 0.5f + c.inset_y;
@@ -2017,12 +2289,106 @@ void UISystem::ArrangeAutoNode(int idx, const Rect &final_rect, const Rect &pare
                 continue;
             }
             const float cw = resolve_cross(node.cross_align, c.width_spec, c.meas_w, cr.width,
-                                           c.limits.min_w, c.limits.max_w);
+                                           c.limits.min_w + c.margin_l + c.margin_r,
+                                           c.limits.max_w + c.margin_l + c.margin_r,
+                                           c.margin_l + c.margin_r);
             const float cx = cr.x + AlignOffset(node.cross_align, cr.width, cw) + c.anchor_x;
             const float cy = y + c.anchor_y;
             ArrangeAutoNode(cid, {cx, cy, cw, child_h[i]}, clip, node.in_scroll, root_id,
                             eff_row_id, eff_col_idx);
             y += child_h[i] + node.gap;
+        }
+        return;
+    }
+    case AutoNode::Kind::ZStack: {
+        for (const int cid : children) {
+            const auto &c = auto_nodes_[static_cast<std::size_t>(cid)];
+            if (c.kind == AutoNode::Kind::AnchorRoot && c.overlay) {
+                float cw = resolve_cross(UIAxisAlign::Start, c.width_spec, c.meas_w, cr.width,
+                                         c.limits.min_w, c.limits.max_w);
+                float ch = resolve_cross(UIAxisAlign::Start, c.height_spec, c.meas_h, cr.height,
+                                         c.limits.min_h, c.limits.max_h);
+                float cx = cr.x + c.inset_x;
+                if (c.h_align == "right" || c.h_align == "end") {
+                    cx = cr.x + cr.width - cw - c.inset_x;
+                } else if (c.h_align == "center") {
+                    cx = cr.x + (cr.width - cw) * 0.5f + c.inset_x;
+                } else if (c.h_align == "stretch") {
+                    cw = std::max(0.0f, cr.width - 2.0f * c.inset_x);
+                }
+                float cy = cr.y + c.inset_y;
+                if (c.v_align == "bottom" || c.v_align == "end") {
+                    cy = cr.y + cr.height - ch - c.inset_y;
+                } else if (c.v_align == "center") {
+                    cy = cr.y + (cr.height - ch) * 0.5f + c.inset_y;
+                } else if (c.v_align == "stretch") {
+                    ch = std::max(0.0f, cr.height - 2.0f * c.inset_y);
+                }
+                ArrangeAutoNode(cid, {cx, cy, cw, ch}, clip, node.in_scroll, root_id,
+                                eff_row_id, eff_col_idx);
+                continue;
+            }
+            const float cw = resolve_cross(c.main_align != UIAxisAlign::Start ? c.main_align : node.cross_align,
+                                           c.width_spec, c.meas_w, cr.width,
+                                           c.limits.min_w + c.margin_l + c.margin_r,
+                                           c.limits.max_w + c.margin_l + c.margin_r,
+                                           c.margin_l + c.margin_r);
+            const float ch = resolve_cross(c.cross_align != UIAxisAlign::Start ? c.cross_align : node.cross_align,
+                                           c.height_spec, c.meas_h, cr.height,
+                                           c.limits.min_h + c.margin_t + c.margin_b,
+                                           c.limits.max_h + c.margin_t + c.margin_b,
+                                           c.margin_t + c.margin_b);
+            const float cx = cr.x + AlignOffset(node.main_align, cr.width, cw);
+            const float cy = cr.y + AlignOffset(node.cross_align, cr.height, ch);
+            ArrangeAutoNode(cid, {cx, cy, cw, ch}, clip, node.in_scroll, root_id,
+                            eff_row_id, eff_col_idx);
+        }
+        return;
+    }
+    case AutoNode::Kind::Grid: {
+        if (n == 0) {
+            return;
+        }
+        const float min_cw = std::max(16.0f, node.min_col_w);
+        const int ncols = std::max(1, static_cast<int>(std::floor((cr.width + node.gap) / (min_cw + node.gap))));
+        const float col_gaps = ncols > 1 ? node.gap * static_cast<float>(ncols - 1) : 0.0f;
+        const float col_w = std::max(1.0f, (cr.width - col_gaps) / static_cast<float>(ncols));
+        struct GridPlacement {
+            int cid;
+            int col;
+            int span;
+            float h;
+        };
+        std::vector<std::vector<GridPlacement>> rows(1);
+        std::vector<float> row_heights(1, 0.0f);
+        int col = 0;
+        for (const int cid : children) {
+            const auto &c = auto_nodes_[static_cast<std::size_t>(cid)];
+            const int span = std::clamp(c.col_span, 1, ncols);
+            if (col > 0 && col + span > ncols) {
+                rows.emplace_back();
+                row_heights.push_back(0.0f);
+                col = 0;
+            }
+            rows.back().push_back({cid, col, span, c.meas_h});
+            row_heights.back() = std::max(row_heights.back(), c.meas_h);
+            col += span;
+            if (col >= ncols && cid != children.back()) {
+                rows.emplace_back();
+                row_heights.push_back(0.0f);
+                col = 0;
+            }
+        }
+        float y = cr.y;
+        for (std::size_t r_idx = 0; r_idx < rows.size(); ++r_idx) {
+            for (const auto &gp : rows[r_idx]) {
+                const float gx = cr.x + static_cast<float>(gp.col) * (col_w + node.gap);
+                const float gw = col_w * static_cast<float>(gp.span) + node.gap * static_cast<float>(gp.span - 1);
+                const float gh = row_heights[r_idx];
+                ArrangeAutoNode(gp.cid, {gx, y, gw, gh}, clip, node.in_scroll, root_id,
+                                static_cast<int>(r_idx), gp.col);
+            }
+            y += row_heights[r_idx] + node.line_gap;
         }
         return;
     }
@@ -2033,6 +2399,7 @@ void UISystem::ArrangeAutoNode(int idx, const Rect &final_rect, const Rect &pare
         const float gaps = n > 1 ? node.gap * static_cast<float>(n - 1) : 0.0f;
         float fixed_w = 0.0f;
         float grow_sum = 0.0f;
+        float shrink_sum = 0.0f;
         std::vector<float> child_w(n, 0.0f);
         for (std::size_t i = 0; i < n; ++i) {
             const auto &c = auto_nodes_[static_cast<std::size_t>(children[i])];
@@ -2041,27 +2408,56 @@ void UISystem::ArrangeAutoNode(int idx, const Rect &final_rect, const Rect &pare
             } else {
                 float w = c.meas_w;
                 if (c.width_spec.kind == UISizeKind::Percent) {
-                    w = std::clamp(cr.width * c.width_spec.value, c.limits.min_w, c.limits.max_w);
+                    w = std::clamp(cr.width * c.width_spec.value, c.limits.min_w, c.limits.max_w) +
+                        c.margin_l + c.margin_r;
                 }
                 child_w[i] = w;
                 fixed_w += w;
+                if (c.shrink > 0.0f) {
+                    shrink_sum += c.shrink * w;
+                }
             }
         }
-        const float rem_w = std::max(0.0f, cr.width - fixed_w - gaps);
+        const float diff_w = cr.width - fixed_w - gaps;
+        const float rem_w = std::max(0.0f, diff_w);
+        const float deficit_w = std::max(0.0f, -diff_w);
+        float total_used_w = gaps;
         for (std::size_t i = 0; i < n; ++i) {
             const auto &c = auto_nodes_[static_cast<std::size_t>(children[i])];
             if (c.width_spec.kind == UISizeKind::Grow && grow_sum > 0.0f) {
-                child_w[i] = std::clamp(rem_w * (c.width_spec.value / grow_sum), c.limits.min_w, c.limits.max_w);
+                child_w[i] = std::clamp(rem_w * (c.width_spec.value / grow_sum),
+                                        c.limits.min_w + c.margin_l + c.margin_r,
+                                        c.limits.max_w + c.margin_l + c.margin_r);
+            } else if (deficit_w > 0.0f && c.shrink > 0.0f && shrink_sum > 0.0f) {
+                const float min_w = c.limits.min_w + c.margin_l + c.margin_r;
+                const float cut = deficit_w * (c.shrink * child_w[i] / shrink_sum);
+                child_w[i] = std::max(min_w, child_w[i] - cut);
+            }
+            total_used_w += child_w[i];
+        }
+
+        float max_base = 0.0f;
+        if (node.cross_align == UIAxisAlign::Baseline) {
+            for (const int cid : children) {
+                const auto &c = auto_nodes_[static_cast<std::size_t>(cid)];
+                const float b = c.baseline > 0.0f ? c.baseline : c.meas_h * 0.8f;
+                max_base = std::max(max_base, b);
             }
         }
 
-        float x = cr.x;
+        float x = cr.x + AlignOffset(node.main_align, cr.width, total_used_w);
         for (std::size_t i = 0; i < n; ++i) {
             const int cid = children[i];
             const auto &c = auto_nodes_[static_cast<std::size_t>(cid)];
             const float ch = resolve_cross(node.cross_align, c.height_spec, c.meas_h, cr.height,
-                                           c.limits.min_h, c.limits.max_h);
-            const float cy = cr.y + AlignOffset(node.cross_align, cr.height, ch);
+                                           c.limits.min_h + c.margin_t + c.margin_b,
+                                           c.limits.max_h + c.margin_t + c.margin_b,
+                                           c.margin_t + c.margin_b);
+            float cy = cr.y + AlignOffset(node.cross_align, cr.height, ch);
+            if (node.cross_align == UIAxisAlign::Baseline) {
+                const float b = c.baseline > 0.0f ? c.baseline : ch * 0.8f;
+                cy = cr.y + std::max(0.0f, max_base - b);
+            }
             const int cell_col = (eff_row_id >= 0) ? static_cast<int>(i) : eff_col_idx;
             ArrangeAutoNode(cid, {x, cy, child_w[i], ch}, clip, node.in_scroll, root_id,
                             eff_row_id, cell_col);
@@ -2171,33 +2567,42 @@ void UISystem::ArrangeAutoNode(int idx, const Rect &final_rect, const Rect &pare
     }
     case AutoNode::Kind::Scroll: {
         const float sb = ThemeMetric("scrollbar_width");
-        const float content_w = std::max(0.0f, cr.width - sb);
+        const bool want_v = (node.scroll_dir == UIScrollDir::Vertical || node.scroll_dir == UIScrollDir::Both);
+        const bool want_h = (node.scroll_dir == UIScrollDir::Horizontal || node.scroll_dir == UIScrollDir::Both);
+        const float view_w = std::max(0.0f, cr.width - (want_v ? sb : 0.0f));
+        const float view_h = std::max(0.0f, cr.height - (want_h && node.content_width > view_w ? sb : 0.0f));
         auto &saved = scroll_states_[node.key];
         saved.height = node.content_height;
+        saved.width = node.content_width;
 
-        // Handle scrollbar drag before placing children; wheel is resolved post-arrange by ResolveDeepestWheel
         const bool old_input_only = scroll_input_only_;
         const bool saved_modal = in_modal_, saved_popup = in_popup_;
         in_modal_ = !node.modal_id.empty() && node.modal_id == modal_;
         in_popup_ = !node.popup_id.empty() && node.popup_id == popup_;
         scroll_input_only_ = true;
         if (input_ && camera_ && renderer_) {
-            saved.offset = PaintScrollArea(node.key, cr.x, cr.y, cr.width, cr.height,
+            saved.offset = PaintScrollArea(node.key, cr.x, cr.y, cr.width, view_h,
                                            node.content_height, saved.offset, false);
         } else {
-            saved.offset = std::clamp(saved.offset, 0.0f, std::max(0.0f, node.content_height - cr.height));
+            saved.offset = std::clamp(saved.offset, 0.0f, std::max(0.0f, node.content_height - view_h));
         }
+        saved.offset_x = want_h
+                             ? std::clamp(saved.offset_x, 0.0f, std::max(0.0f, node.content_width - view_w))
+                             : 0.0f;
         in_modal_ = saved_modal;
         in_popup_ = saved_popup;
         scroll_input_only_ = old_input_only;
         node.scroll_offset = saved.offset;
+        node.scroll_offset_x = saved.offset_x;
 
         float y = cr.y - saved.offset;
         for (const int cid : children) {
             const auto &c = auto_nodes_[static_cast<std::size_t>(cid)];
-            const float cw = resolve_cross(node.cross_align, c.width_spec, c.meas_w, content_w,
-                                           c.limits.min_w, c.limits.max_w);
-            const float cx = cr.x + AlignOffset(node.cross_align, content_w, cw);
+            const float cw = want_h
+                                 ? c.meas_w
+                                 : resolve_cross(node.cross_align, c.width_spec, c.meas_w, view_w,
+                                                 c.limits.min_w, c.limits.max_w);
+            const float cx = (cr.x - saved.offset_x) + (want_h ? 0.0f : AlignOffset(node.cross_align, view_w, cw));
             ArrangeAutoNode(cid, {cx, y, cw, c.meas_h}, clip, true, root_id, eff_row_id, eff_col_idx);
             y += c.meas_h + node.gap;
         }
@@ -2213,7 +2618,17 @@ void UISystem::ArrangeAutoNode(int idx, const Rect &final_rect, const Rect &pare
 // ---------------------------------------------------------------------------
 
 void UISystem::CommitAutoNode(int idx, const Rect &parent_bounds) {
-    const auto &node = auto_nodes_[static_cast<std::size_t>(idx)];
+    auto &node = auto_nodes_[static_cast<std::size_t>(idx)];
+    if (node.anim_duration > 0.0f && !node.anim_key.empty()) {
+        const Rect animated = ApplyTransitionBox(node, node.rect);
+        node.rect = animated;
+        node.content_rect = {
+            animated.x + node.pad_l,
+            animated.y + node.pad_t,
+            std::max(0.0f, animated.width - node.pad_l - node.pad_r),
+            std::max(0.0f, animated.height - node.pad_t - node.pad_b),
+        };
+    }
     const Rect &r = node.rect;
     const Rect &clip = node.clip_rect;
     const Rect vis = IntersectClip(r, clip);
@@ -2266,6 +2681,16 @@ void UISystem::CommitAutoNode(int idx, const Rect &parent_bounds) {
         e.suppressed = node.suppressed;
         e.in_scroll = node.in_scroll;
         e.disabled = node.disabled;
+        e.margin_l = node.margin_l;
+        e.margin_t = node.margin_t;
+        e.margin_r = node.margin_r;
+        e.margin_b = node.margin_b;
+        e.pad_l = node.pad_l;
+        e.pad_t = node.pad_t;
+        e.pad_r = node.pad_r;
+        e.pad_b = node.pad_b;
+        e.meas_w = node.meas_w;
+        e.meas_h = node.meas_h;
         const std::size_t audit_idx = audit_.size();
         audit_.push_back(std::move(e));
         for (const int ag_id : node.align_group_ids) {
@@ -2329,12 +2754,13 @@ void UISystem::CommitAutoNode(int idx, const Rect &parent_bounds) {
             (popup_.empty() || popup_ == node.popup_id) && vis.width > 0.0f && vis.height > 0.0f) {
             if (std::none_of(focus_ring_.begin(), focus_ring_.end(),
                              [&](const FocusEntry &fe) { return fe.key == node.key; })) {
-                focus_ring_.push_back({node.key, r, is_text, adjustable});
+                focus_ring_.push_back({node.key, r, is_text, adjustable, node.focus_scope_id});
             }
         }
     };
 
     ApplyClipRectDirect(clip);
+    DrawNodeBackdrop(r, node);
 
     if (node.draw_panel) {
         const Color fill = node.themed_panel ? ThemeColor("panel") : node.fill_col;
@@ -2360,13 +2786,24 @@ void UISystem::CommitAutoNode(int idx, const Rect &parent_bounds) {
                 }
             } else {
                 const float border = ThemeMetric("border");
-                if (brd.a > 0.0f) {
-                    renderer_->DrawQuad(MapRect({r.x - border, r.y - border, r.width + 2 * border,
-                                                 r.height + 2 * border}),
-                                        brd);
-                }
-                if (fill.a > 0.0f) {
-                    renderer_->DrawQuad(MapRect(r), fill);
+                if (node.radius > 0.5f) {
+                    if (brd.a > 0.0f) {
+                        DrawRoundedFrame({r.x - border, r.y - border, r.width + 2 * border,
+                                          r.height + 2 * border},
+                                         node.radius + border, border, brd);
+                    }
+                    if (fill.a > 0.0f) {
+                        DrawRoundedQuad(r, node.radius, fill);
+                    }
+                } else {
+                    if (brd.a > 0.0f) {
+                        renderer_->DrawQuad(MapRect({r.x - border, r.y - border, r.width + 2 * border,
+                                                     r.height + 2 * border}),
+                                            brd);
+                    }
+                    if (fill.a > 0.0f) {
+                        renderer_->DrawQuad(MapRect(r), fill);
+                    }
                 }
             }
         }
@@ -2390,9 +2827,20 @@ void UISystem::CommitAutoNode(int idx, const Rect &parent_bounds) {
     case AutoNode::Kind::TableRow:
     case AutoNode::Kind::TableCell:
     case AutoNode::Kind::Flow:
+    case AutoNode::Kind::ZStack:
+    case AutoNode::Kind::Grid:
     case AutoNode::Kind::Card: {
         for (const int cid : node.children) {
             CommitAutoNode(cid, node.content_rect);
+        }
+        break;
+    }
+    case AutoNode::Kind::CachedBox: {
+        for (const int cid : node.children) {
+            CommitAutoNode(cid, node.content_rect);
+        }
+        if (!node.cached_hit) {
+            CaptureSubtreeCache(idx);
         }
         break;
     }
@@ -2447,10 +2895,12 @@ void UISystem::CommitAutoNode(int idx, const Rect &parent_bounds) {
     case AutoNode::Kind::Scroll: {
         emit_audit("scroll viewport", node.key);
         const float sb = ThemeMetric("scrollbar_width");
+        const bool want_v = (node.scroll_dir == UIScrollDir::Vertical || node.scroll_dir == UIScrollDir::Both);
+        const bool want_h = (node.scroll_dir == UIScrollDir::Horizontal || node.scroll_dir == UIScrollDir::Both);
         const Rect scroll_bounds{
-            node.content_rect.x,
+            node.content_rect.x - node.scroll_offset_x,
             node.content_rect.y - node.scroll_offset,
-            std::max(0.0f, node.content_rect.width - sb),
+            std::max(std::max(0.0f, node.content_rect.width - (want_v ? sb : 0.0f)), node.content_width),
             std::max(node.content_rect.height, node.content_height),
         };
         for (const int cid : node.children) {
@@ -2458,7 +2908,14 @@ void UISystem::CommitAutoNode(int idx, const Rect &parent_bounds) {
         }
         ApplyClipRectDirect(clip);
         const auto &st = widgets_[node.key];
-        DrawScrollbarVisual(node.content_rect, node.content_height, node.scroll_offset, st.hover, st.dragging);
+        if (want_v) {
+            DrawScrollbarVisual(node.content_rect, node.content_height, node.scroll_offset, st.hover,
+                                st.dragging);
+        }
+        if (want_h && node.content_width > node.content_rect.width) {
+            DrawHScrollbarVisual(node.content_rect, node.content_width, node.scroll_offset_x,
+                                 st.hover, st.dragging);
+        }
         break;
     }
     case AutoNode::Kind::Text: {
@@ -2867,7 +3324,9 @@ void UISystem::ResolveDeepestWheel(int root_idx) {
                 if (node.kind == AutoNode::Kind::ListViewSlot) {
                     best_idx = idx;
                     best_is_listview = true;
-                } else if (node.content_height > node.content_rect.height) {
+                } else if (node.content_height > node.content_rect.height ||
+                           ((node.scroll_dir == UIScrollDir::Horizontal || node.scroll_dir == UIScrollDir::Both) &&
+                            node.content_width > node.content_rect.width)) {
                     best_idx = idx;
                     best_is_listview = false;
                 }
@@ -2884,29 +3343,46 @@ void UISystem::ResolveDeepestWheel(int root_idx) {
     }
     auto &wn = auto_nodes_[static_cast<std::size_t>(best_idx)];
     auto &saved = scroll_states_[wn.key];
-    const float max_scroll = std::max(0.0f, wn.content_height - wn.content_rect.height);
-    const float next_off = std::clamp(saved.offset - static_cast<float>(input_->MouseWheel()) * 40.0f,
-                                      0.0f, max_scroll);
-    if (std::abs(next_off - saved.offset) <= 1e-6f) {
-        return;
+    const bool shift = input_->KeyDown("left_shift") || input_->KeyDown("right_shift");
+    const bool horiz_only = wn.scroll_dir == UIScrollDir::Horizontal;
+    const bool use_horiz = horiz_only || (shift && wn.scroll_dir == UIScrollDir::Both);
+    if (use_horiz) {
+        const float max_x = std::max(0.0f, wn.content_width - wn.content_rect.width);
+        const float next_x = std::clamp(saved.offset_x - static_cast<float>(input_->MouseWheel()) * 40.0f,
+                                        0.0f, max_x);
+        if (std::abs(next_x - saved.offset_x) <= 1e-6f) {
+            return;
+        }
+        saved.offset_x = next_x;
+        wn.scroll_offset_x = next_x;
+    } else {
+        const float max_scroll = std::max(0.0f, wn.content_height - wn.content_rect.height);
+        const float next_off = std::clamp(saved.offset - static_cast<float>(input_->MouseWheel()) * 40.0f,
+                                          0.0f, max_scroll);
+        if (std::abs(next_off - saved.offset) <= 1e-6f) {
+            return;
+        }
+        saved.offset = next_off;
+        wn.scroll_offset = next_off;
     }
-    saved.offset = next_off;
-    wn.scroll_offset = next_off;
     const float sb = ThemeMetric("scrollbar_width");
-    const float content_w = std::max(0.0f, wn.content_rect.width - sb);
-    float y = wn.content_rect.y - next_off;
+    const bool want_h = (wn.scroll_dir == UIScrollDir::Horizontal || wn.scroll_dir == UIScrollDir::Both);
+    const float content_w = std::max(0.0f, wn.content_rect.width - (wn.scroll_dir == UIScrollDir::Horizontal ? 0.0f : sb));
+    float y = wn.content_rect.y - wn.scroll_offset;
     const auto children = wn.children;
     for (const int cid : children) {
         const auto &c = auto_nodes_[static_cast<std::size_t>(cid)];
-        const float avail_w = content_w;
-        float cw = c.meas_w;
-        if (c.width_spec.kind == UISizeKind::Percent) {
-            cw = avail_w * c.width_spec.value;
-        } else if (c.width_spec.kind == UISizeKind::Grow || wn.cross_align == UIAxisAlign::Stretch) {
-            cw = avail_w;
+        float cw = want_h ? c.meas_w : c.meas_w;
+        if (!want_h) {
+            if (c.width_spec.kind == UISizeKind::Percent) {
+                cw = content_w * c.width_spec.value;
+            } else if (c.width_spec.kind == UISizeKind::Grow || wn.cross_align == UIAxisAlign::Stretch) {
+                cw = content_w;
+            }
+            cw = std::clamp(cw, std::min(content_w, c.limits.min_w), std::min(content_w, c.limits.max_w));
         }
-        cw = std::clamp(cw, std::min(avail_w, c.limits.min_w), std::min(avail_w, c.limits.max_w));
-        const float cx = wn.content_rect.x + AlignOffset(wn.cross_align, content_w, cw);
+        const float cx = (wn.content_rect.x - wn.scroll_offset_x) +
+                         (want_h ? 0.0f : AlignOffset(wn.cross_align, content_w, cw));
         ArrangeAutoNode(cid, {cx, y, cw, c.meas_h}, wn.clip_rect, true, wn.root_box_id, wn.row_id,
                         wn.col_index);
         y += c.meas_h + wn.gap;
@@ -2941,7 +3417,7 @@ void UISystem::ResolveDeferredAutoWidgets() {
                                     node.kind == AutoNode::Kind::Splitter;
             if (std::none_of(focus_ring_.begin(), focus_ring_.end(),
                              [&](const FocusEntry &e) { return e.key == node.key; })) {
-                focus_ring_.push_back({node.key, node.rect, is_text, adjustable});
+                focus_ring_.push_back({node.key, node.rect, is_text, adjustable, node.focus_scope_id});
             }
         }
         if (vis.Contains(mouse)) {
@@ -2952,7 +3428,11 @@ void UISystem::ResolveDeferredAutoWidgets() {
         if (!dismissed_overlay_ && rl.vis.width > 0.0f && rl.vis.height > 0.0f) {
             if (std::none_of(focus_ring_.begin(), focus_ring_.end(),
                              [&](const FocusEntry &e) { return e.key == rl.key; })) {
-                focus_ring_.push_back({rl.key, rl.rr, false, false});
+                const std::string sc_id =
+                    (rl.node_idx >= 0 && static_cast<std::size_t>(rl.node_idx) < auto_nodes_.size())
+                        ? auto_nodes_[static_cast<std::size_t>(rl.node_idx)].focus_scope_id
+                        : std::string{};
+                focus_ring_.push_back({rl.key, rl.rr, false, false, sc_id});
             }
             if (rl.vis.Contains(mouse)) {
                 pointer_owner_ = rl.key;

@@ -43,6 +43,7 @@ set(FAKE2D_SOURCES
     gameplay/character.cpp
     ui/ui.cpp
     ui/ui_layout2.cpp
+    ui/ui_modern.cpp
     ui/ui_test_runner.cpp
 )
 
