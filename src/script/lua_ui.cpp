@@ -120,6 +120,49 @@ Color MixColor(const Color &a, const Color &b, float t) {
     };
 }
 
+inline bool IsStringArg(LS *s, CVar *a, int n, int i) {
+    if (i >= n) return false;
+    const CVar v = fakelua::inter::GetNativeArg(s, a, n, i);
+    return v.type_ == 4 || v.type_ == 5; // VarType::String or VarType::StringId
+}
+
+inline bool IsBoolArg(LS *s, CVar *a, int n, int i) {
+    if (i >= n) return false;
+    const CVar v = fakelua::inter::GetNativeArg(s, a, n, i);
+    return v.type_ == 1; // VarType::Bool
+}
+
+UISize ParseSizeSpec(LS *s, CVar *a, int n, int i, UISize fallback = UISize::Auto()) {
+    if (i >= n) return fallback;
+    if (IsStringArg(s, a, n, i)) {
+        const std::string str = ArgStr(s, a, n, i);
+        if (str.empty() || str == "auto" || str == "hug") return UISize::Auto();
+        if (str == "grow" || str == "fill") return UISize::Grow(1.0f);
+        if (str.rfind("grow:", 0) == 0) {
+            const float w = static_cast<float>(std::atof(str.substr(5).c_str()));
+            return UISize::Grow(w > 0.0f ? w : 1.0f);
+        }
+        if (str.back() == '%') {
+            const float p = static_cast<float>(std::atof(str.substr(0, str.size() - 1).c_str()));
+            return UISize::Percent(p * 0.01f);
+        }
+        const float px = static_cast<float>(std::atof(str.c_str()));
+        return px > 0.0f ? UISize::Fixed(px) : UISize::Auto();
+    }
+    const double v = ArgNum(s, a, n, i);
+    if (v < 0.0) return UISize::Grow(static_cast<float>(-v));
+    if (v == 0.0) return UISize::Auto();
+    return UISize::Fixed(static_cast<float>(v));
+}
+
+UIAxisAlign ParseAxisAlign(const std::string &str, UIAxisAlign fallback) {
+    if (str == "start" || str == "left" || str == "top") return UIAxisAlign::Start;
+    if (str == "center") return UIAxisAlign::Center;
+    if (str == "end" || str == "right" || str == "bottom") return UIAxisAlign::End;
+    if (str == "stretch" || str == "fill") return UIAxisAlign::Stretch;
+    return fallback;
+}
+
 } // namespace
 
 std::string FormatFromLuaArgs(LS *s, CVar *args, int n) {
@@ -535,10 +578,26 @@ void RegisterLayoutUILuaApi(LS *s, LuaUIHost *host) {
     Reg<void(LS *)>(s, host, "ui_grid_end", [ui_sys](LS *) {
         if (auto *u = ui_sys()) u->GridEnd();
     });
+    auto ensure_tip_recorder = [host](UISystem *u) {
+        if (!u || !host->tips) return;
+        u->SetTipRecorder([host](const Rect &clipped_rect, std::string_view text, bool is_occluder) {
+            if (!host->tips) return;
+            if (is_occluder) {
+                host->tips->RecordOccluder(clipped_rect);
+            } else if (!text.empty()) {
+                host->tips->RecordEntry(clipped_rect, std::string(text));
+            }
+        });
+    };
+
     Reg<void(LS *, std::string, double)>(
         s, host, "ui_scroll_begin", [host, ui_sys](LS *, std::string key, double h) {
             auto *u = ui_sys();
             if (!u) return;
+            if (u->InAutoLayout()) {
+                u->ScrollBegin(key, static_cast<float>(h));
+                return;
+            }
             const float vw = u->AvailWidth();
             const float vh = h > 0.0 ? static_cast<float>(h)
                                      : (h < 0.0 ? std::max(0.0f, u->AvailHeight() + static_cast<float>(h))
@@ -554,9 +613,13 @@ void RegisterLayoutUILuaApi(LS *s, LuaUIHost *host) {
             }
         });
     Reg<double(LS *)>(s, host, "ui_scroll_end", [host, ui_sys](LS *) -> double {
-        if (host->tips) host->tips->PopScroll();
         auto *u = ui_sys();
-        return u ? u->ScrollEnd() : 0.0;
+        if (!u) return 0.0;
+        if (u->InAutoLayout()) {
+            return u->ScrollEnd();
+        }
+        if (host->tips) host->tips->PopScroll();
+        return u->ScrollEnd();
     });
     Reg<double(LS *, std::string)>(s, host, "ui_token", [ui_sys](LS *, std::string name) -> double {
         auto *u = ui_sys();
@@ -567,9 +630,15 @@ void RegisterLayoutUILuaApi(LS *s, LuaUIHost *host) {
             auto *u = ui_sys();
             return u && u->SetLayoutToken(name, static_cast<float>(value));
         });
-    Reg<void(LS *, std::string)>(s, host, "ui_tip", [host, ui_sys](LS *, std::string t) {
+    Reg<void(LS *, std::string)>(s, host, "ui_tip", [host, ui_sys, ensure_tip_recorder](LS *, std::string t) {
         auto *u = ui_sys();
-        if (!u || t.empty() || !host->tips || u->IsSuppressed()) return;
+        if (!u || t.empty() || u->IsSuppressed()) return;
+        if (u->InAutoLayout()) {
+            ensure_tip_recorder(u);
+            u->Tip(t);
+            return;
+        }
+        if (!host->tips) return;
         const auto lr = u->LastRect();
         host->tips->RecordClippedEntry(Rect{lr.x, lr.y, lr.width, lr.height}, std::move(t));
     });
@@ -710,71 +779,129 @@ void RegisterLayoutUILuaApi(LS *s, LuaUIHost *host) {
     Reg<void(LS *)>(s, host, "ui_disabled_end", [ui_sys](LS *) {
         if (auto *u = ui_sys()) u->DisabledEnd();
     });
-    Reg<bool(LS *, std::string, double, std::string, double)>(
-        s, host, "ui_button", [ui_sys](LS *, std::string key, double h, std::string text, double scale) -> bool {
-            auto *u = ui_sys();
-            return u && u->Button(key, static_cast<float>(h), text, static_cast<float>(scale));
-        });
+    auto run_styled_button = [host](UISystem *u, const std::string &key, float h, const std::string &text,
+                                    float scale, bool active, const std::string &style) -> bool {
+        const auto prev_btn = u->ThemeColor("button");
+        const auto prev_hov = u->ThemeColor("hover");
+        const auto prev_prs = u->ThemeColor("pressed");
+        const auto prev_brd = u->ThemeColor("border");
+        const auto prev_txt = u->ThemeColor("text");
+
+        const auto it = host->button_styles.find(style);
+        if (it != host->button_styles.end()) {
+            const auto &preset = it->second;
+            const auto &st = (active && preset.has_active_variant) ? preset.active : preset.normal;
+            u->SetThemeColor("button", st.button);
+            u->SetThemeColor("hover", st.hover);
+            u->SetThemeColor("pressed", st.pressed);
+            u->SetThemeColor("border", st.border);
+            u->SetThemeColor("text", st.text);
+        }
+        const bool clicked = u->Button(key, h, text, scale);
+        u->SetThemeColor("button", prev_btn);
+        u->SetThemeColor("hover", prev_hov);
+        u->SetThemeColor("pressed", prev_prs);
+        u->SetThemeColor("border", prev_brd);
+        u->SetThemeColor("text", prev_txt);
+        return clicked;
+    };
+
+    RegVar(s, host, "ui_button", 2, [ui_sys](LS *st, CVar *a, int n) -> bool {
+        auto *u = ui_sys();
+        if (!u) return false;
+        const std::string key = ArgStr(st, a, n, 0);
+        if (IsStringArg(st, a, n, 1)) {
+            const std::string text = ArgStr(st, a, n, 1);
+            const float scale = n > 2 ? static_cast<float>(ArgNum(st, a, n, 2)) : 0.0f;
+            return u->Button(key, text, scale);
+        }
+        const float h = static_cast<float>(ArgNum(st, a, n, 1));
+        const std::string text = n > 2 ? ArgStr(st, a, n, 2) : std::string{};
+        const float scale = n > 3 ? static_cast<float>(ArgNum(st, a, n, 3)) : 0.0f;
+        return u->Button(key, h, text, scale);
+    });
     Reg<bool(LS *, std::string)>(s, host, "ui_hovered", [ui_sys](LS *, std::string key) -> bool {
         auto *u = ui_sys();
         return u && u->IsHovered(key);
     });
-    Reg<bool(LS *, std::string, double, std::string, double, bool, std::string)>(
-        s, host, "ui_button_ex",
-        [host, ui_sys](LS *, std::string key, double h, std::string text, double scale,
-                       bool active, std::string style) -> bool {
-            auto *u = ui_sys();
-            if (!u) return false;
-            const auto prev_btn = u->ThemeColor("button");
-            const auto prev_hov = u->ThemeColor("hover");
-            const auto prev_prs = u->ThemeColor("pressed");
-            const auto prev_brd = u->ThemeColor("border");
-            const auto prev_txt = u->ThemeColor("text");
-
-            const auto it = host->button_styles.find(style);
-            if (it != host->button_styles.end()) {
-                const auto &preset = it->second;
-                const auto &st = (active && preset.has_active_variant) ? preset.active : preset.normal;
-                u->SetThemeColor("button", st.button);
-                u->SetThemeColor("hover", st.hover);
-                u->SetThemeColor("pressed", st.pressed);
-                u->SetThemeColor("border", st.border);
-                u->SetThemeColor("text", st.text);
-            }
-            const bool clicked = u->Button(key, static_cast<float>(h), text, static_cast<float>(scale));
-            u->SetThemeColor("button", prev_btn);
-            u->SetThemeColor("hover", prev_hov);
-            u->SetThemeColor("pressed", prev_prs);
-            u->SetThemeColor("border", prev_brd);
-            u->SetThemeColor("text", prev_txt);
-            return clicked;
-        });
-    Reg<void(LS *, double, double, std::int64_t)>(
-        s, host, "ui_bar", [ui_sys, col_of](LS *, double h, double v, std::int64_t c) {
-            if (auto *u = ui_sys()) {
-                u->ProgressBar(static_cast<float>(h), static_cast<float>(v),
-                               c > 0 ? col_of(c) : Color{0.80f, 0.66f, 0.38f, 1.0f});
-            }
-        });
-    Reg<double(LS *, std::string, double, double, double, double)>(
-        s, host, "ui_slider", [ui_sys](LS *, std::string key, double h, double v, double lo, double hi) -> double {
-            auto *u = ui_sys();
-            return u ? u->Slider(key, static_cast<float>(h), static_cast<float>(v),
-                                 static_cast<float>(lo), static_cast<float>(hi))
-                     : v;
-        });
-    Reg<bool(LS *, std::string, double, bool, std::string, double)>(
-        s, host, "ui_checkbox",
-        [ui_sys](LS *, std::string key, double h, bool v, std::string label, double scale) -> bool {
-            auto *u = ui_sys();
-            return u ? u->Checkbox(key, static_cast<float>(h), v, label, static_cast<float>(scale)) : v;
-        });
-    Reg<bool(LS *, std::string, double, double)>(
-        s, host, "ui_text_input", [ui_sys](LS *, std::string key, double h, double max_c) -> bool {
-            auto *u = ui_sys();
-            const std::size_t n = max_c > 0 ? static_cast<std::size_t>(max_c) : std::size_t{24};
-            return u && u->TextInput(key, static_cast<float>(h), n);
-        });
+    RegVar(s, host, "ui_button_ex", 2, [ui_sys, run_styled_button](LS *st, CVar *a, int n) -> bool {
+        auto *u = ui_sys();
+        if (!u) return false;
+        const std::string key = ArgStr(st, a, n, 0);
+        if (IsStringArg(st, a, n, 1)) {
+            const std::string text = ArgStr(st, a, n, 1);
+            const float scale = n > 2 ? static_cast<float>(ArgNum(st, a, n, 2)) : 0.0f;
+            const bool active = n > 3 ? ArgBool(st, a, n, 3) : false;
+            const std::string style = n > 4 ? ArgStr(st, a, n, 4) : std::string{};
+            return run_styled_button(u, key, 0.0f, text, scale, active, style);
+        }
+        const float h = static_cast<float>(ArgNum(st, a, n, 1));
+        const std::string text = n > 2 ? ArgStr(st, a, n, 2) : std::string{};
+        const float scale = n > 3 ? static_cast<float>(ArgNum(st, a, n, 3)) : 0.0f;
+        const bool active = n > 4 ? ArgBool(st, a, n, 4) : false;
+        const std::string style = n > 5 ? ArgStr(st, a, n, 5) : std::string{};
+        return run_styled_button(u, key, h, text, scale, active, style);
+    });
+    RegVar(s, host, "ui_bar", 1, [ui_sys, col_of](LS *st, CVar *a, int n) -> double {
+        auto *u = ui_sys();
+        if (!u) return 0.0;
+        const Color def_col{0.80f, 0.66f, 0.38f, 1.0f};
+        if (n <= 2) {
+            const float v = static_cast<float>(ArgNum(st, a, n, 0));
+            const std::int64_t cid = n > 1 ? static_cast<std::int64_t>(ArgNum(st, a, n, 1)) : 0;
+            u->ProgressBar(v, cid > 0 ? col_of(cid) : def_col);
+        } else {
+            const float h = static_cast<float>(ArgNum(st, a, n, 0));
+            const float v = static_cast<float>(ArgNum(st, a, n, 1));
+            const std::int64_t cid = static_cast<std::int64_t>(ArgNum(st, a, n, 2));
+            u->ProgressBar(h, v, cid > 0 ? col_of(cid) : def_col);
+        }
+        return 0.0;
+    });
+    RegVar(s, host, "ui_slider", 4, [ui_sys](LS *st, CVar *a, int n) -> double {
+        auto *u = ui_sys();
+        if (!u) return 0.0;
+        const std::string key = ArgStr(st, a, n, 0);
+        if (n == 4) {
+            return u->Slider(key, static_cast<float>(ArgNum(st, a, n, 1)),
+                             static_cast<float>(ArgNum(st, a, n, 2)),
+                             static_cast<float>(ArgNum(st, a, n, 3)));
+        }
+        return u->Slider(key, static_cast<float>(ArgNum(st, a, n, 1)),
+                         static_cast<float>(ArgNum(st, a, n, 2)),
+                         static_cast<float>(ArgNum(st, a, n, 3)),
+                         static_cast<float>(ArgNum(st, a, n, 4)));
+    });
+    RegVar(s, host, "ui_checkbox", 2, [ui_sys](LS *st, CVar *a, int n) -> bool {
+        auto *u = ui_sys();
+        if (!u) return false;
+        const std::string key = ArgStr(st, a, n, 0);
+        if (IsBoolArg(st, a, n, 1)) {
+            const bool v = ArgBool(st, a, n, 1);
+            const std::string lbl = n > 2 ? ArgStr(st, a, n, 2) : std::string{};
+            const float sc = n > 3 ? static_cast<float>(ArgNum(st, a, n, 3)) : 0.0f;
+            return u->Checkbox(key, v, lbl, sc);
+        }
+        const float sz = static_cast<float>(ArgNum(st, a, n, 1));
+        const bool v = n > 2 ? ArgBool(st, a, n, 2) : false;
+        const std::string lbl = n > 3 ? ArgStr(st, a, n, 3) : std::string{};
+        const float sc = n > 4 ? static_cast<float>(ArgNum(st, a, n, 4)) : 0.0f;
+        return u->Checkbox(key, sz, v, lbl, sc);
+    });
+    RegVar(s, host, "ui_text_input", 1, [ui_sys](LS *st, CVar *a, int n) -> bool {
+        auto *u = ui_sys();
+        if (!u) return false;
+        const std::string key = ArgStr(st, a, n, 0);
+        if (n <= 2) {
+            const std::size_t mc = (n > 1 && ArgNum(st, a, n, 1) > 0)
+                                       ? static_cast<std::size_t>(ArgNum(st, a, n, 1))
+                                       : std::size_t{24};
+            return u->TextInput(key, 0.0f, mc);
+        }
+        const float h = static_cast<float>(ArgNum(st, a, n, 1));
+        const std::size_t mc = ArgNum(st, a, n, 2) > 0 ? static_cast<std::size_t>(ArgNum(st, a, n, 2)) : std::size_t{24};
+        return u->TextInput(key, h, mc);
+    });
     Reg<std::string(LS *, std::string)>(s, host, "ui_text_get", [ui_sys](LS *, std::string key) -> std::string {
         auto *u = ui_sys();
         return u ? std::string(u->TextValue(key)) : std::string{};
@@ -782,6 +909,220 @@ void RegisterLayoutUILuaApi(LS *s, LuaUIHost *host) {
     Reg<void(LS *, std::string, std::string)>(
         s, host, "ui_text_set", [ui_sys](LS *, std::string key, std::string text) {
             if (auto *u = ui_sys()) u->SetTextValue(key, text);
+        });
+
+    // Two-Pass Auto-Layout API (zero hardcoded widget/column sizes)
+    RegVar(s, host, "ui_root_begin", 4, [ui_sys, ensure_tip_recorder](LS *st, CVar *a, int n) -> double {
+        auto *u = ui_sys();
+        if (!u) return 0.0;
+        ensure_tip_recorder(u);
+        const float x = static_cast<float>(ArgNum(st, a, n, 0));
+        const float y = static_cast<float>(ArgNum(st, a, n, 1));
+        const UISize w = ParseSizeSpec(st, a, n, 2, UISize::Auto());
+        const UISize h = ParseSizeSpec(st, a, n, 3, UISize::Auto());
+        const float pad = n > 4 ? static_cast<float>(ArgNum(st, a, n, 4)) : 0.0f;
+        const bool block = n > 5 ? ArgBool(st, a, n, 5) : true;
+        u->RootBegin(x, y, w, h, pad, block);
+        return 0.0;
+    });
+    RegVar(s, host, "ui_root_anchor", 4, [ui_sys, ensure_tip_recorder](LS *st, CVar *a, int n) -> double {
+        auto *u = ui_sys();
+        if (!u) return 0.0;
+        ensure_tip_recorder(u);
+        const std::string ha = ArgStr(st, a, n, 0);
+        const std::string va = ArgStr(st, a, n, 1);
+        const UISize w = ParseSizeSpec(st, a, n, 2, UISize::Auto());
+        const UISize h = ParseSizeSpec(st, a, n, 3, UISize::Auto());
+        const float ix = n > 4 ? static_cast<float>(ArgNum(st, a, n, 4)) : 0.0f;
+        const float iy = n > 5 ? static_cast<float>(ArgNum(st, a, n, 5)) : 0.0f;
+        const float pad = n > 6 ? static_cast<float>(ArgNum(st, a, n, 6)) : 0.0f;
+        const bool ov = n > 7 ? ArgBool(st, a, n, 7) : true;
+        const bool blk = n > 8 ? ArgBool(st, a, n, 8) : true;
+        u->RootAnchorBegin(ha, va, w, h, ix, iy, pad, ov, blk);
+        return 0.0;
+    });
+    Reg<void(LS *)>(s, host, "ui_root_end", [ui_sys](LS *) {
+        if (auto *u = ui_sys()) u->RootEnd();
+    });
+    RegVar(s, host, "ui_vstack", 0, [ui_sys](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) {
+            const float gap = n > 0 ? static_cast<float>(ArgNum(st, a, n, 0)) : -1.0f;
+            const float pad = n > 1 ? static_cast<float>(ArgNum(st, a, n, 1)) : 0.0f;
+            const UIAxisAlign ca = n > 2 ? ParseAxisAlign(ArgStr(st, a, n, 2), UIAxisAlign::Stretch) : UIAxisAlign::Stretch;
+            u->VStackBegin(gap, pad, ca);
+        }
+        return 0.0;
+    });
+    Reg<void(LS *)>(s, host, "ui_vstack_end", [ui_sys](LS *) {
+        if (auto *u = ui_sys()) u->StackEnd();
+    });
+    RegVar(s, host, "ui_hstack", 0, [ui_sys](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) {
+            const float gap = n > 0 ? static_cast<float>(ArgNum(st, a, n, 0)) : -1.0f;
+            const float pad = n > 1 ? static_cast<float>(ArgNum(st, a, n, 1)) : 0.0f;
+            const UIAxisAlign ca = n > 2 ? ParseAxisAlign(ArgStr(st, a, n, 2), UIAxisAlign::Center) : UIAxisAlign::Center;
+            u->HStackBegin(gap, pad, ca);
+        }
+        return 0.0;
+    });
+    Reg<void(LS *)>(s, host, "ui_hstack_end", [ui_sys](LS *) {
+        if (auto *u = ui_sys()) u->StackEnd();
+    });
+    RegVar(s, host, "ui_card", 0, [ui_sys, col_of](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) {
+            const float pad = n > 0 ? static_cast<float>(ArgNum(st, a, n, 0)) : -1.0f;
+            const float gap = n > 1 ? static_cast<float>(ArgNum(st, a, n, 1)) : -1.0f;
+            if (n > 2 && ArgNum(st, a, n, 2) > 0) {
+                const Color fill = col_of(static_cast<std::int64_t>(ArgNum(st, a, n, 2)));
+                const Color brd = (n > 3 && ArgNum(st, a, n, 3) > 0)
+                                      ? col_of(static_cast<std::int64_t>(ArgNum(st, a, n, 3)))
+                                      : u->ThemeColor("border");
+                u->CardBegin(fill, brd, pad, gap);
+            } else {
+                u->CardBegin(pad, gap);
+            }
+        }
+        return 0.0;
+    });
+    Reg<void(LS *)>(s, host, "ui_card_end", [ui_sys](LS *) {
+        if (auto *u = ui_sys()) u->CardEnd();
+    });
+    RegVar(s, host, "ui_table_begin", 3, [ui_sys](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) {
+            const std::string key = ArgStr(st, a, n, 0);
+            const float cg = static_cast<float>(ArgNum(st, a, n, 1));
+            const float rg = static_cast<float>(ArgNum(st, a, n, 2));
+            std::vector<UISize> cols;
+            for (int i = 3; i < n; ++i) {
+                cols.push_back(ParseSizeSpec(st, a, n, i, UISize::Auto()));
+            }
+            u->TableBegin(key, cols, cg, rg);
+        }
+        return 0.0;
+    });
+    Reg<void(LS *, double, double, double)>(
+        s, host, "ui_table_col_limits", [ui_sys](LS *, double col, double min_w, double max_w) {
+            if (auto *u = ui_sys(); u && col >= 0) {
+                u->TableColLimits(static_cast<std::size_t>(col), static_cast<float>(min_w),
+                                  static_cast<float>(max_w));
+            }
+        });
+    RegVar(s, host, "ui_table_row", 0, [ui_sys](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) {
+            const UIAxisAlign ca = n > 0 ? ParseAxisAlign(ArgStr(st, a, n, 0), UIAxisAlign::Center) : UIAxisAlign::Center;
+            u->TableRowBegin(ca);
+        }
+        return 0.0;
+    });
+    Reg<void(LS *)>(s, host, "ui_table_row_end", [ui_sys](LS *) {
+        if (auto *u = ui_sys()) u->TableRowEnd();
+    });
+    RegVar(s, host, "ui_cell", 0, [ui_sys](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) {
+            const float pad = n > 0 ? static_cast<float>(ArgNum(st, a, n, 0)) : 0.0f;
+            u->TableCellBegin(pad);
+        }
+        return 0.0;
+    });
+    Reg<void(LS *)>(s, host, "ui_cell_end", [ui_sys](LS *) {
+        if (auto *u = ui_sys()) u->TableCellEnd();
+    });
+    Reg<void(LS *)>(s, host, "ui_table_end", [ui_sys](LS *) {
+        if (auto *u = ui_sys()) u->TableEnd();
+    });
+    RegVar(s, host, "ui_scroll", 1, [ui_sys](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) {
+            const std::string key = ArgStr(st, a, n, 0);
+            const UISize vh = n > 1 ? ParseSizeSpec(st, a, n, 1, UISize::Grow()) : UISize::Grow();
+            u->ScrollBoxBegin(key, vh);
+        }
+        return 0.0;
+    });
+    RegVar(s, host, "ui_flow", 0, [ui_sys](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) {
+            const float cg = n > 0 ? static_cast<float>(ArgNum(st, a, n, 0)) : -1.0f;
+            const float rg = n > 1 ? static_cast<float>(ArgNum(st, a, n, 1)) : -1.0f;
+            u->FlowBoxBegin(cg, rg);
+        }
+        return 0.0;
+    });
+    Reg<void(LS *)>(s, host, "ui_flow_end", [ui_sys](LS *) {
+        if (auto *u = ui_sys()) u->FlowBoxEnd();
+    });
+    RegVar(s, host, "ui_spacer", 0, [ui_sys](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) {
+            u->Spacer(n > 0 ? static_cast<float>(ArgNum(st, a, n, 0)) : -1.0f);
+        }
+        return 0.0;
+    });
+    RegVar(s, host, "ui_next_width", 1, [ui_sys](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) u->NextWidth(ParseSizeSpec(st, a, n, 0, UISize::Auto()));
+        return 0.0;
+    });
+    RegVar(s, host, "ui_next_height", 1, [ui_sys](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) u->NextHeight(ParseSizeSpec(st, a, n, 0, UISize::Auto()));
+        return 0.0;
+    });
+    RegVar(s, host, "ui_next_grow", 0, [ui_sys](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) u->NextGrow(n > 0 ? static_cast<float>(ArgNum(st, a, n, 0)) : 1.0f);
+        return 0.0;
+    });
+    Reg<void(LS *, std::string)>(s, host, "ui_next_align", [ui_sys](LS *, std::string a) {
+        if (auto *u = ui_sys()) u->NextAlign(ParseAxisAlign(a, UIAxisAlign::Center));
+    });
+    Reg<void(LS *, double, double, double, double)>(
+        s, host, "ui_next_pad", [ui_sys](LS *, double l, double t, double r, double b) {
+            if (auto *u = ui_sys()) {
+                u->NextPad(static_cast<float>(l), static_cast<float>(t),
+                           static_cast<float>(r), static_cast<float>(b));
+            }
+        });
+
+    // Dedicated heightless auto-sized widget aliases
+    RegVar(s, host, "ui_btn", 2, [ui_sys](LS *st, CVar *a, int n) -> bool {
+        auto *u = ui_sys();
+        if (!u) return false;
+        const std::string key = ArgStr(st, a, n, 0);
+        const std::string text = ArgStr(st, a, n, 1);
+        const float scale = n > 2 ? static_cast<float>(ArgNum(st, a, n, 2)) : 0.0f;
+        return u->Button(key, text, scale);
+    });
+    RegVar(s, host, "ui_btn_ex", 2, [ui_sys, run_styled_button](LS *st, CVar *a, int n) -> bool {
+        auto *u = ui_sys();
+        if (!u) return false;
+        const std::string key = ArgStr(st, a, n, 0);
+        const std::string text = ArgStr(st, a, n, 1);
+        const float scale = n > 2 ? static_cast<float>(ArgNum(st, a, n, 2)) : 0.0f;
+        const bool active = n > 3 ? ArgBool(st, a, n, 3) : false;
+        const std::string style = n > 4 ? ArgStr(st, a, n, 4) : std::string{};
+        return run_styled_button(u, key, 0.0f, text, scale, active, style);
+    });
+    RegVar(s, host, "ui_pbar", 1, [ui_sys, col_of](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) {
+            const float v = static_cast<float>(ArgNum(st, a, n, 0));
+            const std::int64_t cid = n > 1 ? static_cast<std::int64_t>(ArgNum(st, a, n, 1)) : 0;
+            u->ProgressBar(v, cid > 0 ? col_of(cid) : Color{0.80f, 0.66f, 0.38f, 1.0f});
+        }
+        return 0.0;
+    });
+    Reg<bool(LS *, std::string, std::string, bool, double)>(
+        s, host, "ui_tab_btn", [ui_sys](LS *, std::string key, std::string lbl, bool active, double scale) -> bool {
+            auto *u = ui_sys();
+            return u && u->Tab(key, lbl, active, static_cast<float>(scale));
+        });
+    Reg<bool(LS *, std::string, double)>(
+        s, host, "ui_set_metric", [ui_sys](LS *, std::string name, double val) -> bool {
+            auto *u = ui_sys();
+            return u && u->SetThemeMetric(name, static_cast<float>(val));
+        });
+    Reg<bool(LS *)>(s, host, "ui_in_auto", [ui_sys](LS *) -> bool {
+        auto *u = ui_sys();
+        return u && u->InAutoLayout();
+    });
+    Reg<double(LS *, std::string)>(
+        s, host, "ui_get_metric", [ui_sys](LS *, std::string name) -> double {
+            auto *u = ui_sys();
+            return u ? u->ThemeMetric(name) : 0.0;
         });
 }
 

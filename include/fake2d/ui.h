@@ -18,6 +18,31 @@ namespace fake2d {
 
 enum class UITextOverflow { Wrap, Ellipsis, Shrink, Clip };
 
+enum class UISizeKind : std::uint8_t {
+    Auto,    // Hug/fit content (measured bottom-up in Pass 1)
+    Grow,    // Expand proportionally into remaining space (`value` = weight)
+    Fixed,   // Explicit pixels (`value` = px)
+    Percent, // Fraction of parent available size (`value` in [0, 1])
+};
+
+struct UISize {
+    UISizeKind kind = UISizeKind::Auto;
+    float value = 0.0f;
+
+    static constexpr UISize Auto() { return {UISizeKind::Auto, 0.0f}; }
+    static constexpr UISize Grow(float weight = 1.0f) {
+        return {UISizeKind::Grow, weight > 0.0f ? weight : 1.0f};
+    }
+    static constexpr UISize Fixed(float px) {
+        return {UISizeKind::Fixed, px > 0.0f ? px : 0.0f};
+    }
+    static constexpr UISize Percent(float frac) {
+        return {UISizeKind::Percent, frac < 0.0f ? 0.0f : (frac > 1.0f ? 1.0f : frac)};
+    }
+};
+
+enum class UIAxisAlign : std::uint8_t { Start, Center, End, Stretch };
+
 /// Immediate-style 2D UI kept per-frame simple: panels and text are pure
 /// draws, widgets are keyed by a string and persist their own interaction
 /// state (hover, press, drag, focus, text) across frames.
@@ -289,10 +314,71 @@ class UISystem {
     bool Tab(std::string_view key, float h, std::string_view label, bool active,
              float scale = 0.0f);
     bool Tree(std::string_view key, float h, std::string_view label, bool open, float scale = 0.0f);
-    void Tip(std::string_view text); // attaches to LastRect()
+    void Tip(std::string_view text); // attaches to LastRect() or current auto-layout node
+    void SetTipRecorder(std::function<void(const Rect &clipped_rect, std::string_view text, bool is_occluder)> recorder) {
+        tip_recorder_ = std::move(recorder);
+    }
     void SetTipDelay(float seconds) { tip_delay_ = std::max(0.0f, seconds); }
     [[nodiscard]] float TipDelay() const { return tip_delay_; }
     void DrawTooltip();
+
+    // Two-Pass Auto-Layout (Measure -> Arrange -> Commit/Paint), zero handwritten widget sizes.
+    [[nodiscard]] bool InAutoLayout() const { return !auto_stack_.empty(); }
+    void RootBegin(float x, float y, UISize w, UISize h, float pad = 0.0f, bool block_input = true);
+    void RootAnchorBegin(std::string_view h_align, std::string_view v_align, UISize w, UISize h,
+                         float inset_x = 0.0f, float inset_y = 0.0f, float pad = 0.0f,
+                         bool overlay = true, bool block_input = true);
+    void RootEnd();
+
+    void VStackBegin(float gap = -1.0f, float pad = 0.0f,
+                     UIAxisAlign cross_align = UIAxisAlign::Stretch);
+    void HStackBegin(float gap = -1.0f, float pad = 0.0f,
+                     UIAxisAlign cross_align = UIAxisAlign::Center);
+    void StackEnd();
+    void CardBegin(float pad = -1.0f, float gap = -1.0f);
+    void CardBegin(const Color &fill, const Color &border, float pad = -1.0f, float gap = -1.0f);
+    void CardEnd();
+    void TableBegin(std::string_view key, const std::vector<UISize> &cols,
+                    float col_gap = -1.0f, float row_gap = -1.0f);
+    void TableColLimits(std::size_t col, float min_w, float max_w);
+    void TableRowBegin(UIAxisAlign cross_align = UIAxisAlign::Center);
+    void TableCellBegin(float pad = 0.0f);
+    void TableCellEnd();
+    void TableRowEnd();
+    void TableEnd();
+    void ScrollBoxBegin(std::string_view key, UISize view_h = UISize::Grow());
+    void ScrollBoxEnd();
+    void FlowBoxBegin(float col_gap = -1.0f, float row_gap = -1.0f);
+    void FlowBoxEnd();
+    void Spacer(float px = -1.0f);
+
+    // One-shot layout modifiers applied to the next child/container in Two-Pass layout.
+    void NextSize(UISize w, UISize h);
+    void NextWidth(UISize w);
+    void NextHeight(UISize h);
+    void NextGrow(float weight = 1.0f);
+    void NextAlign(UIAxisAlign cross_align);
+    void NextMainAlign(UIAxisAlign main_align);
+    void NextPad(float l, float t, float r, float b);
+
+    // Heightless auto-sized widget overloads (intrinsic size computed from font & theme metrics).
+    bool Button(std::string_view key, std::string_view text, float scale = 0.0f);
+    float Slider(std::string_view key, float value, float min_value, float max_value);
+    bool Checkbox(std::string_view key, bool checked, std::string_view label = {},
+                  float scale = 0.0f);
+    bool RadioButton(std::string_view key, bool selected, std::string_view label = {},
+                     float scale = 0.0f);
+    bool TextInput(std::string_view key);
+    void ProgressBar(float value, const Color &fill,
+                     const Color &track = Color{0.14f, 0.17f, 0.24f, 1.0f});
+    bool Tab(std::string_view key, std::string_view label, bool active, float scale = 0.0f);
+    bool Tree(std::string_view key, std::string_view label, bool open, float scale = 0.0f);
+    bool ComboBegin(std::string_view key, std::string_view label, bool open, float scale = 0.0f);
+    bool ComboItem(std::string_view key, std::string_view label, bool selected, float scale = 0.0f);
+    void Image(const Texture2D *texture, const Rect &source,
+               const Color &tint = Color::White());
+    bool ImageButton(std::string_view key, const Texture2D *texture, const Rect &source,
+                     std::string_view label = {});
 
     [[nodiscard]] bool IsHovered(std::string_view key) const;
 
@@ -564,7 +650,19 @@ class UISystem {
                                                           {"spacing", 8},
                                                           {"font_scale", .6f},
                                                           {"min_font_scale", .35f},
-                                                          {"border", 2}};
+                                                          {"border", 2},
+                                                          {"button_pad_x", 10},
+                                                          {"button_pad_y", 5},
+                                                          {"tab_pad_x", 10},
+                                                          {"tab_pad_y", 5},
+                                                          {"input_pad_x", 8},
+                                                          {"input_pad_y", 5},
+                                                          {"bar_height", 6},
+                                                          {"slider_height", 20},
+                                                          {"row_gap", 4},
+                                                          {"col_gap", 6},
+                                                          {"card_pad", 8},
+                                                          {"scrollbar_width", 12}};
     std::unordered_map<std::string, Color> theme_colors_{
         {"panel", {.07f, .09f, .14f, 1}},  {"button", {.16f, .22f, .34f, 1}},
         {"hover", {.20f, .35f, .65f, 1}},  {"pressed", {.25f, .45f, .85f, 1}},
@@ -634,6 +732,162 @@ class UISystem {
     std::vector<AlignGroupRecord> align_stack_;
     std::vector<AlignGroupRecord> align_groups_;
     TextHooks text_hooks_;
+    std::function<void(const Rect &clipped_rect, std::string_view text, bool is_occluder)> tip_recorder_;
+
+    // --- Two-Pass Auto-Layout Engine (ui_layout2.cpp) ---
+    struct AutoLayoutMod {
+        bool has_w = false, has_h = false, has_cross = false, has_main = false, has_pad = false;
+        UISize w{}, h{};
+        UIAxisAlign cross = UIAxisAlign::Start;
+        UIAxisAlign main = UIAxisAlign::Start;
+        float pad_l = 0, pad_t = 0, pad_r = 0, pad_b = 0;
+    };
+    struct SolvedWidgetInfo {
+        Rect rect{};
+        Rect clip_rect{};
+        int layer = 0;
+        bool disabled = false;
+        std::string modal, popup;
+    };
+    struct AutoCustomCmd {
+        enum class Op : std::uint8_t { Quad, Sprite, Text, WrappedText };
+        Op op = Op::Quad;
+        Rect rect{};
+        Color fill{}, border{};
+        const Texture2D *texture = nullptr;
+        Rect src{};
+        std::string text;
+        float px = 0;
+        int align = 0, face = 0;
+    };
+    struct AutoNode {
+        enum class Kind : std::uint8_t {
+            Root, AnchorRoot, VStack, HStack, Table, TableRow, TableCell,
+            Flow, Scroll, Card, CustomBox, Spacer,
+            Text, Button, Slider, Checkbox, RadioButton, ProgressBar,
+            TextInput, Tab, Tree, ComboBegin, ComboItem, Image, ImageButton
+        };
+        Kind kind = Kind::VStack;
+        int parent = -1;
+        std::vector<int> children;
+        std::string key;
+        std::string text;
+        UISize width_spec = UISize::Auto();
+        UISize height_spec = UISize::Auto();
+        Constraints limits{};
+        float pad_l = 0, pad_t = 0, pad_r = 0, pad_b = 0;
+        float gap = 0, line_gap = 0;
+        UIAxisAlign cross_align = UIAxisAlign::Stretch;
+        UIAxisAlign main_align = UIAxisAlign::Start;
+        bool clip_children = false;
+        bool block_input = false;
+        bool overlay = false;
+        bool draw_panel = false, themed_panel = false;
+        Color fill_col{}, border_col{}, track_col{};
+        bool has_btn_colors = false;
+        Color btn_col{}, btn_hover{}, btn_pressed{}, btn_border{}, btn_text{};
+        float scale = 0, min_scale = 0.35f;
+        UITextOverflow overflow = UITextOverflow::Wrap;
+        int text_align = 0;
+        float val = 0, min_val = 0, max_val = 1;
+        bool checked = false;
+        std::size_t max_chars = 24;
+        const Texture2D *texture = nullptr;
+        Rect tex_src{};
+        std::string h_align, v_align;
+        float anchor_x = 0, anchor_y = 0, inset_x = 0, inset_y = 0;
+        // Table specifics
+        std::vector<UISize> col_specs;
+        std::vector<Constraints> col_limits;
+        std::vector<float> col_widths;
+        std::size_t legacy_row_idx = 0;
+        std::vector<float> legacy_row_cols;
+        // Metadata
+        std::uint32_t box_id = 0;
+        std::uint32_t root_box_id = 0;
+        std::uint32_t box_depth = 0;
+        int row_id = -1;
+        int col_index = -1;
+        int layer = 0;
+        bool disabled = false, suppressed = false, in_scroll = false;
+        std::string modal_id, popup_id;
+        std::string tip_text;
+        std::string remember_name;
+        std::vector<int> align_group_ids;
+        std::vector<AutoCustomCmd> custom_cmds;
+        // Computed by Pass 1 & Pass 2
+        float meas_w = 0, meas_h = 0;
+        float content_height = 0, scroll_offset = 0;
+        Rect rect{};
+        Rect content_rect{};
+        Rect clip_rect{0.0f, 0.0f, 1e9f, 1e9f};
+        float est_avail_w = 0;
+    };
+
+    void ResetAutoLayoutFrame();
+    int AllocAutoNode(AutoNode::Kind kind);
+    void CloseAutoNode(int expected_idx = -1);
+    float FontLineHeightPx(float scale) const;
+    float AutoWidgetTextScale(float scale) const;
+    bool HitTestSolvedKey(std::string_view key, bool text = false, bool adjustable = false,
+                          bool focusable = true);
+    void MeasureAutoNode(int idx, float avail_w, float avail_h);
+    void ArrangeAutoNode(int idx, const Rect &final_rect, const Rect &parent_clip,
+                         bool in_scroll, std::uint32_t root_id, int row_id, int col_idx);
+    void CommitAutoNode(int idx, const Rect &parent_bounds);
+    void ApplyClipRectDirect(const Rect &clip_rect);
+    void DrawButtonVisual(const Rect &r, bool hover, bool pressed, bool disabled,
+                          std::string_view text, float scale, const Color &btn_c,
+                          const Color &hov_c, const Color &prs_c, const Color &brd_c,
+                          const Color &txt_c);
+    void DrawProgressVisual(const Rect &r, float value, const Color &fill, const Color &track);
+    void DrawSliderVisual(const Rect &r, float value, float min_v, float max_v, bool hover,
+                          bool dragging);
+    void DrawCheckboxVisual(const Rect &r, bool checked, std::string_view label, float scale,
+                            bool hover, bool radio);
+    void DrawTabVisual(const Rect &r, std::string_view label, bool active, bool hover,
+                       bool pressed, float scale);
+    void DrawTreeVisual(const Rect &r, std::string_view label, bool open, bool hover, float scale);
+    void DrawComboVisual(const Rect &r, std::string_view label, bool open, bool selected,
+                         bool hover, float scale, bool is_item);
+    void DrawScrollbarVisual(const Rect &viewport, float content_h, float offset, bool hover,
+                             bool dragging);
+
+    // Auto-layout entry points called from UISystem methods when InAutoLayout()
+    float AutoText(std::string_view text, float scale, UITextOverflow overflow, int align,
+                   const Color &tint, float min_scale);
+    bool AutoButton(std::string_view key, UISize h_spec, std::string_view text, float scale);
+    float AutoSlider(std::string_view key, UISize h_spec, float value, float min_v, float max_v);
+    bool AutoCheckbox(std::string_view key, UISize sz_spec, bool checked, std::string_view label,
+                      float scale, bool is_radio);
+    bool AutoTextInput(std::string_view key, UISize h_spec, std::size_t max_chars);
+    void AutoProgressBar(UISize h_spec, float value, const Color &fill, const Color &track);
+    bool AutoTab(std::string_view key, UISize h_spec, std::string_view label, bool active,
+                 float scale);
+    bool AutoTree(std::string_view key, UISize h_spec, std::string_view label, bool open,
+                  float scale);
+    bool AutoCombo(std::string_view key, UISize h_spec, std::string_view label, bool open_or_sel,
+                   float scale, bool is_item);
+    void AutoImage(const Texture2D *texture, const Rect &src, UISize h_spec, const Color &tint);
+    bool AutoImageButton(std::string_view key, const Texture2D *texture, const Rect &src,
+                         UISize h_spec, std::string_view label);
+    void AutoPushCustom(float x, float y, float w, float h, float pad);
+    void AutoPushCustomInset(float l, float t, float r, float b, float w, float h);
+    void AutoPushCustomAnchor(std::string_view h_align, std::string_view v_align, float w,
+                              float h, float ix, float iy, float pad, bool overlay);
+    void AutoRow(float gap, const std::vector<float> &columns);
+    void AutoCol(float fixed_w);
+    void AutoColEnd();
+    void AutoRowEnd();
+
+    std::vector<AutoNode> auto_nodes_;
+    std::vector<int> auto_stack_;
+    int last_auto_node_ = -1;
+    AutoLayoutMod next_auto_mod_{};
+    int auto_row_seq_ = 0;
+    std::unordered_map<std::string, SolvedWidgetInfo> prev_solved_widgets_;
+    std::unordered_map<std::string, SolvedWidgetInfo> curr_solved_widgets_;
+    std::unordered_map<std::string, Rect> prev_named_rects_;
 };
 
 /// Cached file-backed `Texture2D` loader with negative memoization.

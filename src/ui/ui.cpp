@@ -104,6 +104,7 @@ void UISystem::Bind(const Input *input, const Camera2D *camera, Renderer *render
 }
 
 void UISystem::NewFrame() {
+    ResetAutoLayoutFrame();
     recording_ = resolving_ = frame_submitted_ = false;
     dismissed_overlay_ = false;
     resolving_allowed_ = true;
@@ -184,6 +185,7 @@ void UISystem::NewFrame() {
     flows_.clear();
     disabled_.clear();
     lists_.clear();
+    prev_named_rects_ = std::move(named_rects_);
     named_rects_.clear();
     in_modal_ = in_popup_ = false;
     if (!boxes_.empty() && renderer_)
@@ -850,9 +852,17 @@ bool UISystem::IsHovered(std::string_view key) const {
 }
 
 // Cursor layout is immediate-mode; values and declaration order belong to the caller.
-float UISystem::AvailWidth() const { return boxes_.empty() ? 0.0f : boxes_.back().content.width; }
+float UISystem::AvailWidth() const {
+    if (InAutoLayout()) {
+        return auto_nodes_[static_cast<std::size_t>(auto_stack_.back())].est_avail_w;
+    }
+    return boxes_.empty() ? 0.0f : boxes_.back().content.width;
+}
 
 float UISystem::AvailHeight() const {
+    if (InAutoLayout()) {
+        return 0.0f;
+    }
     if (boxes_.empty())
         return 0.0f;
     const auto &b = boxes_.back();
@@ -928,6 +938,10 @@ void UISystem::PushAbsolute(const Rect &r, float padding, float reserve) {
 }
 
 void UISystem::Push(float x, float y, float w, float h, float padding) {
+    if (InAutoLayout()) {
+        AutoPushCustom(x, y, w, h, padding);
+        return;
+    }
     const auto limits = next_limits_;
     next_limits_ = {};
     const bool automatic = h <= 0;
@@ -959,6 +973,10 @@ void UISystem::Push(float x, float y, float w, float h, float padding) {
 }
 
 void UISystem::PushInset(float left, float top, float right, float bottom, float w, float h) {
+    if (InAutoLayout()) {
+        AutoPushCustomInset(left, top, right, bottom, w, h);
+        return;
+    }
     const auto limits = next_limits_;
     next_limits_ = {};
     const float l = std::max(0.0f, left);
@@ -998,6 +1016,11 @@ void UISystem::PushInset(float left, float top, float right, float bottom, float
 }
 
 void UISystem::PushFill(float reserve_bottom, float padding) {
+    if (InAutoLayout()) {
+        (void)reserve_bottom;
+        AutoPushCustom(0.0f, 0.0f, 0.0f, -1.0f, padding);
+        return;
+    }
     const float avail_w = boxes_.empty() ? LogicalWidth() : AvailWidth();
     const float avail_h = boxes_.empty() ? LogicalHeight() : AvailHeight();
     const float h = std::max(0.0f, avail_h - std::max(0.0f, reserve_bottom));
@@ -1007,6 +1030,10 @@ void UISystem::PushFill(float reserve_bottom, float padding) {
 void UISystem::PushAnchor(std::string_view h_align, std::string_view v_align,
                           float width, float height, float inset_x, float inset_y,
                           float padding, bool overlay) {
+    if (InAutoLayout()) {
+        AutoPushCustomAnchor(h_align, v_align, width, height, inset_x, inset_y, padding, overlay);
+        return;
+    }
     Rect pr{0.0f, 0.0f, LogicalWidth(), LogicalHeight()};
     float cur_y = 0.0f;
     const bool had_parent = !boxes_.empty();
@@ -1065,6 +1092,10 @@ void UISystem::PushAnchor(std::string_view h_align, std::string_view v_align,
 }
 
 void UISystem::Pop() {
+    if (InAutoLayout()) {
+        CloseAutoNode();
+        return;
+    }
     if (boxes_.empty())
         return;
     auto box = boxes_.back();
@@ -1216,6 +1247,9 @@ std::string UISystem::Ellipsize(std::string_view text, float width, float scale)
 
 float UISystem::Text(std::string_view text, float scale, UITextOverflow overflow, int align,
                      const Color &tint, float min_scale) {
+    if (InAutoLayout()) {
+        return AutoText(text, scale, overflow, align, tint, min_scale);
+    }
     if (scale <= 0)
         scale = ThemeMetric("font_scale");
     if (boxes_.empty() || !renderer_)
@@ -1284,6 +1318,10 @@ float UISystem::Text(std::string_view text, float scale, UITextOverflow overflow
 }
 
 void UISystem::Row(float gap, const std::vector<float> &columns) {
+    if (InAutoLayout()) {
+        AutoRow(gap, columns);
+        return;
+    }
     if (boxes_.empty())
         return;
     LayoutRow row;
@@ -1308,6 +1346,10 @@ void UISystem::Row(float gap, const std::vector<float> &columns) {
 }
 
 void UISystem::Col(float fixed_width) {
+    if (InAutoLayout()) {
+        AutoCol(fixed_width);
+        return;
+    }
     if (rows_.empty() || boxes_.size() != rows_.back().depth)
         return;
     auto &row = rows_.back();
@@ -1338,6 +1380,10 @@ void UISystem::Col(float fixed_width) {
 }
 
 void UISystem::ColEnd() {
+    if (InAutoLayout()) {
+        AutoColEnd();
+        return;
+    }
     if (rows_.empty() || boxes_.size() != rows_.back().depth + 1)
         return;
     const auto &b = boxes_.back();
@@ -1350,6 +1396,10 @@ void UISystem::ColEnd() {
 }
 
 void UISystem::RowEnd() {
+    if (InAutoLayout()) {
+        AutoRowEnd();
+        return;
+    }
     if (rows_.empty() || boxes_.size() != rows_.back().depth)
         return;
     const auto &row = rows_.back();
@@ -1379,6 +1429,10 @@ void UISystem::RowEnd() {
 }
 
 void UISystem::ScrollBegin(std::string_view key, float view_height) {
+    if (InAutoLayout()) {
+        ScrollBoxBegin(key, view_height > 0.0f ? UISize::Fixed(view_height) : UISize::Grow(1.0f));
+        return;
+    }
     if (boxes_.empty())
         return;
     if (view_height < 0.0f)
@@ -1402,6 +1456,11 @@ void UISystem::ScrollBegin(std::string_view key, float view_height) {
 }
 
 float UISystem::ScrollEnd() {
+    if (InAutoLayout()) {
+        const std::string skey = auto_nodes_[static_cast<std::size_t>(auto_stack_.back())].key;
+        ScrollBoxEnd();
+        return ScrollContentHeight(skey);
+    }
     if (scrolls_.empty() || boxes_.size() != scrolls_.back().depth)
         return 0;
     const auto scroll = scrolls_.back();
@@ -1590,6 +1649,14 @@ float UISystem::String(std::string_view text, float x, float y, float scale, con
 }
 
 void UISystem::Panel(const Color &fill, const Color &border) {
+    if (InAutoLayout()) {
+        auto &n = auto_nodes_[static_cast<std::size_t>(auto_stack_.back())];
+        n.draw_panel = true;
+        n.themed_panel = false;
+        n.fill_col = fill;
+        n.border_col = border;
+        return;
+    }
     if (boxes_.empty())
         return;
     const auto box = boxes_.back();
@@ -1660,6 +1727,21 @@ void UISystem::DrawSpriteAt(const Texture2D *texture, float x, float y, float w,
                             const Color &tint) {
     if (!texture || !texture->IsValid() || w <= 0 || h <= 0)
         return;
+    if (InAutoLayout()) {
+        Color col = tint;
+        if (IsDisabled())
+            col.a *= .4f;
+        const Rect src{0.0f, 0.0f, static_cast<float>(texture->Width()),
+                       static_cast<float>(texture->Height())};
+        AutoCustomCmd cmd;
+        cmd.op = AutoCustomCmd::Op::Sprite;
+        cmd.rect = {x, y, w, h};
+        cmd.src = src;
+        cmd.texture = texture;
+        cmd.fill = col;
+        auto_nodes_[static_cast<std::size_t>(auto_stack_.back())].custom_cmds.push_back(std::move(cmd));
+        return;
+    }
     float ox = 0.0f, oy = 0.0f;
     std::vector<LayoutClip> clips;
     if (!boxes_.empty()) {
@@ -1689,6 +1771,17 @@ void UISystem::DrawSpriteAt(const Texture2D *texture, float x, float y, float w,
 }
 
 void UISystem::FillRect(float x, float y, float w, float h, const Color &fill, const Color &border) {
+    if (InAutoLayout()) {
+        if (w <= 0 || h <= 0)
+            return;
+        AutoCustomCmd cmd;
+        cmd.op = AutoCustomCmd::Op::Quad;
+        cmd.rect = {x, y, w, h};
+        cmd.fill = fill;
+        cmd.border = border;
+        auto_nodes_[static_cast<std::size_t>(auto_stack_.back())].custom_cmds.push_back(std::move(cmd));
+        return;
+    }
     if (boxes_.empty() || w <= 0 || h <= 0)
         return;
     const auto &box = boxes_.back();
@@ -1715,8 +1808,13 @@ void UISystem::FillRect(float x, float y, float w, float h, const Color &fill, c
         pending_draws_.push_back(std::move(command));
 }
 bool UISystem::Button(std::string_view key, float h, std::string_view text, float scale) {
+    if (InAutoLayout()) {
+        return AutoButton(key, h > 0.0f ? UISize::Fixed(h) : UISize::Auto(), text, scale);
+    }
     if (scale <= 0)
         scale = ThemeMetric("font_scale");
+    if (h <= 0)
+        h = FontLineHeightPx(scale) + 2.0f * ThemeMetric("button_pad_y");
     if (boxes_.empty())
         return false;
     const Rect r = Allocate(h, "button", key);
@@ -1736,6 +1834,11 @@ bool UISystem::Button(std::string_view key, float h, std::string_view text, floa
 }
 float UISystem::Slider(std::string_view key, float h, float value, float min_value,
                        float max_value) {
+    if (InAutoLayout()) {
+        return AutoSlider(key, h > 0.0f ? UISize::Fixed(h) : UISize::Auto(), value, min_value, max_value);
+    }
+    if (h <= 0)
+        h = ThemeMetric("slider_height");
     if (boxes_.empty())
         return value;
     const Rect r = Allocate(h, "slider", key);
@@ -1762,11 +1865,22 @@ float UISystem::Slider(std::string_view key, float h, float value, float min_val
     return next;
 }
 bool UISystem::TextInput(std::string_view key, float h, std::size_t max_chars) {
+    if (InAutoLayout()) {
+        return AutoTextInput(key, h > 0.0f ? UISize::Fixed(h) : UISize::Auto(), max_chars);
+    }
+    if (h <= 0)
+        h = FontLineHeightPx(0.0f) + 2.0f * ThemeMetric("input_pad_y");
     if (boxes_.empty())
         return false;
     return EditText(key, Allocate(h, "text_input", key), max_chars, false);
 }
 void UISystem::ProgressBar(float h, float value, const Color &fill, const Color &track) {
+    if (InAutoLayout()) {
+        AutoProgressBar(h > 0.0f ? UISize::Fixed(h) : UISize::Auto(), value, fill, track);
+        return;
+    }
+    if (h <= 0)
+        h = ThemeMetric("bar_height");
     if (boxes_.empty())
         return;
     const Rect r = Allocate(h, "progress");
@@ -1774,8 +1888,13 @@ void UISystem::ProgressBar(float h, float value, const Color &fill, const Color 
 }
 bool UISystem::Checkbox(std::string_view key, float size, bool checked, std::string_view label,
                         float scale) {
+    if (InAutoLayout()) {
+        return AutoCheckbox(key, size > 0.0f ? UISize::Fixed(size) : UISize::Auto(), checked, label, scale, false);
+    }
     if (scale <= 0)
         scale = ThemeMetric("font_scale");
+    if (size <= 0)
+        size = std::max(14.0f, FontLineHeightPx(scale));
     if (boxes_.empty())
         return false;
     size = std::max(0.0f, std::min(size, AvailWidth()));
@@ -1800,8 +1919,13 @@ bool UISystem::Checkbox(std::string_view key, float size, bool checked, std::str
 }
 bool UISystem::RadioButton(std::string_view key, float size, bool selected, std::string_view label,
                            float scale) {
+    if (InAutoLayout()) {
+        return AutoCheckbox(key, size > 0.0f ? UISize::Fixed(size) : UISize::Auto(), selected, label, scale, true);
+    }
     if (scale <= 0)
         scale = ThemeMetric("font_scale");
+    if (size <= 0)
+        size = std::max(14.0f, FontLineHeightPx(scale));
     if (boxes_.empty())
         return false;
     size = std::max(0.0f, std::min(size, AvailWidth()));
@@ -1826,8 +1950,13 @@ bool UISystem::RadioButton(std::string_view key, float size, bool selected, std:
 }
 bool UISystem::ComboBegin(std::string_view key, float h, std::string_view label, bool open,
                           float scale) {
+    if (InAutoLayout()) {
+        return AutoCombo(key, h > 0.0f ? UISize::Fixed(h) : UISize::Auto(), label, open, scale, false);
+    }
     if (scale <= 0)
         scale = ThemeMetric("font_scale");
+    if (h <= 0)
+        h = FontLineHeightPx(scale) + 2.0f * ThemeMetric("button_pad_y");
     if (boxes_.empty())
         return false;
     const Rect r = Allocate(h, "combo", key);
@@ -1847,8 +1976,13 @@ bool UISystem::ComboBegin(std::string_view key, float h, std::string_view label,
 }
 bool UISystem::ComboItem(std::string_view key, float h, std::string_view label, bool selected,
                          float scale) {
+    if (InAutoLayout()) {
+        return AutoCombo(key, h > 0.0f ? UISize::Fixed(h) : UISize::Auto(), label, selected, scale, true);
+    }
     if (scale <= 0)
         scale = ThemeMetric("font_scale");
+    if (h <= 0)
+        h = FontLineHeightPx(scale) + 2.0f * ThemeMetric("button_pad_y");
     if (boxes_.empty())
         return false;
     const Rect r = Allocate(h, "combo_item", key);
@@ -1888,8 +2022,13 @@ bool UISystem::Window(std::string_view key, std::string_view title, float scale)
 }
 bool UISystem::Tab(std::string_view key, float h, std::string_view label, bool active,
                    float scale) {
+    if (InAutoLayout()) {
+        return AutoTab(key, h > 0.0f ? UISize::Fixed(h) : UISize::Auto(), label, active, scale);
+    }
     if (scale <= 0)
         scale = ThemeMetric("font_scale");
+    if (h <= 0)
+        h = FontLineHeightPx(scale) + 2.0f * ThemeMetric("tab_pad_y");
     if (boxes_.empty())
         return false;
     const Rect r = Allocate(h, "tab", key);
@@ -1908,8 +2047,13 @@ bool UISystem::Tab(std::string_view key, float h, std::string_view label, bool a
     return clicked || activate;
 }
 bool UISystem::Tree(std::string_view key, float h, std::string_view label, bool open, float scale) {
+    if (InAutoLayout()) {
+        return AutoTree(key, h > 0.0f ? UISize::Fixed(h) : UISize::Auto(), label, open, scale);
+    }
     if (scale <= 0)
         scale = ThemeMetric("font_scale");
+    if (h <= 0)
+        h = FontLineHeightPx(scale) + 2.0f * ThemeMetric("button_pad_y");
     if (boxes_.empty())
         return false;
     const Rect r = Allocate(h, "tree", key);
@@ -1928,6 +2072,12 @@ bool UISystem::Tree(std::string_view key, float h, std::string_view label, bool 
     return clicked || activate;
 }
 void UISystem::Tip(std::string_view text) {
+    if (InAutoLayout()) {
+        if (last_auto_node_ >= 0 && static_cast<std::size_t>(last_auto_node_) < auto_nodes_.size()) {
+            auto_nodes_[static_cast<std::size_t>(last_auto_node_)].tip_text = std::string(text);
+        }
+        return;
+    }
     const Rect r = last_rect_;
     if (recording_ && !resolving_ && !boxes_.empty()) {
         const std::string key = interactions_.empty() ? "@tip" : interactions_.back().key;
@@ -1950,6 +2100,11 @@ void UISystem::Constrain(float min_w, float max_w, float min_h, float max_h) {
     next_limits_ = {min_w, std::max(min_w, max_w), min_h, std::max(min_h, max_h)};
 }
 void UISystem::RowAlign(int align) {
+    if (InAutoLayout()) {
+        auto &n = auto_nodes_[static_cast<std::size_t>(auto_stack_.back())];
+        n.cross_align = align == 1 ? UIAxisAlign::Center : (align == 2 ? UIAxisAlign::End : UIAxisAlign::Start);
+        return;
+    }
     if (!rows_.empty())
         rows_.back().align = std::clamp(align, 0, 2);
 }
@@ -2112,8 +2267,22 @@ Vec2 UISystem::RawMouse() const {
     return {(m.x - scale_offset_.x) / scale_ + world_origin_.x,
             (m.y - scale_offset_.y) / scale_ + world_origin_.y};
 }
-void UISystem::Remember(std::string_view name) { named_rects_[std::string(name)] = last_rect_; }
+void UISystem::Remember(std::string_view name) {
+    if (InAutoLayout()) {
+        if (last_auto_node_ >= 0 && static_cast<std::size_t>(last_auto_node_) < auto_nodes_.size()) {
+            auto_nodes_[static_cast<std::size_t>(last_auto_node_)].remember_name = std::string(name);
+        }
+        return;
+    }
+    named_rects_[std::string(name)] = last_rect_;
+}
 void UISystem::RememberBox(std::string_view name) {
+    if (InAutoLayout()) {
+        if (!auto_stack_.empty()) {
+            auto_nodes_[static_cast<std::size_t>(auto_stack_.back())].remember_name = std::string(name);
+        }
+        return;
+    }
     if (boxes_.empty()) {
         named_rects_[std::string(name)] = {};
         return;
@@ -2123,7 +2292,11 @@ void UISystem::RememberBox(std::string_view name) {
 }
 Rect UISystem::NamedRect(std::string_view name) const {
     auto it = named_rects_.find(std::string(name));
-    return it == named_rects_.end() ? Rect{} : it->second;
+    if (it != named_rects_.end()) {
+        return it->second;
+    }
+    auto prev_it = prev_named_rects_.find(std::string(name));
+    return prev_it == prev_named_rects_.end() ? Rect{} : prev_it->second;
 }
 bool UISystem::PushRelated(std::string_view target, std::string_view edge, float offset,
                            float width, float height, float padding, float right_inset) {
@@ -2202,7 +2375,15 @@ bool UISystem::SetThemeColor(std::string_view name, const Color &value) {
 void UISystem::SetPanelSlice(const Texture2D *texture, const Rect &source, float x, float y) {
     panel_slice_ = {texture, source, std::max(0.0f, x), std::max(0.0f, y)};
 }
-void UISystem::ThemedPanel() { Panel(ThemeColor("panel"), ThemeColor("border")); }
+void UISystem::ThemedPanel() {
+    if (InAutoLayout()) {
+        auto &n = auto_nodes_[static_cast<std::size_t>(auto_stack_.back())];
+        n.draw_panel = true;
+        n.themed_panel = true;
+        return;
+    }
+    Panel(ThemeColor("panel"), ThemeColor("border"));
+}
 void UISystem::DisabledBegin(bool disabled) { disabled_.push_back(IsDisabled() || disabled); }
 void UISystem::DisabledEnd() {
     if (!disabled_.empty())
@@ -2284,15 +2465,28 @@ void UISystem::Sprite(const Texture2D *texture, const Rect &src, const Rect &dst
         pending_draws_.push_back(std::move(command));
 }
 void UISystem::Image(const Texture2D *texture, const Rect &src, float height, const Color &tint) {
+    if (InAutoLayout()) {
+        AutoImage(texture, src, height > 0.0f ? UISize::Fixed(height) : UISize::Auto(), tint);
+        return;
+    }
     if (boxes_.empty())
         return;
+    if (height <= 0.0f && src.width > 0.0f && src.height > 0.0f) {
+        height = AvailWidth() * (src.height / src.width);
+    }
     const Rect r = Allocate(height, "image");
     Sprite(texture, src, r, tint);
 }
 bool UISystem::ImageButton(std::string_view key, const Texture2D *texture, const Rect &src,
                            float height, std::string_view label) {
+    if (InAutoLayout()) {
+        return AutoImageButton(key, texture, src, height > 0.0f ? UISize::Fixed(height) : UISize::Auto(), label);
+    }
     if (boxes_.empty())
         return false;
+    if (height <= 0.0f) {
+        height = FontLineHeightPx(0.0f) + 2.0f * ThemeMetric("button_pad_y");
+    }
     if (recording_ && !resolving_) {
         const Rect r = Allocate(height, "image button", key);
         QueueInteraction(key, r, [=, this, k = std::string(key), l = std::string(label)] {
@@ -4388,6 +4582,18 @@ float UISystem::DrawTextPx(float x, float y, std::string_view text, float px,
         return 0.0f;
     }
     const float w = MeasureTextPx(text, px, face);
+    if (InAutoLayout()) {
+        AutoCustomCmd cmd;
+        cmd.op = AutoCustomCmd::Op::Text;
+        cmd.rect = {x, y, w, px};
+        cmd.text = std::string(text);
+        cmd.px = px;
+        cmd.fill = color;
+        cmd.align = align;
+        cmd.face = face;
+        auto_nodes_[static_cast<std::size_t>(auto_stack_.back())].custom_cmds.push_back(std::move(cmd));
+        return w;
+    }
     const auto clips = boxes_.empty() ? std::vector<LayoutClip>{} : boxes_.back().clips;
     const auto ids = active_scrolls_;
     auto command = [this, s = std::string(text), x, y, px, color, align, face, clips, ids]() {

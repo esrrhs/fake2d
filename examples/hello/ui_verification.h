@@ -1106,6 +1106,107 @@ void RunUI149Checks(fake2d::Engine &engine, const std::function<void(bool, const
         host_cam = saved_cam;
     }
 
+    // 155: Two-Pass Auto-Layout (Measure -> Arrange -> Commit), zero handwritten widget sizes
+    {
+        fake2d::Input tp_in;
+        fake2d::Camera2D tp_cam;
+        tp_cam.SetViewport(640, 480);
+        fake2d::UISystem tp;
+        tp.Bind(&tp_in, &tp_cam, &renderer);
+        tp.SetAudit(true);
+        tp_in.InjectFrame({-10000, -10000}, {}, {});
+        tp.NewFrame();
+        renderer.BeginFrame(0, 0, 0, 1);
+        renderer.BeginRenderTarget(target);
+        renderer.ClearActiveTarget({0, 0, 0, 1});
+
+        tp.RootAnchorBegin("center", "center", fake2d::UISize::Fixed(420), fake2d::UISize::Auto(),
+                           0, 0, 10, true, true);
+        tp.ThemedPanel();
+        tp.VStackBegin();
+        tp.HStackBegin();
+        tp.NextGrow(1.0f);
+        tp.Text("Two-Pass Title", 0.5f);
+        tp.Button("tp_close", "X", 0.45f);
+        tp.StackEnd();
+
+        tp.TableBegin("tp_tbl", {fake2d::UISize::Auto(), fake2d::UISize::Grow(1.0f), fake2d::UISize::Auto()});
+        tp.TableRowBegin();
+        tp.Button("tp_r0_btn", "A", 0.45f);
+        tp.Text("Short", 0.4f);
+        tp.ProgressBar(0.6f, {0.3f, 0.8f, 0.4f, 1.0f});
+        tp.TableRowEnd();
+
+        tp.TableRowBegin();
+        tp.Button("tp_r1_btn", "MuchLongerLabel", 0.45f);
+        tp.Text("Wrapped description inside grow column of table", 0.4f);
+        tp.Checkbox("tp_r1_chk", true, "OK", 0.4f);
+        tp.TableRowEnd();
+        tp.TableEnd();
+
+        tp.FlowBoxBegin();
+        for (int fi = 0; fi < 6; ++fi) {
+            tp.Button("tp_flow_" + std::to_string(fi), "Tag_" + std::to_string(fi), 0.4f);
+        }
+        tp.FlowBoxEnd();
+        tp.StackEnd();
+        tp.RootEnd();
+
+        renderer.EndRenderTarget();
+        renderer.EndFrame();
+
+        const fake2d::Rect r0_btn = tp.WidgetRect("tp_r0_btn");
+        const fake2d::Rect r1_btn = tp.WidgetRect("tp_r1_btn");
+        const fake2d::Rect r1_chk = tp.WidgetRect("tp_r1_chk");
+        const fake2d::Rect r_close = tp.WidgetRect("tp_close");
+        check(r0_btn.width > 20.0f && std::abs(r0_btn.width - r1_btn.width) < 0.05f,
+              "155: two-pass Table Auto column sizes Row 0 button to Row 1 max width on Frame 1");
+        check(r1_btn.y > r0_btn.y + r0_btn.height + 0.5f,
+              "155: two-pass Table separates consecutive rows with automatic row_gap");
+        const float r1_btn_cy = r1_btn.y + r1_btn.height * 0.5f;
+        const float r1_chk_cy = r1_chk.y + r1_chk.height * 0.5f;
+        check(std::abs(r1_btn_cy - r1_chk_cy) < 0.05f,
+              "155: two-pass TableRow vertically centers items of different heights on Frame 1");
+        check(r_close.x + r_close.width <= 420.0f + (640.0f - 420.0f) * 0.5f,
+              "155: two-pass RootAnchorBegin centers auto-height panel on Frame 1");
+        check(tp.OverflowCount() == 0 && tp.AuditLayout().empty(),
+              "155: two-pass layout produces zero overflow and zero audit violations");
+
+        // Verify RunUITests end-to-end clickability on Two-Pass auto-layout widgets
+        auto &host_ui = engine.GetUI();
+        auto &host_cam = renderer.GetCamera();
+        fake2d::Camera2D saved_cam = host_cam;
+        host_cam.SetViewport(640, 480);
+        host_ui.SetScale(0, 0, "width");
+        bool tp_clicked = false;
+        fake2d::UITestTarget tp_target;
+        tp_target.name = "engine_suite_twopass";
+        tp_target.render_frame = [&]() {
+            renderer.BeginFrame(0, 0, 0, 1);
+            renderer.BeginRenderTarget(target);
+            renderer.ClearActiveTarget({0, 0, 0, 1});
+            host_ui.RootBegin(20, 20, fake2d::UISize::Fixed(400), fake2d::UISize::Fixed(300), 10, true);
+            host_ui.ThemedPanel();
+            host_ui.TableBegin("tp_rt_tbl", {fake2d::UISize::Auto(), fake2d::UISize::Grow(1.0f)});
+            host_ui.TableRowBegin();
+            if (host_ui.Button("tp_hit", "ClickMe", 0.45f)) {
+                tp_clicked = true;
+            }
+            host_ui.Text("Auto-centered label", 0.45f);
+            host_ui.TableRowEnd();
+            host_ui.TableEnd();
+            host_ui.RootEnd();
+            renderer.EndRenderTarget();
+            renderer.EndFrame();
+        };
+        fake2d::UITestConfig cfg_tp;
+        const auto rep_tp = fake2d::RunUITests(engine, {tp_target}, {}, cfg_tp);
+        check(rep_tp.Passed() && tp_clicked && rep_tp.buttons_tested == 1,
+              "155: RunUITests verifies and clicks Two-Pass Auto-Layout button");
+        host_ui.SetAudit(false);
+        host_cam = saved_cam;
+    }
+
     renderer.GetRenderTargets().Destroy(target);
 }
 
