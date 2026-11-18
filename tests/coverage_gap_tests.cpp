@@ -184,7 +184,7 @@ static void ui_runner_tests(Renderer &renderer){
     Engine engine;Camera2D camera;camera.SetViewport(128,128);auto &ui=engine.GetUI();auto &input=engine.GetInput();ui.Bind(&input,&camera,&renderer);
     int prepared=0,resets=0,after=0,clicks=0;std::size_t errors=0;bool fail_click=false;
     UITestTarget target;target.name="good";target.prepare=[&]{++prepared;};target.reset_state=[&]{++resets;};
-    target.render_frame=[&]{renderer.BeginFrame(0,0,0,1);REQUIRE(ui.BeginFrameUI());ui.Push(1,1,100,70,0);ui.Button("button",20,"");ui.Pop();REQUIRE(ui.EndFrameUI());renderer.EndFrame();if(ui.Clicked("button")){++clicks;if(fail_click)++errors;}};
+    target.render_frame=[&]{renderer.BeginFrame(0,0,0,1);REQUIRE(ui.BeginFrameUI());ui.RootBegin(1,1,UISize::Fixed(100),UISize::Fixed(70));ui.Button("button","");ui.RootEnd();REQUIRE(ui.EndFrameUI());renderer.EndFrame();if(ui.Clicked("button")){++clicks;if(fail_click)++errors;}};
     target.after_click=[&]{++after;};
     UITestConfig cfg;cfg.filter_pattern="good";cfg.get_error_count=[&]{return errors;};
     UITestTarget skip=target;skip.name="skip";skip.prepare=[] {throw std::runtime_error("filter failed");};
@@ -195,7 +195,7 @@ static void ui_runner_tests(Renderer &renderer){
     REQUIRE(clicks==1&&after==2&&resets==4&&prepared==2&&report.elapsed_seconds>=0);
     fail_click=true;report=RunUITests(engine,{target},{},cfg);REQUIRE(!report.Passed()&&report.script_errors==1&&report.buttons_tested==1);
     cfg.filter_pattern.clear();cfg.get_error_count={};
-    UITestTarget overflow{"overflow",{},{},[&]{renderer.BeginFrame(0,0,0,1);ui.Push(0,0,20,10,0);ui.Button("too-tall",100,"");ui.Pop();renderer.EndFrame();},{}};
+    UITestTarget overflow{"overflow",{},{},[&]{renderer.BeginFrame(0,0,0,1);ui.RootBegin(0,0,UISize::Fixed(20),UISize::Fixed(10));ui.Button("too-tall","");ui.RootEnd();renderer.EndFrame();},{}};
     report=RunUITests(engine,{overflow},{},cfg);REQUIRE(!report.Passed()&&report.violations>0);
     report=RunUITests(engine,{{"empty",{},{},{},{}}},{{"errors",{},[]{return std::size_t(3);}},{"null",{},{}}},cfg);
     REQUIRE(report.targets_tested==3&&report.script_errors==3&&!report.Passed());
@@ -209,35 +209,35 @@ static void ui_runner_tests(Renderer &renderer){
         return t;
     };
     auto run=[&](const UITestTarget &t){return RunUITests(engine,{t},{},cfg);};
-    auto disabled=make_target("disabled",[&]{ui.Push(0,0,100,30,0);ui.DisabledBegin();ui.Button("disabled-button",20,"");ui.DisabledEnd();ui.Pop();});
+    auto disabled=make_target("disabled",[&]{ui.RootBegin(0,0,UISize::Fixed(100),UISize::Fixed(30));ui.DisabledBegin();ui.Button("disabled-button","");ui.DisabledEnd();ui.RootEnd();});
     int count_before=ui.ClickCount(); report=run(disabled);
     REQUIRE(report.Passed()&&report.buttons_tested==1&&report.disabled_tested==1&&ui.ClickCount()==count_before);
-    auto offscreen=make_target("offscreen",[&]{ui.Push(200,200,20,20,0);ui.Button("outside-viewport",20,"");ui.Pop();});
+    auto offscreen=make_target("offscreen",[&]{ui.RootBegin(200,200,UISize::Fixed(20),UISize::Fixed(20));ui.Button("outside-viewport","");ui.RootEnd();});
     report=run(offscreen);REQUIRE(!report.Passed()&&report.click_failures==1&&report.buttons_tested==0);
     cfg.test_clicks=false;report=run(offscreen);REQUIRE(report.Passed()&&report.buttons_tested==0);cfg.test_clicks=true;
-    auto occluded=make_target("occluded",[&]{for(auto key:{"covered-button","covering-button"}){ui.Push(0,0,100,30,0);ui.Button(key,20,"");ui.Pop();}});
+    auto occluded=make_target("occluded",[&]{for(auto key:{"covered-button","covering-button"}){ui.RootBegin(0,0,UISize::Fixed(100),UISize::Fixed(30));ui.Button(key,"");ui.RootEnd();}});
     report=run(occluded);REQUIRE(!report.Passed()&&report.click_failures==1&&report.buttons_tested==1);
-    auto modal=make_target("modal",[&]{ui.Push(0,0,100,30,0);ui.Button("under-modal",20,"");ui.Pop();ui.SetModal(true);ui.Push(0,0,100,30,0);ui.Panel(Color::Black());ui.Pop();ui.SetModal(false);});
+    auto modal=make_target("modal",[&]{ui.RootBegin(0,0,UISize::Fixed(100),UISize::Fixed(30));ui.Button("under-modal","");ui.RootEnd();ui.SetModal(true);ui.RootBegin(0,0,UISize::Fixed(100),UISize::Fixed(30));ui.Panel(Color::Black());ui.RootEnd();ui.SetModal(false);});
     report=run(modal);REQUIRE(report.Passed()&&report.buttons_tested==0&&report.click_failures==0);
     // A genuinely miswired input backend renders a visible button but cannot
     // receive the engine's injected clicks. Audit must catch it; explicit policy
     // may opt this intentionally passive widget out, without inventing clicks.
     Input passive_input;ui.Bind(&passive_input,&camera,&renderer);
-    auto blocked=make_target("blocked",[&]{ui.Push(0,0,100,30,0);ui.Button("blocked-button",20,"");ui.Pop();});
+    auto blocked=make_target("blocked",[&]{ui.RootBegin(0,0,UISize::Fixed(100),UISize::Fixed(30));ui.Button("blocked-button","");ui.RootEnd();});
     report=run(blocked);REQUIRE(!report.Passed()&&report.click_failures==1);
     int allowed=0;cfg.allow_no_click=[&](std::string_view target,std::string_view widget,std::string_view kind){REQUIRE(target=="blocked"&&widget=="blocked-button"&&kind=="button");++allowed;return true;};
     count_before=ui.ClickCount();report=run(blocked);REQUIRE(report.Passed()&&allowed==1&&ui.ClickCount()==count_before);cfg.allow_no_click={};ui.Bind(&input,&camera,&renderer);
-    auto editors=make_target("editors",[&]{ui.Push(0,0,100,100,0);ui.Checkbox("check-probe",20,false,"");ui.TextInput("focus-probe",20);ui.Pop();});
+    auto editors=make_target("editors",[&]{ui.RootBegin(0,0,UISize::Fixed(100),UISize::Fixed(100));ui.VStackBegin(4);ui.Checkbox("check-probe",false,std::string_view(""));ui.TextInput("focus-probe");ui.StackEnd();ui.RootEnd();});
     report=run(editors);REQUIRE(report.Passed()&&report.buttons_tested==2&&ui.FocusedTextInput()=="focus-probe");
     bool removed=false;int first_clicks=0,second_clicks=0;
-    auto disappearing=make_target("disappearing",[&]{ui.Push(0,0,100,20,0);ui.Button("remove-first",20,"");ui.Pop();if(!removed){ui.Push(0,30,100,20,0);ui.Button("removed-second",20,"");ui.Pop();}});
+    auto disappearing=make_target("disappearing",[&]{ui.RootBegin(0,0,UISize::Fixed(100),UISize::Fixed(80));ui.VStackBegin(4);ui.Button("remove-first","");if(!removed){ui.Button("removed-second","");}ui.StackEnd();ui.RootEnd();});
     disappearing.after_click=[&]{if(ui.Clicked("remove-first")){removed=true;++first_clicks;}if(ui.Clicked("removed-second"))++second_clicks;};
     report=run(disappearing);REQUIRE(report.Passed()&&report.buttons_tested==2&&removed&&first_clicks==1&&second_clicks==0);
     bool moved=false;first_clicks=0;second_clicks=0;
-    auto moving=make_target("moving",[&]{ui.Push(0,0,20,20,0);ui.Button("move-first",20,"");ui.Pop();ui.Push(moved?80:0,40,20,20,0);ui.Button("moving-second",20,"");ui.Pop();});
+    auto moving=make_target("moving",[&]{ui.RootBegin(0,0,UISize::Fixed(20),UISize::Auto());ui.Button("move-first","");ui.RootEnd();ui.RootBegin(moved?80:0,40,UISize::Fixed(20),UISize::Auto());ui.Button("moving-second","");ui.RootEnd();});
     moving.after_click=[&]{if(ui.Clicked("move-first")){moved=true;++first_clicks;}if(ui.Clicked("moving-second"))++second_clicks;};
     report=run(moving);REQUIRE(report.Passed()&&report.buttons_tested==2&&moved&&first_clicks==1&&second_clicks==1);
-    auto scroll=make_target("scroll",[&]{ui.Push(0,0,100,30,0);ui.ScrollBegin("runner-scroll",20);for(int i=0;i<5;++i)ui.Button("scroll-item-"+std::to_string(i),20,"");ui.ScrollEnd();ui.Pop();});
+    auto scroll=make_target("scroll",[&]{ui.RootBegin(0,0,UISize::Fixed(100),UISize::Fixed(30));ui.ScrollBoxBegin("runner-scroll",UISize::Fixed(20));for(int i=0;i<5;++i)ui.Button("scroll-item-"+std::to_string(i),"");ui.ScrollBoxEnd();ui.RootEnd();});
     report=run(scroll);REQUIRE(report.Passed()&&report.skipped_offscreen>0&&report.buttons_tested>0);
 
 }

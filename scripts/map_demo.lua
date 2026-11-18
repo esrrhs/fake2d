@@ -164,15 +164,15 @@ local function update_body(dt)
         end
     end
 
-    ui_push(16, 12, math.min(ui_layout_token("panel_width"), text_width("TILEMAP + PHYSICS DEMO", 0.55)), text_line_height() * (0.55))
+    ui_root_begin(16, 12, "auto", "auto", 0, false)
     ui_text("TILEMAP + PHYSICS DEMO", 0.55, "ellipsis", 0, 0.92, 0.94, 1.0, 1.0)
-    ui_pop()
-    ui_push(camera_viewport_w() - (16) - (104), 10, 104, 32)
-    ui_button("reset", 32, "RESET (R)", 0.5)
-    ui_pop()
-    ui_push(16, camera_viewport_h() - (12) - (text_line_height() * (0.45)), math.min(ui_layout_token("panel_width"), text_width("built-in AABB/circle physics, Tiled JSON, anchored UI", 0.45)), text_line_height() * (0.45))
+    ui_root_end()
+    ui_root_anchor("right", "top", "auto", "auto", 16, 10, 0, true, true)
+    ui_button("reset", "RESET (R)", 0.5)
+    ui_root_end()
+    ui_root_anchor("left", "bottom", "auto", "auto", 16, 12, 0, true, false)
     ui_text("built-in AABB/circle physics, Tiled JSON, anchored UI", 0.45, "ellipsis", 0, 0.67, 0.71, 0.80, 1.0)
-    ui_pop()
+    ui_root_end()
     return 0
 end
 

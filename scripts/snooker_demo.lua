@@ -1312,9 +1312,9 @@ local function draw_table()
     draw_pocket(TX + TW * 0.5, TY)
     draw_pocket(TX + TW * 0.5, TY + TH)
 
-    ui_push(TX + TW * 0.5 - 66.0, TY + TH + 10.0, math.min(ui_layout_token("panel_width"), text_width("FAKE2D SNOOKER", 0.36)), text_line_height() * (0.36))
+    ui_root_begin(TX + TW * 0.5 - 66.0, TY + TH + 10.0, "auto", "auto", 0, false)
     ui_text("FAKE2D SNOOKER", 0.36, "ellipsis", 0, 0.90, 0.72, 0.38, 0.82)
-    ui_pop()
+    ui_root_end()
 end
 
 -- Ray from the cue ball; returns the contact point and whether a ball was hit.
@@ -1500,9 +1500,9 @@ local function draw_player_panel(i, px)
     end
     local name = "PLAYER 1"
     if i == 1 then name = "PLAYER 2" end
-    ui_push(px + 12.0, 10.0, math.min(ui_layout_token("panel_width"), text_width(name, 0.34)), text_line_height() * (0.34))
+    ui_root_begin(px + 12.0, 10.0, "auto", "auto", 0, false)
     ui_text(name, 0.34, "ellipsis", 0, 0.72, 0.78, 0.90, 1.0)
-    ui_pop()
+    ui_root_end()
 
     local score = S.p1
     local frames = S.f1
@@ -1515,12 +1515,12 @@ local function draw_player_panel(i, px)
 
     local brk = 0
     if S.turn == i then brk = S.break_score end
-    ui_push(px + 12.0, 48.0, math.min(ui_layout_token("panel_width"), text_width("BREAK " .. string.format("%d", math.floor(brk)), 0.28)), text_line_height() * (0.28))
+    ui_root_begin(px + 12.0, 48.0, "auto", "auto", 0, false)
     ui_text("BREAK " .. string.format("%d", math.floor(brk)), 0.28, "ellipsis", 0, 0.60, 0.66, 0.76, 1.0)
-    ui_pop()
-    ui_push(px + 148.0, 48.0, math.min(ui_layout_token("panel_width"), text_width("FRAMES " .. string.format("%d", math.floor(frames)), 0.28)), text_line_height() * (0.28))
+    ui_root_end()
+    ui_root_begin(px + 148.0, 48.0, "auto", "auto", 0, false)
     ui_text("FRAMES " .. string.format("%d", math.floor(frames)), 0.28, "ellipsis", 0, 0.60, 0.66, 0.76, 1.0)
-    ui_pop()
+    ui_root_end()
 end
 
 local function draw_gauge(x, y, w, h, v)
@@ -1548,36 +1548,34 @@ local function draw_hud()
 
     -- Centre: ball on, reds left, frame number.
     draw_quad(336.0, 5.0, 288.0, 58.0, 0.050, 0.055, 0.070, 1.0)
-    ui_push(348.0, 10.0, math.min(ui_layout_token("panel_width"), text_width("BALL ON", 0.28)), text_line_height() * (0.28))
+    ui_root_begin(348.0, 10.0, "auto", "auto", 0, false)
     ui_text("BALL ON", 0.28, "ellipsis", 0, 0.60, 0.66, 0.76, 1.0)
-    ui_pop()
+    ui_root_end()
     local swatch_col = 0
     if S.phase == PHASE_SEQ then swatch_col = S.colour_seq end
     if S.phase == PHASE_COLOUR then swatch_col = CUE end
     local sr, sg, sb = ball_tint(swatch_col)
     ball_disc(366.0, 40.0, 14.0, 0.90, 0.72, 0.30, 0.85)
     ball_disc(366.0, 40.0, 11.0, sr, sg, sb, 1.0)
-    ui_push(388.0, 26.0, math.min(ui_layout_token("panel_width"), text_width(ball_on_text(), 0.46)), text_line_height() * (0.46))
+    ui_root_begin(388.0, 26.0, "auto", "auto", 0, false)
+    ui_vstack(2, 0, "start")
     ui_text(ball_on_text(), 0.46, "ellipsis", 0, 1.0, 0.92, 0.68, 1.0)
-    ui_pop()
     if S.phase == PHASE_COLOUR then
-        ui_push(388.0, 48.0, math.min(ui_layout_token("panel_width"), text_width("NOMINATE ANY", 0.24)), text_line_height() * (0.24))
         ui_text("NOMINATE ANY", 0.24, "ellipsis", 0, 0.62, 0.68, 0.78, 1.0)
-        ui_pop()
     end
+    ui_vstack_end()
+    ui_root_end()
 
     local reds = live_reds()
-    ui_push(516.0, 10.0, math.min(ui_layout_token("panel_width"), text_width("REDS " .. string.format("%d", reds), 0.30)), text_line_height() * (0.30))
+    ui_root_begin(516.0, 10.0, "auto", "auto", 0, false)
+    ui_vstack(2, 0, "start")
     ui_text("REDS " .. string.format("%d", reds), 0.30, "ellipsis", 0, 0.72, 0.78, 0.90, 1.0)
-    ui_pop()
-    ui_push(516.0, 32.0, math.min(ui_layout_token("panel_width"), text_width("FRAME " .. string.format("%d", math.floor(S.frame_no)), 0.30)), text_line_height() * (0.30))
     ui_text("FRAME " .. string.format("%d", math.floor(S.frame_no)), 0.30, "ellipsis", 0, 0.60, 0.66, 0.76, 1.0)
-    ui_pop()
     if S.ai_active and not S.match_over then
-        ui_push(516.0, 52.0, math.min(ui_layout_token("panel_width"), text_width("AUTO PLAY", 0.24)), text_line_height() * (0.24))
         ui_text("AUTO PLAY", 0.24, "ellipsis", 0, 0.90, 0.62, 0.35, 1.0)
-        ui_pop()
     end
+    ui_vstack_end()
+    ui_root_end()
 
     -- Bottom bar: spin pad, power gauge, hints, new-frame button.
     draw_quad(0.0, 494.0, S.vw, 46.0, 0.020, 0.022, 0.030, 0.94)
@@ -1587,27 +1585,27 @@ local function draw_hud()
     local dotx = 106.0 + S.spin_side * 10.0
     local doty = 518.0 - S.spin_top * 10.0
     draw_quad(dotx - 2.0, doty - 2.0, 4.0, 4.0, 0.95, 0.32, 0.20, 1.0)
-    ui_push(86.0, 496.0, math.min(ui_layout_token("panel_width"), text_width("SPIN", 0.24)), text_line_height() * (0.24))
+    ui_root_begin(86.0, 496.0, "auto", "auto", 0, false)
     ui_text("SPIN", 0.24, "ellipsis", 0, 0.62, 0.68, 0.78, 1.0)
-    ui_pop()
+    ui_root_end()
 
-    ui_push(170.0, 496.0, math.min(ui_layout_token("panel_width"), text_width("POWER", 0.24)), text_line_height() * (0.24))
+    ui_root_begin(170.0, 496.0, "auto", "auto", 0, false)
     ui_text("POWER", 0.24, "ellipsis", 0, 0.62, 0.68, 0.78, 1.0)
-    ui_pop()
+    ui_root_end()
     local gaugev = S.last_power
     if S.charging then gaugev = S.charge end
     draw_gauge(170.0, 512.0, 250.0, 12.0, gaugev)
 
-    ui_push(440.0, 497.0, math.min(ui_layout_token("panel_width"), text_width("AIM: MOUSE    CHARGE: HOLD LMB / SPACE", 0.28)), text_line_height() * (0.28))
+    ui_root_begin(440.0, 497.0, "auto", "auto", 0, false)
+    ui_vstack(2, 0, "start")
     ui_text("AIM: MOUSE    CHARGE: HOLD LMB / SPACE", 0.28, "ellipsis", 0, 0.62, 0.68, 0.78, 1.0)
-    ui_pop()
-    ui_push(440.0, 515.0, math.min(ui_layout_token("panel_width"), text_width("SPIN: CLICK PAD / ARROWS    R: NEW FRAME", 0.28)), text_line_height() * (0.28))
     ui_text("SPIN: CLICK PAD / ARROWS    R: NEW FRAME", 0.28, "ellipsis", 0, 0.62, 0.68, 0.78, 1.0)
-    ui_pop()
+    ui_vstack_end()
+    ui_root_end()
 
-    ui_push(770.0, 504.0, 118.0, 28.0)
-    ui_button("snooker_new", 28.0, "NEW FRAME", 0.40)
-    ui_pop()
+    ui_root_begin(770.0, 504.0, 118.0, "auto", 0, true)
+    ui_button("snooker_new", "NEW FRAME", 0.40)
+    ui_root_end()
 end
 
 -- Dim the table for the frame-over screen. Drawn before the HUD so the

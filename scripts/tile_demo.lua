@@ -119,9 +119,9 @@ local function update_body(dt)
               40, 522, 0.6, 0.55, 0.62, 0.7, 1.0)
 
     -- A click rewinds the clock: the pond jumps back to frame 1.
-    ui_push(800, 436, 120, 28)
-    ui_button("ta_reset", 28, "RESET CLOCK", 0.55)
-    ui_pop()
+    ui_root_begin(800, 436, 120, "auto", 0, true)
+    ui_button("ta_reset", "RESET CLOCK", 0.55)
+    ui_root_end()
 
     return 0
 end

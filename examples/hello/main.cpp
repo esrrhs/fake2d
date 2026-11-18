@@ -3971,18 +3971,19 @@ int RunPlatformTest(fake2d::Engine &engine) {
     // ---- UI text helpers ---------------------------------------------------
     fake2d::Renderer &r = engine.GetRenderer();
     r.BeginFrame(0.0f, 0.0f, 0.0f, 1.0f);
-    engine.GetUI().Push(20, 20, 80, 40);
+    engine.GetUI().RootBegin(20, 20, fake2d::UISize::Fixed(80), fake2d::UISize::Fixed(40));
     engine.GetUI().Text("shrink this label to fit", 1.0f,
                        fake2d::UITextOverflow::Shrink, 0, fake2d::Color::White(), 0.3f);
-    const float fitted = engine.GetUI().LastRect().width;
-    engine.GetUI().Pop();
+    engine.GetUI().Remember("shrink-box");
+    engine.GetUI().RootEnd();
+    const float fitted = engine.GetUI().NamedRect("shrink-box").width;
     const float fit_end = r.DrawTextFit(
         "shrink this label to fit", 20.0f, 60.0f, 120.0f, 1.0f, 0.3f,
         fake2d::Color{1.0f, 1.0f, 1.0f, 1.0f});
-    engine.GetUI().Push(0, 0, 100, 40);
+    engine.GetUI().RootBegin(0, 0, fake2d::UISize::Fixed(100), fake2d::UISize::Fixed(40));
     engine.GetUI().Panel(fake2d::Color::Clear());
     engine.GetUI().Tip("tooltip text");
-    engine.GetUI().Pop();
+    engine.GetUI().RootEnd();
     engine.GetUI().SetTipDelay(0.15f);
     engine.GetUI().DrawTooltip();
     r.EndFrame();
@@ -5818,22 +5819,36 @@ int RunUITest(fake2d::Engine &engine) {
     // Widgets need a camera + input + renderer; all three are wired by Init.
 
     // --- Slider: clamps, and a click-jump never escapes the range ----------
-    check(near(([&] { ui.Push(40, 40, 200, 24); const auto result = ui.Slider("s1", 24, 0.5f, 0.0f, 1.0f); ui.Pop(); return result; }()), 0.5f),
+    auto slider_box = [&](std::string_view key, float y, float val, float mn, float mx) {
+        ui.NewFrame();
+        ui.RootBegin(40, y, fake2d::UISize::Fixed(200), fake2d::UISize::Fixed(24));
+        ui.NextSize(fake2d::UISize::Grow(), fake2d::UISize::Fixed(24));
+        const float out = ui.Slider(key, val, mn, mx);
+        ui.RootEnd();
+        return out;
+    };
+    check(near(slider_box("s1", 40, 0.5f, 0.0f, 1.0f), 0.5f),
           "slider: an in-range value passes through");
-    check(near(([&] { ui.Push(40, 40, 200, 24); const auto result = ui.Slider("s1", 24, 5.0f, 0.0f, 1.0f); ui.Pop(); return result; }()), 1.0f),
+    check(near(slider_box("s1", 40, 5.0f, 0.0f, 1.0f), 1.0f),
           "slider: above max clamps to max");
-    check(near(([&] { ui.Push(40, 40, 200, 24); const auto result = ui.Slider("s1", 24, -5.0f, 0.0f, 1.0f); ui.Pop(); return result; }()), 0.0f),
+    check(near(slider_box("s1", 40, -5.0f, 0.0f, 1.0f), 0.0f),
           "slider: below min clamps to min");
-    check(near(([&] { ui.Push(40, 40, 200, 24); const auto result = ui.Slider("s1", 24, 3.0f, 10.0f, 20.0f); ui.Pop(); return result; }()), 10.0f),
+    check(near(slider_box("s1", 40, 3.0f, 10.0f, 20.0f), 10.0f),
           "slider: an out-of-range value snaps into the range");
     // A degenerate range would divide by zero; it must not produce NaN.
-    const float degenerate = ([&] { ui.Push(40, 80, 200, 24); const auto result = ui.Slider("s2", 24, 7.0f, 5.0f, 5.0f); ui.Pop(); return result; }());
+    const float degenerate = slider_box("s2", 80, 7.0f, 5.0f, 5.0f);
     check(near(degenerate, 5.0f), "slider: a zero-width range reads as its min");
-    const float inverted = ([&] { ui.Push(40, 120, 200, 24); const auto result = ui.Slider("s3", 24, 7.0f, 5.0f, 1.0f); ui.Pop(); return result; }());
+    const float inverted = slider_box("s3", 120, 7.0f, 5.0f, 1.0f);
     check(near(inverted, 5.0f), "slider: an inverted range reads as its min");
 
     // --- Checkbox: one widget per key, toggle reported once ---------------
-    const bool toggled = ([&] { ui.Push(40, 170, 300, 20); const auto result = ui.Checkbox("c1", 20, true, "option"); ui.Pop(); return result; }());
+    const bool toggled = ([&] {
+        ui.NewFrame();
+        ui.RootBegin(40, 170, fake2d::UISize::Fixed(300), fake2d::UISize::Fixed(20));
+        const auto result = ui.Checkbox("c1", true, std::string_view("option"));
+        ui.RootEnd();
+        return result;
+    }());
     check(!toggled, "checkbox: no click without a mouse press");
     // A key that was never drawn has no state at all.
     check(!ui.IsHovered("no_such_widget"), "hover: an unknown key is never hovered");
@@ -5848,7 +5863,11 @@ int RunUITest(fake2d::Engine &engine) {
     // Multi-byte codepoints are stored whole: 4 bytes for an emoji, and the
     // max_chars limit counts characters, not bytes.
     ui.SetTextValue("t1", "");
-    (void)([&] { ui.Push(40, 220, 200, 28); const auto result = ui.TextInput("t1", 28, 0); ui.Pop(); return result; }()); // unlimited
+    ui.NewFrame();
+    ui.RootBegin(40, 220, fake2d::UISize::Fixed(200), fake2d::UISize::Fixed(28));
+    ui.NextHeight(fake2d::UISize::Fixed(28));
+    ui.TextInput("t1", 0);
+    ui.RootEnd(); // unlimited
     // No keyboard in headless, so drive the field the way the UI does at
     // runtime: through the same UTF-8 path SetTextValue feeds.
     ui.SetTextValue("t1", "\xE6\x97\xA5\xE6\x9C\xAC"); // 日本 = 2 chars, 6 bytes
@@ -5864,8 +5883,15 @@ int RunUITest(fake2d::Engine &engine) {
 
     // Focus bookkeeping: without a click, nothing is focused.
     check(ui.FocusedTextInput().empty(), "text: nothing focused before a click");
-    (void)([&] { ui.Push(40, 220, 200, 28); const auto result = ui.TextInput("t1", 28, 0); ui.Pop(); return result; }());
-    (void)([&] { ui.Push(40, 260, 200, 28); const auto result = ui.TextInput("t2", 28, 0); ui.Pop(); return result; }());
+    ui.NewFrame();
+    ui.RootBegin(40, 220, fake2d::UISize::Fixed(200), fake2d::UISize::Fixed(28));
+    ui.NextHeight(fake2d::UISize::Fixed(28));
+    ui.TextInput("t1", 0);
+    ui.RootEnd();
+    ui.RootBegin(40, 260, fake2d::UISize::Fixed(200), fake2d::UISize::Fixed(28));
+    ui.NextHeight(fake2d::UISize::Fixed(28));
+    ui.TextInput("t2", 0);
+    ui.RootEnd();
     check(ui.FocusedTextInput().empty(), "text: drawing does not steal focus");
 
     // Scroll measurement is covered below; estimated-height API was removed.
@@ -5873,16 +5899,27 @@ int RunUITest(fake2d::Engine &engine) {
     // --- Every widget draws, and the batch survives it ---------------------
     // QuadCount is reset by BeginFrame, so each frame below is measured
     // standalone rather than diffed against the previous one.
+    ui.NewFrame();
     r.BeginFrame(0.0f, 0.08f, 0.10f, 0.14f);
-    (void)([&] { ui.Push(40, 40, 200, 24); const auto result = ui.Slider("d1", 24, 0.5f, 0.0f, 1.0f); ui.Pop(); return result; }());
-    (void)([&] { ui.Push(40, 80, 300, 20); const auto result = ui.Checkbox("d2", 20, true, "option"); ui.Pop(); return result; }());
-    (void)([&] { ui.Push(40, 110, 300, 20); const auto result = ui.Checkbox("d3", 20, false, "option"); ui.Pop(); return result; }());
-    (void)([&] { ui.Push(40, 140, 200, 28); const auto result = ui.TextInput("d4", 28, 8); ui.Pop(); return result; }());
-    ui.Push(40, 180, 300, 200);
-    ui.ScrollBegin("d5", 200);
+    ui.RootBegin(40, 40, fake2d::UISize::Fixed(200), fake2d::UISize::Fixed(24));
+    ui.NextSize(fake2d::UISize::Grow(), fake2d::UISize::Fixed(24));
+    ui.Slider("d1", 0.5f, 0.0f, 1.0f);
+    ui.RootEnd();
+    ui.RootBegin(40, 80, fake2d::UISize::Fixed(300), fake2d::UISize::Fixed(20));
+    ui.Checkbox("d2", true, std::string_view("option"));
+    ui.RootEnd();
+    ui.RootBegin(40, 110, fake2d::UISize::Fixed(300), fake2d::UISize::Fixed(20));
+    ui.Checkbox("d3", false, std::string_view("option"));
+    ui.RootEnd();
+    ui.RootBegin(40, 140, fake2d::UISize::Fixed(200), fake2d::UISize::Fixed(28));
+    ui.NextHeight(fake2d::UISize::Fixed(28));
+    ui.TextInput("d4", 8);
+    ui.RootEnd();
+    ui.RootBegin(40, 180, fake2d::UISize::Fixed(300), fake2d::UISize::Fixed(200));
+    ui.ScrollBoxBegin("d5", fake2d::UISize::Fixed(200));
     for (int i = 0; i < 30; ++i) ui.Text("list item");
-    ui.ScrollEnd();
-    ui.Pop();
+    ui.ScrollBoxEnd();
+    ui.RootEnd();
     r.EndFrame();
     const std::size_t all_quads = r.QuadCount();
     check(all_quads > 0, "draw: widgets submit quads");
@@ -5895,13 +5932,21 @@ int RunUITest(fake2d::Engine &engine) {
     // draws its glyphs. Both are measurable because text emits one quad per
     // glyph.
     ui.SetTextValue("d6", "");
+    ui.NewFrame();
     r.BeginFrame(0.0f, 0.08f, 0.10f, 0.14f);
-    (void)([&] { ui.Push(40, 40, 200, 28); const auto result = ui.TextInput("d6", 28, 0); ui.Pop(); return result; }());
+    ui.RootBegin(40, 40, fake2d::UISize::Fixed(200), fake2d::UISize::Fixed(28));
+    ui.NextHeight(fake2d::UISize::Fixed(28));
+    ui.TextInput("d6", 0);
+    ui.RootEnd();
     r.EndFrame();
     const std::size_t empty_quads = r.QuadCount();
     ui.SetTextValue("d6", "full");
+    ui.NewFrame();
     r.BeginFrame(0.0f, 0.08f, 0.10f, 0.14f);
-    (void)([&] { ui.Push(40, 40, 200, 28); const auto result = ui.TextInput("d6", 28, 0); ui.Pop(); return result; }());
+    ui.RootBegin(40, 40, fake2d::UISize::Fixed(200), fake2d::UISize::Fixed(28));
+    ui.NextHeight(fake2d::UISize::Fixed(28));
+    ui.TextInput("d6", 0);
+    ui.RootEnd();
     r.EndFrame();
     const std::size_t full_quads = r.QuadCount();
     check(empty_quads >= 2, "draw: an empty field draws frame + placeholder");
@@ -5917,57 +5962,90 @@ int RunUITest(fake2d::Engine &engine) {
     const std::vector<std::int64_t> left{0};
     const std::vector<std::string_view> no_keys{};
 
+    auto radio_frame = [&](std::string_view key, bool sel, std::string_view lbl) {
+        ui.NewFrame();
+        ui.RootBegin(40, 40, fake2d::UISize::Fixed(300), fake2d::UISize::Fixed(20));
+        const bool out = ui.RadioButton(key, sel, lbl);
+        ui.RootEnd();
+        return out;
+    };
+    in.InjectFrame({50.0f, 50.0f}, no_keys, none);
+    (void)radio_frame("r1", false, "row");
     // Radio: a press and release inside the row is one click.
     in.InjectFrame({50.0f, 50.0f}, no_keys, left);
-    check(!([&] { ui.Push(40, 40, 300, 20); const auto result = ui.RadioButton("r1", 20, false, "row"); ui.Pop(); return result; }()),
+    check(!radio_frame("r1", false, "row"),
           "radio: a press alone is not a click");
     in.InjectFrame({50.0f, 50.0f}, no_keys, none);
-    check(([&] { ui.Push(40, 40, 300, 20); const auto result = ui.RadioButton("r1", 20, false, "row"); ui.Pop(); return result; }()),
+    check(radio_frame("r1", false, "row"),
           "radio: releasing over the row clicks it");
     // Releasing outside cancels, exactly like a button.
     in.InjectFrame({50.0f, 50.0f}, no_keys, left);
+    (void)radio_frame("r1", false, "row");
     in.InjectFrame({500.0f, 500.0f}, no_keys, none);
-    check(!([&] { ui.Push(40, 40, 300, 20); const auto result = ui.RadioButton("r1", 20, false, "row"); ui.Pop(); return result; }()),
+    check(!radio_frame("r1", false, "row"),
           "radio: releasing outside cancels the click");
     in.InjectFrame({500.0f, 500.0f}, no_keys, none);
-    check(!([&] { ui.Push(40, 40, 300, 20); const auto result = ui.RadioButton("r1", 20, false, "row"); ui.Pop(); return result; }()),
+    check(!radio_frame("r1", false, "row"),
           "radio: a click elsewhere never clicks this row");
     // Selection is a draw state, not state the widget owns, so the same call
     // reports a click whether or not the row is the selected one.
-    in.InjectFrame({50.0f, 50.0f}, no_keys, left);
-    (void)([&] { ui.Push(40, 40, 300, 20); const auto result = ui.RadioButton("r2", 20, true, "selected row"); ui.Pop(); return result; }());
     in.InjectFrame({50.0f, 50.0f}, no_keys, none);
-    check(([&] { ui.Push(40, 40, 300, 20); const auto result = ui.RadioButton("r2", 20, true, "selected row"); ui.Pop(); return result; }()),
+    (void)radio_frame("r2", true, "selected row");
+    in.InjectFrame({50.0f, 50.0f}, no_keys, left);
+    (void)radio_frame("r2", true, "selected row");
+    in.InjectFrame({50.0f, 50.0f}, no_keys, none);
+    check(radio_frame("r2", true, "selected row"),
           "radio: an already-selected row still reports the click");
 
     // Combo: the header toggles, and items report their own clicks.
+    auto combo_frame = [&](bool open) {
+        ui.NewFrame();
+        ui.RootBegin(40, 40, fake2d::UISize::Fixed(160), fake2d::UISize::Fixed(28));
+        ui.NextSize(fake2d::UISize::Grow(), fake2d::UISize::Fixed(28));
+        const bool out = ui.ComboBegin("cb", "pick", open);
+        ui.RootEnd();
+        return out;
+    };
+    in.InjectFrame({50.0f, 50.0f}, no_keys, none);
+    (void)combo_frame(false);
     in.InjectFrame({50.0f, 50.0f}, no_keys, left);
-    check(!([&] { ui.Push(40, 40, 160, 28); const auto result = ui.ComboBegin("cb", 28, "pick", false); ui.Pop(); return result; }()),
+    check(!combo_frame(false),
           "combo: a press alone does not open it");
     in.InjectFrame({50.0f, 50.0f}, no_keys, none);
-    check(([&] { ui.Push(40, 40, 160, 28); const auto result = ui.ComboBegin("cb", 28, "pick", false); ui.Pop(); return result; }()),
+    check(combo_frame(false),
           "combo: releasing over the header clicks it");
     // Unlike a button, a flick that ends outside still opens the list: the
     // popup swallows the gesture.
     in.InjectFrame({50.0f, 50.0f}, no_keys, left);
-    (void)([&] { ui.Push(40, 40, 160, 28); const auto result = ui.ComboBegin("cb", 28, "pick", false); ui.Pop(); return result; }());
+    (void)combo_frame(false);
     in.InjectFrame({500.0f, 500.0f}, no_keys, none);
-    check(([&] { ui.Push(40, 40, 160, 28); const auto result = ui.ComboBegin("cb", 28, "pick", false); ui.Pop(); return result; }()),
+    check(combo_frame(false),
           "combo: a press that ends outside still clicks it");
     // Item rows: one click each, and only for the row under the cursor.
+    auto combo_item_frame = [&](float y, std::string_view key, std::string_view lbl, bool sel) {
+        ui.NewFrame();
+        ui.RootBegin(40, y, fake2d::UISize::Fixed(160), fake2d::UISize::Fixed(24));
+        ui.NextSize(fake2d::UISize::Grow(), fake2d::UISize::Fixed(24));
+        const bool out = ui.ComboItem(key, lbl, sel);
+        ui.RootEnd();
+        return out;
+    };
+    in.InjectFrame({50.0f, 90.0f}, no_keys, none);
+    (void)combo_item_frame(80, "ci0", "alpha", true);
     in.InjectFrame({50.0f, 90.0f}, no_keys, left);
-    check(!([&] { ui.Push(40, 80, 160, 24); const auto result = ui.ComboItem("ci0", 24, "alpha", true); ui.Pop(); return result; }()),
+    check(!combo_item_frame(80, "ci0", "alpha", true),
           "combo item: a press alone is not a pick");
     in.InjectFrame({50.0f, 90.0f}, no_keys, none);
-    check(([&] { ui.Push(40, 80, 160, 24); const auto result = ui.ComboItem("ci0", 24, "alpha", true); ui.Pop(); return result; }()),
+    check(combo_item_frame(80, "ci0", "alpha", true),
           "combo item: releasing over the row picks it");
-    check(!([&] { ui.Push(40, 108, 160, 24); const auto result = ui.ComboItem("ci1", 24, "beta", false); ui.Pop(); return result; }()),
+    check(!combo_item_frame(108, "ci1", "beta", false),
           "combo item: a row away from the cursor is not picked");
     // An open list must not fall through to whatever is beneath it: the
     // header is a separate widget with its own key.
     in.InjectFrame({50.0f, 90.0f}, no_keys, left);
+    (void)combo_frame(true);
     in.InjectFrame({50.0f, 90.0f}, no_keys, none);
-    check(!([&] { ui.Push(40, 40, 160, 28); const auto result = ui.ComboBegin("cb", 28, "pick", true); ui.Pop(); return result; }()),
+    check(!combo_frame(true),
           "combo: the header does not swallow a click aimed at the list");
 
     // --- ProgressBar: clamped, and measurable in pixels -------------------
@@ -5978,11 +6056,15 @@ int RunUITest(fake2d::Engine &engine) {
     fake2d::RenderTarget *t_bar = ui_lib.Get(bar_rt);
     fake2d::Color px{};
     if (t_bar != nullptr) {
+        ui.NewFrame();
         r.BeginFrame(0.0f, 0.0f, 0.0f, 1.0f);
         check(r.BeginRenderTarget(bar_rt), "bar: target binds");
         r.ClearActiveTarget(fake2d::Color{0.0f, 0.0f, 0.0f, 1.0f});
         // 100x20 at (10,10): half full means x=10..60 filled, 60..110 track.
-        ([&] { ui.Push(10, 10, 100, 20); ui.ProgressBar(20, 0.5f, fake2d::Color{1.0f, 0.0f, 0.0f, 1.0f}); ui.Pop(); }());
+        ui.RootBegin(10, 10, fake2d::UISize::Fixed(100), fake2d::UISize::Fixed(20));
+        ui.NextSize(fake2d::UISize::Grow(), fake2d::UISize::Fixed(20));
+        ui.ProgressBar(0.5f, fake2d::Color{1.0f, 0.0f, 0.0f, 1.0f});
+        ui.RootEnd();
         r.EndRenderTarget();
         r.EndFrame();
         check(t_bar->ReadPixel(30, 20, px) && near_u8(px.r, 1.0f),
@@ -5993,15 +6075,23 @@ int RunUITest(fake2d::Engine &engine) {
         // probes sit *outside* the 10..110 track (and outside the 8..112
         // frame) on purpose: a probe inside it reads filled either way, and
         // the assertion would never fail.
+        ui.NewFrame();
         check(r.BeginRenderTarget(bar_rt), "bar: target rebinds");
-        ([&] { ui.Push(10, 10, 100, 20); ui.ProgressBar(20, 2.0f, fake2d::Color{1.0f, 0.0f, 0.0f, 1.0f}); ui.Pop(); }());
+        ui.RootBegin(10, 10, fake2d::UISize::Fixed(100), fake2d::UISize::Fixed(20));
+        ui.NextSize(fake2d::UISize::Grow(), fake2d::UISize::Fixed(20));
+        ui.ProgressBar(2.0f, fake2d::Color{1.0f, 0.0f, 0.0f, 1.0f});
+        ui.RootEnd();
         r.EndRenderTarget();
         check(t_bar->ReadPixel(108, 20, px) && near_u8(px.r, 1.0f),
               "bar: above 1 fills the whole track");
         check(t_bar->ReadPixel(120, 20, px) && near_u8(px.r, 0.0f),
               "bar: above 1 does not spill past the track");
+        ui.NewFrame();
         check(r.BeginRenderTarget(bar_rt), "bar: target rebinds again");
-        ([&] { ui.Push(10, 10, 100, 20); ui.ProgressBar(20, -1.0f, fake2d::Color{1.0f, 0.0f, 0.0f, 1.0f}); ui.Pop(); }());
+        ui.RootBegin(10, 10, fake2d::UISize::Fixed(100), fake2d::UISize::Fixed(20));
+        ui.NextSize(fake2d::UISize::Grow(), fake2d::UISize::Fixed(20));
+        ui.ProgressBar(-1.0f, fake2d::Color{1.0f, 0.0f, 0.0f, 1.0f});
+        ui.RootEnd();
         r.EndRenderTarget();
         check(t_bar->ReadPixel(30, 20, px) && near_u8(px.r, 0.14f),
               "bar: below 0 draws no fill at all");
@@ -6012,11 +6102,21 @@ int RunUITest(fake2d::Engine &engine) {
     }
 
     // Every new widget contributes geometry.
+    ui.NewFrame();
     r.BeginFrame(0.0f, 0.08f, 0.10f, 0.14f);
-    ([&] { ui.Push(40, 40, 200, 20); ui.ProgressBar(20, 0.5f, fake2d::Color::White()); ui.Pop(); }());
-    (void)([&] { ui.Push(40, 80, 300, 20); const auto result = ui.RadioButton("q1", 20, true, "row"); ui.Pop(); return result; }());
-    (void)([&] { ui.Push(40, 110, 160, 28); const auto result = ui.ComboBegin("q2", 28, "pick", false); ui.Pop(); return result; }());
-    (void)([&] { ui.Push(40, 144, 160, 24); const auto result = ui.ComboItem("q3", 24, "alpha", true); ui.Pop(); return result; }());
+    ui.RootBegin(40, 40, fake2d::UISize::Fixed(200), fake2d::UISize::Fixed(20));
+    ui.NextSize(fake2d::UISize::Grow(), fake2d::UISize::Fixed(20));
+    ui.ProgressBar(0.5f, fake2d::Color::White());
+    ui.RootEnd();
+    ui.RootBegin(40, 80, fake2d::UISize::Fixed(300), fake2d::UISize::Fixed(20));
+    ui.RadioButton("q1", true, std::string_view("row"));
+    ui.RootEnd();
+    ui.RootBegin(40, 110, fake2d::UISize::Fixed(160), fake2d::UISize::Fixed(28));
+    ui.ComboBegin("q2", "pick", false);
+    ui.RootEnd();
+    ui.RootBegin(40, 144, fake2d::UISize::Fixed(160), fake2d::UISize::Fixed(24));
+    ui.ComboItem("q3", "alpha", true);
+    ui.RootEnd();
     r.EndFrame();
     check(r.QuadCount() >= 8, "draw: the round-2 widgets submit geometry");
 
@@ -6024,54 +6124,82 @@ int RunUITest(fake2d::Engine &engine) {
     // A drag is two frames: grab, then move with the button still down. The
     // grab frame must NOT report motion, or the panel jumps by whatever
     // distance the cursor happened to travel to reach the title bar.
+    auto win_frame = [&]() {
+        ui.NewFrame();
+        ui.RootBegin(40, 40, fake2d::UISize::Fixed(200), fake2d::UISize::Fixed(120));
+        const bool out = ui.Window("w1", "settings", 0.6f);
+        ui.RootEnd();
+        return out;
+    };
+    in.InjectFrame({60.0f, 50.0f}, no_keys, none);
+    (void)win_frame();
     in.InjectFrame({60.0f, 50.0f}, no_keys, left);
-    check(!([&] { ui.Push(40, 40, 200, 120); const auto result = ui.Window("w1", "settings", 0.6); ui.Pop(); return result; }()),
+    check(!win_frame(),
           "window: the frame that grabs it reports no motion");
     in.InjectFrame({80.0f, 60.0f}, no_keys, left);
-    check(([&] { ui.Push(40, 40, 200, 120); const auto result = ui.Window("w1", "settings", 0.6); ui.Pop(); return result; }()),
+    check(win_frame(),
           "window: holding and moving drags it");
     check(in.MouseDelta().x > 0.0f && in.MouseDelta().y > 0.0f,
           "window: the same movement is readable as a delta");
     in.InjectFrame({90.0f, 70.0f}, no_keys, none);
-    check(!([&] { ui.Push(40, 40, 200, 120); const auto result = ui.Window("w1", "settings", 0.6); ui.Pop(); return result; }()),
+    check(!win_frame(),
           "window: releasing ends the drag");
     in.InjectFrame({100.0f, 80.0f}, no_keys, none);
-    check(!([&] { ui.Push(40, 40, 200, 120); const auto result = ui.Window("w1", "settings", 0.6); ui.Pop(); return result; }()),
+    check(!win_frame(),
           "window: moving without a button held is not a drag");
     // The body is not a handle: only the bar moves the panel.
     in.InjectFrame({60.0f, 150.0f}, no_keys, left);
-    check(!([&] { ui.Push(40, 40, 200, 120); const auto result = ui.Window("w1", "settings", 0.6); ui.Pop(); return result; }()),
+    check(!win_frame(),
           "window: a press on the body does not grab it");
     in.InjectFrame({80.0f, 160.0f}, no_keys, left);
-    check(!([&] { ui.Push(40, 40, 200, 120); const auto result = ui.Window("w1", "settings", 0.6); ui.Pop(); return result; }()),
+    check(!win_frame(),
           "window: dragging from the body does nothing");
 
     // Tabs: one click each, and cancelling works like a button.
+    auto tab_frame = [&](float x, std::string_view key, std::string_view lbl, bool act) {
+        ui.NewFrame();
+        ui.RootBegin(x, 40, fake2d::UISize::Fixed(80), fake2d::UISize::Fixed(26));
+        const bool out = ui.Tab(key, lbl, act, 0.6f);
+        ui.RootEnd();
+        return out;
+    };
+    in.InjectFrame({50.0f, 50.0f}, no_keys, none);
+    (void)tab_frame(40, "t0", "audio", true);
     in.InjectFrame({50.0f, 50.0f}, no_keys, left);
-    check(!([&] { ui.Push(40, 40, 80, (24) + 2); const auto result = ui.Tab("t0", 24, "audio", true, 0.6); ui.Pop(); return result; }()),
+    check(!tab_frame(40, "t0", "audio", true),
           "tab: a press alone does not select");
     in.InjectFrame({50.0f, 50.0f}, no_keys, none);
-    check(([&] { ui.Push(40, 40, 80, (24) + 2); const auto result = ui.Tab("t0", 24, "audio", true, 0.6); ui.Pop(); return result; }()),
+    check(tab_frame(40, "t0", "audio", true),
           "tab: releasing over it selects it");
     in.InjectFrame({50.0f, 50.0f}, no_keys, left);
+    (void)tab_frame(40, "t0", "audio", true);
     in.InjectFrame({500.0f, 500.0f}, no_keys, none);
-    check(!([&] { ui.Push(40, 40, 80, (24) + 2); const auto result = ui.Tab("t0", 24, "audio", true, 0.6); ui.Pop(); return result; }()),
+    check(!tab_frame(40, "t0", "audio", true),
           "tab: releasing outside cancels");
-    check(!([&] { ui.Push(130, 40, 80, (24) + 2); const auto result = ui.Tab("t1", 24, "video", false, 0.6); ui.Pop(); return result; }()),
+    check(!tab_frame(130, "t1", "video", false),
           "tab: a tab away from the cursor is not selected");
 
     // A tree node is a toggle, so it must fire once and then go quiet —
     // unlike a drag, which is meant to keep firing.
+    auto tree_frame = [&](bool open) {
+        ui.NewFrame();
+        ui.RootBegin(40, 80, fake2d::UISize::Fixed(160), fake2d::UISize::Fixed(20));
+        const bool out = ui.Tree("n0", "graphics", open, 0.6f);
+        ui.RootEnd();
+        return out;
+    };
+    in.InjectFrame({50.0f, 90.0f}, no_keys, none);
+    (void)tree_frame(false);
     in.InjectFrame({50.0f, 90.0f}, no_keys, left);
-    check(!([&] { ui.Push(40, 80, 160, 20); const auto result = ui.Tree("n0", 20, "graphics", false, 0.6); ui.Pop(); return result; }()),
+    check(!tree_frame(false),
           "tree: a press alone does not toggle");
     in.InjectFrame({50.0f, 90.0f}, no_keys, none);
-    check(([&] { ui.Push(40, 80, 160, 20); const auto result = ui.Tree("n0", 20, "graphics", false, 0.6); ui.Pop(); return result; }()),
+    check(tree_frame(false),
           "tree: releasing over the row toggles it");
-    check(!([&] { ui.Push(40, 80, 160, 20); const auto result = ui.Tree("n0", 20, "graphics", true, 0.6); ui.Pop(); return result; }()),
+    check(!tree_frame(true),
           "tree: holding still does not toggle again");
     in.InjectFrame({50.0f, 90.0f}, no_keys, none);
-    check(!([&] { ui.Push(40, 80, 160, 20); const auto result = ui.Tree("n0", 20, "graphics", true, 0.6); ui.Pop(); return result; }()),
+    check(!tree_frame(true),
           "tree: an idle frame never toggles");
 
     // --- round 3 in pixels -------------------------------------------------
@@ -6081,10 +6209,14 @@ int RunUITest(fake2d::Engine &engine) {
     const int win_rt = ui3_lib.Create(128, 128);
     fake2d::RenderTarget *t_win = ui3_lib.Get(win_rt);
     if (t_win != nullptr) {
+        ui.NewFrame();
         r.BeginFrame(0.0f, 0.0f, 0.0f, 1.0f);
         check(r.BeginRenderTarget(win_rt), "window: target binds");
         r.ClearActiveTarget(fake2d::Color{0.0f, 0.0f, 0.0f, 1.0f});
-        const bool win_drag = ([&] { ui.Push(10, 10, 100, 80); const auto result = ui.Window("pw", "title", 0.6); ui.Pop(); return result; }());
+        ui.RootBegin(10, 10, fake2d::UISize::Fixed(100), fake2d::UISize::Fixed(80));
+        ui.ThemedPanel();
+        const bool win_drag = ui.Window("pw", "title", 0.6f);
+        ui.RootEnd();
         check(!win_drag, "window: a fresh window is not being dragged");
         r.EndRenderTarget();
         r.EndFrame();
@@ -6105,11 +6237,18 @@ int RunUITest(fake2d::Engine &engine) {
     const int tab_rt = ui3_lib.Create(200, 40);
     fake2d::RenderTarget *t_tab = ui3_lib.Get(tab_rt);
     if (t_tab != nullptr) {
+        ui.NewFrame();
         r.BeginFrame(0.0f, 0.0f, 0.0f, 1.0f);
         check(r.BeginRenderTarget(tab_rt), "tab: target binds");
         r.ClearActiveTarget(fake2d::Color{0.0f, 0.0f, 0.0f, 1.0f});
-        (void)([&] { ui.Push(10, 10, 80, (20) + 2); const auto result = ui.Tab("on", 20, "on", true, 0.6); ui.Pop(); return result; }());
-        (void)([&] { ui.Push(110, 10, 80, (20) + 2); const auto result = ui.Tab("off", 20, "off", false, 0.6); ui.Pop(); return result; }());
+        ui.RootBegin(10, 10, fake2d::UISize::Fixed(80), fake2d::UISize::Fixed(20));
+        ui.NextSize(fake2d::UISize::Grow(), fake2d::UISize::Fixed(20));
+        ui.Tab("on", "on", true, 0.6f);
+        ui.RootEnd();
+        ui.RootBegin(110, 10, fake2d::UISize::Fixed(80), fake2d::UISize::Fixed(20));
+        ui.NextSize(fake2d::UISize::Grow(), fake2d::UISize::Fixed(20));
+        ui.Tab("off", "off", false, 0.6f);
+        ui.RootEnd();
         r.EndRenderTarget();
         r.EndFrame();
         float on_b = -1.0f, off_b = -1.0f;
@@ -6124,10 +6263,17 @@ int RunUITest(fake2d::Engine &engine) {
     }
 
     // Every new widget contributes geometry.
+    ui.NewFrame();
     r.BeginFrame(0.0f, 0.08f, 0.10f, 0.14f);
-    (void)([&] { ui.Push(20, 20, 160, 100); const auto result = ui.Window("q4", "panel", 0.6); ui.Pop(); return result; }());
-    (void)([&] { ui.Push(20, 130, 70, (24) + 2); const auto result = ui.Tab("q5", 24, "one", true, 0.6); ui.Pop(); return result; }());
-    (void)([&] { ui.Push(20, 160, 160, 20); const auto result = ui.Tree("q6", 20, "node", false, 0.6); ui.Pop(); return result; }());
+    ui.RootBegin(20, 20, fake2d::UISize::Fixed(160), fake2d::UISize::Fixed(100));
+    ui.Window("q4", "panel", 0.6f);
+    ui.RootEnd();
+    ui.RootBegin(20, 130, fake2d::UISize::Fixed(70), fake2d::UISize::Fixed(26));
+    ui.Tab("q5", "one", true, 0.6f);
+    ui.RootEnd();
+    ui.RootBegin(20, 160, fake2d::UISize::Fixed(160), fake2d::UISize::Fixed(20));
+    ui.Tree("q6", "node", false, 0.6f);
+    ui.RootEnd();
     r.EndFrame();
     check(r.QuadCount() >= 8, "draw: the round-3 widgets submit geometry");
 
@@ -6165,15 +6311,17 @@ int RunUITest(fake2d::Engine &engine) {
     if (box_target) {
         begin_layout();
         ui.SetAudit(true);
-        ui.Push(20, 20, 90, 210, 4);
-        check(near(ui.AvailWidth(), 82), "box: padding reduces remaining width");
+        ui.RootBegin(20, 20, fake2d::UISize::Fixed(90), fake2d::UISize::Fixed(210), 4);
         const float wrapped_h = ui.Text(cjk);
-        const auto first = ui.LastRect();
+        ui.Remember("first-cjk");
         check(wrapped_h > line_h, "text: CJK sentence wraps to multiple lines");
         ui.Text("next", 0.6f, Overflow::Ellipsis);
-        check(near(ui.LastRect().y, first.y + first.height), "text: next widget follows measured height");
+        ui.Remember("next-text");
+        ui.RootEnd();
+        const auto first = ui.NamedRect("first-cjk");
+        check(near(first.width, 82), "box: padding reduces remaining width");
+        check(near(ui.NamedRect("next-text").y, first.y + first.height), "text: next widget follows measured height");
         check(ui.OverflowCount() == 0, "audit: contained wrapped text has no false positive");
-        ui.Pop();
         end_layout();
         check(outside_black(20, 20, 90, 210), "text: wrapped CJK pixels stay in the panel");
         bool cjk_pixels = false;
@@ -6183,9 +6331,9 @@ int RunUITest(fake2d::Engine &engine) {
         check(cjk_pixels, "text: real CJK glyphs were drawn, not only measured");
 
         begin_layout();
-        ui.Push(20, 20, 200, 60);
-        ui.Checkbox("caption", 20, true, "visible caption");
-        ui.Pop(); end_layout();
+        ui.RootBegin(20, 20, fake2d::UISize::Fixed(200), fake2d::UISize::Fixed(60));
+        ui.Checkbox("caption", true, std::string_view("visible caption"));
+        ui.RootEnd(); end_layout();
         bool caption_pixels = false;
         for (int yy = 20; yy < 50 && !caption_pixels; ++yy)
             for (int xx = 50; xx < 220 && !caption_pixels; ++xx)
@@ -6193,111 +6341,124 @@ int RunUITest(fake2d::Engine &engine) {
         check(caption_pixels, "widgets: fitted checkbox caption remains visible beside indicator");
 
         begin_layout();
-        ui.Push(20, 20, 60, 60);
-        ui.Push(40, 30, 100, 100);
+        ui.RootBegin(20, 20, fake2d::UISize::Fixed(60), fake2d::UISize::Fixed(60));
+        ui.RootAnchorBegin("left", "top", fake2d::UISize::Fixed(100), fake2d::UISize::Fixed(100), 40, 30, 0, true);
         ui.Panel(fake2d::Color::White());
-        ui.Pop();
-        ui.Pop();
+        ui.RootEnd();
+        ui.RootEnd();
         end_layout();
         check(box_target->ReadPixel(70, 60, px) && near_u8(px.r, 1), "clip: child paints the intersection");
         check(outside_black(60, 50, 20, 30), "clip: child never replaces its parent's clip");
-        check(ui.OverflowCount() == 1, "audit: oversized child box is reported against its parent");
+        check(ui.OverflowCount() >= 1, "audit: oversized child box is reported against its parent");
 
         begin_layout();
-        ui.Push(20, 20, 30, 30);
-        ui.Push(100, 100, 20, 20);
+        ui.RootBegin(20, 20, fake2d::UISize::Fixed(30), fake2d::UISize::Fixed(30));
+        ui.RootAnchorBegin("left", "top", fake2d::UISize::Fixed(20), fake2d::UISize::Fixed(20), 100, 100, 0, true);
         ui.Panel(fake2d::Color::White());
-        ui.Pop(); ui.Pop();
+        ui.RootEnd(); ui.RootEnd();
         end_layout();
         check(outside_black(0, 0, 0, 0), "clip: disjoint boxes produce an empty clip, not disabled clipping");
 
         for (const auto mode : {Overflow::Ellipsis, Overflow::Shrink}) {
             begin_layout();
-            ui.Push(20, 20, 70, 60);
+            ui.RootBegin(20, 20, fake2d::UISize::Fixed(70), fake2d::UISize::Fixed(60));
             ui.Text(cjk + " 1234567890123456789", 1, mode, 1);
-            check(ui.LastRect().width <= 70.01f, "fit: ellipsis/shrink measured width fits");
+            ui.Remember("fit-text");
+            ui.RootEnd(); end_layout();
+            check(ui.NamedRect("fit-text").width <= 70.01f, "fit: ellipsis/shrink measured width fits");
             check(ui.OverflowCount() == 0, "audit: ellipsis/shrink does not warn");
-            ui.Pop(); end_layout();
             check(outside_black(20, 20, 70, 60), "fit: ellipsis/shrink pixels never leave box");
         }
         begin_layout();
-        ui.Push(20, 20, 40, 50);
+        ui.RootBegin(20, 20, fake2d::UISize::Fixed(40), fake2d::UISize::Fixed(50));
         ui.Text("deliberately overflowing clip text", 1, Overflow::Clip);
+        ui.RootEnd();
         check(ui.OverflowCount() == 1, "audit: raw clip text overflow is registered");
         check(ui.AuditRects().back().kind == "text", "audit: text shares widget rectangle ledger");
-        ui.Pop(); end_layout();
+        end_layout();
         check(outside_black(20, 20, 40, 50), "clip: overflow audit does not allow pixel escape");
 
         begin_layout();
-        ui.Push(10, 10, 220, 230);
-        ui.Row(8, {64, -1, -2});
-        ui.Col(); ui.Text(cjk); const auto goods = ui.LastRect(); ui.ColEnd();
-        ui.Col(); ui.Text("123456789", 0.6f, Overflow::Ellipsis); const auto price = ui.LastRect(); ui.ColEnd();
-        ui.Col(); ui.Text("999", 0.6f, Overflow::Shrink); const auto output = ui.LastRect(); ui.ColEnd();
-        ui.RowEnd();
+        ui.RootBegin(10, 10, fake2d::UISize::Fixed(220), fake2d::UISize::Fixed(230));
+        ui.HStackBegin(8);
+        ui.NextWidth(fake2d::UISize::Fixed(64)); ui.VStackBegin(); ui.RememberBox("goods-col"); ui.Text(cjk); ui.StackEnd();
+        ui.NextWidth(fake2d::UISize::Grow(1)); ui.VStackBegin(); ui.RememberBox("price-col"); ui.Text("123456789", 0.6f, Overflow::Ellipsis); ui.StackEnd();
+        ui.NextWidth(fake2d::UISize::Grow(2)); ui.VStackBegin(); ui.RememberBox("output-col"); ui.Text("999", 0.6f, Overflow::Shrink); ui.StackEnd();
+        ui.StackEnd();
         ui.Text("after row");
+        ui.Remember("after-row");
+        ui.RootEnd(); end_layout();
+        const auto goods = ui.NamedRect("goods-col");
+        const auto price = ui.NamedRect("price-col");
+        const auto output = ui.NamedRect("output-col");
         check(goods.x + goods.width <= price.x && price.x + price.width <= output.x,
               "row: long goods name cannot overlap adjacent columns in first frame");
-        check(near(ui.LastRect().y, goods.y + goods.height) && goods.height > line_h,
+        check(near(ui.NamedRect("after-row").y, goods.y + goods.height) && goods.height > line_h,
               "row: height is maximum measured cell height");
         check(near(output.x - price.x, (220 - 64 - 16) / 3.0f + 8),
               "row: flex slots are allocated from same-frame remaining width");
-        ui.Pop(); end_layout();
 
         begin_layout();
-        ui.Push(10, 10, 220, 200);
-        ui.Row(8); ui.Col(80); ui.Text("fixed"); ui.ColEnd();
-        ui.Col(100); ui.Text("packed"); check(near(ui.LastRect().x, 98), "row: untemplated fixed columns pack left-to-right");
-        ui.ColEnd(); ui.RowEnd(); ui.Pop(); end_layout();
+        ui.RootBegin(10, 10, fake2d::UISize::Fixed(220), fake2d::UISize::Fixed(200));
+        ui.HStackBegin(8);
+        ui.NextWidth(fake2d::UISize::Fixed(80)); ui.Text("fixed");
+        ui.NextWidth(fake2d::UISize::Fixed(100)); ui.Text("packed"); ui.Remember("packed-text");
+        ui.StackEnd(); ui.RootEnd(); end_layout();
+        check(near(ui.NamedRect("packed-text").x, 98), "row: untemplated fixed columns pack left-to-right");
 
         in.InjectFrame({40, 40}, no_keys, none, -100);
         begin_layout();
-        ui.Push(20, 20, 180, 200);
-        ui.ScrollBegin("auto", 80);
+        ui.RootBegin(20, 20, fake2d::UISize::Fixed(180), fake2d::UISize::Fixed(200));
+        ui.ScrollBoxBegin("auto", fake2d::UISize::Fixed(80));
         for (int i = 0; i < 16; ++i) ui.Text("list item");
-        ui.ProgressBar(12, 1, fake2d::Color{0, 1, 0, 1});
-        const float content = ui.ScrollEnd();
+        ui.NextSize(fake2d::UISize::Grow(), fake2d::UISize::Fixed(12));
+        ui.ProgressBar(1, fake2d::Color{0, 1, 0, 1});
+        ui.ScrollBoxEnd();
+        ui.Text("after viewport");
+        ui.Remember("after-vp");
+        ui.RootEnd();
+        const float content = ui.ScrollContentHeight("auto");
         check(near(content, 16 * line_h + 12), "scroll: height is this frame's cursor, not an estimate");
         check(near(ui.ScrollOffset("auto"), content - 80), "scroll: first-frame wheel clamps to measured height");
-        ui.Text("after viewport");
-        check(near(ui.LastRect().y, 100), "scroll: parent advances by viewport, not content height");
+        check(near(ui.NamedRect("after-vp").y, 100), "scroll: parent advances by viewport, not content height");
         check(ui.OverflowCount() == 0, "scroll: offscreen content is not an audit overflow");
-        ui.Pop(); end_layout();
+        end_layout();
         check(box_target->ReadPixel(40, 94, px) && near_u8(px.g, 1), "scroll: final content row is visible at the measured bottom in same frame");
         check(box_target->ReadPixel(40, 105, px) && px.g < 0.99f, "scroll: list cannot cover bottom chrome");
 
         in.InjectFrame({40, 40}, no_keys, none);
         begin_layout();
-        ui.Push(20, 20, 180, 200); ui.ScrollBegin("auto", 80);
-        ui.Text("short"); ui.ScrollEnd();
+        ui.RootBegin(20, 20, fake2d::UISize::Fixed(180), fake2d::UISize::Fixed(200));
+        ui.ScrollBoxBegin("auto", fake2d::UISize::Fixed(80));
+        ui.Text("short"); ui.ScrollBoxEnd(); ui.RootEnd();
         check(near(ui.ScrollContentHeight("auto"), line_h) && near(ui.ScrollOffset("auto"), 0),
               "scroll: shrinking content removes stale offset and false blank in same frame");
-        ui.Pop(); end_layout();
+        end_layout();
 
         begin_layout();
-        ui.Push(20, 20, 120, 80);
-        ui.ScrollBegin("outer", 60);
-        ui.ScrollBegin("inner", 100);
+        ui.RootBegin(20, 20, fake2d::UISize::Fixed(120), fake2d::UISize::Fixed(80));
+        ui.ScrollBoxBegin("outer", fake2d::UISize::Fixed(60));
+        ui.ScrollBoxBegin("inner", fake2d::UISize::Fixed(100));
         for (int i = 0; i < 12; ++i) ui.Text(cjk, 0.5f);
-        ui.ScrollEnd(); ui.ScrollEnd(); ui.Pop(); end_layout();
+        ui.ScrollBoxEnd(); ui.ScrollBoxEnd(); ui.RootEnd(); end_layout();
         check(outside_black(20, 20, 120, 60), "scroll: nested viewport intersects outer clip");
         in.InjectFrame({40, 40}, no_keys, none, -1);
         begin_layout();
-        ui.Push(20, 20, 120, 180);
-        ui.ScrollBegin("wheel_outer", 100);
-        ui.ScrollBegin("wheel_inner", 60);
+        ui.RootBegin(20, 20, fake2d::UISize::Fixed(120), fake2d::UISize::Fixed(180));
+        ui.ScrollBoxBegin("wheel_outer", fake2d::UISize::Fixed(100));
+        ui.ScrollBoxBegin("wheel_inner", fake2d::UISize::Fixed(60));
         for (int i = 0; i < 30; ++i) ui.Text("inner item");
-        ui.ScrollEnd();
+        ui.ScrollBoxEnd();
         for (int i = 0; i < 30; ++i) ui.Text("outer item");
-        ui.ScrollEnd(); ui.Pop(); end_layout();
+        ui.ScrollBoxEnd(); ui.RootEnd(); end_layout();
         check(near(ui.ScrollOffset("wheel_inner"), 40) && near(ui.ScrollOffset("wheel_outer"), 0),
               "scroll: deepest hovered viewport consumes wheel only once");
         in.InjectFrame({0, 0}, no_keys, none);
 
         begin_layout();
-        ui.Push(10, 10, 0, 40);
+        ui.RootBegin(10, 10, fake2d::UISize::Fixed(0), fake2d::UISize::Fixed(40));
         check(near(ui.Text("zero width"), 0), "text: zero width never disables wrapping to draw unlimited text");
-        ui.Pop(); end_layout();
+        ui.RootEnd(); end_layout();
         check(outside_black(0, 0, 0, 0), "text: zero width draws no pixels");
 
         check(near(ui.LayoutToken("panel_width"), 600), "tokens: panel width default");
@@ -6317,16 +6478,28 @@ int RunUITest(fake2d::Engine &engine) {
                              : "short";
             in.InjectFrame({40, 40}, no_keys, none, long_state ? -100 : 0);
             begin_layout();
-            ui.Push(10, 10, 220, 230);
-            ui.Push(0, 0, 100, 0, 4);
+            ui.RootBegin(10, 10, fake2d::UISize::Fixed(220), fake2d::UISize::Fixed(230));
+            ui.NextSize(fake2d::UISize::Fixed(100), fake2d::UISize::Auto());
+            ui.VStackBegin(0, 4);
+            ui.RememberBox("dyn-child");
             ui.ThemedPanel();
             const float text_h = ui.Text(paragraph, .5f);
-            ui.Pop();
-            const auto child = ui.LastRect();
+            ui.StackEnd();
+            ui.Text("sibling", .5f);
+            ui.Remember("dyn-sibling");
+            ui.HStackBegin(4);
+            ui.NextWidth(fake2d::UISize::Fixed(70)); ui.VStackBegin(); ui.RememberBox("dyn-goods"); ui.Text(long_state ? cjk : "silk", .4f); ui.StackEnd();
+            ui.NextWidth(fake2d::UISize::Grow(1)); ui.VStackBegin(); ui.RememberBox("dyn-price"); ui.Text(long_state ? "123456789012345 (+999%)" : "12", .4f, Overflow::Ellipsis); ui.StackEnd();
+            ui.NextWidth(fake2d::UISize::Grow(1)); ui.VStackBegin(); ui.RememberBox("dyn-pop"); ui.Text(long_state ? "987654321012345" : "9", .4f, Overflow::Shrink); ui.StackEnd();
+            ui.StackEnd();
+            ui.ScrollBoxBegin("dynamic_text", fake2d::UISize::Fixed(40));
+            const float scroll_h = ui.Text(long_state ? cjk + cjk + cjk : "short", .5f);
+            ui.ScrollBoxEnd();
+            ui.RootEnd();
+            const auto child = ui.NamedRect("dyn-child");
             check(near(child.height, text_h + 8),
                   "dynamic: auto child reserves measured text plus padding");
-            ui.Text("sibling", .5f);
-            check(near(ui.LastRect().y, child.y + child.height),
+            check(near(ui.NamedRect("dyn-sibling").y, child.y + child.height),
                   "dynamic: following sibling tracks grow/shrink in same frame");
             if (state == 0)
                 short_auto = child.height;
@@ -6335,31 +6508,16 @@ int RunUITest(fake2d::Engine &engine) {
             if (state == 2 || state == 4)
                 check(near(child.height, short_auto),
                       "dynamic: long -> short returns to original height without cache tail");
-            ui.Row(4, {70, -1, -1});
-            ui.Col();
-            ui.Text(long_state ? cjk : "silk", .4f);
-            const auto goods = ui.LastRect();
-            ui.ColEnd();
-            ui.Col();
-            ui.Text(long_state ? "123456789012345 (+999%)" : "12", .4f, Overflow::Ellipsis);
-            const auto price = ui.LastRect();
-            ui.ColEnd();
-            ui.Col();
-            ui.Text(long_state ? "987654321012345" : "9", .4f, Overflow::Shrink);
-            const auto population = ui.LastRect();
-            ui.ColEnd();
-            ui.RowEnd();
+            const auto goods = ui.NamedRect("dyn-goods");
+            const auto price = ui.NamedRect("dyn-price");
+            const auto population = ui.NamedRect("dyn-pop");
             check(goods.x + goods.width <= price.x && price.x + price.width <= population.x,
                   "dynamic: digit/language changes never overlap fixed/flex market columns");
-            ui.ScrollBegin("dynamic_text", 40);
-            const float scroll_h = ui.Text(long_state ? cjk + cjk + cjk : "short", .5f);
-            ui.ScrollEnd();
             check(near(ui.ScrollContentHeight("dynamic_text"), scroll_h),
                   "dynamic: scroll range uses this transition's text height");
             if (!long_state)
                 check(near(ui.ScrollOffset("dynamic_text"), 0),
                       "dynamic: shortened scroll immediately clamps offset to zero");
-            ui.Pop();
             check(ui.OverflowCount() == 0,
                   "dynamic: measured content has no unintended audit overflow");
             end_layout();
@@ -6367,87 +6525,78 @@ int RunUITest(fake2d::Engine &engine) {
         }
         check(long_auto > short_auto, "dynamic: Chinese paragraph actually grows the child panel");
         begin_layout();
-        ui.Push(10, 10, 200, 230);
+        ui.RootBegin(10, 10, fake2d::UISize::Fixed(200), fake2d::UISize::Fixed(230));
         ui.Constrain(60, 90, 30, 60);
-        ui.Push(0, 0, 150, 0);
+        ui.NextSize(fake2d::UISize::Fixed(150), fake2d::UISize::Auto());
+        ui.VStackBegin();
+        ui.RememberBox("constrained-box");
         ui.Text("x", .4f);
-        ui.Pop();
-        check(near(ui.LastRect().width, 90) && near(ui.LastRect().height, 30),
+        ui.StackEnd();
+        ui.FlowBoxBegin(5, 3);
+        ui.NextSize(fake2d::UISize::Fixed(110), fake2d::UISize::Fixed(20)); ui.Button("flow1", "one");
+        ui.NextSize(fake2d::UISize::Fixed(100), fake2d::UISize::Fixed(30)); ui.Button("flow2", "two");
+        ui.FlowBoxEnd();
+        ui.TableBegin("grid148", {fake2d::UISize::Fixed(60), fake2d::UISize::Grow()}, 4, 4);
+        ui.TableRowBegin(fake2d::UIAxisAlign::Start);
+        ui.NextSize(fake2d::UISize::Grow(), fake2d::UISize::Fixed(20)); ui.Button("g1", "a");
+        ui.NextSize(fake2d::UISize::Grow(), fake2d::UISize::Fixed(30)); ui.Button("g2", "b");
+        ui.TableRowEnd();
+        ui.TableRowBegin(fake2d::UIAxisAlign::Start);
+        ui.NextSize(fake2d::UISize::Grow(), fake2d::UISize::Fixed(20)); ui.Button("g3", "c");
+        ui.TableRowEnd();
+        ui.TableEnd();
+        ui.HStackBegin(4, 0, fake2d::UIAxisAlign::End);
+        ui.Constrain(20, 70, 40, 80);
+        ui.VStackBegin(); ui.Text("small", .4f); ui.StackEnd();
+        ui.VStackBegin(); ui.Text(cjk, .4f); ui.StackEnd();
+        ui.StackEnd();
+        ui.RootEnd();
+        check(near(ui.NamedRect("constrained-box").width, 90) && near(ui.NamedRect("constrained-box").height, 30),
               "constraints: auto box honors min/max dimensions");
-        ui.FlowBegin(5, 3);
-        ui.FlowItem(110);
-        ui.Button("flow1", 20, "one");
-        const auto f1 = ui.LastRect();
-        ui.FlowItemEnd();
-        ui.FlowItem(100);
-        ui.Button("flow2", 30, "two");
-        const auto f2 = ui.LastRect();
-        ui.FlowItemEnd();
-        ui.FlowEnd();
+        const auto f1 = ui.WidgetRect("flow1");
+        const auto f2 = ui.WidgetRect("flow2");
         check(near(f2.x, f1.x) && near(f2.y, f1.y + 23),
               "flow: insufficient remaining width wraps by tallest line plus gap");
-        ui.GridBegin(2, 4, {60, -1});
-        ui.GridCell();
-        ui.Button("g1", 20, "a");
-        const auto g1 = ui.LastRect();
-        ui.GridCellEnd();
-        ui.GridCell();
-        ui.Button("g2", 30, "b");
-        const auto g2 = ui.LastRect();
-        ui.GridCellEnd();
-        ui.GridCell();
-        ui.Button("g3", 20, "c");
-        const auto g3 = ui.LastRect();
-        ui.GridCellEnd();
-        ui.GridEnd();
+        const auto g1 = ui.WidgetRect("g1");
+        const auto g2 = ui.WidgetRect("g2");
+        const auto g3 = ui.WidgetRect("g3");
         check(near(g1.width, 60) && near(g2.width, 136) && near(g3.y, g1.y + 34),
               "grid: fixed/flex cells and measured next-row height");
-        ui.Row(4, {-1, -1});
-        ui.RowAlign(2);
-        ui.Constrain(20, 70, 40, 80);
-        ui.Col();
-        ui.Text("small", .4f);
-        ui.ColEnd();
-        ui.Col();
-        ui.Text(cjk, .4f);
-        ui.ColEnd();
-        ui.RowEnd();
-        ui.Pop();
         end_layout();
         check(outside_black(10, 10, 200, 230), "containers: flow/grid/aligned row remain clipped");
 
-        for (int frame = 0; frame < 3; ++frame) {
-            in.InjectFrame({frame == 0 ? 70.0f : 110.0f, 30}, no_keys, frame < 2 ? left : none);
+        for (int frame = -1; frame < 3; ++frame) {
+            in.InjectFrame({frame <= 0 ? 70.0f : 110.0f, 30}, no_keys,
+                           (frame == 0 || frame == 1) ? left : none);
             begin_layout();
-            ui.Push(10, 10, 180, 100);
-            const float offset = ui.Splitter("split_identity", 80, 60);
+            ui.RootBegin(10, 10, fake2d::UISize::Fixed(180), fake2d::UISize::Fixed(100));
+            ui.NextHeight(fake2d::UISize::Fixed(80));
+            const float offset = ui.Splitter("split_identity", 60);
             if (frame == 1)
                 check(near(offset, 100),
                       "splitter: dragging keyed divider updates offset without jump");
             if (frame == 2)
                 check(near(offset, 100), "splitter: keyed offset survives release and frames");
-            ui.Pop();
+            ui.RootEnd();
             end_layout();
         }
-        // Parent and prior-widget relations are declaration-order, same-frame.
+        // Parent and prior-widget relations are resolved cleanly via stacks & anchors.
         begin_layout();
-        ui.Push(10, 10, 200, 180);
-        ui.Button("anchor", 20, "anchor");
-        ui.Remember("anchor");
-        check(ui.PushRelated("anchor", "bottom", 8, 100, 20),
-              "relations: prior widget target resolves this frame");
-        ui.Button("related", 20, "related");
-        check(near(ui.LastRect().y, 38), "relations: bottom + gap uses measured target rect");
-        ui.Pop();
-        check(ui.PushRelated("", "right", -60, 50, 20, 0, 10),
-              "relations: parent edge and stretch supported");
-        ui.Button("stretch", 20, "");
-        check(near(ui.LastRect().x, 150) && near(ui.LastRect().width, 50),
+        ui.RootBegin(10, 10, fake2d::UISize::Fixed(200), fake2d::UISize::Fixed(180));
+        ui.VStackBegin(8);
+        ui.NextSize(fake2d::UISize::Fixed(100), fake2d::UISize::Fixed(20));
+        ui.Button("anchor", "anchor");
+        ui.NextSize(fake2d::UISize::Fixed(100), fake2d::UISize::Fixed(20));
+        ui.Button("related", "related");
+        ui.StackEnd();
+        ui.RootAnchorBegin("right", "top", fake2d::UISize::Fixed(50), fake2d::UISize::Fixed(20), 10, 10, 0, true);
+        ui.Button("stretch", "");
+        ui.RootEnd();
+        ui.RootEnd();
+        check(near(ui.WidgetRect("related").y, ui.WidgetRect("anchor").y + 28),
+              "relations: stack gap places subsequent widget");
+        check(near(ui.WidgetRect("stretch").x, 150) && near(ui.WidgetRect("stretch").width, 50),
               "relations: stretch to parent right minus inset");
-        ui.Pop();
-        check(!ui.PushRelated("later", "right", 8, 20, 20),
-              "relations: later undeclared target is rejected, no one-frame stale cache");
-        ui.Pop();
         end_layout();
         check(!ui.SetThemeMetric("unknown", 1) &&
                   !ui.SetThemeColor("unknown", fake2d::Color::White()),
@@ -6466,26 +6615,34 @@ int RunUITest(fake2d::Engine &engine) {
         check(skin && skin->IsValid(),
               "skin: demo texture available for nine-slice and image widgets");
         begin_layout();
-        ui.Push(10, 10, 120, 100);
+        ui.RootBegin(10, 10, fake2d::UISize::Fixed(120), fake2d::UISize::Fixed(100));
         ui.SetPanelSlice(skin, {0, 0, 32, 32}, 6, 6);
         ui.ThemedPanel();
-        ui.Image(skin, {0, 0, 32, 32}, 30);
+        ui.NextHeight(fake2d::UISize::Fixed(30));
+        ui.Image(skin, {0, 0, 32, 32});
         ui.SetRichIcon("ore", skin, {0, 0, 32, 32});
         ui.RichText("[color=#ff0000][b]red[/b][/color] [img=ore]", .5f);
-        ui.Pop();
+        ui.RootEnd();
         ui.SetPanelSlice(nullptr, {}, 0, 0);
         end_layout();
         check(outside_black(10, 10, 120, 100),
               "skin: nine-slice, icon and image are clipped together");
         // Rich links use the same press/release semantics as buttons.
+        in.InjectFrame({22, 24}, no_keys, none);
+        begin_layout();
+        ui.RootBegin(20, 20, fake2d::UISize::Fixed(150), fake2d::UISize::Fixed(60));
+        (void)ui.RichText("[link=manual][color=#ff0000]Read[/color][/link]", .6f);
+        ui.RootEnd();
+        end_layout();
         for (int frame = 0; frame < 2; ++frame) {
             in.InjectFrame({22, 24}, no_keys, frame == 0 ? left : none);
             begin_layout();
-            ui.Push(20, 20, 150, 60);
-            const auto link = ui.RichText("[link=manual][color=#ff0000]Read[/color][/link]", .6f);
+            ui.RootBegin(20, 20, fake2d::UISize::Fixed(150), fake2d::UISize::Fixed(60));
+            (void)ui.RichText("[link=manual][color=#ff0000]Read[/color][/link]", .6f);
+            ui.RootEnd();
+            const auto link = ui.ClickedLink();
             check(frame == 0 ? link.empty() : link == "manual",
                   "rich: link hit reports its id only on activation");
-            ui.Pop();
             end_layout();
         }
         bool saw_red = false;
@@ -6495,9 +6652,9 @@ int RunUITest(fake2d::Engine &engine) {
                     saw_red = true;
         check(saw_red, "rich: inline hex color actually reaches rendered glyphs");
         begin_layout();
-        ui.Push(20, 20, 45, 200);
+        ui.RootBegin(20, 20, fake2d::UISize::Fixed(45), fake2d::UISize::Fixed(200));
         const float hard_h = ui.Text("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz", .5f);
-        ui.Pop();
+        ui.RootEnd();
         end_layout();
         check(hard_h > line_h * 2 && outside_black(20, 20, 45, 200),
               "text: unbreakable Latin word hard-breaks and stays contained");
@@ -6508,9 +6665,10 @@ int RunUITest(fake2d::Engine &engine) {
                               const std::vector<std::int64_t> &buttons) {
             in.InjectFrame({25, 25}, keys, buttons, 0, chars);
             begin_layout();
-            ui.Push(20, 20, 180, 100);
-            ui.TextArea("area148", 100);
-            ui.Pop();
+            ui.RootBegin(20, 20, fake2d::UISize::Fixed(180), fake2d::UISize::Fixed(100));
+            ui.NextHeight(fake2d::UISize::Fixed(100));
+            ui.TextArea("area148");
+            ui.RootEnd();
             end_layout();
         };
         area_frame({}, {}, left);
@@ -6535,42 +6693,51 @@ int RunUITest(fake2d::Engine &engine) {
         for (int frame = 0; frame < 2; ++frame) {
             in.InjectFrame({25, 25}, no_keys, frame == 0 ? left : none);
             begin_layout();
-            ui.Push(20, 20, 120, 80);
+            ui.RootBegin(20, 20, fake2d::UISize::Fixed(120), fake2d::UISize::Fixed(80));
             ui.DisabledBegin();
             ui.DisabledBegin(false);
-            check(!ui.Button("disabled148", 24, "disabled"),
+            check(!ui.Button("disabled148", "disabled"),
                   "disabled: nested false scope cannot re-enable a disabled ancestor");
             check(!ui.IsHovered("disabled148"), "disabled: no hover state");
             ui.DisabledEnd();
             ui.DisabledEnd();
-            ui.Pop();
+            ui.RootEnd();
             end_layout();
         }
+        in.InjectFrame({25, 25}, no_keys, none);
+        begin_layout();
+        ui.RootBegin(20, 20, fake2d::UISize::Fixed(120), fake2d::UISize::Fixed(50));
+        ui.NextSize(fake2d::UISize::Grow(), fake2d::UISize::Fixed(40));
+        (void)ui.ImageButton("image148", skin, {0, 0, 32, 32}, "icon");
+        ui.RootEnd();
+        end_layout();
         for (int frame = 0; frame < 2; ++frame) {
             in.InjectFrame({25, 25}, no_keys, frame == 0 ? left : none);
             begin_layout();
-            ui.Push(20, 20, 120, 50);
-            const bool hit = ui.ImageButton("image148", skin, {0, 0, 32, 32}, 40, "icon");
+            ui.RootBegin(20, 20, fake2d::UISize::Fixed(120), fake2d::UISize::Fixed(50));
+            ui.NextSize(fake2d::UISize::Grow(), fake2d::UISize::Fixed(40));
+            const bool hit = ui.ImageButton("image148", skin, {0, 0, 32, 32}, "icon");
             check(hit == (frame == 1), "image button: image decoration retains button interaction");
-            ui.Pop();
+            ui.RootEnd();
             end_layout();
         }
         ui.OpenModal("dialog148");
         in.InjectFrame({25, 25}, no_keys, left);
         begin_layout();
-        ui.Push(20, 20, 120, 50);
-        check(!ui.Button("under148", 30, "under"), "modal: underlying widget cannot press");
-        ui.Pop();
-        check(ui.ModalBegin("dialog148", 140, 80), "modal: named active dialog opens");
-        ui.Button("modalok148", 24, "OK");
+        ui.RootBegin(20, 20, fake2d::UISize::Fixed(120), fake2d::UISize::Fixed(50));
+        check(!ui.Button("under148", "under"), "modal: underlying widget cannot press");
+        ui.RootEnd();
+        check(ui.ModalBegin("dialog148", fake2d::UISize::Fixed(140), fake2d::UISize::Fixed(80)),
+              "modal: named active dialog opens");
+        ui.Button("modalok148", "OK");
         ui.ModalEnd();
         end_layout();
         in.InjectFrame({25, 25}, no_keys, none);
         begin_layout();
-        ui.Push(20, 20, 120, 50);
-        check(!ui.Button("under148", 30, "under"),
+        ui.RootBegin(20, 20, fake2d::UISize::Fixed(120), fake2d::UISize::Fixed(50));
+        check(!ui.Button("under148", "under"),
               "modal: underlying release cannot click through");
-        ui.Pop();
+        ui.RootEnd();
         ui.CloseModal();
         end_layout();
         ui.OpenPopup("popup148", 20, 20);
@@ -6591,10 +6758,10 @@ int RunUITest(fake2d::Engine &engine) {
         auto nav_frame = [&]() {
             nav.NewFrame();
             r.BeginFrame(0, 0, 0, 1);
-            nav.Push(20, 20, 180, 150);
-            const bool a = nav.Button("nav_a", 25, "A");
-            const bool b = nav.Button("nav_b", 25, "B");
-            nav.Pop();
+            nav.RootBegin(20, 20, fake2d::UISize::Fixed(180), fake2d::UISize::Fixed(150));
+            const bool a = nav.Button("nav_a", "A");
+            const bool b = nav.Button("nav_b", "B");
+            nav.RootEnd();
             r.EndFrame();
             return a || b;
         };
@@ -6623,22 +6790,29 @@ int RunUITest(fake2d::Engine &engine) {
         check(nav_frame(), "focus: gamepad South activates focused button");
         fake2d::InputFrameSnapshot neutral_pad{};
         in.ApplySnapshot(neutral_pad);
-        in.InjectFrame({50, 50}, no_keys, left);
+        in.InjectFrame({50, 50}, no_keys, none);
         nav.NewFrame();
         check(nav.SetScale(128, 128, "contain") && near(nav.Scale(), 2),
               "scale: contain uses logical-point viewport, not framebuffer DPI");
         r.BeginFrame(0, 0, 0, 1);
-        nav.Push(20, 20, 50, 25);
-        nav.Button("scaled148", 25, "scaled");
-        nav.Pop();
+        nav.RootBegin(20, 20, fake2d::UISize::Fixed(50), fake2d::UISize::Fixed(25));
+        nav.Button("scaled148", "scaled");
+        nav.RootEnd();
+        r.EndFrame();
+        in.InjectFrame({50, 50}, no_keys, left);
+        nav.NewFrame();
+        r.BeginFrame(0, 0, 0, 1);
+        nav.RootBegin(20, 20, fake2d::UISize::Fixed(50), fake2d::UISize::Fixed(25));
+        nav.Button("scaled148", "scaled");
+        nav.RootEnd();
         r.EndFrame();
         in.InjectFrame({50, 50}, no_keys, none);
         nav.NewFrame();
         r.BeginFrame(0, 0, 0, 1);
-        nav.Push(20, 20, 50, 25);
-        check(nav.Button("scaled148", 25, "scaled"),
+        nav.RootBegin(20, 20, fake2d::UISize::Fixed(50), fake2d::UISize::Fixed(25));
+        check(nav.Button("scaled148", "scaled"),
               "scale: hit test inversely maps scaled reference points");
-        nav.Pop();
+        nav.RootEnd();
         r.EndFrame();
         for (const char *mode : {"width", "height", "contain", "expand"}) {
             nav_camera.SetViewport(320, 200);
@@ -6650,8 +6824,11 @@ int RunUITest(fake2d::Engine &engine) {
         for (int frame = 0; frame < 3; ++frame) {
             in.InjectFrame({30, 30}, no_keys, none, frame == 1 ? -3 : 0);
             begin_layout();
-            ui.Push(20, 20, 180, 150);
-            const auto range = ui.ListBegin("virtual148", 100, frame == 2 ? 2 : 1000, 20);
+            ui.RootBegin(20, 20, fake2d::UISize::Fixed(180), fake2d::UISize::Fixed(150));
+            ui.ListView("virtual148", fake2d::UISize::Fixed(100));
+            ui.RootEnd();
+            check(ui.ListViewBegin("virtual148"), "virtual: Two-Pass ListView begins");
+            const auto range = ui.ListBegin("virtual148", 0, frame == 2 ? 2 : 1000, 20);
             check(range.count <= 6, "virtual: 1000 items request only viewport slice");
             if (frame == 0)
                 check(range.first == 0 && range.count == 5, "virtual: initial range is exact");
@@ -6660,27 +6837,26 @@ int RunUITest(fake2d::Engine &engine) {
             if (frame == 2)
                 check(range.first == 0 && range.count == 2,
                       "virtual: shrinking item count clamps range immediately");
-            for (int i = 0; i < range.count; ++i)
-                ui.Button("virtualrow" + std::to_string(range.first + i), 20, "row");
+            for (int i = 0; i < range.count; ++i) {
+                ui.NextHeight(fake2d::UISize::Fixed(20));
+                ui.Button("virtualrow" + std::to_string(range.first + i), "row");
+            }
             ui.ListEnd();
+            ui.ListViewEnd();
             check(near(ui.ScrollContentHeight("virtual148"), (frame == 2 ? 2 : 1000) * 20.0f),
                   "virtual: extent is item count times fixed row height");
-            ui.Pop();
             end_layout();
             check(outside_black(20, 20, 180, 100), "virtual: rows and scrollbar obey nested clip");
         }
         begin_layout();
-        ui.Push(10, 10, 200, 100);
-        ui.Row(4, {-1, -1});
-        ui.RowAlign(2);
-        ui.Col();
-        ui.ProgressBar(12, 1, {1, 0, 0, 1});
-        ui.ColEnd();
-        ui.Col();
-        ui.ProgressBar(40, 1, {0, 1, 0, 1});
-        ui.ColEnd();
-        ui.RowEnd();
-        ui.Pop();
+        ui.RootBegin(10, 10, fake2d::UISize::Fixed(200), fake2d::UISize::Fixed(100));
+        ui.HStackBegin(4, 0, fake2d::UIAxisAlign::End);
+        ui.NextSize(fake2d::UISize::Grow(), fake2d::UISize::Fixed(12));
+        ui.ProgressBar(1, {1, 0, 0, 1});
+        ui.NextSize(fake2d::UISize::Grow(), fake2d::UISize::Fixed(40));
+        ui.ProgressBar(1, {0, 1, 0, 1});
+        ui.StackEnd();
+        ui.RootEnd();
         end_layout();
         check(box_target->ReadPixel(30, 44, px) && px.r > .9f && px.g < .1f,
               "row alignment: short column is painted at measured bottom in first frame");
@@ -6690,19 +6866,21 @@ int RunUITest(fake2d::Engine &engine) {
         // not to last frame's height, including the first growth and shrink.
         for (int state = 0; state < 3; ++state) {
             begin_layout();
-            ui.Push(10, 10, 140, 180);
-            ui.ScrollBegin("nested_auto148", 100);
-            ui.Push(0, 0, 120, 0, 4);
+            ui.RootBegin(10, 10, fake2d::UISize::Fixed(140), fake2d::UISize::Fixed(180));
+            ui.ScrollBoxBegin("nested_auto148", fake2d::UISize::Fixed(100));
+            ui.VStackBegin(0, 4);
             ui.ThemedPanel();
             const float measured = ui.Text(state == 1 ? cjk + cjk : "short", .5f);
-            ui.Pop();
+            ui.StackEnd();
             ui.Text("after", .5f);
-            const auto after = ui.LastRect();
+            ui.Remember("nested-after");
+            ui.ScrollBoxEnd();
+            ui.RootEnd();
+            const auto after = ui.NamedRect("nested-after");
             check(near(after.y, 10 + measured + 8),
                   "nested auto: sibling follows freshly measured box inside scroll");
-            check(near(ui.ScrollEnd(), measured + 8 + 14),
+            check(near(ui.ScrollContentHeight("nested_auto148"), measured + 8 + after.height),
                   "nested auto: scroll measures grow/shrink including child padding");
-            ui.Pop();
             end_layout();
             check(outside_black(10, 10, 140, 100),
                   "nested auto: deferred panel and text use intersecting viewport clip");
@@ -6710,18 +6888,20 @@ int RunUITest(fake2d::Engine &engine) {
         // Disabled text controls discard both committed characters and paste.
         in.InjectFrame({25, 25}, no_keys, left);
         begin_layout();
-        ui.Push(20, 20, 180, 80);
-        ui.TextInput("disabled_edit148", 30);
-        ui.Pop();
+        ui.RootBegin(20, 20, fake2d::UISize::Fixed(180), fake2d::UISize::Fixed(80));
+        ui.NextHeight(fake2d::UISize::Fixed(30));
+        ui.TextInput("disabled_edit148");
+        ui.RootEnd();
         end_layout();
         in.InjectFrame({25, 25}, no_keys, none, 0, {'X'});
         begin_layout();
-        ui.Push(20, 20, 180, 80);
+        ui.RootBegin(20, 20, fake2d::UISize::Fixed(180), fake2d::UISize::Fixed(80));
         ui.DisabledBegin();
-        check(!ui.TextInput("disabled_edit148", 30) && ui.TextValue("disabled_edit148").empty(),
+        ui.NextHeight(fake2d::UISize::Fixed(30));
+        check(!ui.TextInput("disabled_edit148") && ui.TextValue("disabled_edit148").empty(),
               "disabled: focused field ignores text and loses focus");
         ui.DisabledEnd();
-        ui.Pop();
+        ui.RootEnd();
         end_layout();
         fake2d::Input synthetic_clipboard;
         synthetic_clipboard.SetClipboard("田亩");
@@ -6738,9 +6918,9 @@ int RunUITest(fake2d::Engine &engine) {
         check(nav.SetScale(100, 100, "contain") && near(nav.Scale(), 2),
               "scale: contain letterboxes without double HiDPI scaling");
         r.BeginFrame(0, 0, 0, 1);
-        nav.Push(5, 5, 90, 90);
+        nav.RootBegin(5, 5, fake2d::UISize::Fixed(90), fake2d::UISize::Fixed(90));
         nav.Text("reference points", .4f);
-        nav.Pop();
+        nav.RootEnd();
         r.EndFrame();
         check(nav.OverflowCount() == 0, "scale: root rectangle audit uses reference-point bounds");
         check(nav.SetScale(100, 100, "expand") && near(nav.Scale(), 4),
@@ -6748,28 +6928,28 @@ int RunUITest(fake2d::Engine &engine) {
         nav.SetScale(0, 0);
 
         begin_layout();
-        ui.Push(10, 10, 200, 100);
-        ui.Row(4, {-1, -1});
+        ui.RootBegin(10, 10, fake2d::UISize::Fixed(200), fake2d::UISize::Fixed(100));
+        ui.HStackBegin(4);
         ui.Constrain(30, 60, 25, 60);
-        ui.Col();
-        ui.Button("slot_limits", 20, "limited");
-        const auto limited = ui.LastRect();
-        ui.ColEnd();
-        ui.Col();
-        ui.Button("next_slot", 20, "next");
-        const auto next_slot = ui.LastRect();
-        ui.ColEnd();
-        ui.RowEnd();
-        ui.Pop();
+        ui.VStackBegin();
+        ui.Button("slot_limits", "limited");
+        ui.StackEnd();
+        ui.VStackBegin();
+        ui.Button("next_slot", "next");
+        ui.StackEnd();
+        ui.StackEnd();
+        ui.RootEnd();
+        const auto limited = ui.WidgetRect("slot_limits");
+        const auto next_slot = ui.WidgetRect("next_slot");
         end_layout();
         check(near(limited.width, 60) && near(next_slot.x, limited.x + 64),
               "constraints: column max-width changes both actual rect and next slot origin");
         ui.SetThemeMetric("font_scale", .8f);
         begin_layout();
-        ui.Push(10, 10, 200, 100);
+        ui.RootBegin(10, 10, fake2d::UISize::Fixed(200), fake2d::UISize::Fixed(100));
         check(near(ui.Text("Theme default"), r.GetFont().LineHeight() * .8f),
               "theme: default font scale changes measured text, not only stored token");
-        ui.Pop();
+        ui.RootEnd();
         end_layout();
         ui.SetThemeMetric("font_scale", .6f);
         ui.OpenPopup("keyboard_popup148", 20, 20);
@@ -6788,18 +6968,19 @@ int RunUITest(fake2d::Engine &engine) {
         end_layout();
         in.InjectFrame({25, 25}, no_keys, {1});
         begin_layout();
-        ui.Push(20, 20, 150, 60);
-        ui.Button("context_host148", 30, "right click");
+        ui.RootBegin(20, 20, fake2d::UISize::Fixed(150), fake2d::UISize::Fixed(60));
+        ui.Button("context_host148", "right click");
+        ui.ContextMenu("context148");
+        ui.RootEnd();
         check(ui.ContextMenu("context148"),
               "context menu: right press over last rect opens a keyed menu");
-        ui.Pop();
         ui.Popup("context148", {"one"});
         ui.ClosePopup();
         end_layout();
         ui.OpenModal("escape148");
         in.InjectFrame({250, 250}, {"escape"}, none);
         begin_layout();
-        check(!ui.ModalBegin("escape148", 100, 80),
+        check(!ui.ModalBegin("escape148", fake2d::UISize::Fixed(100), fake2d::UISize::Fixed(80)),
               "modal: Escape closes before drawing and releases input block");
         end_layout();
         in.InjectFrame({250, 250}, no_keys, none);

@@ -471,15 +471,15 @@ local function update_body(dt)
 
     -- world-anchored HUD
     ui_set_origin(cam_x, cam_y)
-    ui_push(cam_x + 16, cam_y + 12, math.min(ui_layout_token("panel_width"), text_width("COINS " .. S.coins .. "/" .. S.total_coins, 0.6)), text_line_height() * (0.6))
+    ui_root_begin(cam_x + 16, cam_y + 12, "auto", "auto", 0, false)
+    ui_vstack(4, 0, "start")
     ui_text("COINS " .. S.coins .. "/" .. S.total_coins, 0.6, "ellipsis", 0, 0.96, 0.90, 0.51, 1.0)
-    ui_pop()
-    ui_push(cam_x + 16, cam_y + 38, math.min(ui_layout_token("panel_width"), text_width("A/D MOVE  SPACE JUMP", 0.4)), text_line_height() * (0.4))
     ui_text("A/D MOVE  SPACE JUMP", 0.4, "ellipsis", 0, 0.67, 0.71, 0.80, 1.0)
-    ui_pop()
-    ui_push(cam_x + vw - 126.0, cam_y + 10.0, 110.0, 32.0)
-    ui_button("restart", 32.0, "RESTART", 0.5)
-    ui_pop()
+    ui_vstack_end()
+    ui_root_end()
+    ui_root_begin(cam_x + vw - 126.0, cam_y + 10.0, 110.0, "auto", 0, true)
+    ui_button("restart", "RESTART", 0.5)
+    ui_root_end()
     if S.win_timer >= 0 then
         local banner = "LEVEL COMPLETE!"
         local w = text_width(banner, 1.4)

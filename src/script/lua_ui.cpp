@@ -126,12 +126,6 @@ inline bool IsStringArg(LS *s, CVar *a, int n, int i) {
     return v.type_ == 4 || v.type_ == 5; // VarType::String or VarType::StringId
 }
 
-inline bool IsBoolArg(LS *s, CVar *a, int n, int i) {
-    if (i >= n) return false;
-    const CVar v = fakelua::inter::GetNativeArg(s, a, n, i);
-    return v.type_ == 1; // VarType::Bool
-}
-
 UISize ParseSizeSpec(LS *s, CVar *a, int n, int i, UISize fallback = UISize::Auto()) {
     if (i >= n) return fallback;
     if (IsStringArg(s, a, n, i)) {
@@ -416,51 +410,7 @@ void RegisterLayoutUILuaApi(LS *s, LuaUIHost *host) {
             if (host->tips) host->tips->SetFallbackTip(std::move(text));
         });
 
-    // Cursor-box layout & UISystem widgets
-    Reg<void(LS *, double, double, double, double, double)>(
-        s, host, "ui_push", [ui_sys](LS *, double x, double y, double w, double h, double pad) {
-            if (auto *u = ui_sys()) {
-                u->Push(static_cast<float>(x), static_cast<float>(y),
-                        static_cast<float>(w), static_cast<float>(h), static_cast<float>(pad));
-            }
-        });
-    RegVar(s, host, "ui_push_inset", 4, [ui_sys](LS *st, CVar *a, int n) -> double {
-        if (auto *u = ui_sys()) {
-            const float l = static_cast<float>(ArgNum(st, a, n, 0));
-            const float t = static_cast<float>(ArgNum(st, a, n, 1));
-            const float r = static_cast<float>(ArgNum(st, a, n, 2));
-            const float b = static_cast<float>(ArgNum(st, a, n, 3));
-            const float w = n > 4 ? static_cast<float>(ArgNum(st, a, n, 4)) : 0.0f;
-            const float h = n > 5 ? static_cast<float>(ArgNum(st, a, n, 5)) : -1.0f;
-            u->PushInset(l, t, r, b, w, h);
-        }
-        return 0.0;
-    });
-    RegVar(s, host, "ui_push_fill", 0, [ui_sys](LS *st, CVar *a, int n) -> double {
-        if (auto *u = ui_sys()) {
-            const float reserve_bottom = n > 0 ? static_cast<float>(ArgNum(st, a, n, 0)) : 0.0f;
-            const float pad = n > 1 ? static_cast<float>(ArgNum(st, a, n, 1)) : 0.0f;
-            u->PushFill(reserve_bottom, pad);
-        }
-        return 0.0;
-    });
-    RegVar(s, host, "ui_push_anchor", 4, [ui_sys](LS *st, CVar *a, int n) -> double {
-        if (auto *u = ui_sys()) {
-            const std::string h_align = ArgStr(st, a, n, 0);
-            const std::string v_align = ArgStr(st, a, n, 1);
-            const float w = static_cast<float>(ArgNum(st, a, n, 2));
-            const float h = static_cast<float>(ArgNum(st, a, n, 3));
-            const float ix = n > 4 ? static_cast<float>(ArgNum(st, a, n, 4)) : 0.0f;
-            const float iy = n > 5 ? static_cast<float>(ArgNum(st, a, n, 5)) : 0.0f;
-            const float pad = n > 6 ? static_cast<float>(ArgNum(st, a, n, 6)) : 0.0f;
-            const bool overlay = n > 7 ? ArgBool(st, a, n, 7) : true;
-            u->PushAnchor(h_align, v_align, w, h, ix, iy, pad, overlay);
-        }
-        return 0.0;
-    });
-    Reg<void(LS *)>(s, host, "ui_pop", [ui_sys](LS *) {
-        if (auto *u = ui_sys()) u->Pop();
-    });
+    // Two-Pass layout & UISystem widgets
     RegVar(s, host, "ui_text", 1, [ui_sys, col_of](LS *st, CVar *a, int n) -> double {
         auto *u = ui_sys();
         if (!u) return 0.0;
@@ -473,53 +423,6 @@ void RegisterLayoutUILuaApi(LS *s, LuaUIHost *host) {
                              : Color{1.0f, 1.0f, 1.0f, 1.0f};
         const float min_s = n > 5 ? static_cast<float>(ArgNum(st, a, n, 5)) : 9.5f / 32.0f;
         return u->Text(text, scale, ParseOverflow(mode), align, col, min_s);
-    });
-    Reg<double(LS *)>(s, host, "ui_avail_w", [ui_sys](LS *) -> double {
-        auto *u = ui_sys();
-        return u ? u->AvailWidth() : 0.0;
-    });
-    Reg<double(LS *)>(s, host, "ui_avail_h", [ui_sys](LS *) -> double {
-        auto *u = ui_sys();
-        return u ? u->AvailHeight() : 0.0;
-    });
-    Reg<double(LS *, std::string, double)>(s, host, "ui_auto_h", [ui_sys](LS *, std::string key, double fb) -> double {
-        auto *u = ui_sys();
-        return u ? u->AutoHeight(key, static_cast<float>(fb)) : fb;
-    });
-    Reg<void(LS *, std::string)>(s, host, "ui_record_auto_h", [ui_sys](LS *, std::string key) {
-        if (auto *u = ui_sys()) u->RecordAutoHeight(key);
-    });
-    Reg<double(LS *, std::string)>(s, host, "ui_last_rect", [ui_sys](LS *, std::string field) -> double {
-        auto *u = ui_sys();
-        if (!u) return 0.0;
-        const auto r = u->LastRect();
-        if (field == "x") return r.x;
-        if (field == "y") return r.y;
-        if (field == "w") return r.width;
-        if (field == "h") return r.height;
-        return 0.0;
-    });
-    RegVar(s, host, "ui_row", 0, [ui_sys](LS *st, CVar *a, int n) -> double {
-        auto *u = ui_sys();
-        if (!u) return 0.0;
-        std::vector<float> cols;
-        for (int i = 1; i < n; ++i) {
-            cols.push_back(static_cast<float>(ArgNum(st, a, n, i)));
-        }
-        u->Row(n > 0 ? static_cast<float>(ArgNum(st, a, n, 0)) : 0.0f, cols);
-        return 0.0;
-    });
-    Reg<void(LS *, double)>(s, host, "ui_col", [ui_sys](LS *, double w) {
-        if (auto *u = ui_sys()) u->Col(static_cast<float>(w));
-    });
-    Reg<void(LS *)>(s, host, "ui_col_end", [ui_sys](LS *) {
-        if (auto *u = ui_sys()) u->ColEnd();
-    });
-    Reg<void(LS *)>(s, host, "ui_row_end", [ui_sys](LS *) {
-        if (auto *u = ui_sys()) u->RowEnd();
-    });
-    Reg<void(LS *, std::int64_t)>(s, host, "ui_row_align", [ui_sys](LS *, std::int64_t align) {
-        if (auto *u = ui_sys()) u->RowAlign(static_cast<int>(align));
     });
     RegVar(s, host, "ui_constrain", 2, [ui_sys](LS *st, CVar *a, int n) -> double {
         if (auto *u = ui_sys()) {
@@ -542,42 +445,6 @@ void RegisterLayoutUILuaApi(LS *s, LuaUIHost *host) {
     Reg<void(LS *)>(s, host, "ui_align_end", [ui_sys](LS *) {
         if (auto *u = ui_sys()) u->EndAlignGroup();
     });
-    RegVar(s, host, "ui_flow_begin", 0, [ui_sys](LS *st, CVar *a, int n) -> double {
-        if (auto *u = ui_sys()) {
-            const float gap = n > 0 ? static_cast<float>(ArgNum(st, a, n, 0)) : -1.0f;
-            const float lgap = n > 1 ? static_cast<float>(ArgNum(st, a, n, 1)) : -1.0f;
-            u->FlowBegin(gap, lgap);
-        }
-        return 0.0;
-    });
-    Reg<void(LS *, double)>(s, host, "ui_flow_item", [ui_sys](LS *, double w) {
-        if (auto *u = ui_sys()) u->FlowItem(static_cast<float>(w));
-    });
-    Reg<void(LS *)>(s, host, "ui_flow_item_end", [ui_sys](LS *) {
-        if (auto *u = ui_sys()) u->FlowItemEnd();
-    });
-    Reg<void(LS *)>(s, host, "ui_flow_end", [ui_sys](LS *) {
-        if (auto *u = ui_sys()) u->FlowEnd();
-    });
-    RegVar(s, host, "ui_grid_begin", 1, [ui_sys](LS *st, CVar *a, int n) -> double {
-        if (auto *u = ui_sys()) {
-            const int cols = static_cast<int>(ArgNum(st, a, n, 0));
-            const float gap = n > 1 ? static_cast<float>(ArgNum(st, a, n, 1)) : -1.0f;
-            std::vector<float> widths;
-            for (int i = 2; i < n; ++i) widths.push_back(static_cast<float>(ArgNum(st, a, n, i)));
-            u->GridBegin(cols, gap, widths);
-        }
-        return 0.0;
-    });
-    Reg<void(LS *)>(s, host, "ui_grid_cell", [ui_sys](LS *) {
-        if (auto *u = ui_sys()) u->GridCell();
-    });
-    Reg<void(LS *)>(s, host, "ui_grid_cell_end", [ui_sys](LS *) {
-        if (auto *u = ui_sys()) u->GridCellEnd();
-    });
-    Reg<void(LS *)>(s, host, "ui_grid_end", [ui_sys](LS *) {
-        if (auto *u = ui_sys()) u->GridEnd();
-    });
     auto ensure_tip_recorder = [host](UISystem *u) {
         if (!u || !host->tips) return;
         u->SetTipRecorder([host](const Rect &clipped_rect, std::string_view text, bool is_occluder) {
@@ -590,36 +457,11 @@ void RegisterLayoutUILuaApi(LS *s, LuaUIHost *host) {
         });
     };
 
-    Reg<void(LS *, std::string, double)>(
-        s, host, "ui_scroll_begin", [host, ui_sys](LS *, std::string key, double h) {
-            auto *u = ui_sys();
-            if (!u) return;
-            if (u->InAutoLayout()) {
-                u->ScrollBegin(key, static_cast<float>(h));
-                return;
-            }
-            const float vw = u->AvailWidth();
-            const float vh = h > 0.0 ? static_cast<float>(h)
-                                     : (h < 0.0 ? std::max(0.0f, u->AvailHeight() + static_cast<float>(h))
-                                                : u->AvailHeight());
-            const float outer_off = host->tips ? host->tips->CurrentScrollOffset() : 0.0f;
-            u->ScrollBegin(key, static_cast<float>(h));
-            u->Push(0.0f, 0.0f, 1.0f, 0.0f, 0.0f);
-            u->Pop();
-            const auto pos = u->LastRect();
-            const Rect vp{pos.x, pos.y - outer_off, vw, std::max(0.0f, vh)};
-            if (host->tips) {
-                host->tips->PushScroll(std::move(key), vp, u->ScrollOffset(key));
-            }
-        });
-    Reg<double(LS *)>(s, host, "ui_scroll_end", [host, ui_sys](LS *) -> double {
-        auto *u = ui_sys();
-        if (!u) return 0.0;
-        if (u->InAutoLayout()) {
-            return u->ScrollEnd();
+    Reg<double(LS *)>(s, host, "ui_scroll_end", [ui_sys](LS *) -> double {
+        if (auto *u = ui_sys()) {
+            u->ScrollBoxEnd();
         }
-        if (host->tips) host->tips->PopScroll();
-        return u->ScrollEnd();
+        return 0.0;
     });
     Reg<double(LS *, std::string)>(s, host, "ui_token", [ui_sys](LS *, std::string name) -> double {
         auto *u = ui_sys();
@@ -630,17 +472,11 @@ void RegisterLayoutUILuaApi(LS *s, LuaUIHost *host) {
             auto *u = ui_sys();
             return u && u->SetLayoutToken(name, static_cast<float>(value));
         });
-    Reg<void(LS *, std::string)>(s, host, "ui_tip", [host, ui_sys, ensure_tip_recorder](LS *, std::string t) {
+    Reg<void(LS *, std::string)>(s, host, "ui_tip", [ui_sys, ensure_tip_recorder](LS *, std::string t) {
         auto *u = ui_sys();
-        if (!u || t.empty() || u->IsSuppressed()) return;
-        if (u->InAutoLayout()) {
-            ensure_tip_recorder(u);
-            u->Tip(t);
-            return;
-        }
-        if (!host->tips) return;
-        const auto lr = u->LastRect();
-        host->tips->RecordClippedEntry(Rect{lr.x, lr.y, lr.width, lr.height}, std::move(t));
+        if (!u || t.empty() || u->IsSuppressed() || !u->InAutoLayout()) return;
+        ensure_tip_recorder(u);
+        u->Tip(t);
     });
     Reg<void(LS *, double, double, double, double, std::string)>(
         s, host, "ui_tip_rect", [host, ui_sys](LS *, double x, double y, double w, double h, std::string t) {
@@ -717,17 +553,20 @@ void RegisterLayoutUILuaApi(LS *s, LuaUIHost *host) {
         }
         return 0.0;
     });
-    RegVar(s, host, "ui_img_box", 2, [ui_sys, col_of, load_tex](LS *st, CVar *a, int n) -> double {
+    RegVar(s, host, "ui_img_box", 1, [ui_sys, col_of, load_tex](LS *st, CVar *a, int n) -> double {
         auto *u = ui_sys();
-        if (!u) return 0.0;
+        if (!u || !u->InAutoLayout()) return 0.0;
         const std::string name = ArgStr(st, a, n, 0);
-        const float h = static_cast<float>(ArgNum(st, a, n, 1));
+        const float h = n > 1 ? static_cast<float>(ArgNum(st, a, n, 1)) : 0.0f;
         const auto tint = n > 2 && ArgNum(st, a, n, 2) > 0
                               ? col_of(static_cast<std::int64_t>(ArgNum(st, a, n, 2)))
                               : Color::White();
         if (const auto *tex = load_tex(name)) {
             const Rect src{0.0f, 0.0f, static_cast<float>(tex->Width()), static_cast<float>(tex->Height())};
-            u->Image(tex, src, h, tint);
+            if (h > 0.0f) {
+                u->NextHeight(UISize::Fixed(h));
+            }
+            u->Image(tex, src, tint);
             return 1.0;
         }
         return 0.0;
@@ -749,14 +588,6 @@ void RegisterLayoutUILuaApi(LS *s, LuaUIHost *host) {
         u->FillRect(x, y, w, h, fill, brd);
         return 0.0;
     });
-    Reg<bool(LS *, std::string, std::string, double, double, double, double, double)>(
-        s, host, "ui_push_related",
-        [ui_sys](LS *, std::string target, std::string edge, double off, double w, double h,
-                 double pad, double inset) -> bool {
-            auto *u = ui_sys();
-            return u && u->PushRelated(target, edge, static_cast<float>(off), static_cast<float>(w),
-                                       static_cast<float>(h), static_cast<float>(pad), static_cast<float>(inset));
-        });
     Reg<void(LS *, std::string)>(s, host, "ui_remember", [ui_sys](LS *, std::string name) {
         if (auto *u = ui_sys()) u->Remember(name);
     });
@@ -773,13 +604,23 @@ void RegisterLayoutUILuaApi(LS *s, LuaUIHost *host) {
         if (field == "h") return r.height;
         return 0.0;
     });
+    Reg<double(LS *, std::string, std::string)>(s, host, "ui_widget_rect", [ui_sys](LS *, std::string key, std::string field) -> double {
+        auto *u = ui_sys();
+        if (!u) return 0.0;
+        const auto r = u->WidgetRect(key);
+        if (field == "x") return r.x;
+        if (field == "y") return r.y;
+        if (field == "w") return r.width;
+        if (field == "h") return r.height;
+        return 0.0;
+    });
     Reg<void(LS *, double)>(s, host, "ui_disabled_begin", [ui_sys](LS *, double on) {
         if (auto *u = ui_sys()) u->DisabledBegin(on != 0.0);
     });
     Reg<void(LS *)>(s, host, "ui_disabled_end", [ui_sys](LS *) {
         if (auto *u = ui_sys()) u->DisabledEnd();
     });
-    auto run_styled_button = [host](UISystem *u, const std::string &key, float h, const std::string &text,
+    auto run_styled_button = [host](UISystem *u, const std::string &key, const std::string &text,
                                     float scale, bool active, const std::string &style) -> bool {
         const auto prev_btn = u->ThemeColor("button");
         const auto prev_hov = u->ThemeColor("hover");
@@ -797,7 +638,7 @@ void RegisterLayoutUILuaApi(LS *s, LuaUIHost *host) {
             u->SetThemeColor("border", st.border);
             u->SetThemeColor("text", st.text);
         }
-        const bool clicked = u->Button(key, h, text, scale);
+        const bool clicked = u->Button(key, text, scale);
         u->SetThemeColor("button", prev_btn);
         u->SetThemeColor("hover", prev_hov);
         u->SetThemeColor("pressed", prev_prs);
@@ -810,15 +651,9 @@ void RegisterLayoutUILuaApi(LS *s, LuaUIHost *host) {
         auto *u = ui_sys();
         if (!u) return false;
         const std::string key = ArgStr(st, a, n, 0);
-        if (IsStringArg(st, a, n, 1)) {
-            const std::string text = ArgStr(st, a, n, 1);
-            const float scale = n > 2 ? static_cast<float>(ArgNum(st, a, n, 2)) : 0.0f;
-            return u->Button(key, text, scale);
-        }
-        const float h = static_cast<float>(ArgNum(st, a, n, 1));
-        const std::string text = n > 2 ? ArgStr(st, a, n, 2) : std::string{};
-        const float scale = n > 3 ? static_cast<float>(ArgNum(st, a, n, 3)) : 0.0f;
-        return u->Button(key, h, text, scale);
+        const std::string text = ArgStr(st, a, n, 1);
+        const float scale = n > 2 ? static_cast<float>(ArgNum(st, a, n, 2)) : 0.0f;
+        return u->Button(key, text, scale);
     });
     Reg<bool(LS *, std::string)>(s, host, "ui_hovered", [ui_sys](LS *, std::string key) -> bool {
         auto *u = ui_sys();
@@ -828,79 +663,44 @@ void RegisterLayoutUILuaApi(LS *s, LuaUIHost *host) {
         auto *u = ui_sys();
         if (!u) return false;
         const std::string key = ArgStr(st, a, n, 0);
-        if (IsStringArg(st, a, n, 1)) {
-            const std::string text = ArgStr(st, a, n, 1);
-            const float scale = n > 2 ? static_cast<float>(ArgNum(st, a, n, 2)) : 0.0f;
-            const bool active = n > 3 ? ArgBool(st, a, n, 3) : false;
-            const std::string style = n > 4 ? ArgStr(st, a, n, 4) : std::string{};
-            return run_styled_button(u, key, 0.0f, text, scale, active, style);
-        }
-        const float h = static_cast<float>(ArgNum(st, a, n, 1));
-        const std::string text = n > 2 ? ArgStr(st, a, n, 2) : std::string{};
-        const float scale = n > 3 ? static_cast<float>(ArgNum(st, a, n, 3)) : 0.0f;
-        const bool active = n > 4 ? ArgBool(st, a, n, 4) : false;
-        const std::string style = n > 5 ? ArgStr(st, a, n, 5) : std::string{};
-        return run_styled_button(u, key, h, text, scale, active, style);
+        const std::string text = ArgStr(st, a, n, 1);
+        const float scale = n > 2 ? static_cast<float>(ArgNum(st, a, n, 2)) : 0.0f;
+        const bool active = n > 3 ? ArgBool(st, a, n, 3) : false;
+        const std::string style = n > 4 ? ArgStr(st, a, n, 4) : std::string{};
+        return run_styled_button(u, key, text, scale, active, style);
     });
     RegVar(s, host, "ui_bar", 1, [ui_sys, col_of](LS *st, CVar *a, int n) -> double {
         auto *u = ui_sys();
         if (!u) return 0.0;
         const Color def_col{0.80f, 0.66f, 0.38f, 1.0f};
-        if (n <= 2) {
-            const float v = static_cast<float>(ArgNum(st, a, n, 0));
-            const std::int64_t cid = n > 1 ? static_cast<std::int64_t>(ArgNum(st, a, n, 1)) : 0;
-            u->ProgressBar(v, cid > 0 ? col_of(cid) : def_col);
-        } else {
-            const float h = static_cast<float>(ArgNum(st, a, n, 0));
-            const float v = static_cast<float>(ArgNum(st, a, n, 1));
-            const std::int64_t cid = static_cast<std::int64_t>(ArgNum(st, a, n, 2));
-            u->ProgressBar(h, v, cid > 0 ? col_of(cid) : def_col);
-        }
+        const float v = static_cast<float>(ArgNum(st, a, n, 0));
+        const std::int64_t cid = n > 1 ? static_cast<std::int64_t>(ArgNum(st, a, n, 1)) : 0;
+        u->ProgressBar(v, cid > 0 ? col_of(cid) : def_col);
         return 0.0;
     });
-    RegVar(s, host, "ui_slider", 4, [ui_sys](LS *st, CVar *a, int n) -> double {
-        auto *u = ui_sys();
-        if (!u) return 0.0;
-        const std::string key = ArgStr(st, a, n, 0);
-        if (n == 4) {
-            return u->Slider(key, static_cast<float>(ArgNum(st, a, n, 1)),
-                             static_cast<float>(ArgNum(st, a, n, 2)),
-                             static_cast<float>(ArgNum(st, a, n, 3)));
-        }
-        return u->Slider(key, static_cast<float>(ArgNum(st, a, n, 1)),
-                         static_cast<float>(ArgNum(st, a, n, 2)),
-                         static_cast<float>(ArgNum(st, a, n, 3)),
-                         static_cast<float>(ArgNum(st, a, n, 4)));
-    });
+    Reg<double(LS *, std::string, double, double, double)>(
+        s, host, "ui_slider", [ui_sys](LS *, std::string key, double v, double min_v, double max_v) -> double {
+            auto *u = ui_sys();
+            return u ? u->Slider(key, static_cast<float>(v), static_cast<float>(min_v), static_cast<float>(max_v))
+                     : v;
+        });
     RegVar(s, host, "ui_checkbox", 2, [ui_sys](LS *st, CVar *a, int n) -> bool {
         auto *u = ui_sys();
         if (!u) return false;
         const std::string key = ArgStr(st, a, n, 0);
-        if (IsBoolArg(st, a, n, 1)) {
-            const bool v = ArgBool(st, a, n, 1);
-            const std::string lbl = n > 2 ? ArgStr(st, a, n, 2) : std::string{};
-            const float sc = n > 3 ? static_cast<float>(ArgNum(st, a, n, 3)) : 0.0f;
-            return u->Checkbox(key, v, lbl, sc);
-        }
-        const float sz = static_cast<float>(ArgNum(st, a, n, 1));
-        const bool v = n > 2 ? ArgBool(st, a, n, 2) : false;
-        const std::string lbl = n > 3 ? ArgStr(st, a, n, 3) : std::string{};
-        const float sc = n > 4 ? static_cast<float>(ArgNum(st, a, n, 4)) : 0.0f;
-        return u->Checkbox(key, sz, v, lbl, sc);
+        const bool v = ArgBool(st, a, n, 1);
+        const std::string lbl = n > 2 ? ArgStr(st, a, n, 2) : std::string{};
+        const float sc = n > 3 ? static_cast<float>(ArgNum(st, a, n, 3)) : 0.0f;
+        return u->Checkbox(key, v, lbl, sc);
     });
     RegVar(s, host, "ui_text_input", 1, [ui_sys](LS *st, CVar *a, int n) -> bool {
         auto *u = ui_sys();
         if (!u) return false;
         const std::string key = ArgStr(st, a, n, 0);
-        if (n <= 2) {
-            const std::size_t mc = (n > 1 && ArgNum(st, a, n, 1) > 0)
-                                       ? static_cast<std::size_t>(ArgNum(st, a, n, 1))
-                                       : std::size_t{24};
-            return u->TextInput(key, 0.0f, mc);
-        }
-        const float h = static_cast<float>(ArgNum(st, a, n, 1));
-        const std::size_t mc = ArgNum(st, a, n, 2) > 0 ? static_cast<std::size_t>(ArgNum(st, a, n, 2)) : std::size_t{24};
-        return u->TextInput(key, h, mc);
+        const std::size_t mc = (n > 1 && ArgNum(st, a, n, 1) > 0)
+                                   ? static_cast<std::size_t>(ArgNum(st, a, n, 1))
+                                   : std::size_t{24};
+        return u->TextInput(key, mc);
     });
     Reg<std::string(LS *, std::string)>(s, host, "ui_text_get", [ui_sys](LS *, std::string key) -> std::string {
         auto *u = ui_sys();
@@ -1049,9 +849,38 @@ void RegisterLayoutUILuaApi(LS *s, LuaUIHost *host) {
     Reg<void(LS *)>(s, host, "ui_flow_end", [ui_sys](LS *) {
         if (auto *u = ui_sys()) u->FlowBoxEnd();
     });
+    RegVar(s, host, "ui_canvas", 0, [ui_sys](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) {
+            const UISize w = n > 0 ? ParseSizeSpec(st, a, n, 0, UISize::Auto()) : UISize::Auto();
+            const UISize h = n > 1 ? ParseSizeSpec(st, a, n, 1, UISize::Auto()) : UISize::Auto();
+            const float pad = n > 2 ? static_cast<float>(ArgNum(st, a, n, 2)) : 0.0f;
+            u->CanvasBegin(w, h, pad);
+        }
+        return 0.0;
+    });
+    Reg<void(LS *)>(s, host, "ui_canvas_end", [ui_sys](LS *) {
+        if (auto *u = ui_sys()) u->CanvasEnd();
+    });
+    RegVar(s, host, "ui_divider", 0, [ui_sys, col_of](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) {
+            const Color c = (n > 0 && ArgNum(st, a, n, 0) > 0)
+                                ? col_of(static_cast<std::int64_t>(ArgNum(st, a, n, 0)))
+                                : u->ThemeColor("border");
+            const float th = n > 1 ? static_cast<float>(ArgNum(st, a, n, 1)) : 1.0f;
+            u->Divider(c, th);
+        }
+        return 0.0;
+    });
     RegVar(s, host, "ui_spacer", 0, [ui_sys](LS *st, CVar *a, int n) -> double {
         if (auto *u = ui_sys()) {
             u->Spacer(n > 0 ? static_cast<float>(ArgNum(st, a, n, 0)) : -1.0f);
+        }
+        return 0.0;
+    });
+    RegVar(s, host, "ui_next_size", 2, [ui_sys](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) {
+            u->NextSize(ParseSizeSpec(st, a, n, 0, UISize::Auto()),
+                        ParseSizeSpec(st, a, n, 1, UISize::Auto()));
         }
         return 0.0;
     });
@@ -1069,6 +898,27 @@ void RegisterLayoutUILuaApi(LS *s, LuaUIHost *host) {
     });
     Reg<void(LS *, std::string)>(s, host, "ui_next_align", [ui_sys](LS *, std::string a) {
         if (auto *u = ui_sys()) u->NextAlign(ParseAxisAlign(a, UIAxisAlign::Center));
+    });
+    Reg<void(LS *, std::string)>(s, host, "ui_next_main_align", [ui_sys](LS *, std::string a) {
+        if (auto *u = ui_sys()) u->NextMainAlign(ParseAxisAlign(a, UIAxisAlign::Start));
+    });
+    Reg<void(LS *, std::string)>(s, host, "ui_modal_open", [ui_sys](LS *, std::string k) {
+        if (auto *u = ui_sys()) u->OpenModal(k);
+    });
+    Reg<void(LS *)>(s, host, "ui_modal_close", [ui_sys](LS *) {
+        if (auto *u = ui_sys()) u->CloseModal();
+    });
+    RegVar(s, host, "ui_modal_begin", 1, [ui_sys, ensure_tip_recorder](LS *st, CVar *a, int n) -> bool {
+        auto *u = ui_sys();
+        if (!u) return false;
+        ensure_tip_recorder(u);
+        const std::string key = ArgStr(st, a, n, 0);
+        const UISize w = n > 1 ? ParseSizeSpec(st, a, n, 1, UISize::Auto()) : UISize::Auto();
+        const UISize h = n > 2 ? ParseSizeSpec(st, a, n, 2, UISize::Auto()) : UISize::Auto();
+        return u->ModalBegin(key, w, h);
+    });
+    Reg<void(LS *)>(s, host, "ui_modal_end", [ui_sys](LS *) {
+        if (auto *u = ui_sys()) u->ModalEnd();
     });
     Reg<void(LS *, double, double, double, double)>(
         s, host, "ui_next_pad", [ui_sys](LS *, double l, double t, double r, double b) {
@@ -1095,7 +945,7 @@ void RegisterLayoutUILuaApi(LS *s, LuaUIHost *host) {
         const float scale = n > 2 ? static_cast<float>(ArgNum(st, a, n, 2)) : 0.0f;
         const bool active = n > 3 ? ArgBool(st, a, n, 3) : false;
         const std::string style = n > 4 ? ArgStr(st, a, n, 4) : std::string{};
-        return run_styled_button(u, key, 0.0f, text, scale, active, style);
+        return run_styled_button(u, key, text, scale, active, style);
     });
     RegVar(s, host, "ui_pbar", 1, [ui_sys, col_of](LS *st, CVar *a, int n) -> double {
         if (auto *u = ui_sys()) {

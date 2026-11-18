@@ -17,9 +17,9 @@ void RunUI150Checks(fake2d::Engine &engine, const std::function<void(bool, const
     renderer.BeginRenderTarget(target);
     renderer.ClearActiveTarget({0, 0, 0, 1});
     ui.BeginFrameUI();
-    ui.Push(10, 10, 300, 100);
+    ui.RootBegin(10, 10, fake2d::UISize::Fixed(300), fake2d::UISize::Fixed(100));
     ui.RichText("[color=#ff0000][b][link=parity]AVATAR[/link][/b][/color]", .7f);
-    ui.Pop();
+    ui.RootEnd();
     ui.EndFrameUI();
     renderer.EndRenderTarget();
     renderer.EndFrame();
@@ -91,15 +91,20 @@ void RunUI150Checks(fake2d::Engine &engine, const std::function<void(bool, const
         renderer.BeginFrame(0, 0, 0, 1);
         renderer.BeginRenderTarget(target);
         check(ui.BeginFrameUI(), "150: scoped frame begins");
-        ui.Push(10, 10, width, 400);
-        check(ui.VariableListBegin("converge", 260, pin), "150: list begins");
-        for (int i = ui.VariableListNext(); i >= 0; i = ui.VariableListNext()) {
-            ui.Text(texts[i], .55f);
-            ui.VariableListRowEnd();
+        ui.RootBegin(10, 10, fake2d::UISize::Fixed(width), fake2d::UISize::Fixed(400));
+        ui.ListView("converge", fake2d::UISize::Fixed(260));
+        ui.Button("scoped150", "Scoped");
+        ui.RootEnd();
+        check(ui.EndLayout(), "150: layout barrier");
+        if (ui.ListViewBegin("converge")) {
+            check(ui.VariableListBegin("converge", 0, pin), "150: list begins");
+            for (int i = ui.VariableListNext(); i >= 0; i = ui.VariableListNext()) {
+                ui.Text(texts[i], .55f);
+                ui.VariableListRowEnd();
+            }
+            ui.VariableListEnd();
+            ui.ListViewEnd();
         }
-        ui.VariableListEnd();
-        ui.Button("scoped150", 20, "Scoped");
-        ui.Pop();
         check(ui.EndFrameUI(), "150: frame ends");
         renderer.EndRenderTarget();
         renderer.EndFrame();
@@ -167,15 +172,6 @@ void RunUI150Checks(fake2d::Engine &engine, const std::function<void(bool, const
     check(ui.VariableListTotal("converge") < 260 && ui.ScrollOffset("converge") == 0,
           "150: shrink removes blank tail and stale scroll offset");
     check(ui.UnscopedWarnings() == 0, "150: scoped interactive calls are silent");
-    // Interactive declarations after End are unscoped too.
-    ui.Push(0, 0, 100, 100);
-    ui.Button("legacy150", 20, "Legacy");
-    ui.Button("legacy150b", 20, "Legacy");
-    ui.Pop();
-    check(ui.UnscopedWarnings() == 1, "150: unscoped use warns once, not per widget");
-    ui.NewFrame();
-    ui.Push(0, 0, 100, 100); ui.Button("legacy150", 20, "Legacy"); ui.Pop();
-    check(ui.UnscopedWarnings() == 1, "150: legacy diagnostic remains rate limited");
     input.SetClipboard("田 clipboard\nEnglish");
     check(input.Clipboard() == "田 clipboard\nEnglish", "150: portable headless clipboard roundtrip");
     renderer.GetRenderTargets().Destroy(target);
@@ -206,15 +202,15 @@ void RunUI149Checks(fake2d::Engine &engine, const std::function<void(bool, const
     };
     auto controls = [&](bool reverse = false, bool remove = false, bool disabled = false) {
         begin();
-        ui.Push(10, 10, 220, 220);
+        ui.RootBegin(10, 10, fake2d::UISize::Fixed(220), fake2d::UISize::Fixed(220));
         ui.DisabledBegin(disabled);
         if (reverse && !remove)
-            ui.Button("b", 24, "B");
-        ui.Button("a", 24, "A");
+            ui.Button("b", "B");
+        ui.Button("a", "A");
         if (!reverse && !remove)
-            ui.Button("b", 24, "B");
+            ui.Button("b", "B");
         ui.DisabledEnd();
-        ui.Pop();
+        ui.RootEnd();
         end();
     };
     input.InjectFrame({250, 250}, {"tab"}, {});
@@ -271,22 +267,18 @@ void RunUI149Checks(fake2d::Engine &engine, const std::function<void(bool, const
                                         : std::vector<std::int64_t>{});
             begin();
             ui.SetScrollOffset("aligned", 10000);
-            ui.Push(10, 10, 220, 220);
-            ui.ScrollBegin("aligned", 160);
-            ui.Push(0, 0, 208, 0);
-            ui.Row(8, {60, -1});
-            ui.RowAlign(2);
-            ui.Col();
-            ui.Button("aligned_button", 20, "aligned");
-            ui.ColEnd();
-            ui.Col();
+            ui.RootBegin(10, 10, fake2d::UISize::Fixed(220), fake2d::UISize::Fixed(220));
+            ui.ScrollBoxBegin("aligned", fake2d::UISize::Fixed(160));
+            ui.HStackBegin(8, 0, fake2d::UIAxisAlign::End);
+            ui.NextSize(fake2d::UISize::Fixed(60), fake2d::UISize::Fixed(20));
+            ui.Button("aligned_button", "aligned");
+            ui.NextWidth(fake2d::UISize::Grow());
             ui.Text(message, .5f);
-            ui.ColEnd();
-            ui.RowEnd();
-            ui.Pop();
-            ui.Button("following", 20, "after auto");
-            ui.ScrollEnd();
-            ui.Pop();
+            ui.StackEnd();
+            ui.NextHeight(fake2d::UISize::Fixed(20));
+            ui.Button("following", "after auto");
+            ui.ScrollBoxEnd();
+            ui.RootEnd();
             end();
             const auto rect = ui.WidgetRect("aligned_button"), after = ui.WidgetRect("following");
             check(std::abs(rect.y - (10 + height - 20 - scroll)) < .02f,
@@ -310,9 +302,9 @@ void RunUI149Checks(fake2d::Engine &engine, const std::function<void(bool, const
                               edge == 0 ? std::vector<std::int64_t>{0}
                                         : std::vector<std::int64_t>{});
             begin();
-            ui.Push(20, 20, 100, 40);
-            ui.Button("scaled", 24, "scaled");
-            ui.Pop();
+            ui.RootBegin(20, 20, fake2d::UISize::Fixed(100), fake2d::UISize::Fixed(40));
+            ui.Button("scaled", "scaled");
+            ui.RootEnd();
             end();
             check(ui.Clicked("scaled") == static_cast<bool>(edge),
                   "149: first resized/scaled frame hit-tests inverse reference mapping");
@@ -325,12 +317,12 @@ void RunUI149Checks(fake2d::Engine &engine, const std::function<void(bool, const
         input.InjectFrame({30, 25}, {},
                           edge == 0 ? std::vector<std::int64_t>{0} : std::vector<std::int64_t>{});
         begin();
-        ui.Push(20, 20, 160, 100);
-        ui.Button("under", 24, "under");
-        ui.Pop();
+        ui.RootBegin(20, 20, fake2d::UISize::Fixed(160), fake2d::UISize::Fixed(100));
+        ui.Button("under", "under");
+        ui.RootEnd();
         ui.OpenModal("late");
-        if (ui.ModalBegin("late", 150, 90)) {
-            ui.Button("dialog", 24, "dialog");
+        if (ui.ModalBegin("late", fake2d::UISize::Fixed(150), fake2d::UISize::Fixed(90))) {
+            ui.Button("dialog", "dialog");
             ui.ModalEnd();
         }
         end();
@@ -340,12 +332,12 @@ void RunUI149Checks(fake2d::Engine &engine, const std::function<void(bool, const
     ui.CloseModal();
     input.InjectFrame({250, 250}, {"tab"}, {});
     begin();
-    ui.Push(20, 20, 160, 100);
-    ui.Button("under", 24, "under");
-    ui.Pop();
+    ui.RootBegin(20, 20, fake2d::UISize::Fixed(160), fake2d::UISize::Fixed(100));
+    ui.Button("under", "under");
+    ui.RootEnd();
     ui.OpenModal("late");
-    if (ui.ModalBegin("late", 150, 90)) {
-        ui.Button("dialog", 24, "dialog");
+    if (ui.ModalBegin("late", fake2d::UISize::Fixed(150), fake2d::UISize::Fixed(90))) {
+        ui.Button("dialog", "dialog");
         ui.ModalEnd();
     }
     end();
@@ -354,12 +346,14 @@ void RunUI149Checks(fake2d::Engine &engine, const std::function<void(bool, const
     // Painter insertion points preserve layering: later solid panels cover earlier buttons.
     input.InjectFrame({250, 250}, {}, {});
     begin();
-    ui.Push(10, 10, 120, 80);
-    ui.Button("covered", 24, "covered");
-    ui.PushRelated("", "left", 0, 120, 24);
+    ui.RootBegin(10, 10, fake2d::UISize::Fixed(120), fake2d::UISize::Fixed(80));
+    ui.NextSize(fake2d::UISize::Grow(), fake2d::UISize::Fixed(24));
+    ui.Button("covered", "covered");
+    ui.RootAnchorBegin("left", "top", fake2d::UISize::Fixed(120), fake2d::UISize::Fixed(24), 0, 0,
+                       0, true);
     ui.Panel({1, 0, 0, 1}, {0, 0, 0, 0});
-    ui.Pop();
-    ui.Pop();
+    ui.RootEnd();
+    ui.RootEnd();
     end();
     fake2d::Color pixel{};
     auto *rt = renderer.GetRenderTargets().Get(target);
@@ -370,9 +364,9 @@ void RunUI149Checks(fake2d::Engine &engine, const std::function<void(bool, const
         input.InjectFrame({22, 24}, {},
                           edge == 0 ? std::vector<std::int64_t>{0} : std::vector<std::int64_t>{});
         begin();
-        ui.Push(20, 20, 180, 50);
+        ui.RootBegin(20, 20, fake2d::UISize::Fixed(180), fake2d::UISize::Fixed(50));
         ui.RichText("[link=manual][color=#ff0000]Read[/color][/link]", .6f);
-        ui.Pop();
+        ui.RootEnd();
         end();
         check(edge == 0 ? ui.ClickedLink().empty() : ui.ClickedLink() == "manual",
               "149: resolved rich link reports once across multiple glyphs");
@@ -400,9 +394,9 @@ void RunUI149Checks(fake2d::Engine &engine, const std::function<void(bool, const
         input.InjectFrame({25, 25}, {},
                           edge == 0 ? std::vector<std::int64_t>{0} : std::vector<std::int64_t>{});
         begin();
-        ui.Push(20, 20, 100, 80);
-        ui.Button("dismiss-under", 24, "under");
-        ui.Pop();
+        ui.RootBegin(20, 20, fake2d::UISize::Fixed(100), fake2d::UISize::Fixed(80));
+        ui.Button("dismiss-under", "under");
+        ui.RootEnd();
         ui.Popup("outside149", {"one", "two"}, 90, 24);
         end();
         check(!ui.Clicked("dismiss-under"),
@@ -423,29 +417,29 @@ void RunUI149Checks(fake2d::Engine &engine, const std::function<void(bool, const
                               edge == 0 ? -3 : 0);
             begin();
             ui.SetScrollOffset("late-outer", 10000);
-            ui.Push(20, 20, 232, 220);
-            ui.ScrollBegin("late-outer", 180);
-            ui.Row(8, {100, -1});
-            ui.RowAlign(2);
-            ui.Col();
-            check(ui.ListView("late-view", 60),
+            ui.RootBegin(20, 20, fake2d::UISize::Fixed(232), fake2d::UISize::Fixed(220));
+            ui.ScrollBoxBegin("late-outer", fake2d::UISize::Fixed(180));
+            ui.HStackBegin(8, 0, fake2d::UIAxisAlign::End);
+            ui.NextWidth(fake2d::UISize::Fixed(100));
+            check(ui.ListView("late-view", fake2d::UISize::Fixed(60)),
                   "149: reserve list viewport before its aligned y is known");
-            ui.ColEnd();
-            ui.Col();
+            ui.NextWidth(fake2d::UISize::Grow());
             ui.Text(message, .5f);
-            ui.ColEnd();
-            ui.RowEnd();
-            ui.Button("late-after", 20, "after");
-            ui.ScrollEnd();
-            ui.Pop();
+            ui.StackEnd();
+            ui.NextHeight(fake2d::UISize::Fixed(20));
+            ui.Button("late-after", "after");
+            ui.ScrollBoxEnd();
+            ui.RootEnd();
             check(!ui.ListViewBegin("late-view"),
                   "149: late-bound rows require an explicit balanced layout barrier");
             check(ui.EndLayout(),
                   "149: barrier resolves final scroll and aligned view, without caller replay");
             check(ui.ListViewBegin("late-view"), "149: visible rows enter the final-position view");
-            const auto slice = ui.ListBegin("late-rows", 60, 1000, 20);
-            for (int i = 0; i < slice.count; ++i)
-                ui.Button("late-row/" + std::to_string(slice.first + i), 20, "row");
+            const auto slice = ui.ListBegin("late-rows", 0, 1000, 20);
+            for (int i = 0; i < slice.count; ++i) {
+                ui.NextHeight(fake2d::UISize::Fixed(20));
+                ui.Button("late-row/" + std::to_string(slice.first + i), "row");
+            }
             ui.ListEnd();
             check(ui.ListViewEnd(), "149: late-bound view restores declaration state");
             end();
@@ -468,19 +462,21 @@ void RunUI149Checks(fake2d::Engine &engine, const std::function<void(bool, const
     const float blocked_offset = ui.ScrollOffset("late-rows");
     input.InjectFrame({35, 25}, {}, {}, -3);
     begin();
-    ui.Push(20, 20, 150, 100);
-    ui.ListView("blocked", 60);
-    ui.Pop();
+    ui.RootBegin(20, 20, fake2d::UISize::Fixed(150), fake2d::UISize::Fixed(100));
+    ui.ListView("blocked", fake2d::UISize::Fixed(60));
+    ui.RootEnd();
     ui.OpenModal("late-view-modal");
-    if (ui.ModalBegin("late-view-modal", 120, 80)) {
-        ui.Button("only-dialog", 24, "dialog");
+    if (ui.ModalBegin("late-view-modal", fake2d::UISize::Fixed(120), fake2d::UISize::Fixed(80))) {
+        ui.Button("only-dialog", "dialog");
         ui.ModalEnd();
     }
     check(ui.EndLayout(), "149: modal precedence is established before virtual input");
     check(ui.ListViewBegin("blocked"), "149: blocked list can still paint under modal");
-    auto blocked = ui.ListBegin("late-rows", 60, 1000, 20);
-    for (int i = 0; i < blocked.count; ++i)
-        ui.Button("blocked-row/" + std::to_string(blocked.first + i), 20, "blocked");
+    auto blocked = ui.ListBegin("late-rows", 0, 1000, 20);
+    for (int i = 0; i < blocked.count; ++i) {
+        ui.NextHeight(fake2d::UISize::Fixed(20));
+        ui.Button("blocked-row/" + std::to_string(blocked.first + i), "blocked");
+    }
     ui.ListEnd();
     ui.ListViewEnd();
     end();
@@ -499,12 +495,12 @@ void RunUI149Checks(fake2d::Engine &engine, const std::function<void(bool, const
     auto list_frame = [&](float width = 200, bool bottom = false, bool short_rows = false) {
         input.InjectFrame({250, 250}, {}, {});
         begin();
-        ui.Push(10, 10, width, 200);
-        check(ui.ListView("mixed", 100), "149: reserve virtual viewport in parent");
-        ui.Pop();
+        ui.RootBegin(10, 10, fake2d::UISize::Fixed(width), fake2d::UISize::Fixed(200));
+        check(ui.ListView("mixed", fake2d::UISize::Fixed(100)), "149: reserve virtual viewport in parent");
+        ui.RootEnd();
         check(ui.EndLayout(), "149: resolve viewport before visible-row declaration");
         check(ui.ListViewBegin("mixed"), "149: enter final-layout virtual viewport");
-        check(ui.VariableListBegin("mixed", 100, bottom), "149: variable list begins");
+        check(ui.VariableListBegin("mixed", 0, bottom), "149: variable list begins");
         std::vector<int> submitted;
         for (int row = ui.VariableListNext(); row >= 0; row = ui.VariableListNext()) {
             submitted.push_back(row);
@@ -521,7 +517,8 @@ void RunUI149Checks(fake2d::Engine &engine, const std::function<void(bool, const
                     ? std::string("LongUnbreakableEnglishWordThatMustWrapInsideTheCell")
                     : std::string("田 English");
             ui.Text(text, .5f);
-            ui.Button(ids[row], 18, "row");
+            ui.NextHeight(fake2d::UISize::Fixed(18));
+            ui.Button(ids[row], "row");
             ui.VariableListRowEnd();
             if (submitted.size() > 150) {
                 check(false, "149: virtualization convergence bounded");
@@ -632,12 +629,15 @@ void RunUI149Checks(fake2d::Engine &engine, const std::function<void(bool, const
         editing_time += .04;
         input.InjectFrame(mouse, keys, buttons, 0, chars);
         begin();
-        ui.Push(20, 20, 200, 120);
-        if (password)
-            ui.TextPassword("edit149", 28);
-        else
-            ui.TextArea("edit149", 100);
-        ui.Pop();
+        ui.RootBegin(20, 20, fake2d::UISize::Fixed(200), fake2d::UISize::Fixed(120));
+        if (password) {
+            ui.NextHeight(fake2d::UISize::Fixed(28));
+            ui.TextPassword("edit149");
+        } else {
+            ui.NextHeight(fake2d::UISize::Fixed(100));
+            ui.TextArea("edit149");
+        }
+        ui.RootEnd();
         end();
     };
     ui.SetTextValue("edit149", "AB");
@@ -728,10 +728,11 @@ void RunUI149Checks(fake2d::Engine &engine, const std::function<void(bool, const
           "149: password renders identical masks per Unicode codepoint");
     auto single_frame = [&] {
         begin();
-        ui.Push(20, 20, 200, 100);
-        ui.TextInput("single149", 28);
-        ui.Button("single-next", 24, "next");
-        ui.Pop();
+        ui.RootBegin(20, 20, fake2d::UISize::Fixed(200), fake2d::UISize::Fixed(100));
+        ui.NextHeight(fake2d::UISize::Fixed(28));
+        ui.TextInput("single149");
+        ui.Button("single-next", "next");
+        ui.RootEnd();
         end();
     };
     input.InjectFrame({250, 250}, {"tab"}, {});
@@ -787,24 +788,24 @@ void RunUI149Checks(fake2d::Engine &engine, const std::function<void(bool, const
     };
     const auto clean_issues = run_layout_audit([&]() {
         ui.BeginAlignGroup("hdr_ok", "top|bottom|center_y|height|no_overlap");
-        ui.Push(180, 10, 22, 22, 0);
-        ui.Button("hdr_help_ok", 22, "?", 0.4f);
-        ui.Pop();
-        ui.Push(208, 10, 22, 22, 0);
-        ui.Button("hdr_close_ok", 22, "x", 0.4f);
-        ui.Pop();
+        ui.RootBegin(180, 10, fake2d::UISize::Fixed(22), fake2d::UISize::Fixed(22));
+        ui.Button("hdr_help_ok", "?", 0.4f);
+        ui.RootEnd();
+        ui.RootBegin(208, 10, fake2d::UISize::Fixed(22), fake2d::UISize::Fixed(22));
+        ui.Button("hdr_close_ok", "x", 0.4f);
+        ui.RootEnd();
         ui.EndAlignGroup();
     });
     check(clean_issues.empty(), "151: aligned header buttons pass AuditLayout cleanly");
 
     const auto bad_hdr_issues = run_layout_audit([&]() {
         ui.BeginAlignGroup("hdr_bad", "top|bottom|center_y|height|no_overlap");
-        ui.Push(180, 8, 22, 22, 0);
-        ui.Button("hdr_help_bad", 22, "?", 0.4f);
-        ui.Pop();
-        ui.Push(208, 10, 22, 22, 0);
-        ui.Button("hdr_close_bad", 22, "x", 0.4f);
-        ui.Pop();
+        ui.RootBegin(180, 8, fake2d::UISize::Fixed(22), fake2d::UISize::Fixed(22));
+        ui.Button("hdr_help_bad", "?", 0.4f);
+        ui.RootEnd();
+        ui.RootBegin(208, 10, fake2d::UISize::Fixed(22), fake2d::UISize::Fixed(22));
+        ui.Button("hdr_close_bad", "x", 0.4f);
+        ui.RootEnd();
         ui.EndAlignGroup();
     });
     const bool caught_hdr_h = std::any_of(bad_hdr_issues.begin(), bad_hdr_issues.end(),
@@ -815,24 +816,24 @@ void RunUI149Checks(fake2d::Engine &engine, const std::function<void(bool, const
           "151: 2px top-right button misalignment caught by both align_h and align_group");
 
     const auto bad_col_issues = run_layout_audit([&]() {
-        ui.Push(10, 10, 100, 24, 0);
-        ui.Button("col_a", 24, "A", 0.4f);
-        ui.Pop();
-        ui.Push(12, 40, 100, 24, 0);
-        ui.Button("col_b", 24, "B", 0.4f);
-        ui.Pop();
+        ui.RootBegin(10, 10, fake2d::UISize::Fixed(100), fake2d::UISize::Fixed(24));
+        ui.Button("col_a", "A", 0.4f);
+        ui.RootEnd();
+        ui.RootBegin(12, 40, fake2d::UISize::Fixed(100), fake2d::UISize::Fixed(24));
+        ui.Button("col_b", "B", 0.4f);
+        ui.RootEnd();
     });
     check(std::any_of(bad_col_issues.begin(), bad_col_issues.end(),
                       [](const auto &iss) { return iss.category == "align_v"; }),
           "151: 2px vertical column misalignment caught by align_v");
 
     const auto bad_ov_issues = run_layout_audit([&]() {
-        ui.Push(10, 10, 80, 24, 0);
-        ui.Button("ov_a", 24, "A", 0.4f);
-        ui.Pop();
-        ui.Push(50, 14, 80, 24, 0);
-        ui.Button("ov_b", 24, "B", 0.4f);
-        ui.Pop();
+        ui.RootBegin(10, 10, fake2d::UISize::Fixed(80), fake2d::UISize::Fixed(24));
+        ui.Button("ov_a", "A", 0.4f);
+        ui.RootEnd();
+        ui.RootBegin(50, 14, fake2d::UISize::Fixed(80), fake2d::UISize::Fixed(24));
+        ui.Button("ov_b", "B", 0.4f);
+        ui.RootEnd();
     });
     check(std::any_of(bad_ov_issues.begin(), bad_ov_issues.end(),
                       [](const auto &iss) { return iss.category == "overlap"; }),
@@ -842,65 +843,67 @@ void RunUI149Checks(fake2d::Engine &engine, const std::function<void(bool, const
     check(ui.LayoutToken("sheet_pad_x") > 0.0f && ui.LayoutToken("sheet_header_h") > 0.0f,
           "152: default sheet layout tokens initialized");
     const auto inset_issues = run_layout_audit([&]() {
-        ui.Push(10, 10, 200, 160, 0);
-        ui.RememberBox("card_outer");
-        ui.PushInset(14, 5, 14, 5, 0, 40);
-        check(std::abs(ui.AvailWidth() - 172.0f) < 0.5f, "152: PushInset horizontal insets");
+        ui.RootBegin(10, 10, fake2d::UISize::Fixed(200), fake2d::UISize::Fixed(160));
+        ui.NextSize(fake2d::UISize::Grow(), fake2d::UISize::Fixed(40));
+        ui.NextPad(14, 5, 14, 5);
+        ui.VStackBegin();
+        ui.RememberBox("hdr_inset_box");
         ui.BeginAlignGroup("hdr_inset", "center_y|no_overlap");
-        ui.Row(6, {-1, 22, 22});
-        ui.RowAlign(1);
-        ui.Col(0);
+        ui.HStackBegin(6, 0, fake2d::UIAxisAlign::Center);
+        ui.NextWidth(fake2d::UISize::Grow());
         ui.Text("Header", 0.4f, fake2d::UITextOverflow::Ellipsis, 0);
-        ui.ColEnd();
-        ui.Col(0);
-        ui.Button("hdr_q_inset", 22, "?", 0.4f);
-        ui.ColEnd();
-        ui.Col(0);
-        ui.Button("hdr_x_inset", 22, "x", 0.4f);
-        ui.ColEnd();
-        ui.RowEnd();
+        ui.NextSize(fake2d::UISize::Fixed(22), fake2d::UISize::Fixed(22));
+        ui.Button("hdr_q_inset", "?", 0.4f);
+        ui.NextSize(fake2d::UISize::Fixed(22), fake2d::UISize::Fixed(22));
+        ui.Button("hdr_x_inset", "x", 0.4f);
+        ui.StackEnd();
         ui.EndAlignGroup();
-        ui.Pop();
-        ui.PushInset(14, 8, 14, 12, 0, -1);
-        check(std::abs(ui.AvailWidth() - 172.0f) < 0.5f && std::abs(ui.AvailHeight() - 100.0f) < 0.5f,
-              "152: PushInset remaining-height flex body");
-        ui.Button("body_fill_btn", 28, "Body", 0.4f);
-        ui.Pop();
-        ui.Pop();
-
-        if (ui.PushRelated("card_outer", "overlay", 0, 0, 0, 0)) {
-            ui.PushAnchor("right", "bottom", 60, 24, 14, 12, 0, true);
-            ui.Button("anchored_ok", 24, "OK", 0.4f);
-            ui.Pop();
-            ui.Pop();
-        }
+        ui.StackEnd();
+        ui.NextSize(fake2d::UISize::Grow(), fake2d::UISize::Grow());
+        ui.NextPad(14, 8, 14, 12);
+        ui.VStackBegin();
+        ui.RememberBox("body_fill_box");
+        ui.Button("body_fill_btn", "Body", 0.4f);
+        ui.StackEnd();
+        ui.RootAnchorBegin("right", "bottom", fake2d::UISize::Fixed(60), fake2d::UISize::Fixed(24),
+                           14, 12, 0, true);
+        ui.Button("anchored_ok", "OK", 0.4f);
+        ui.RootEnd();
+        ui.RootEnd();
     });
-    check(inset_issues.empty(), "152: PushInset + PushAnchor + overlay layout passes AuditLayout");
+    check(std::abs(ui.NamedRect("hdr_inset_box").width - 200.0f) < 0.5f &&
+              std::abs(ui.NamedRect("body_fill_box").height - 120.0f) < 0.5f,
+          "152: Two-Pass inset and Grow body sizing");
+    check(inset_issues.empty(), "152: inset + RootAnchor + overlay layout passes AuditLayout");
     const auto anchored_r = ui.WidgetRect("anchored_ok");
     check(std::abs(anchored_r.x - (10.0f + 200.0f - 60.0f - 14.0f)) < 1.0f &&
               std::abs(anchored_r.y - (10.0f + 160.0f - 24.0f - 12.0f)) < 1.0f,
-          "152: PushRelated(overlay) + PushAnchor bottom-right places widget accurately");
+          "152: RootAnchor(overlay) bottom-right places widget accurately");
 
     // 153: Parent centering, symmetric margins, Row/Col child collection, include_text, equal spacing
     const auto parent_center_ok = run_layout_audit([&]() {
-        ui.Push(10, 10, 200, 100, 0);
+        ui.RootBegin(10, 10, fake2d::UISize::Fixed(200), fake2d::UISize::Fixed(100));
         ui.BeginAlignGroup("centered_card_ok", "center_in_parent|symmetric_x|symmetric_y|fit_parent");
-        ui.Push(60, 35, 80, 30, 0);
-        ui.Button("cen_ok_btn", 30, "OK", 0.4f);
-        ui.Pop();
+        ui.RootAnchorBegin("left", "top", fake2d::UISize::Fixed(80), fake2d::UISize::Fixed(30),
+                           60, 35, 0, true);
+        ui.NextSize(fake2d::UISize::Grow(), fake2d::UISize::Grow());
+        ui.Button("cen_ok_btn", "OK", 0.4f);
+        ui.RootEnd();
         ui.EndAlignGroup();
-        ui.Pop();
+        ui.RootEnd();
     });
     check(parent_center_ok.empty(), "153: centered single widget in parent passes AuditLayout");
 
     const auto parent_center_bad = run_layout_audit([&]() {
-        ui.Push(10, 10, 200, 100, 0);
+        ui.RootBegin(10, 10, fake2d::UISize::Fixed(200), fake2d::UISize::Fixed(100));
         ui.BeginAlignGroup("centered_card_bad", "center_in_parent|symmetric_x");
-        ui.Push(40, 35, 80, 30, 0); // offset X by -20px
-        ui.Button("cen_bad_btn", 30, "Off", 0.4f);
-        ui.Pop();
+        ui.RootAnchorBegin("left", "top", fake2d::UISize::Fixed(80), fake2d::UISize::Fixed(30),
+                           40, 35, 0, true); // offset X by -20px
+        ui.NextSize(fake2d::UISize::Grow(), fake2d::UISize::Grow());
+        ui.Button("cen_bad_btn", "Off", 0.4f);
+        ui.RootEnd();
         ui.EndAlignGroup();
-        ui.Pop();
+        ui.RootEnd();
     });
     check(std::any_of(parent_center_bad.begin(), parent_center_bad.end(),
                       [](const auto &iss) { return iss.rule == "center_x_in_parent"; }) &&
@@ -909,63 +912,65 @@ void RunUI149Checks(fake2d::Engine &engine, const std::function<void(bool, const
           "153: off-center single widget caught by center_x_in_parent & symmetric_x");
 
     const auto row_col_bad = run_layout_audit([&]() {
-        ui.Push(10, 10, 240, 40, 0);
+        ui.RootBegin(10, 10, fake2d::UISize::Fixed(240), fake2d::UISize::Fixed(40));
         ui.BeginAlignGroup("row_hdr_bad", "center_y|height|no_overlap");
-        ui.Row(8, {-1, 24, 24});
-        ui.RowAlign(1);
-        ui.Col(0);
+        ui.HStackBegin(8, 0, fake2d::UIAxisAlign::Center);
+        ui.NextWidth(fake2d::UISize::Grow());
         ui.Text("Title", 0.4f, fake2d::UITextOverflow::Ellipsis, 1);
-        ui.ColEnd();
-        ui.Col(0);
-        ui.Button("rh_a", 24, "?", 0.4f);
-        ui.ColEnd();
-        ui.Col(0);
-        ui.Button("rh_b", 18, "x", 0.4f); // mismatched height inside Row/Col
-        ui.ColEnd();
-        ui.RowEnd();
+        ui.NextSize(fake2d::UISize::Fixed(24), fake2d::UISize::Fixed(24));
+        ui.Button("rh_a", "?", 0.4f);
+        ui.NextSize(fake2d::UISize::Fixed(24), fake2d::UISize::Fixed(18));
+        ui.Button("rh_b", "x", 0.4f); // mismatched height inside HStack
+        ui.StackEnd();
         ui.EndAlignGroup();
-        ui.Pop();
+        ui.RootEnd();
     });
     check(std::any_of(row_col_bad.begin(), row_col_bad.end(),
                       [](const auto &iss) {
                           return iss.category == "align_group" && iss.rule == "height";
                       }),
-          "153: AlignGroup collects Row/Col children and catches height mismatch");
+          "153: AlignGroup collects HStack children and catches height mismatch");
 
     const auto spacing_group_ok = run_layout_audit([&]() {
-        ui.Push(0, 0, 240, 80, 0);
+        ui.RootBegin(0, 0, fake2d::UISize::Fixed(240), fake2d::UISize::Fixed(80));
         ui.BeginAlignGroup("bar_ok",
                            "top|center_y|group_center_x_in_parent|equal_spacing_x|no_overlap");
         // 3 buttons of width 60 spaced by 10 at x=20, 90, 160 inside 240 -> span [20..220], center = 120
-        ui.PushAnchor("left", "top", 60, 30, 20, 25, 0, true);
-        ui.Button("sp_1", 30, "1", 0.4f);
-        ui.Pop();
-        ui.PushAnchor("left", "top", 60, 30, 90, 25, 0, true);
-        ui.Button("sp_2", 30, "2", 0.4f);
-        ui.Pop();
-        ui.PushAnchor("left", "top", 60, 30, 160, 25, 0, true);
-        ui.Button("sp_3", 30, "3", 0.4f);
-        ui.Pop();
+        ui.RootAnchorBegin("left", "top", fake2d::UISize::Fixed(60), fake2d::UISize::Fixed(30),
+                           20, 25, 0, true);
+        ui.Button("sp_1", "1", 0.4f);
+        ui.RootEnd();
+        ui.RootAnchorBegin("left", "top", fake2d::UISize::Fixed(60), fake2d::UISize::Fixed(30),
+                           90, 25, 0, true);
+        ui.Button("sp_2", "2", 0.4f);
+        ui.RootEnd();
+        ui.RootAnchorBegin("left", "top", fake2d::UISize::Fixed(60), fake2d::UISize::Fixed(30),
+                           160, 25, 0, true);
+        ui.Button("sp_3", "3", 0.4f);
+        ui.RootEnd();
         ui.EndAlignGroup();
-        ui.Pop();
+        ui.RootEnd();
     });
     check(spacing_group_ok.empty(),
           "153: group_center_x_in_parent + equal_spacing_x passes cleanly");
 
     const auto spacing_group_bad = run_layout_audit([&]() {
-        ui.Push(0, 0, 240, 80, 0);
+        ui.RootBegin(0, 0, fake2d::UISize::Fixed(240), fake2d::UISize::Fixed(80));
         ui.BeginAlignGroup("bar_bad", "group_center_x_in_parent|equal_spacing_x");
-        ui.PushAnchor("left", "top", 60, 30, 10, 25, 0, true);
-        ui.Button("spb_1", 30, "1", 0.4f);
-        ui.Pop();
-        ui.PushAnchor("left", "top", 60, 30, 80, 25, 0, true);
-        ui.Button("spb_2", 30, "2", 0.4f);
-        ui.Pop();
-        ui.PushAnchor("left", "top", 60, 30, 165, 25, 0, true); // gap 10 vs 25; union center 117.5 != 120
-        ui.Button("spb_3", 30, "3", 0.4f);
-        ui.Pop();
+        ui.RootAnchorBegin("left", "top", fake2d::UISize::Fixed(60), fake2d::UISize::Fixed(30),
+                           10, 25, 0, true);
+        ui.Button("spb_1", "1", 0.4f);
+        ui.RootEnd();
+        ui.RootAnchorBegin("left", "top", fake2d::UISize::Fixed(60), fake2d::UISize::Fixed(30),
+                           80, 25, 0, true);
+        ui.Button("spb_2", "2", 0.4f);
+        ui.RootEnd();
+        ui.RootAnchorBegin("left", "top", fake2d::UISize::Fixed(60), fake2d::UISize::Fixed(30),
+                           165, 25, 0, true); // gap 10 vs 25; union center 117.5 != 120
+        ui.Button("spb_3", "3", 0.4f);
+        ui.RootEnd();
         ui.EndAlignGroup();
-        ui.Pop();
+        ui.RootEnd();
     });
     check(std::any_of(spacing_group_bad.begin(), spacing_group_bad.end(),
                       [](const auto &iss) { return iss.rule == "group_center_x_in_parent"; }) &&
@@ -989,43 +994,38 @@ void RunUI149Checks(fake2d::Engine &engine, const std::function<void(bool, const
             renderer.BeginFrame(0, 0, 0, 1);
             renderer.BeginRenderTarget(target);
             renderer.ClearActiveTarget({0, 0, 0, 1});
-            host_ui.Push(40, 20, 560, 440, 12);
+            host_ui.RootBegin(40, 20, fake2d::UISize::Fixed(560), fake2d::UISize::Fixed(440), 12);
+            host_ui.VStackBegin(8);
             host_ui.BeginAlignGroup("runner_hdr", "center_y|height|no_overlap");
-            host_ui.Row(10, {120, 120, 120});
-            host_ui.Col(0);
-            host_ui.Button("rt_btn", 28, "Action", 0.45f);
-            host_ui.ColEnd();
-            host_ui.Col(0);
-            host_ui.Tab("rt_tab", 28, "Tab", true, 0.45f);
-            host_ui.ColEnd();
-            host_ui.Col(0);
-            host_ui.Checkbox("rt_chk", 28, true, "Opt", 0.45f);
-            host_ui.ColEnd();
-            host_ui.RowEnd();
+            host_ui.HStackBegin(10);
+            host_ui.NextSize(fake2d::UISize::Fixed(120), fake2d::UISize::Fixed(22));
+            host_ui.Button("rt_btn", "Action", 0.45f);
+            host_ui.NextSize(fake2d::UISize::Fixed(120), fake2d::UISize::Fixed(22));
+            host_ui.Tab("rt_tab", "Tab", true, 0.45f);
+            host_ui.NextSize(fake2d::UISize::Fixed(120), fake2d::UISize::Fixed(22));
+            host_ui.Checkbox("rt_chk", true, std::string_view("Opt"), 0.45f);
+            host_ui.StackEnd();
             host_ui.EndAlignGroup();
 
-            host_ui.Push(0, 8, 220, 28, 0);
-            host_ui.Slider("rt_sld", 24, 0.5f, 0.0f, 1.0f);
-            host_ui.Pop();
-            host_ui.Push(0, 8, 220, 28, 0);
-            host_ui.RadioButton("rt_rad", 20, false, "Choice", 0.45f);
-            host_ui.Pop();
-            host_ui.Push(0, 8, 220, 28, 0);
-            host_ui.TextInput("rt_txt", 26, 32);
-            host_ui.Pop();
-            host_ui.Push(0, 8, 220, 28, 0);
+            host_ui.NextWidth(fake2d::UISize::Fixed(220));
+            host_ui.Slider("rt_sld", 0.5f, 0.0f, 1.0f);
+            host_ui.NextWidth(fake2d::UISize::Fixed(220));
+            host_ui.RadioButton("rt_rad", false, std::string_view("Choice"), 0.45f);
+            host_ui.NextSize(fake2d::UISize::Fixed(220), fake2d::UISize::Fixed(26));
+            host_ui.TextInput("rt_txt", 32);
             host_ui.DisabledBegin(true);
-            host_ui.Button("rt_dis", 24, "Disabled", 0.45f);
+            host_ui.NextWidth(fake2d::UISize::Fixed(220));
+            host_ui.Button("rt_dis", "Disabled", 0.45f);
             host_ui.DisabledEnd();
-            host_ui.Pop();
-            host_ui.Push(0, 8, 220, 48, 0);
-            host_ui.ScrollBegin("rt_scr", 48);
-            host_ui.Button("rt_vis", 24, "Visible", 0.45f);
-            host_ui.Button("rt_skip_0", 30, "Mid", 0.45f);
-            host_ui.Button("rt_off", 24, "ScrolledOff", 0.45f);
-            host_ui.ScrollEnd();
-            host_ui.Pop();
-            host_ui.Pop();
+            host_ui.NextWidth(fake2d::UISize::Fixed(220));
+            host_ui.ScrollBoxBegin("rt_scr", fake2d::UISize::Fixed(48));
+            host_ui.Button("rt_vis", "Visible", 0.45f);
+            host_ui.NextHeight(fake2d::UISize::Fixed(30));
+            host_ui.Button("rt_skip_0", "Mid", 0.45f);
+            host_ui.Button("rt_off", "ScrolledOff", 0.45f);
+            host_ui.ScrollBoxEnd();
+            host_ui.StackEnd();
+            host_ui.RootEnd();
             renderer.EndRenderTarget();
             renderer.EndFrame();
         };
@@ -1044,19 +1044,22 @@ void RunUI149Checks(fake2d::Engine &engine, const std::function<void(bool, const
             renderer.BeginFrame(0, 0, 0, 1);
             renderer.BeginRenderTarget(target);
             renderer.ClearActiveTarget({0, 0, 0, 1});
-            host_ui.Push(20, 20, 300, 120, 0);
+            host_ui.RootBegin(20, 20, fake2d::UISize::Fixed(300), fake2d::UISize::Fixed(120));
             host_ui.BeginAlignGroup("bad_cen", "center_x_in_parent");
-            host_ui.Push(10, 10, 100, 28, 0);
-            host_ui.Button("bl_off", 28, "OffCenter", 0.45f);
-            host_ui.Pop();
+            host_ui.RootAnchorBegin("left", "top", fake2d::UISize::Fixed(100), fake2d::UISize::Fixed(28),
+                                    10, 10, 0, true);
+            host_ui.Button("bl_off", "OffCenter", 0.45f);
+            host_ui.RootEnd();
             host_ui.EndAlignGroup();
-            host_ui.PushAnchor("left", "top", 100, 28, 10, 50, 0, true);
-            host_ui.Button("bl_ov1", 28, "Ov1", 0.45f);
-            host_ui.Pop();
-            host_ui.PushAnchor("left", "top", 100, 28, 40, 56, 0, true);
-            host_ui.Button("bl_ov2", 28, "Ov2", 0.45f);
-            host_ui.Pop();
-            host_ui.Pop();
+            host_ui.RootAnchorBegin("left", "top", fake2d::UISize::Fixed(100), fake2d::UISize::Fixed(28),
+                                    10, 50, 0, true);
+            host_ui.Button("bl_ov1", "Ov1", 0.45f);
+            host_ui.RootEnd();
+            host_ui.RootAnchorBegin("left", "top", fake2d::UISize::Fixed(100), fake2d::UISize::Fixed(28),
+                                    40, 56, 0, true);
+            host_ui.Button("bl_ov2", "Ov2", 0.45f);
+            host_ui.RootEnd();
+            host_ui.RootEnd();
             renderer.EndRenderTarget();
             renderer.EndFrame();
         };
@@ -1070,12 +1073,13 @@ void RunUI149Checks(fake2d::Engine &engine, const std::function<void(bool, const
             renderer.BeginFrame(0, 0, 0, 1);
             renderer.BeginRenderTarget(target);
             renderer.ClearActiveTarget({0, 0, 0, 1});
-            host_ui.Push(20, 20, 120, 40, 0);
-            host_ui.Button("occ_under", 40, "Covered", 0.45f);
-            host_ui.Pop();
-            host_ui.Push(20, 20, 120, 40, 0);
+            host_ui.RootBegin(20, 20, fake2d::UISize::Fixed(120), fake2d::UISize::Fixed(40));
+            host_ui.NextHeight(fake2d::UISize::Fixed(40));
+            host_ui.Button("occ_under", "Covered", 0.45f);
+            host_ui.RootEnd();
+            host_ui.RootBegin(20, 20, fake2d::UISize::Fixed(120), fake2d::UISize::Fixed(40));
             host_ui.ThemedPanel();
-            host_ui.Pop();
+            host_ui.RootEnd();
             renderer.EndRenderTarget();
             renderer.EndFrame();
         };
@@ -1089,12 +1093,12 @@ void RunUI149Checks(fake2d::Engine &engine, const std::function<void(bool, const
             renderer.BeginFrame(0, 0, 0, 1);
             renderer.BeginRenderTarget(target);
             renderer.ClearActiveTarget({0, 0, 0, 1});
-            host_ui.Push(20, 20, 120, 32, 0);
-            if (host_ui.Button("err_btn", 32, "Explode", 0.45f)) {
+            host_ui.RootBegin(20, 20, fake2d::UISize::Fixed(120), fake2d::UISize::Fixed(32));
+            if (host_ui.Button("err_btn", "Explode", 0.45f)) {
                 fail_btn_clicked = true;
                 ++simulated_script_errs;
             }
-            host_ui.Pop();
+            host_ui.RootEnd();
             renderer.EndRenderTarget();
             renderer.EndFrame();
         };
@@ -1273,40 +1277,46 @@ void RunUIStressChecks(fake2d::Engine &engine, std::uint32_t seed, int frames,
         const bool started = ui.BeginFrameUI();
         ui.SetScrollOffset("outer-stress", stage == 1 ? static_cast<float>(next() % 2000) : 0);
         ui.SetScrollOffset("inner-stress", static_cast<float>(next() % 1000));
-        ui.Push(root_x, 10, width, 220);
-        ui.ScrollBegin("outer-stress", 180);
-        ui.Push(0, 0, width - 12, 0, 3);
+        ui.RootBegin(root_x, 10, fake2d::UISize::Fixed(width), fake2d::UISize::Fixed(220));
+        ui.ScrollBoxBegin("outer-stress", fake2d::UISize::Fixed(180));
+        ui.VStackBegin(0, 3);
         ui.ThemedPanel();
         const float measured = ui.Text(text);
-        ui.ScrollBegin("inner-stress", 36);
+        ui.ScrollBoxBegin("inner-stress", fake2d::UISize::Fixed(36));
         ui.Text(text + text);
-        const float inner = ui.ScrollEnd();
-        ui.Pop();
-        const float sibling_y = ui.LastRect().y + ui.LastRect().height;
+        ui.ScrollBoxEnd();
+        ui.Remember("stress-inner-box");
         ui.DisabledBegin((bits & 4) != 0);
-        ui.Button("stress-follow", 20, "following sibling");
+        ui.NextHeight(fake2d::UISize::Fixed(20));
+        ui.Button("stress-follow", "following sibling");
         ui.DisabledEnd();
-        const auto sibling = ui.LastRect();
         if (program_scroll)
             ui.SetScrollOffset("stress-list",
                                frame % 18 == 0 ? 100000.0f : static_cast<float>(next() % 500));
-        ui.ListView("stress-list", 65);
-        const float outer = ui.ScrollEnd();
-        ui.Pop();
-        if (ui.ModalBegin("stress-modal", 150, 80)) {
-            ui.Button("stress-dialog", 24, "dialog");
+        ui.ListView("stress-list", fake2d::UISize::Fixed(65));
+        ui.StackEnd();
+        ui.ScrollBoxEnd();
+        ui.RootEnd();
+        const float inner = ui.ScrollContentHeight("inner-stress");
+        const float outer = ui.ScrollContentHeight("outer-stress");
+        const float sibling_y =
+            ui.NamedRect("stress-inner-box").y + ui.NamedRect("stress-inner-box").height;
+        const auto sibling = ui.WidgetRect("stress-follow");
+        if (ui.ModalBegin("stress-modal", fake2d::UISize::Fixed(150), fake2d::UISize::Fixed(80))) {
+            ui.Button("stress-dialog", "dialog");
             ui.ModalEnd();
         }
         const bool laid_out = ui.EndLayout();
         int submitted = 0;
         if (ui.ListViewBegin("stress-list")) {
-            ui.VariableListBegin("stress-list", 65);
+            ui.VariableListBegin("stress-list", 0);
             for (int index = ui.VariableListNext(); index >= 0; index = ui.VariableListNext()) {
                 ui.Text(index % 3 == 0   ? chinese + chinese
                         : index % 3 == 1 ? latin
                                          : "short",
                         font);
-                ui.Button(ids[index], 18, "row");
+                ui.NextHeight(fake2d::UISize::Fixed(18));
+                ui.Button(ids[index], "row");
                 ui.VariableListRowEnd();
                 ++submitted;
                 if (submitted > 100)
@@ -1433,12 +1443,12 @@ int RunUIBenchmark(fake2d::Engine &engine) {
             renderer.BeginFrame(0, 0, 0, 1);
             renderer.BeginRenderTarget(target);
             ui.BeginFrameUI();
-            ui.Push(10, 10, 620, 460);
+            ui.RootBegin(10, 10, fake2d::UISize::Fixed(620), fake2d::UISize::Fixed(460));
             int rows = 0;
             if (scenario == "fixed_1000" || scenario == "variable_1200") {
-                ui.ListView("rows", 360);
+                ui.ListView("rows", fake2d::UISize::Fixed(360));
             } else if (scenario == "rich_64_links") {
-                ui.ScrollBegin("rich", 360);
+                ui.ScrollBoxBegin("rich", fake2d::UISize::Fixed(360));
                 for (int i = 0; i < 64; ++i) {
                     ui.RichText("[color=#ffbb55][b]Rich 田亩[/b][/color] [link=link" +
                                     std::to_string(i) + "]Read[/link] price " +
@@ -1446,39 +1456,40 @@ int RunUIBenchmark(fake2d::Engine &engine) {
                                 .6f);
                     ++rows;
                 }
-                ui.ScrollEnd();
+                ui.ScrollBoxEnd();
             } else {
-                ui.ScrollBegin("outer", 360);
+                ui.ScrollBoxBegin("outer", fake2d::UISize::Fixed(360));
                 ui.SetScrollOffset("inner", static_cast<float>((frame + warmup) * 7));
-                ui.Push(0, 0, 596, 0, 4);
+                ui.VStackBegin(0, 4);
                 ui.ThemedPanel();
                 ui.Text("Measured nested auto panel", .6f);
-                ui.ScrollBegin("inner", 200);
+                ui.ScrollBoxBegin("inner", fake2d::UISize::Fixed(200));
                 for (int i = 0; i < 64; ++i) {
                     ui.Text("田亩 English population " + std::to_string(i) +
                                 " LongUnbreakableLatinPopulation12345678901234567890",
                             .6f);
                     ++rows;
                 }
-                ui.ScrollEnd();
-                ui.Pop();
-                ui.ScrollEnd();
+                ui.ScrollBoxEnd();
+                ui.StackEnd();
+                ui.ScrollBoxEnd();
             }
-            ui.Pop();
+            ui.RootEnd();
             ui.EndLayout();
             if (ui.ListViewBegin("rows")) {
                 if (scenario == "fixed_1000") {
                     ui.SetScrollOffset("rows", static_cast<float>((frame + warmup) * 17));
-                    auto range = ui.ListBegin("rows", 360, 1000, 24);
+                    auto range = ui.ListBegin("rows", 0, 1000, 24);
                     for (int i = 0; i < range.count; ++i) {
                         const int row = range.first + i;
-                        ui.Button(ids[row], 24, "田亩 population " + std::to_string(row));
+                        ui.NextHeight(fake2d::UISize::Fixed(24));
+                        ui.Button(ids[row], "田亩 population " + std::to_string(row));
                         ++rows;
                     }
                     ui.ListEnd();
                 } else {
                     ui.SetScrollOffset("rows", static_cast<float>((frame + warmup) * 31));
-                    ui.VariableListBegin("rows", 360);
+                    ui.VariableListBegin("rows", 0);
                     for (int row = ui.VariableListNext(); row >= 0; row = ui.VariableListNext()) {
                         ui.Text(
                             row % 3 == 0
@@ -1486,7 +1497,8 @@ int RunUIBenchmark(fake2d::Engine &engine) {
                                   "水利田亩营制长句自动换行"
                                 : "LongUnbreakableLatinPopulation123456789012345678901234567890",
                             .55f);
-                        ui.Button(ids[row], 20, "row");
+                        ui.NextHeight(fake2d::UISize::Fixed(20));
+                        ui.Button(ids[row], "row");
                         ui.VariableListRowEnd();
                         ++rows;
                     }
@@ -1507,12 +1519,12 @@ int RunUIBenchmark(fake2d::Engine &engine) {
                            stats.tree_steps < 2000
                      : scenario == "rich_64_links"
                          ? rows == 64 && stats.rich_batches <= 320 &&
-                               renderer.DrawCallCount() <= 400 && stats.nodes == 64
+                               renderer.DrawCallCount() <= 400 && stats.nodes == 66
                          : rows == 64);
             if (!workload) {
                 ++failures;
                 std::printf(
-                    "UI_BENCH_FAILURE scenario=%s frame=%d rows=%d nodes=%zu steps=%zu audit=%d\n",
+                    "UI_BENCH_FAILURE scenario=%s frame=%d rows=%d nodes=%zu steps=%zu audit=%zu\n",
                     scenario.c_str(), frame, rows, stats.nodes, stats.tree_steps,
                     ui.OverflowCount());
             }

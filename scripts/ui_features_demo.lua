@@ -31,85 +31,92 @@ local function update_body(dt)
     ui_set_page("features", S.page)
     ui_set_audit(true)
     if S.skin_on then ui_panel_slice(S.skin, 0, 0, 32, 32, 6, 6) else ui_panel_slice(0, 0, 0, 0, 0, 0, 0) end
-    ui_push(24, 18, 752, 584, 12)
+    ui_root_begin(24, 18, 752, 584, 12, true)
         ui_panel()
-        ui_text("UI CAPABILITIES / 1.50", 0.75)
+        ui_vstack(6, 0, "stretch")
+        ui_text("UI CAPABILITIES / Two-Pass", 0.75)
         ui_text("1 containers | 2 text/theme | 3 interaction/list | SPACE auto", 0.45)
         if ui_page_begin("features", 0) then
-            ui_text("Auto-height + flow + fixed/flex grid", 0.6)
-            ui_flow_begin()
+            ui_text("Auto-height + flow + Two-Pass table", 0.6)
+            ui_flow(8, 6)
             local i = 0 + 0
             while i < 5 do
-                ui_flow_item(130 + i * 5)
-                    ui_button("flow" .. string.format("%d", i), 24 + i * 3, "flow item")
-                ui_flow_item_end()
+                ui_next_width(130 + i * 5)
+                ui_button("flow" .. string.format("%d", i), "flow item")
                 i = i + 1
             end
             ui_flow_end()
-            ui_grid_begin(3, 8, 100, -1, -2)
+            ui_table_begin("feat_grid", 8, 6, 100, "grow", "grow:2")
             i = 0 + 0
-            while i < 6 do
-                ui_grid_cell() ui_button("grid" .. string.format("%d", i), 28, "grid cell") ui_grid_cell_end()
+            while i < 2 do
+                ui_table_row("center")
+                ui_cell() ui_button("grid" .. string.format("%d", i * 3 + 0), "grid cell") ui_cell_end()
+                ui_cell() ui_button("grid" .. string.format("%d", i * 3 + 1), "grid cell") ui_cell_end()
+                ui_cell() ui_button("grid" .. string.format("%d", i * 3 + 2), "grid cell") ui_cell_end()
+                ui_table_row_end()
                 i = i + 1
             end
-            ui_grid_end()
-            ui_row(8, -1, -1) ui_row_align(2)
-                ui_constrain(100, 300, 44, 90)
-                ui_col() ui_text("Bottom-aligned short", 0.5) ui_col_end()
-                ui_col() ui_text("This taller cell wraps and the row uses its measured maximum height.", 0.7) ui_col_end()
-            ui_row_end()
-            S.split = ui_splitter("split", 50, S.split, 40)
-            ui_remember("panes")
-            if ui_push_related("panes", "left", 0, S.split - 4, 50) then ui_panel(0.08, 0.18, 0.28, 1) ui_text("Left pane", 0.5) ui_pop() end
-            if ui_push_related("panes", "left", S.split + 4, ui_avail_w() - S.split - 4, 50) then ui_panel(0.15, 0.12, 0.24, 1) ui_text("Right pane", 0.5) ui_pop() end
-            ui_text("Drag divider. Left pane=" .. string.format("%.0f", S.split) .. " right=" .. string.format("%.0f", ui_avail_w() - S.split), 0.45)
-            ui_row(8, 100, -1) ui_col() ui_text("Anchor", 0.45) ui_remember("anchor") ui_col_end() ui_row_end()
-            if ui_push_related("anchor", "right", 8, 160, 24) then ui_text("related", 0.45) ui_pop() end
-            ui_text("Relations can also stretch from parent edges.", 0.45)
+            ui_table_end()
+            ui_table_begin("feat_align_tbl", 8, 4, "grow", "grow")
+                ui_table_row("end")
+                ui_cell() ui_text("Bottom-aligned short", 0.5) ui_cell_end()
+                ui_cell() ui_text("This taller cell wraps and the row uses its measured maximum height.", 0.7) ui_cell_end()
+                ui_table_row_end()
+            ui_table_end()
+            S.split = ui_splitter("split", S.split, 40)
+            ui_hstack(8, 0, "stretch")
+                ui_next_width(math.max(40, S.split - 4))
+                ui_card(6, 2, 0.08, 0.18, 0.28, 1) ui_text("Left pane", 0.5) ui_card_end()
+                ui_next_grow(1)
+                ui_card(6, 2, 0.15, 0.12, 0.24, 1) ui_text("Right pane", 0.5) ui_card_end()
+            ui_hstack_end()
+            ui_text("Drag divider. Left pane=" .. string.format("%.0f", S.split), 0.45)
+            ui_hstack(8, 0, "center")
+                ui_text("Anchor", 0.45)
+                ui_text("related", 0.45)
+            ui_hstack_end()
             ui_page_end()
         end
         if ui_page_begin("features", 1) then
-            ui_button("theme", 26, "Toggle theme palette / spacing")
+            ui_button("theme", "Toggle theme palette / spacing")
             if S.theme then ui_set_theme_color("button", 0.30, 0.14, 0.34, 1) ui_set_theme_metric("spacing", 14) ui_set_theme_metric("font_scale", 0.65) else ui_set_theme_color("button", 0.16, 0.22, 0.34, 1) ui_set_theme_metric("spacing", 8) ui_set_theme_metric("font_scale", 0.6) end
-            ui_button("skin", 26, "Toggle nine-slice / solid panel")
+            ui_button("skin", "Toggle nine-slice / solid panel")
             local clicked = ui_rich_text("[color=#ffbb55][b]Rich text[/b][/color] [img=ore] [link=manual]Click this link[/link]", 0.65)
-            -- Rich-link event is consumed after ui_end below.
-            ui_image_button("icon", S.skin, 0, 0, 32, 32, 40, "Image button")
-            ui_image(S.skin, 0, 0, 32, 32, 35)
-            ui_text_input("single", 28, 32)
-            ui_text_area("notes", 110, 4096)
+            ui_image_button("icon", S.skin, 0, 0, 32, 32, "Image button")
+            ui_image(S.skin, 0, 0, 32, 32, 1, 1, 1, 1)
+            ui_text_input("single", 32)
+            ui_text_area("notes", 4096)
             ui_text("Committed IME characters work. GLFW 3.4 has no preedit API.", 0.45)
             ui_text(S.msg, 0.45)
             ui_page_end()
         end
         if ui_page_begin("features", 2) then
-            ui_checkbox("disable", 20, S.disabled, "Disable the following controls")
+            ui_checkbox("disable", S.disabled, "Disable the following controls")
             ui_disabled_begin(S.disabled)
-                ui_checkbox("check", 20, S.check, "Keyboard / gamepad checkbox")
-                S.slide = ui_slider("slide", 24, S.slide, 0, 1)
-                ui_button("modal", 26, "Open modal (Escape / B cancels)")
-                ui_button("menu", 26, "Popup / right-click this row")
+                ui_checkbox("check", S.check, "Keyboard / gamepad checkbox")
+                S.slide = ui_slider("slide", S.slide, 0, 1)
+                ui_button("modal", "Open modal (Escape / B cancels)")
+                ui_button("menu", "Popup / right-click this row")
                 ui_context_menu("menu")
             ui_disabled_end()
             local fade = ui_tween("fade", S.slide, 0.6, dt, "smooth")
-            ui_bar(12, fade, 0.35, 0.65, 0.90, 1)
-            ui_push(fade * 20, 0, ui_avail_w() - 20, 26, 2)
-                ui_panel(0.25, 0.40, 0.70, fade)
+            ui_bar(fade, 0.35, 0.65, 0.90, 1)
+            ui_card(4, 2, 0.25, 0.40, 0.70, fade)
                 ui_text("Tween: slide + alpha", 0.45)
-            ui_pop()
+            ui_card_end()
             ui_text("1000 rows: only visible slice is requested", 0.45)
-            ui_list_view("virtual", 140)
+            ui_list_view("virtual", "grow")
             ui_text("slice is submitted after ui_layout_end | " .. S.msg, 0.45)
             ui_text("Focus: " .. ui_focus(), 0.45)
             ui_page_end()
         end
-    ui_pop()
+        ui_vstack_end()
+    ui_root_end()
     local choice = ui_popup("menu", 180, 28, "One", "Two", "Three")
-    -- ui_result("menu", -1) is available after ui_end.
-    if ui_modal_begin("dialog", 300, 150) then
+    if ui_modal_begin("dialog", 300, "auto") then
         ui_text("Modal blocks controls below", 0.6)
         ui_text("Tab / arrows / pad navigate", 0.5)
-        ui_button("close", 28, "Close")
+        ui_button("close", "Close")
         ui_modal_end()
     end
     return 0
@@ -121,22 +128,22 @@ function update(dt)
     local result = update_body(dt)
     ui_layout_end()
     if ui_list_view_begin("virtual") then
-        local start = ui_list_begin("virtual", 140, 1000, 22)
+        local start = ui_list_begin("virtual", 0, 1000, 22)
         local count = ui_list_count()
         S.list_start = start S.list_count = count
         local i = 0 + 0
         while i < count do
             local n = start + i
-            ui_button("row" .. string.format("%d", n), 22, "Row " .. string.format("%d", n))
+            ui_button("row" .. string.format("%d", n), "Row " .. string.format("%d", n))
             i = i + 1
         end
         ui_list_end()
         ui_list_view_end()
     end
     ui_end()
-    ui_push(26, 604, 650, 14)
+    ui_root_begin(26, 604, 650, "auto", 0, false)
     ui_text("Rich glyphs=" .. string.format("%d", ui_frame_stat("rich_glyphs")) .. " style/line batches=" .. string.format("%d", ui_frame_stat("rich_batches")), 0.4, "ellipsis")
-    ui_pop()
+    ui_root_end()
     if ui_clicked("theme") then S.theme = not S.theme end
     if ui_clicked("skin") then S.skin_on = not S.skin_on end
     if ui_clicked("disable") then S.disabled = not S.disabled end

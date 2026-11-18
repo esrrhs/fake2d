@@ -66,15 +66,15 @@ static void upstream_layout_contracts(Renderer &renderer) {
     UISystem ui; ui.Bind(&input,&camera,&renderer); ui.SetAudit(true);
     auto audit=[&](std::string_view rules,const std::vector<Rect> &children,int kind=0){
         input.InjectFrame({-100,-100},{},{}); ui.NewFrame(); renderer.BeginFrame(0,0,0,1);
-        REQUIRE(ui.BeginFrameUI()); ui.Push(0,0,100,100,0);
+        ui.RootBegin(0,0,UISize::Fixed(100),UISize::Fixed(100));
         ui.BeginAlignGroup("upstream",rules);
         for(std::size_t i=0;i<children.size();++i){
-            const auto &r=children[i]; ui.PushAnchor("left","top",r.width,r.height,r.x,r.y,0,true);
-            if(kind==1) ui.Button("member-"+std::to_string(i),r.height,"");
-            if(kind==2) ui.ProgressBar(r.height,.5f,Color::White());
-            ui.Pop();
+            const auto &r=children[i]; ui.RootAnchorBegin("left","top",UISize::Fixed(r.width),UISize::Fixed(r.height),r.x,r.y,0,true);
+            if(kind==1){ ui.NextSize(UISize::Grow(),UISize::Fixed(r.height)); ui.Button("member-"+std::to_string(i),""); }
+            if(kind==2){ ui.NextSize(UISize::Grow(),UISize::Fixed(r.height)); ui.ProgressBar(.5f,Color::White()); }
+            ui.RootEnd();
         }
-        ui.EndAlignGroup(); ui.Pop(); REQUIRE(ui.EndFrameUI()); renderer.EndFrame();
+        ui.EndAlignGroup(); ui.RootEnd(); renderer.EndFrame();
         std::vector<UISystem::LayoutIssue> result;
         for(const auto &issue:ui.AuditLayout()) if(issue.category=="align_group") result.push_back(issue);
         return result;
@@ -175,12 +175,12 @@ static void ui_extra_contracts(Fixtures &f,Renderer &renderer){
     Camera2D camera(128,128);Input input;UISystem ui;ui.Bind(&input,&camera,&renderer);
     REQUIRE(ui.Tween("in",0,1,0,"in")==0&&ui.Tween("in",1,1,.25f,"in")==.0625f);
     REQUIRE(ui.Tween("out",0,1,0,"out")==0&&ui.Tween("out",1,1,.25f,"out")==.4375f);
-    auto slider=[&](float x,bool down,float value){input.InjectFrame({x,5},{},down?std::vector<std::int64_t>{0}:std::vector<std::int64_t>{});ui.NewFrame();renderer.BeginFrame(0,0,0,1);ui.Push(0,0,100,20);float next=ui.Slider("grab",20,value,0,1);ui.Pop();renderer.EndFrame();return next;};
+    auto slider=[&](float x,bool down,float value){input.InjectFrame({x,5},{},down?std::vector<std::int64_t>{0}:std::vector<std::int64_t>{});ui.NewFrame();renderer.BeginFrame(0,0,0,1);ui.RootBegin(0,0,UISize::Fixed(100),UISize::Fixed(20));ui.NextSize(UISize::Grow(),UISize::Fixed(20));float next=ui.Slider("grab",value,0,1);ui.RootEnd();renderer.EndFrame();return next;};
     REQUIRE(slider(47,true,.5f)==.5f&&ui.ClickCount()==1);REQUIRE(slider(69,true,.5f)==.75f&&slider(69,false,.75f)==.75f);
-    auto scroll=[&](float y,bool down){input.InjectFrame({95,y},{},down?std::vector<std::int64_t>{0}:std::vector<std::int64_t>{});ui.NewFrame();renderer.BeginFrame(0,0,0,1);ui.Push(0,0,100,100);ui.ScrollBegin("bar",60);ui.Push(0,0,80,240);ui.Pop();ui.ScrollEnd();float value=ui.ScrollOffset("bar");ui.Pop();renderer.EndFrame();return value;};
+    auto scroll=[&](float y,bool down){input.InjectFrame({95,y},{},down?std::vector<std::int64_t>{0}:std::vector<std::int64_t>{});ui.NewFrame();renderer.BeginFrame(0,0,0,1);ui.RootBegin(0,0,UISize::Fixed(100),UISize::Fixed(100));ui.ScrollBoxBegin("bar",UISize::Fixed(60));ui.Spacer(240);ui.ScrollBoxEnd();ui.RootEnd();float value=ui.ScrollOffset("bar");renderer.EndFrame();return value;};
     REQUIRE(scroll(5,true)==0&&ui.ScrollContentHeight("bar")==240);REQUIRE(near_value(scroll(23,true),90)&&near_value(scroll(23,false),90));
     const int target=renderer.GetRenderTargets().Create(128,128);REQUIRE(target>0);ui.NewFrame();renderer.BeginFrame(0,0,0,1);REQUIRE(renderer.BeginRenderTarget(target));renderer.ClearActiveTarget({0,0,0,1});
-    REQUIRE(ui.BeginFrameUI());ui.Push(10,20,60,40);ui.DisabledBegin();ui.DrawSpriteAt(&Texture2D::White(),1,2,8,8,{1,0,0,1});ui.DisabledEnd();ui.FillRect(30,0,8,8,{0,1,0,1});ui.DrawSpriteAt(nullptr,0,0,5,5);ui.FillRect(0,0,0,1,Color::White());ui.Pop();REQUIRE(ui.EndFrameUI());renderer.EndRenderTarget();renderer.EndFrame();
+    ui.RootBegin(10,20,UISize::Fixed(60),UISize::Fixed(40));ui.CanvasBegin(UISize::Grow(),UISize::Grow());ui.DisabledBegin();ui.DrawSpriteAt(&Texture2D::White(),1,2,8,8,{1,0,0,1});ui.DisabledEnd();ui.FillRect(30,0,8,8,{0,1,0,1});ui.DrawSpriteAt(nullptr,0,0,5,5);ui.FillRect(0,0,0,1,Color::White());ui.CanvasEnd();ui.RootEnd();renderer.EndRenderTarget();renderer.EndFrame();
     auto *rt=renderer.GetRenderTargets().Get(target);Color pixel;REQUIRE(rt->ReadPixel(12,23,pixel)&&near_value(pixel.r,.4f)&&pixel.g<.01f);REQUIRE(rt->ReadPixel(42,22,pixel)&&pixel.g>.99f&&pixel.r<.01f);REQUIRE(rt->ReadPixel(2,2,pixel)&&pixel.r<.01f&&pixel.g<.01f);renderer.GetRenderTargets().Destroy(target);
 }
 static void log_crash_contracts(Fixtures &f){
@@ -510,16 +510,17 @@ static void skeleton_deep(Fixtures &f,Renderer &renderer){
 static void ui_input_rich_edges(Renderer &renderer){
     Camera2D camera(128,128);Input input;UISystem rich;rich.Bind(&input,&camera,&renderer);
     rich.SetRichIcon("mark",&Texture2D::White(),{0,0,1,1});
-    auto icon_frame=[&](bool down){input.InjectFrame({4,4},{},down?std::vector<std::int64_t>{0}:std::vector<std::int64_t>{});rich.NewFrame();renderer.BeginFrame(0,0,0,1);rich.Push(0,0,60,40);auto link=rich.RichText("[link=go][img=mark][/link]",1);rich.Pop();renderer.EndFrame();return link;};
+    auto icon_frame=[&](bool down){input.InjectFrame({4,4},{},down?std::vector<std::int64_t>{0}:std::vector<std::int64_t>{});rich.NewFrame();renderer.BeginFrame(0,0,0,1);rich.RootBegin(0,0,UISize::Fixed(60),UISize::Fixed(40));auto link=rich.RichText("[link=go][img=mark][/link]",1);rich.RootEnd();renderer.EndFrame();return link;};
     REQUIRE(icon_frame(true).empty());REQUIRE(icon_frame(false)=="go");REQUIRE(icon_frame(false).empty());
     std::string many;for(unsigned cp=0x1000;cp<0x1000+4100;++cp){many+=char(0xe0|(cp>>12));many+=char(0x80|((cp>>6)&63));many+=char(0x80|(cp&63));}
-    input.InjectFrame({-100,-100},{},{});rich.NewFrame();renderer.BeginFrame(0,0,0,1);rich.Push(0,0,60,100);
-    REQUIRE(rich.RichText(many,1).empty()&&rich.Stats().rich_glyphs==4100&&rich.LastRect().height>0);
-    REQUIRE(rich.RichText("A",1).empty()&&rich.Stats().rich_glyphs==4101);rich.Pop();renderer.EndFrame();
+    input.InjectFrame({-100,-100},{},{});rich.NewFrame();renderer.BeginFrame(0,0,0,1);rich.RootBegin(0,0,UISize::Fixed(60),UISize::Fixed(100));
+    REQUIRE(rich.RichText(many,1).empty()&&rich.Stats().rich_glyphs==4100);
+    rich.RememberBox("rich-many");
+    REQUIRE(rich.RichText("A",1).empty()&&rich.Stats().rich_glyphs==4101);rich.RootEnd();REQUIRE(rich.NamedRect("rich-many").height>0);renderer.EndFrame();
     for(bool deferred:{false,true}){
         Input pad_input;UISystem pad;pad.Bind(&pad_input,&camera,&renderer);float value=.5f;
         auto frame=[&](float axis,bool tab=false){InputFrameSnapshot snap;snap.mouse_x=-100;snap.mouse_y=-100;snap.pad_connected[0]=1;snap.pad_axes[0][0]=axis;snap.SetKey(GLFW_KEY_TAB,tab);pad_input.ApplySnapshot(snap);pad.NewFrame();renderer.BeginFrame(0,0,0,1);
-            if(deferred)REQUIRE(pad.BeginFrameUI());pad.Push(0,0,100,30);value=pad.Slider("pad-slider",20,value,0,1);pad.Pop();if(deferred){REQUIRE(pad.EndFrameUI());value=pad.ResultNumber("pad-slider",-1);}renderer.EndFrame();return value;};
+            if(deferred)REQUIRE(pad.BeginFrameUI());pad.RootBegin(0,0,UISize::Fixed(100),UISize::Fixed(30));pad.NextSize(UISize::Grow(),UISize::Fixed(20));value=pad.Slider("pad-slider",value,0,1);pad.RootEnd();if(deferred){REQUIRE(pad.EndFrameUI());value=pad.ResultNumber("pad-slider",-1);}renderer.EndFrame();return value;};
         REQUIRE(frame(0)==.5f);REQUIRE(frame(0,true)==.5f&&pad.FocusedWidget()=="pad-slider");
         const float right=frame(1);REQUIRE(right>.5f&&right<=.6f);REQUIRE(frame(1)==right);REQUIRE(frame(0)==right);REQUIRE(near_value(frame(-1),.5f));
     }
@@ -527,16 +528,16 @@ static void ui_input_rich_edges(Renderer &renderer){
 
 static void ui_tests(Renderer &renderer){
     UISystem ui;Input input;Camera2D camera(128,128);
-    REQUIRE(!ui.TextArea("none",20)&&!ui.TextPassword("none",20)&&!ui.Undo("none")&&!ui.Redo("none"));
+    REQUIRE(!ui.TextArea("none")&&!ui.TextPassword("none")&&!ui.Undo("none")&&!ui.Redo("none"));
     REQUIRE(ui.TextValue("none").empty()&&ui.Selection("none",true)==0&&ui.VariableListNext()==-1&&ui.VariableListRowEnd()==0);
     REQUIRE(ui.VariableListHeight("none","id")==0&&ui.VariableListTotal("none")==0&&!ui.VariableListMeasured("none","id"));
-    REQUIRE(!ui.SetVariableRowText("none","id","x")&&!ui.VariableListBegin("none",20)&&!ui.ListView("none",10)&&!ui.ListViewBegin("none")&&!ui.ListViewEnd());
-    REQUIRE(!ui.TextInput("none",20)&&!ui.Button("none",20,"x")&&ui.RichText("none").empty());
-    REQUIRE(!ui.PushRelated("missing","left",0,20,20));
+    REQUIRE(!ui.SetVariableRowText("none","id","x")&&!ui.VariableListBegin("none",20)&&!ui.ListView("none",UISize::Fixed(10))&&!ui.ListViewBegin("none")&&!ui.ListViewEnd());
+    REQUIRE(!ui.TextInput("none")&&!ui.Button("none","x")&&ui.RichText("none").empty());
     ui.Bind(&input,&camera,&renderer);
     auto edit=[&](const std::vector<std::string_view>&keys=std::vector<std::string_view>{},const std::vector<unsigned int>&text=std::vector<unsigned int>{},const std::vector<std::int64_t>&buttons=std::vector<std::int64_t>{},std::size_t maximum=0){
-        input.InjectFrame({8,8},keys,buttons,0,text);ui.NewFrame();renderer.BeginFrame(0,0,0,1);ui.Push(0,0,120,100);
-        bool changed=ui.TextArea("edit",70,maximum);ui.Pop();renderer.EndFrame();return changed;
+        input.InjectFrame({8,8},keys,buttons,0,text);ui.NewFrame();renderer.BeginFrame(0,0,0,1);ui.RootBegin(0,0,UISize::Fixed(120),UISize::Fixed(100));
+        ui.NextHeight(UISize::Fixed(70));
+        bool changed=ui.TextArea("edit",maximum);ui.RootEnd();renderer.EndFrame();return changed;
     };
     auto press=[&](std::vector<std::string_view> keys){edit();return edit(keys);};
     edit({}, {},{0});edit(); // actual pointer focus; no private state access
@@ -564,35 +565,35 @@ static void ui_tests(Renderer &renderer){
         REQUIRE(ui.Selection("edit",false)==0&&ui.Selection("edit",true)==sample.second);edit();now+=1;
     }
     ui.SetAudit(true);ui.NewFrame();input.InjectFrame({100,100},{},{});renderer.BeginFrame(0,0,0,1);
-    ui.SetTipDelay(0);ui.Push(90,90,20,20);REQUIRE(!ui.Button("hover",20,""));ui.Tip("tooltip near corner");ui.Pop();ui.DrawTooltip();REQUIRE(!ui.InvisibleButton("invisible",{90,90,20,20}));
+    ui.SetTipDelay(0);ui.RootBegin(90,90,UISize::Fixed(20),UISize::Fixed(20));REQUIRE(!ui.Button("hover",""));ui.Tip("tooltip near corner");ui.RootEnd();ui.DrawTooltip();REQUIRE(!ui.InvisibleButton("invisible",{90,90,20,20}));
     bool tooltip=false;for(const auto &r:ui.AuditRects())if(r.kind=="tooltip"){tooltip=true;REQUIRE(r.rect.x>=0&&r.rect.y>=0&&r.rect.x+r.rect.width<=128&&r.rect.y+r.rect.height<=128);}REQUIRE(tooltip);
     for(const std::string h:{"left","center","right","stretch"})for(const std::string v:{"top","center","bottom","stretch"}){
-        ui.PushAnchor(h,v,20,10,5,7);ui.Panel({1,0,0,1});auto r=ui.LastRect();
+        ui.RootAnchorBegin(h,v,UISize::Fixed(20),UISize::Fixed(10),5,7,0,false);ui.Panel({1,0,0,1});ui.RememberBox("anchor-rect");ui.RootEnd();auto r=ui.NamedRect("anchor-rect");
         const float x=h=="center"?59:h=="right"?103:5;
         const float y=v=="center"?66:v=="bottom"?111:7;
-        REQUIRE(near_value(r.x,x)&&near_value(r.y,y)&&near_value(r.width,h=="stretch"?118:20)&&near_value(r.height,v=="stretch"?114:10));ui.Pop();
+        REQUIRE(near_value(r.x,x)&&near_value(r.y,y)&&near_value(r.width,h=="stretch"?118:20)&&near_value(r.height,v=="stretch"?114:10));
     }
     ui.BeginAlignGroup("contradiction","left|right|center_x|width|top|bottom|center_y|height|no_overlap");
-    ui.Push(10,10,20,20);ui.Button("one",20,"");ui.Pop();ui.Push(15,15,30,30);ui.Button("two",30,"");ui.Pop();ui.EndAlignGroup();
-    ui.Push(200,200,20,20);ui.Button("outside",20,"");ui.Pop();
+    ui.RootBegin(10,10,UISize::Fixed(20),UISize::Fixed(20));ui.Button("one","");ui.RootEnd();ui.RootBegin(15,15,UISize::Fixed(30),UISize::Fixed(30));ui.Button("two","");ui.RootEnd();ui.EndAlignGroup();
+    ui.RootBegin(200,200,UISize::Fixed(20),UISize::Fixed(20));ui.Button("outside","");ui.RootEnd();
     auto issues=ui.AuditLayout();REQUIRE(ui.LayoutIssueCount()==issues.size());bool overlap=false,viewport=false;
     for(auto &issue:issues){if(issue.category=="align_group"&&issue.rule=="no_overlap")overlap=true;if(issue.category=="viewport")viewport=true;}
     REQUIRE(overlap&&viewport);renderer.EndFrame();
     // Public layout remains usable before backend binding; input-dependent
     // controls must preserve caller values and must not manufacture activation.
-    UISystem detached;detached.NewFrame();detached.Push(0,0,100,400);
-    REQUIRE(!detached.Button("detached",10,"x"));
-    REQUIRE(detached.Slider("detached-slider",10,.375f,0,1)==.375f);
-    REQUIRE(!detached.Checkbox("detached-check",10,true,"x"));
-    REQUIRE(!detached.RadioButton("detached-radio",10,true,"x"));
-    REQUIRE(!detached.ComboBegin("detached-combo",10,"x",true));
-    REQUIRE(!detached.ComboItem("detached-item",10,"x",true));
+    UISystem detached;detached.NewFrame();detached.RootBegin(0,0,UISize::Fixed(100),UISize::Fixed(400));
+    REQUIRE(!detached.Button("detached","x"));
+    REQUIRE(detached.Slider("detached-slider",.375f,0,1)==.375f);
+    REQUIRE(!detached.Checkbox("detached-check",true,std::string_view("x")));
+    REQUIRE(!detached.RadioButton("detached-radio",true,std::string_view("x")));
+    REQUIRE(!detached.ComboBegin("detached-combo","x",true));
+    REQUIRE(!detached.ComboItem("detached-item","x",true));
     REQUIRE(!detached.Window("detached-window","x"));
-    REQUIRE(!detached.Tab("detached-tab",10,"x",true));
-    REQUIRE(!detached.Tree("detached-tree",10,"x",true));
+    REQUIRE(!detached.Tab("detached-tab","x",true));
+    REQUIRE(!detached.Tree("detached-tree","x",true));
     REQUIRE(detached.DrawTextPx(0,0,"x",16)==0&&detached.DrawWrappedTextPx(0,0,20,"x",16)==0);
     REQUIRE(detached.MeasureTextPx("x",16)==0&&detached.MeasureWrappedTextPx("x",16,20)==0);
-    detached.Pop();REQUIRE(detached.AvailWidth()==0);
+    detached.RootEnd();
 
     // Exercise the supported text-provider extension using real font drawing,
     // verifying dispatch, scaling, face identity, return values and deferral.
@@ -605,13 +606,13 @@ static void ui_tests(Renderer &renderer){
     hooks.draw=[&](SpriteBatch &batch,std::string_view text,float x,float y,float px,const Color &color,int align,int face){REQUIRE(face==7&&align==2&&x==8&&y==12&&px==32);++drawn;return renderer.GetFont().DrawText(batch,text,x,y,px/32,color);};
     hooks.draw_wrapped=[&](SpriteBatch &batch,std::string_view text,float x,float y,float px,float width,const Color &color,int face){REQUIRE(face==7&&x==8&&y==40&&px==32&&width==60);++wrapped;return renderer.GetFont().DrawTextEx(batch,text,x,y,px/32,0,width,color);};
     hooked.SetTextHooks(std::move(hooks));input.InjectFrame({-100,-100},{},{});hooked.NewFrame();renderer.BeginFrame(0,0,0,1);
-    REQUIRE(hooked.BeginFrameUI());hooked.Push(0,0,64,64);
+    hooked.RootBegin(0,0,UISize::Fixed(64),UISize::Fixed(64));hooked.CanvasBegin(UISize::Grow(),UISize::Grow());
     const float measured_width=renderer.MeasureText("ABC",.5f);
     REQUIRE(measured_width>0&&hooked.MeasureTextPx("ABC",16,7)==measured_width);
     REQUIRE(hooked.DrawTextPx(4,6,"ABC",16,Color::White(),2,7)==measured_width);
     const float measured_height=renderer.GetFont().MeasureTextEx("AB CD",.5f,30);
     REQUIRE(measured_height>0&&hooked.DrawWrappedTextPx(4,20,30,"AB CD",16,Color::White(),7)==measured_height);
-    REQUIRE(drawn==0&&wrapped==0);hooked.Pop();REQUIRE(hooked.EndFrameUI());renderer.EndFrame();
+    REQUIRE(drawn==0&&wrapped==0);hooked.CanvasEnd();hooked.RootEnd();renderer.EndFrame();
     REQUIRE(drawn==1&&wrapped==1&&measured==2&&measured_wrapped==1);
     hooked.SetTextHooks({});REQUIRE(hooked.MeasureTextPx("ABC",16)==measured_width);
 
@@ -637,17 +638,19 @@ static void ui_tests(Renderer &renderer){
         UISystem textured;textured.Bind(&input,&camera,&renderer);input.InjectFrame({-100,-100},{},{});textured.NewFrame();
         int target=renderer.GetRenderTargets().Create(128,128);REQUIRE(target>0);
         renderer.BeginFrame(0,0,0,1);REQUIRE(renderer.BeginRenderTarget(target));renderer.ClearActiveTarget({0,0,0,1});
-        if(deferred)REQUIRE(textured.BeginFrameUI());
-        textured.Push(8,8,40,40,2);
+        if(deferred){textured.RootBegin(8,8,UISize::Fixed(40),UISize::Fixed(40),2);textured.CanvasBegin(UISize::Grow(),UISize::Grow());}
+        else{textured.RootBegin(8,8,UISize::Fixed(40),UISize::Fixed(40),2);}
         textured.DrawNineSliceAt(&Texture2D::White(),.25f,{1,0,0,1});
-        auto rect=textured.LastRect();REQUIRE(rect.x==10&&rect.y==10&&rect.width==36&&rect.height==36);
-        textured.DrawNineSliceAt(nullptr,1);REQUIRE(textured.LastRect().x==10);
-        textured.Pop();textured.DisabledBegin();
+        if(deferred)textured.CanvasEnd();
+        textured.RememberBox("slice-rect");
+        textured.DrawNineSliceAt(nullptr,1);
+        textured.RootEnd();
+        auto rect=textured.NamedRect("slice-rect");REQUIRE(rect.x==10&&rect.y==10&&rect.width==36&&rect.height==36);
+        textured.DisabledBegin();
         textured.DrawSpriteRect(&Texture2D::White(),{0,0,1,1},{60,8,20,20},{0,1,0,1});
         textured.DisabledEnd();
         textured.DrawSpriteRect(nullptr,{0,0,1,1},{90,8,20,20});
         textured.DrawSpriteRect(&Texture2D::White(),{0,0,1,1},{90,8,0,20});
-        if(deferred)REQUIRE(textured.EndFrameUI());
         renderer.EndRenderTarget();renderer.EndFrame();Color pixel;auto *surface=renderer.GetRenderTargets().Get(target);
         REQUIRE(surface->ReadPixel(12,12,pixel)&&pixel.r>.99f&&pixel.g<.01f);
         REQUIRE(surface->ReadPixel(68,16,pixel)&&pixel.r<.01f&&pixel.g>.39f&&pixel.g<.41f);

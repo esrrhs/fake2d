@@ -142,36 +142,23 @@ local function draw_text_page()
 end
 
 local function draw_panel()
-    local px = 520.0
-    local py = 150.0
-    ui_push(px, py, 410.0, 250.0)
+    ui_root_begin(520.0, 150.0, 410.0, "auto", 16.0, true)
     ui_panel(0.09, 0.10, 0.13, 0.96)
-    ui_pop()
-    ui_push(px + 18.0, py + 14.0, math.min(ui_layout_token("panel_width"), text_width(i18n_t("Tooltip"), 0.8)), text_line_height() * (0.8))
+    ui_tip(i18n_t("Hover this panel for a tooltip"))
+    ui_vstack(10.0, 0.0, "stretch")
     ui_text(i18n_t("Tooltip"), 0.8, "ellipsis", 0, 0.92, 0.84, 0.62, 1.0)
-    ui_pop()
-    ui_push(px + 18.0, py + 44.0, math.min(ui_layout_token("panel_width"), text_width(i18n_t("Hover this panel for a tooltip"), 0.56)), text_line_height() * (0.56))
     ui_text(i18n_t("Hover this panel for a tooltip"), 0.56, "ellipsis", 0, 0.80, 0.82, 0.86, 1.0)
-    ui_pop()
-
-    ui_push(px + 18.0, py + 78.0, 190.0, 38.0)
-    ui_button("lang", 38.0, i18n_t("Switch language"), 0.55)
-    ui_pop()
-    ui_push(px + 220.0, py + 78.0, 170.0, 38.0)
-    ui_button("save", 38.0, i18n_t("Save"), 0.62)
-    ui_pop()
-
-    -- Shrink-to-fit: a long label never overflows its 360 px box.
-    ui_push(px + 18.0, py + 132.0, 370.0, text_line_height() * (0.66))
+    ui_hstack(12.0, 0.0, "center")
+    ui_next_grow(1)
+    ui_button("lang", i18n_t("Switch language"), 0.55)
+    ui_next_grow(1)
+    ui_button("save", i18n_t("Save"), 0.62)
+    ui_hstack_end()
+    -- Shrink-to-fit: a long label never overflows its parent box.
     ui_text(i18n_t("Shrink to fit")
                      .. " - long translated text shrinks to fit this box", 0.66, "shrink", 0, 0.30, 0.31, 0.35, 1.0, 0.42)
-    ui_pop()
-
-    -- Tooltip record is per frame; draw it after every widget.
-    ui_push(px, py, 410.0, 250.0)
-    ui_panel(0, 0, 0, 0)
-    ui_tip(i18n_t("Hover this panel for a tooltip"))
-    ui_pop()
+    ui_vstack_end()
+    ui_root_end()
     ui_tip_draw()
 end
 

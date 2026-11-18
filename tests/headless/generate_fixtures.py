@@ -118,7 +118,7 @@ def parse_native_api(bindings: Path):
     for match in re.finditer(r'add\("(ui_\w+)",\s*(\d+),.*?\{(.*?return a\.(?:Number|Bool|String|Nil)\(.*?;)\s*\}\);', ui_section, re.S):
         name, required, body = match.groups()
         arity = int(required)
-        for kind, index in re.findall(r'a\.(N|S|B|C)\((\d+)', body):
+        for kind, index in re.findall(r'a\.(N|S|B|C|I|SizeSpec|AxisAlign)\((\d+)', body):
             arity = max(arity, int(index) + (4 if kind == "C" else 1))
         result = re.search(r'return a\.(Number|Bool|String|Nil)\(', body)
         ret = {"Number": "double", "Bool": "bool", "String": "std::string",
@@ -580,8 +580,20 @@ function window_quit() fix_quit = 1 end
 function window_set_title(t) end
 function window_set_fullscreen(b) end
 function window_fullscreen() return false end
-function ui_push(x, y, w, h, pad) end
-function ui_pop() end
+function ui_root_begin(x, y, w, h, pad, block) end
+function ui_root_anchor(ha, va, w, h, ix, iy, pad, ov, blk) end
+function ui_root_end() end
+function ui_vstack(gap, pad, align) end
+function ui_vstack_end() end
+function ui_hstack(gap, pad, align) end
+function ui_hstack_end() end
+function ui_next_size(w, h) end
+function ui_next_width(w) end
+function ui_next_height(h) end
+function ui_next_grow(w) end
+function ui_next_align(a) end
+function ui_next_main_align(a) end
+function ui_next_pad(l, t, r, b) end
 function ui_text(text, scale, mode, align, r, g, b, a, min_scale) return 0 end
 function ui_layout_token(name)
     if name == "sidebar_inset" then return 410 end
@@ -589,15 +601,15 @@ function ui_layout_token(name)
     return 600
 end
 function ui_panel(r, g, b, a) end
-function ui_button(key, h, text, scale) return false end
+function ui_button(key, text, scale) return false end
 function ui_set_origin(x, y) end
-function ui_bar(h, value, r, g, b, a) end
-function ui_radio(key, size, selected, label, scale) return false end
-function ui_combo(key, h, label, open, scale) return false end
-function ui_combo_item(key, h, label, selected, scale) return false end
+function ui_bar(value, r, g, b, a) end
+function ui_radio(key, selected, label, scale) return false end
+function ui_combo(key, label, open, scale) return false end
+function ui_combo_item(key, label, selected, scale) return false end
 function ui_window(key, title, scale) return false end
-function ui_tab(key, h, label, active, scale) return false end
-function ui_tree(key, h, label, open, scale) return false end
+function ui_tab(key, label, active, scale) return false end
+function ui_tree(key, label, open, scale) return false end
 
 -- Reset every persistent state slot. Defined last so all locals above are
 -- in scope; the driver calls this once from init().

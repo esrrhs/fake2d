@@ -88,66 +88,66 @@ local function update_body(dt)
     -- --- progress bars: pure draw, value clamped to 0..1 ------------------
     draw_text("PROGRESS", 40, 84, 0.75, 0.55, 0.92, 0.94, 1.0)
 
-    -- A looping transfer: it passes through empty and full every cycle.
     local load_v = saw(S.t * 0.25)
-    ui_push(40, 104, 260, 18)
-    ui_bar(18, load_v, 0.35, 0.72, 0.95, 1.0)
-    ui_pop()
-    draw_text("loading " .. pct(load_v), 312, 106, 0.6, 0.75, 0.85, 0.95, 1.0)
-
-    -- A pulse, so the fill visibly grows and shrinks.
     local hp = 0.35 + 0.3 * (0.5 + 0.5 * math.sin(S.t * 1.7))
-    ui_push(40, 146, 260, 18)
-    ui_bar(18, hp, 0.85, 0.30, 0.32, 1.0)
-    ui_pop()
-    draw_text("health " .. pct(hp), 312, 148, 0.6, 0.75, 0.85, 0.95, 1.0)
-
-    -- Driven by a slider whose range is 0..1.5: past 1 the bar clamps
-    -- instead of spilling out of its track.
-    ui_push(40, 184, 260, 20)
-    S.mana = ui_slider("mana", 20, S.mana, 0.0, 1.5)
-    ui_pop()
-    ui_push(40, 216, 260, 18)
-    ui_bar(18, S.mana, 0.55, 0.40, 0.90, 1.0)
-    ui_pop()
-    draw_text("mana " .. pct(S.mana), 312, 218, 0.6, 0.75, 0.85, 0.95, 1.0)
-    draw_text("the slider reaches 150% - past 100% the bar clamps", 40, 244,
-              0.6, 0.5, 0.58, 0.66, 1.0)
+    ui_root_begin(40, 104, 340, "auto", 0, true)
+    ui_vstack(12, 0, "stretch")
+    ui_hstack(10, 0, "center")
+    ui_next_grow(1)
+    ui_next_height(18)
+    ui_bar(load_v, 0.35, 0.72, 0.95, 1.0)
+    ui_text("loading " .. pct(load_v), 0.6, "ellipsis", 2, 0.75, 0.85, 0.95, 1.0)
+    ui_hstack_end()
+    ui_hstack(10, 0, "center")
+    ui_next_grow(1)
+    ui_next_height(18)
+    ui_bar(hp, 0.85, 0.30, 0.32, 1.0)
+    ui_text("health " .. pct(hp), 0.6, "ellipsis", 2, 0.75, 0.85, 0.95, 1.0)
+    ui_hstack_end()
+    S.mana = ui_slider("mana", S.mana, 0.0, 1.5)
+    ui_hstack(10, 0, "center")
+    ui_next_grow(1)
+    ui_next_height(18)
+    ui_bar(S.mana, 0.55, 0.40, 0.90, 1.0)
+    ui_text("mana " .. pct(S.mana), 0.6, "ellipsis", 2, 0.75, 0.85, 0.95, 1.0)
+    ui_hstack_end()
+    ui_text("the slider reaches 150% - past 100% the bar clamps", 0.55, "wrap", 0, 0.5, 0.58, 0.66, 1.0)
+    ui_vstack_end()
+    ui_root_end()
 
     -- --- radio group: N rows, one index, the script owns the choice -------
-    draw_text("DIFFICULTY", 400, 84, 0.75, 1.0, 0.80, 0.35, 1.0)
+    ui_root_begin(400, 84, 210, "auto", 0, true)
+    ui_vstack(8, 0, "start")
+    ui_text("DIFFICULTY", 0.75, "ellipsis", 0, 1.0, 0.80, 0.35, 1.0)
     local i = 0 + 0
     while i < 3 do
-        local y = 104 + i * 32
-        ui_push(400, y, ui_layout_token("panel_width"), math.max(20, 28))
-        ui_radio("d" .. istr(i), 20, S.sel == i, diff_name(i), 0.65)
-        ui_pop()
+        ui_radio("d" .. istr(i), S.sel == i, diff_name(i), 0.65)
         i = i + 1
     end
-    draw_text("selected: " .. diff_name(S.sel), 400, 212, 0.7, 0.94, 0.96, 1.0, 1.0)
+    ui_text("selected: " .. diff_name(S.sel), 0.7, "ellipsis", 0, 0.94, 0.96, 1.0, 1.0)
+    ui_vstack_end()
+    ui_root_end()
 
     -- --- combo: a header plus one row per item ---------------------------
-    draw_text("UNIT", 640, 84, 0.75, 0.75, 0.65, 0.95, 1.0)
-    ui_push(640, 104, 280, 28)
-    ui_combo("unit", 28, unit_name(S.pick), S.open, 0.65)
-    ui_pop()
+    ui_root_begin(640, 84, 280, "auto", 0, true)
+    ui_vstack(6, 0, "stretch")
+    ui_text("UNIT", 0.75, "ellipsis", 0, 0.75, 0.65, 0.95, 1.0)
+    ui_combo("unit", unit_name(S.pick), S.open, 0.65)
     if S.open then
-        -- The list is drawn right after the header, so the rows sit on top
-        -- of whatever the panel behind them had.
-        draw_quad(636, 136, 288, ITEM_COUNT * ITEM_H + 8, 0.08, 0.10, 0.15, 1.0)
+        ui_card(4, 2, 0.08, 0.10, 0.15, 1.0)
         local k = 0 + 0
         while k < ITEM_COUNT do
-            local y = 140 + k * ITEM_H
-            ui_push(640, y, 280, ITEM_H - 2)
-            ui_combo_item("u" .. istr(k), ITEM_H - 2, unit_name(k), S.pick == k, 0.65)
-            ui_pop()
+            ui_combo_item("u" .. istr(k), unit_name(k), S.pick == k, 0.65)
             k = k + 1
         end
+        ui_card_end()
     end
-    draw_text("picked: " .. unit_name(S.pick), 640, 250, 0.7, 0.94, 0.96, 1.0, 1.0)
+    ui_text("picked: " .. unit_name(S.pick), 0.7, "ellipsis", 0, 0.94, 0.96, 1.0, 1.0)
     if S.open then
-        draw_text("list open", 640, 272, 0.6, 0.55, 0.66, 0.75, 1.0)
+        ui_text("list open", 0.6, "ellipsis", 0, 0.55, 0.66, 0.75, 1.0)
     end
+    ui_vstack_end()
+    ui_root_end()
 
     -- The logical canvas is 960x540 (1920x1080 at 2x), so nothing here may
     -- sit below y=540 or past x=960.

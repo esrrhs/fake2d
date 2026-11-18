@@ -211,50 +211,48 @@ local function update_body(dt)
     draw_text("rt_copy ping-pong + a separable blur at half resolution", 40, 44,
               0.62, 0.55, 0.66, 0.75, 1.0)
 
-    draw_quad(40, 60, 300, 292, 0.08, 0.10, 0.15, 0.85)
-    ui_push(52, 74, 240, 22)
-    S.radius = ui_slider("radius", 22, S.radius, 0.0, 6.0)
-    ui_pop()
-    ui_push(52, 110, 240, 22)
-    S.strength = ui_slider("strength", 22, S.strength, 0.0, 1.0)
-    ui_pop()
-    draw_text("radius " .. pct(S.radius / 6.0) .. "%", 300, 78, 0.55,
-              0.75, 0.85, 0.95, 1.0)
-    draw_text("glow " .. pct(S.strength) .. "%", 300, 114, 0.55,
-              0.75, 0.85, 0.95, 1.0)
-    ui_push(52, 144, 120, 24)
-    ui_button("split", 24, "SPLIT", 0.55)
-    ui_pop()
+    ui_root_begin(40, 60, 300, "auto", 12, true)
+    ui_panel(0.08, 0.10, 0.15, 0.85)
+    ui_vstack(10, 0, "stretch")
+    ui_hstack(8, 0, "center")
+    ui_next_grow(1)
+    S.radius = ui_slider("radius", S.radius, 0.0, 6.0)
+    ui_text("radius " .. pct(S.radius / 6.0) .. "%", 0.55, "ellipsis", 2, 0.75, 0.85, 0.95, 1.0)
+    ui_hstack_end()
+    ui_hstack(8, 0, "center")
+    ui_next_grow(1)
+    S.strength = ui_slider("strength", S.strength, 0.0, 1.0)
+    ui_text("glow " .. pct(S.strength) .. "%", 0.55, "ellipsis", 2, 0.75, 0.85, 0.95, 1.0)
+    ui_hstack_end()
+    ui_hstack(8, 0, "center")
+    ui_button("split", "SPLIT", 0.55)
     if S.split then
-        draw_text("two cameras", 180, 148, 0.6, 0.98, 0.85, 0.40, 1.0)
+        ui_text("two cameras", 0.6, "ellipsis", 0, 0.98, 0.85, 0.40, 1.0)
     else
-        draw_text("bloom chain", 180, 148, 0.6, 0.55, 0.66, 0.75, 1.0)
+        ui_text("bloom chain", 0.6, "ellipsis", 0, 0.55, 0.66, 0.75, 1.0)
     end
+    ui_hstack_end()
 
-    -- The two Phase 27 passes, each with its own switches. The bright pass is
-    -- on by default because a bloom without a threshold is just a haze; the
-    -- wave is off because a wobbling skyline is not for everyone.
-    ui_push(52, 180, ui_layout_token("panel_width"), math.max(18, 28))
-    ui_checkbox("bright", 18, S.bright_on, "bright pass", 0.6)
-    ui_pop()
-    ui_push(52, 208, 240, 22)
-    S.threshold = ui_slider("cut", 22, S.threshold, 0.0, 1.0)
-    ui_pop()
-    draw_text("cut " .. pct(S.threshold) .. "%", 300, 212, 0.55,
-              0.75, 0.85, 0.95, 1.0)
-    ui_push(52, 244, ui_layout_token("panel_width"), math.max(18, 28))
-    ui_checkbox("wave", 18, S.wave_on, "wave pass (u_time)", 0.6)
-    ui_pop()
-    ui_push(52, 272, 240, 22)
-    S.wamp = ui_slider("wamp", 22, S.wamp, 0.0, 20.0)
-    ui_pop()
-    ui_push(52, 308, 240, 22)
-    S.wfreq = ui_slider("wfreq", 22, S.wfreq, 0.0, 24.0)
-    ui_pop()
-    draw_text("amp " .. istr(math.floor(S.wamp)) .. "px", 300, 276, 0.55,
-              0.75, 0.85, 0.95, 1.0)
-    draw_text("freq " .. istr(math.floor(S.wfreq)), 300, 312, 0.55,
-              0.75, 0.85, 0.95, 1.0)
+    -- The two Phase 27 passes, each with its own switches.
+    ui_checkbox("bright", S.bright_on, "bright pass", 0.6)
+    ui_hstack(8, 0, "center")
+    ui_next_grow(1)
+    S.threshold = ui_slider("cut", S.threshold, 0.0, 1.0)
+    ui_text("cut " .. pct(S.threshold) .. "%", 0.55, "ellipsis", 2, 0.75, 0.85, 0.95, 1.0)
+    ui_hstack_end()
+    ui_checkbox("wave", S.wave_on, "wave pass (u_time)", 0.6)
+    ui_hstack(8, 0, "center")
+    ui_next_grow(1)
+    S.wamp = ui_slider("wamp", S.wamp, 0.0, 20.0)
+    ui_text("amp " .. istr(math.floor(S.wamp)) .. "px", 0.55, "ellipsis", 2, 0.75, 0.85, 0.95, 1.0)
+    ui_hstack_end()
+    ui_hstack(8, 0, "center")
+    ui_next_grow(1)
+    S.wfreq = ui_slider("wfreq", S.wfreq, 0.0, 24.0)
+    ui_text("freq " .. istr(math.floor(S.wfreq)), 0.55, "ellipsis", 2, 0.75, 0.85, 0.95, 1.0)
+    ui_hstack_end()
+    ui_vstack_end()
+    ui_root_end()
 
     -- The logical canvas is 960x540 (1920x1080 at 2x), so nothing here may
     -- sit below y=540 or past x=960.

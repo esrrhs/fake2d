@@ -107,185 +107,103 @@ local function update_body(dt)
     draw_text("buses, cross-fades, envelopes, pause, VU meter", 40, 52, 0.7,
               0.55, 0.66, 0.75, 1.0)
 
-    -- --- buses: voice x bus x master -------------------------------------
-    draw_text("BUSES", 40, 84, 0.75, 0.55, 0.92, 0.94, 1.0)
-    ui_push(40, 104, 220, 24)
-    S.master = ui_slider("bus_master", 24, S.master, 0.0, 1.0)
-    ui_pop()
-    ui_push(40, 144, 220, 24)
-    S.sfx_bus = ui_slider("bus_sfx", 24, S.sfx_bus, 0.0, 1.0)
-    ui_pop()
-    ui_push(40, 184, 220, 24)
-    S.music_bus = ui_slider("bus_music", 24, S.music_bus, 0.0, 1.0)
-    ui_pop()
-    draw_text("master " .. pct(S.master) .. "%", 268, 110, 0.6,
-              0.75, 0.85, 0.95, 1.0)
-    draw_text("sfx    " .. pct(S.sfx_bus) .. "%", 268, 150, 0.6,
-              0.75, 0.85, 0.95, 1.0)
-    draw_text("music  " .. pct(S.music_bus) .. "%", 268, 190, 0.6,
-              0.75, 0.85, 0.95, 1.0)
-    draw_text("effective gain = voice x bus x master", 40, 220, 0.55,
-              0.5, 0.58, 0.66, 1.0)
+    -- --- buses + one-shots + music + status in a clean Two-Pass layout ---
+    ui_root_begin(40, 84, 880, "auto", 0, false)
+    ui_hstack(24, 0, "start")
 
-    -- --- one-shots on the sfx bus ----------------------------------------
-    draw_text("ONE-SHOTS", 40, 252, 0.75, 1.0, 0.80, 0.35, 1.0)
-    ui_push(40, 272, 64, 26)
-    ui_button("sfx_coin", 26, "COIN", 0.55)
-    ui_pop()
-    ui_push(112, 272, 64, 26)
-    ui_button("sfx_jump", 26, "JUMP", 0.55)
-    ui_pop()
-    ui_push(184, 272, 64, 26)
-    ui_button("sfx_win", 26, "WIN", 0.55)
-    ui_pop()
-    ui_push(256, 272, 64, 26)
-    ui_button("sfx_brick", 26, "BRICK", 0.5)
-    ui_pop()
-    ui_push(40, 306, 64, 26)
-    ui_button("sfx_launch", 26, "LAUNCH", 0.5)
-    ui_pop()
-    ui_push(112, 306, 64, 26)
-    ui_button("sfx_lose", 26, "LOSE", 0.55)
-    ui_pop()
-    ui_push(184, 306, 64, 26)
-    ui_button("sfx_wall", 26, "WALL", 0.55)
-    ui_pop()
-    ui_push(256, 306, 64, 26)
-    ui_button("sfx_paddle", 26, "PADDLE", 0.5)
-    ui_pop()
-    draw_text("routed through the sfx bus; 32 voices, oldest wins", 40, 344,
-              0.55, 0.5, 0.58, 0.66, 1.0)
+    ui_next_width(296)
+    ui_vstack(10, 0, "stretch")
+    ui_text("BUSES", 0.75, "ellipsis", 0, 0.55, 0.92, 0.94, 1.0)
+    ui_hstack(8, 0, "center") ui_next_grow(1) S.master = ui_slider("bus_master", S.master, 0.0, 1.0) ui_text("master " .. pct(S.master) .. "%", 0.55, "ellipsis", 2, 0.75, 0.85, 0.95, 1.0) ui_hstack_end()
+    ui_hstack(8, 0, "center") ui_next_grow(1) S.sfx_bus = ui_slider("bus_sfx", S.sfx_bus, 0.0, 1.0) ui_text("sfx    " .. pct(S.sfx_bus) .. "%", 0.55, "ellipsis", 2, 0.75, 0.85, 0.95, 1.0) ui_hstack_end()
+    ui_hstack(8, 0, "center") ui_next_grow(1) S.music_bus = ui_slider("bus_music", S.music_bus, 0.0, 1.0) ui_text("music  " .. pct(S.music_bus) .. "%", 0.55, "ellipsis", 2, 0.75, 0.85, 0.95, 1.0) ui_hstack_end()
+    ui_text("effective gain = voice x bus x master", 0.5, "wrap", 0, 0.5, 0.58, 0.66, 1.0)
+    ui_text("ONE-SHOTS", 0.75, "ellipsis", 0, 1.0, 0.80, 0.35, 1.0)
+    ui_flow(6, 6)
+    ui_button("sfx_coin", "COIN", 0.5)
+    ui_button("sfx_jump", "JUMP", 0.5)
+    ui_button("sfx_win", "WIN", 0.5)
+    ui_button("sfx_brick", "BRICK", 0.5)
+    ui_button("sfx_launch", "LAUNCH", 0.5)
+    ui_button("sfx_lose", "LOSE", 0.5)
+    ui_button("sfx_wall", "WALL", 0.5)
+    ui_button("sfx_paddle", "PADDLE", 0.5)
+    ui_flow_end()
+    ui_text("routed through the sfx bus; 32 voices, oldest wins", 0.5, "wrap", 0, 0.5, 0.58, 0.66, 1.0)
+    ui_vstack_end()
 
-    -- --- music: cross-fade, level, stop ----------------------------------
-    draw_text("MUSIC", 360, 84, 0.75, 0.62, 0.86, 0.98, 1.0)
-    ui_push(360, 104, 120, 28)
-    ui_button("trk_a", 28, "TRACK A", 0.6)
-    ui_pop()
-    ui_push(490, 104, 120, 28)
-    ui_button("trk_b", 28, "TRACK B", 0.6)
-    ui_pop()
-    ui_push(360, 142, 120, 28)
-    ui_button("trk_stop", 28, "STOP", 0.6)
-    ui_pop()
-    ui_push(490, 142, 120, 28)
-    ui_button("trk_out", 28, "FADE OUT", 0.5)
-    ui_pop()
+    ui_next_width(256)
+    ui_vstack(10, 0, "stretch")
+    ui_text("MUSIC", 0.75, "ellipsis", 0, 0.62, 0.86, 0.98, 1.0)
+    ui_table_begin("audio_mus_tbl", 8, 8, "grow", "grow")
+    ui_table_row("center") ui_cell() ui_button("trk_a", "TRACK A", 0.55) ui_cell_end() ui_cell() ui_button("trk_b", "TRACK B", 0.55) ui_cell_end() ui_table_row_end()
+    ui_table_row("center") ui_cell() ui_button("trk_stop", "STOP", 0.55) ui_cell_end() ui_cell() ui_button("trk_out", "FADE OUT", 0.5) ui_cell_end() ui_table_row_end()
+    ui_table_end()
+    ui_hstack(8, 0, "center") ui_next_grow(1) S.crossfade = ui_slider("xfade", S.crossfade, 0.0, 3.0) ui_text(one_dp(S.crossfade) .. "s", 0.55, "ellipsis", 2, 0.75, 0.85, 0.95, 1.0) ui_hstack_end()
+    ui_hstack(8, 0, "center") ui_next_grow(1) S.level = ui_slider("level", S.level, 0.0, 1.0) ui_text(pct(S.level) .. "%", 0.55, "ellipsis", 2, 0.75, 0.85, 0.95, 1.0) ui_hstack_end()
+    ui_text("cross-fade / level", 0.55, "ellipsis", 0, 0.5, 0.58, 0.66, 1.0)
+    ui_text("keys: 1 track A, 2 track B, S stop, P pause", 0.5, "wrap", 0, 0.5, 0.58, 0.66, 1.0)
+    ui_vstack_end()
 
-    ui_push(360, 184, 200, 24)
-    S.crossfade = ui_slider("xfade", 24, S.crossfade, 0.0, 3.0)
-    ui_pop()
-    ui_push(360, 224, 200, 24)
-    S.level = ui_slider("level", 24, S.level, 0.0, 1.0)
-    ui_pop()
-    draw_text(one_dp(S.crossfade) .. "s", 568, 190, 0.55, 0.75, 0.85, 0.95, 1.0)
-    draw_text(pct(S.level) .. "%", 568, 230, 0.55, 0.75, 0.85, 0.95, 1.0)
-    -- Only push when the value actually moved, or this would cancel the
-    -- fade-out the STOP button just started.
-
-    draw_text("cross-fade / level", 360, 262, 0.6, 0.5, 0.58, 0.66, 1.0)
-    draw_text("keys: 1 track A, 2 track B, S stop, P pause", 360, 286, 0.55,
-              0.5, 0.58, 0.66, 1.0)
-    if input_key_pressed("1") then
-        play_track("theme_a")
-    end
-    if input_key_pressed("2") then
-        play_track("theme_b")
-    end
-    if input_key_pressed("s") then
-        audio_music_stop(S.crossfade)
-    end
-    if input_key_pressed("p") then
-        set_paused(not S.paused)
-    end
-
-    -- --- status + VU ------------------------------------------------------
-    draw_text("OUTPUT", 640, 84, 0.75, 0.75, 0.65, 0.95, 1.0)
+    ui_next_grow(1)
+    ui_vstack(8, 0, "stretch")
+    ui_text("OUTPUT", 0.75, "ellipsis", 0, 0.75, 0.65, 0.95, 1.0)
     if audio_enabled() then
-        draw_text("device open, 44.1 kHz stereo out", 640, 106, 0.6,
-                  0.55, 0.75, 0.62, 1.0)
+        ui_text("device open, 44.1 kHz stereo out", 0.55, "ellipsis", 0, 0.55, 0.75, 0.62, 1.0)
     else
-        draw_text("no device (headless): peak reads 0", 640, 106, 0.6,
-                  0.75, 0.55, 0.55, 1.0)
+        ui_text("no device (headless): peak reads 0", 0.55, "ellipsis", 0, 0.75, 0.55, 0.55, 1.0)
     end
     local state = "silent"
-    if audio_music_playing() then
-        state = audio_music_name()
-    end
-    draw_text("music: " .. state, 640, 126, 0.65, 0.94, 0.96, 1.0, 1.0)
-
-    ui_push(640, 152, ui_layout_token("panel_width"), math.max(20, 28))
-    ui_checkbox("pause", 20, S.paused, "pause the mix", 0.6)
-    ui_pop()
-
+    if audio_music_playing() then state = audio_music_name() end
+    ui_text("music: " .. state, 0.6, "ellipsis", 0, 0.94, 0.96, 1.0, 1.0)
+    ui_checkbox("pause", S.paused, "pause the mix", 0.6)
     local peak = audio_peak()
+    ui_canvas("grow", 28, 0)
     local lit = math.floor(peak * SEGMENTS + 0.5)
     local i = 0 + 0
     while i < SEGMENTS do
-        local rr = 0.16 + 0.0
-        local gg = 0.20 + 0.0
-        local bb = 0.28 + 0.0
+        local rr, gg, bb = 0.16 + 0.0, 0.20 + 0.0, 0.28 + 0.0
         if i < lit then
-            if i > SEGMENTS - 5 then
-                rr = 0.95
-                gg = 0.32
-                bb = 0.30
-            elseif i > SEGMENTS - 10 then
-                rr = 0.95
-                gg = 0.78
-                bb = 0.32
-            else
-                rr = 0.45
-                gg = 0.86
-                bb = 0.58
-            end
+            if i > SEGMENTS - 5 then rr, gg, bb = 0.95, 0.32, 0.30
+            elseif i > SEGMENTS - 10 then rr, gg, bb = 0.95, 0.78, 0.32
+            else rr, gg, bb = 0.45, 0.86, 0.58 end
         end
-        draw_quad(640 + i * STEP, 200, SEG_W, 26, rr, gg, bb, 1.0)
+        ui_fill_rect(i * STEP, 0, SEG_W, 26, rr, gg, bb, 1.0)
         i = i + 1
     end
-    draw_text("peak " .. pct(peak) .. "%", 640, 234, 0.6, 0.75, 0.85, 0.95, 1.0)
-    draw_text("playing: " .. S.track, 640, 258, 0.6, 0.5, 0.58, 0.66, 1.0)
-
-    -- --- decoded file vs streamed track (Phase 29) ------------------------
+    ui_canvas_end()
+    ui_text("peak " .. pct(peak) .. "%  playing: " .. S.track, 0.55, "ellipsis", 0, 0.75, 0.85, 0.95, 1.0)
     if not S.stream_ready then
         S.stream_ready = true
         S.decode_ok = audio_load_file("decoded", "assets/music.wav")
         S.stream_ok = audio_stream("streamed", "assets/music.wav")
         S.stream_len = audio_clip_len("streamed")
     end
-
-    draw_text("FILE PLAYBACK", 640, 300, 0.75, 0.62, 0.86, 0.98, 1.0)
-    ui_push(640, 320, 128, 28)
-    ui_button("play_dec", 28, "DECODED", 0.6)
-    ui_pop()
-    ui_push(776, 320, 128, 28)
-    ui_button("play_str", 28, "STREAMED", 0.6)
-    ui_pop()
-    draw_text("assets/music.wav  " .. one_dp(S.stream_len) .. "s", 640, 358, 0.55,
-              0.5, 0.58, 0.66, 1.0)
+    ui_text("FILE PLAYBACK", 0.75, "ellipsis", 0, 0.62, 0.86, 0.98, 1.0)
+    ui_hstack(8, 0, "center")
+    ui_next_grow(1) ui_button("play_dec", "DECODED", 0.55)
+    ui_next_grow(1) ui_button("play_str", "STREAMED", 0.55)
+    ui_hstack_end()
+    ui_text("assets/music.wav  " .. one_dp(S.stream_len) .. "s", 0.5, "ellipsis", 0, 0.5, 0.58, 0.66, 1.0)
     if not S.decode_ok or not S.stream_ok then
-        draw_text("file not found - run from the project root", 640, 378, 0.55,
-                  0.75, 0.55, 0.55, 1.0)
+        ui_text("file not found - run from the project root", 0.5, "wrap", 0, 0.75, 0.55, 0.55, 1.0)
     else
         S.cached_frames = audio_clip_cached("streamed")
         local dec_frames = audio_clip_cached("decoded")
-        draw_text("buffered " .. pct(dec_frames / (S.stream_len * 44100.0))
-                  .. " vs " .. pct(S.cached_frames / (S.stream_len * 44100.0)),
-                  640, 378, 0.55, 0.75, 0.85, 0.95, 1.0)
-        -- The bar is the whole point: one window wide for a stream, full for
-        -- a decoded file.
-        local total = S.stream_len * 44100.0
-        if total > 0.0 then
-            draw_quad(640, 396, 260, 10, 0.13, 0.16, 0.24, 1.0)
-            draw_quad(640, 396, 260 * (S.cached_frames / total), 10,
-                      0.45, 0.86, 0.58, 1.0)
-            draw_quad(640, 412, 260, 10, 0.13, 0.16, 0.24, 1.0)
-            draw_quad(640, 412, 260 * (dec_frames / total), 10,
-                      0.34, 0.55, 0.92, 1.0)
-        end
-        draw_text("streamed (top) vs decoded (bottom)", 640, 430, 0.55,
-                  0.5, 0.58, 0.66, 1.0)
-        draw_text("frames held in memory", 640, 448, 0.55, 0.5, 0.58, 0.66, 1.0)
+        ui_text("buffered " .. pct(dec_frames / (S.stream_len * 44100.0)) .. " vs " .. pct(S.cached_frames / (S.stream_len * 44100.0)), 0.5, "ellipsis", 0, 0.75, 0.85, 0.95, 1.0)
+        ui_next_height(10) ui_bar(S.cached_frames / math.max(1.0, S.stream_len * 44100.0), 0.45, 0.86, 0.58, 1.0)
+        ui_next_height(10) ui_bar(dec_frames / math.max(1.0, S.stream_len * 44100.0), 0.34, 0.55, 0.92, 1.0)
+        ui_text("streamed (top) vs decoded (bottom) frames held", 0.5, "ellipsis", 0, 0.5, 0.58, 0.66, 1.0)
     end
+    ui_vstack_end()
+
+    ui_hstack_end()
+    ui_root_end()
+
+    if input_key_pressed("1") then play_track("theme_a") end
+    if input_key_pressed("2") then play_track("theme_b") end
+    if input_key_pressed("s") then audio_music_stop(S.crossfade) end
+    if input_key_pressed("p") then set_paused(not S.paused) end
 
     -- The logical canvas is 960x540 (1920x1080 at 2x), so nothing here may
     -- sit below y=540 or past x=960.

@@ -2,7 +2,7 @@
 --
 -- The pieces Phase 28 added, put to work:
 --
---   ui_push(x, y, w, h) + ui_window(key, title)  a titled panel dragged by its bar.
+--   ui_root_begin(x, y, w, "auto") + ui_window(key, title)  a titled panel dragged by its bar.
 --                              It reports "being dragged" (not a position),
 --                              so the caller moves it with input_mouse_dx/dy
 --                              — and it stays silent on the frame the grab
@@ -116,85 +116,51 @@ local function tooltip(key, text)
     return 0
 end
 
-local function draw_audio(bx, by)
-    draw_text("MIXER", bx, by, 0.7, 0.55, 0.92, 0.94, 1.0)
-    ui_push(bx, by + 26, 280, 22)
-    S.master = ui_slider("master", 22, S.master, 0.0, 1.0)
-    ui_pop()
-    ui_push(bx, by + 66, 280, 22)
-    S.music = ui_slider("music", 22, S.music, 0.0, 1.0)
-    ui_pop()
-    ui_push(bx, by + 106, 280, 22)
-    S.sfx = ui_slider("sfx", 22, S.sfx, 0.0, 1.0)
-    ui_pop()
-    draw_text("master " .. pct(S.master), bx + 292, by + 30, 0.55,
-              0.75, 0.85, 0.95, 1.0)
-    draw_text("music  " .. pct(S.music), bx + 292, by + 70, 0.55,
-              0.75, 0.85, 0.95, 1.0)
-    draw_text("sfx    " .. pct(S.sfx), bx + 292, by + 110, 0.55,
-              0.75, 0.85, 0.95, 1.0)
-    ui_push(bx, by + 146, ui_layout_token("panel_width"), math.max(18, 28))
-    ui_checkbox("mute", 18, S.muted, "mute everything", 0.6)
-    ui_pop()
+local function draw_audio()
+    ui_text("MIXER", 0.7, "ellipsis", 0, 0.55, 0.92, 0.94, 1.0)
+    ui_hstack(8, 0, "center") ui_next_grow(1) S.master = ui_slider("master", S.master, 0.0, 1.0) ui_text("master " .. pct(S.master), 0.55, "ellipsis", 2, 0.75, 0.85, 0.95, 1.0) ui_hstack_end()
+    ui_hstack(8, 0, "center") ui_next_grow(1) S.music = ui_slider("music", S.music, 0.0, 1.0) ui_text("music  " .. pct(S.music), 0.55, "ellipsis", 2, 0.75, 0.85, 0.95, 1.0) ui_hstack_end()
+    ui_hstack(8, 0, "center") ui_next_grow(1) S.sfx = ui_slider("sfx", S.sfx, 0.0, 1.0) ui_text("sfx    " .. pct(S.sfx), 0.55, "ellipsis", 2, 0.75, 0.85, 0.95, 1.0) ui_hstack_end()
+    ui_checkbox("mute", S.muted, "mute everything", 0.6)
     return 0
 end
 
-local function draw_video(bx, by)
-    ui_push(bx, by, 280, 22)
-    ui_tree("grp_display", 22, "display", S.open_display, 0.65)
-    ui_pop()
+local function draw_video()
+    ui_tree("grp_display", "display", S.open_display, 0.65)
     if S.open_display then
-        draw_text("brightness", bx + 18, by + 32, 0.6, 0.72, 0.78, 0.86, 1.0)
-        ui_push(bx + 18, by + 50, 262, 20)
-        S.bright = ui_slider("bright", 20, S.bright, 0.0, 1.0)
-        ui_pop()
-        draw_text("gamma", bx + 18, by + 84, 0.6, 0.72, 0.78, 0.86, 1.0)
-        ui_push(bx + 18, by + 102, 262, 20)
-        S.gamma = ui_slider("gamma", 20, S.gamma, 0.0, 1.0)
-        ui_pop()
+        ui_next_pad(16, 0, 0, 0)
+        ui_vstack(6, 0, "stretch")
+        ui_text("brightness", 0.6, "ellipsis", 0, 0.72, 0.78, 0.86, 1.0)
+        S.bright = ui_slider("bright", S.bright, 0.0, 1.0)
+        ui_text("gamma", 0.6, "ellipsis", 0, 0.72, 0.78, 0.86, 1.0)
+        S.gamma = ui_slider("gamma", S.gamma, 0.0, 1.0)
+        ui_vstack_end()
     end
-
-    local ey = by + 40
-    if S.open_display then
-        ey = by + 140
-    end
-    ui_push(bx, ey, 280, 22)
-    ui_tree("grp_effects", 22, "effects", S.open_effects, 0.65)
-    ui_pop()
+    ui_tree("grp_effects", "effects", S.open_effects, 0.65)
     if S.open_effects then
-        ui_push(bx + 18, ey + 30, ui_layout_token("panel_width"), math.max(18, 28))
-        ui_checkbox("bloom", 18, S.bloom, "bloom", 0.6)
-        ui_pop()
-        ui_push(bx + 18, ey + 58, ui_layout_token("panel_width"), math.max(18, 28))
-        ui_checkbox("fog", 18, S.fog, "fog of war", 0.6)
-        ui_pop()
+        ui_next_pad(16, 0, 0, 0)
+        ui_vstack(6, 0, "stretch")
+        ui_checkbox("bloom", S.bloom, "bloom", 0.6)
+        ui_checkbox("fog", S.fog, "fog of war", 0.6)
+        ui_vstack_end()
     end
     return 0
 end
 
-local function draw_controls(bx, by)
-    draw_text("INPUT", bx, by, 0.7, 0.75, 0.65, 0.95, 1.0)
-    ui_push(bx, by + 26, ui_layout_token("panel_width"), math.max(18, 28))
-    ui_radio("ctl0", 18, S.control == 0, control_name(0), 0.6)
-    ui_pop()
-    ui_push(bx, by + 54, ui_layout_token("panel_width"), math.max(18, 28))
-    ui_radio("ctl1", 18, S.control == 1, control_name(1), 0.6)
-    ui_pop()
-
-    draw_text("SCHEME", bx, by + 92, 0.7, 0.75, 0.65, 0.95, 1.0)
-    ui_push(bx, by + 112, 200, 26)
-    ui_combo("scheme", 26, scheme_name(S.scheme), S.scheme_open, 0.6)
-    ui_pop()
+local function draw_controls()
+    ui_text("INPUT", 0.7, "ellipsis", 0, 0.75, 0.65, 0.95, 1.0)
+    ui_radio("ctl0", S.control == 0, control_name(0), 0.6)
+    ui_radio("ctl1", S.control == 1, control_name(1), 0.6)
+    ui_text("SCHEME", 0.7, "ellipsis", 0, 0.75, 0.65, 0.95, 1.0)
+    ui_combo("scheme", scheme_name(S.scheme), S.scheme_open, 0.6)
     if S.scheme_open then
-        draw_quad(bx - 2.0, by + 142, 204, 84, 0.08, 0.10, 0.15, 1.0)
+        ui_card(4, 2, 0.08, 0.10, 0.15, 1.0)
         local k = 0 + 0
         while k < 3 do
-            local ry = by + 144 + k * 26
-            ui_push(bx, ry, 200, 24)
-            ui_combo_item("sc" .. istr(k), 24, scheme_name(k), S.scheme == k, 0.6)
-            ui_pop()
+            ui_combo_item("sc" .. istr(k), scheme_name(k), S.scheme == k, 0.6)
             k = k + 1
         end
+        ui_card_end()
     end
     return 0
 end
@@ -205,54 +171,34 @@ local function update_body(dt)
         reset_state()
     end
 
-    -- --- the window shell -------------------------------------------------
-    ui_push(S.wx, S.wy, WIN_W, WIN_H)
-    ui_window("settings", "SETTINGS", 0.7)
-    ui_pop()
-    -- Keep it reachable: a panel dragged off the canvas can never be grabbed
-    -- again, so the title bar always stays inside.
-    if S.wx < 0.0 then
-        S.wx = 0.0
-    end
-    if S.wy < 0.0 then
-        S.wy = 0.0
-    end
-    if S.wx > SCREEN_W - WIN_W then
-        S.wx = SCREEN_W - WIN_W
-    end
-    if S.wy > SCREEN_H - WIN_H then
-        S.wy = SCREEN_H - WIN_H
-    end
+    if S.wx < 0.0 then S.wx = 0.0 end
+    if S.wy < 0.0 then S.wy = 0.0 end
+    if S.wx > SCREEN_W - WIN_W then S.wx = SCREEN_W - WIN_W end
+    if S.wy > SCREEN_H - WIN_H then S.wy = SCREEN_H - WIN_H end
 
-    -- --- tabs and their panels -------------------------------------------
+    ui_root_begin(S.wx, S.wy, WIN_W, "auto", 0, true)
+    ui_panel()
+    ui_window("settings", "SETTINGS", 0.7)
+    ui_next_pad(10, 8, 10, 10)
+    ui_vstack(8, 0, "stretch")
+    ui_hstack(6, 0, "center")
     local i = 0 + 0
     while i < 3 do
-        ui_push(S.wx + 10 + i * 102, S.wy + 36, 100, 24)
-        ui_tab("tab" .. istr(i), 24, tab_name(i), S.tab == i, 0.6)
-        ui_pop()
+        ui_next_grow(1)
+        ui_tab("tab" .. istr(i), tab_name(i), S.tab == i, 0.6)
         i = i + 1
     end
+    ui_hstack_end()
+    if S.tab == 0 then draw_audio() end
+    if S.tab == 1 then draw_video() end
+    if S.tab == 2 then draw_controls() end
+    ui_text("drag the title bar - the position lives in the script", 0.55, "wrap", 0, 0.5, 0.58, 0.66, 1.0)
+    ui_vstack_end()
+    ui_root_end()
 
-    local bx = S.wx + 20
-    local by = S.wy + 70
-    if S.tab == 0 then
-        draw_audio(bx, by)
-    end
-    if S.tab == 1 then
-        draw_video(bx, by)
-    end
-    if S.tab == 2 then
-        draw_controls(bx, by)
-    end
-
-    -- --- the page frame ---------------------------------------------------
-    draw_text("drag the title bar - the position lives in the script", S.wx + 10,
-              S.wy + WIN_H - 20, 0.55, 0.5, 0.58, 0.66, 1.0)
-
-    -- --- outside: a reset and the hover hints -----------------------------
-    ui_push(40, 470, 120, 26)
-    ui_button("reset", 26, "RECENTER", 0.6)
-    ui_pop()
+    ui_root_begin(40, 470, 120, "auto", 0, true)
+    ui_button("reset", "RECENTER", 0.6)
+    ui_root_end()
 
     draw_text("UI WIDGETS ROUND 3", 40, 24, 1.2, 0.94, 0.96, 1.0, 1.0)
     draw_text("draggable window, tab bar, collapsible tree", 40, 52, 0.7,

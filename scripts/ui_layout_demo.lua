@@ -54,39 +54,42 @@ local function update_body(dt)
         goods = "田亩营制长句自动换行国朝纪事田亩营制长句自动换行国朝纪事"
         if S.lang then goods = "SilkSupercalifragilisticexpialidociousWithoutAnyBreakAtAll" end
     end
-    ui_push(24, 18, width, 580, 10)
+    ui_root_begin(24, 18, width, 580, 10, true)
         ui_panel()
-        ui_text("DYNAMIC TEXT / 1.49", 0.75)
+        ui_vstack(6, 0, "stretch")
+        ui_text("DYNAMIC TEXT / Two-Pass", 0.75)
         ui_text("SPACE auto | N text | L language | D digits | W width | R resize | A audit", 0.4)
-        ui_push(0, 0, ui_avail_w(), 0, 8)
-            ui_panel(0.12, 0.19, 0.28, 1)
+        ui_card(8, 4, 0.12, 0.19, 0.28, 1)
+            ui_remember_box("dyn_child")
             ui_text(paragraph, 0.62)
-        ui_pop()
-        local child_h = ui_last_rect("h")
+        ui_card_end()
+        local child_h = ui_named("dyn_child", "h")
         S.child_h = child_h
         S.width = width
         ui_text("Following sibling: child h=" .. string.format("%.1f", child_h), 0.45)
-        ui_remember("sibling")
-        ui_row(8, 140, -1, -1)
-            ui_col()
-                ui_text("货物 / goods", 0.5)
-                ui_text(goods, 0.48)
-            ui_col_end()
-            ui_col()
-                ui_text("现价 / price", 0.5)
-                if S.digits then ui_text("123456789012345 (+999%)", 0.5, "ellipsis") else ui_text("12 (+1%)", 0.5) end
-            ui_col_end()
-            ui_col()
-                ui_text("田亩 / population", 0.5)
-                if S.digits then ui_text("9876543210123456", 0.5, "shrink") else ui_text("9", 0.5) end
-            ui_col_end()
-        ui_row_end()
+        ui_table_begin("dyn_tbl", 8, 4, 140, "grow", "grow")
+            ui_table_row("start")
+                ui_cell()
+                    ui_text("货物 / goods", 0.5)
+                    ui_text(goods, 0.48)
+                ui_cell_end()
+                ui_cell()
+                    ui_text("现价 / price", 0.5)
+                    if S.digits then ui_text("123456789012345 (+999%)", 0.5, "ellipsis") else ui_text("12 (+1%)", 0.5) end
+                ui_cell_end()
+                ui_cell()
+                    ui_text("田亩 / population", 0.5)
+                    if S.digits then ui_text("9876543210123456", 0.5, "shrink") else ui_text("9", 0.5) end
+                ui_cell_end()
+            ui_table_row_end()
+        ui_table_end()
         -- The same scroll ID grows, then shrinks, including while scrolled.
-        ui_scroll_begin("dynamic", 106)
+        ui_scroll("dynamic", "grow")
             ui_text(paragraph, 0.6)
             if S.stage == 1 then ui_text(long, 0.6) ui_text(long, 0.6) end
         ui_scroll_end()
-    ui_pop()
+        ui_vstack_end()
+    ui_root_end()
     return 0
 end
 
@@ -94,12 +97,12 @@ function update(dt)
     ui_begin()
     local result = update_body(dt)
     ui_end()
-    -- Scroll clamp/aligned interaction resolve at End: query final diagnostics
-    -- here, not during declaration (especially on the first shrinking frame).
-    ui_push(34, 550, S.width - 20, 32)
+    ui_root_begin(34, 550, S.width - 20, "auto", 0, false)
+        ui_vstack(2, 0, "stretch")
         ui_text("scroll h=" .. string.format("%.1f", ui_scroll_content_h("dynamic")) .. " offset=" .. string.format("%.1f", ui_scroll_offset("dynamic")), 0.42)
         ui_text("scale=" .. string.format("%.2f", ui_scale_get()) .. " overflow=" .. string.format("%d", ui_overflow_count()) .. " state=" .. string.format("%d", S.stage), 0.42)
-    ui_pop()
+        ui_vstack_end()
+    ui_root_end()
     if S.auto and (S.frame - 1) % 40 == 0 then
         log_number(148010 + math.floor((S.frame - 1) / 40) % 6)
         log_number(S.child_h)

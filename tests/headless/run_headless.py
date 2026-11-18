@@ -147,20 +147,20 @@ def pad_optional_ui_calls(body, api, minimums):
 
 
 def verify_optional_ui_padding(api, minimums):
-    # Regression for the real platformer call shape that otherwise fails under
+    # Regression for the real call shape that otherwise fails under
     # all three standalone flua backends despite working with native Args.
-    before = 'ui_push(x, y, math.min(3, text_width("a,(b)", .6)), h())'
+    before = 'ui_root_begin(x, y, math.min(3, text_width("a,(b)", .6)), h(), 0)'
     assert pad_optional_ui_calls(before, api, minimums) == before[:-1] + ', nil)'
     before = 'ui_text("田, x", .6, "wrap", 0, 1, 1, 1, 1)'
     assert pad_optional_ui_calls(before, api, minimums) == before[:-1] + ', nil)'
-    before = '-- ui_push(1)\nlocal s = "ui_push(1)"\nlocal t = [=[ui_push(1)]=]'
+    before = '-- ui_root_begin(1)\nlocal s = "ui_root_begin(1)"\nlocal t = [=[ui_root_begin(1)]=]'
     assert pad_optional_ui_calls(before, api, minimums) == before
     before = 'ui_panel(-- ignored (, )\n)'
     assert pad_optional_ui_calls(before, api, minimums) == before[:-1] + 'nil, nil, nil, nil)'
-    before = 'ui_push(1, 2, 3, ui_text("nested"), 0)'
+    before = 'ui_root_begin(1, 2, 3, ui_text("nested"), 0, true)'
     assert pad_optional_ui_calls(before, api, minimums).count('nil') == api['ui_text'][1] - 1
     try:
-        pad_optional_ui_calls('ui_push(1)', api, minimums)
+        pad_optional_ui_calls('ui_root_begin(1)', api, minimums)
         raise AssertionError("fixture adapter must not hide missing required arguments")
     except ValueError:
         pass
