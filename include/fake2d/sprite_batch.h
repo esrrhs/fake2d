@@ -71,6 +71,10 @@ public:
     /// Draw a vertically shaded quad split into `steps` non-overlapping bands.
     void DrawGradientV(const Rect &dst, const Color &top, const Color &bottom, int steps = 8);
 
+    /// Draw a smooth 4-corner interpolated gradient quad in a single batch quad.
+    void DrawGradientQuad(const Rect &dst, const Color &tl, const Color &tr, const Color &br,
+                          const Color &bl);
+
     /// Draw a cubic Bezier stroke whose width linearly tapers from `w0` to `w1`.
     void DrawBezierTapered(const Vec2 &p0, const Vec2 &c0, const Vec2 &c1, const Vec2 &p1,
                            float w0, float w1, const Color &color);
@@ -118,10 +122,18 @@ public:
     /// Restrict drawing to a rectangle in GL window coordinates (physical
     /// pixels, bottom-left origin). Applied around every flush; an empty rect
     /// (default) draws unclipped. The host clears it each frame.
-    void SetClipRectPhysical(const Rect &rect) { clip_ = rect; clip_active_ = rect.width > 0.0f && rect.height > 0.0f; }
-    void ClearClipRect() { clip_active_ = false; }
+    void SetClipRectPhysical(const Rect &rect, float radius_px = 0.0f,
+                             const Rect *rrect_phys = nullptr) {
+        clip_ = rect;
+        clip_rrect_ = rrect_phys ? *rrect_phys : rect;
+        clip_radius_ = radius_px > 0.0f ? radius_px : 0.0f;
+        clip_active_ = rect.width > 0.0f && rect.height > 0.0f;
+    }
+    void ClearClipRect() { clip_active_ = false; clip_radius_ = 0.0f; }
     [[nodiscard]] bool ClipActive() const { return clip_active_; }
     [[nodiscard]] const Rect &ClipRect() const { return clip_; }
+    [[nodiscard]] const Rect &ClipRRect() const { return clip_rrect_; }
+    [[nodiscard]] float ClipRadius() const { return clip_radius_; }
     [[nodiscard]] bool HasPendingDraws() const {
         return current_quads_ > 0 || !commands_.empty() || current_mesh_indices_ > 0 ||
                !mesh_commands_.empty() || current_lines_ > 0;
@@ -188,6 +200,7 @@ private:
     static void ApplyBlend(BlendMode mode);
     /// glEnable(GL_SCISSOR_TEST) + glScissor for the active clip rect.
     void ApplyClip() const;
+    void ApplyClipUniforms() const;
     /// glDisable(GL_SCISSOR_TEST).
     static void RestoreClip();
     // GL2 (no-VAO) paths: re-specify the fixed-layout attribute pointers
@@ -238,6 +251,8 @@ private:
     BlendMode pending_blend_ = BlendMode::Alpha; // blend of the unflushed run
 
     Rect clip_{};
+    Rect clip_rrect_{};
+    float clip_radius_ = 0.0f;
     bool clip_active_ = false;
 
     Mat4 current_view_projection_;

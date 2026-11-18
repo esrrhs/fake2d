@@ -60,6 +60,7 @@ struct Engine::Impl {
     InputReplay input_replay;
     bool recording_input = false;
     bool replaying_input = false;
+    bool ui_owned_cursor = false;
 };
 
 Engine::Engine() : impl_(std::make_unique<Impl>()) {}
@@ -132,6 +133,15 @@ bool Engine::Init(const EngineConfig &config) {
 
     // UI reads the input snapshot and viewport every frame.
     impl_->ui.Bind(&impl_->input, &impl_->renderer.GetCamera(), &impl_->renderer);
+    impl_->ui.SetImeRectCallback([this](const Rect &caret_logical) {
+        if (!impl_) {
+            return;
+        }
+        const Vec2 wp = impl_->ui.LogicalToWindow({caret_logical.x, caret_logical.y});
+        const float h = caret_logical.height * impl_->ui.Scale();
+        impl_->window.SetImeCursorRect(static_cast<int>(wp.x), static_cast<int>(wp.y),
+                                       static_cast<int>(h));
+    });
 
     // Gameplay reads contacts once per frame, but the fixed-step loop may
     // step the world several times in a frame: accumulate so no event is
@@ -308,6 +318,15 @@ int Engine::Run(int max_frames) {
             impl_->config.on_frame(*this);
         }
 
+        const int desired_cursor = impl_->ui.DesiredCursorShape();
+        if (desired_cursor > 0) {
+            impl_->window.SetCursorShape(desired_cursor);
+            impl_->ui_owned_cursor = true;
+        } else if (impl_->ui_owned_cursor) {
+            impl_->window.SetCursorShape(0);
+            impl_->ui_owned_cursor = false;
+        }
+
         impl_->renderer.EndFrame();
         impl_->window.SwapBuffers();
 
@@ -421,8 +440,21 @@ void Engine::SetMinWindowSize(int width, int height) {
 
 void Engine::SetCursorShape(int shape) {
     if (impl_) {
+        impl_->ui_owned_cursor = false;
         impl_->window.SetCursorShape(shape);
     }
+}
+
+int Engine::WindowCursorShape() const {
+    return impl_ ? impl_->window.CursorShape() : 0;
+}
+
+Rect Engine::WindowImeCursorRect() const {
+    if (!impl_) {
+        return {};
+    }
+    const auto r = impl_->window.ImeCursorRect();
+    return {static_cast<float>(r.x), static_cast<float>(r.y), 2.0f, static_cast<float>(r.height)};
 }
 
 bool Engine::IsRunning() const {

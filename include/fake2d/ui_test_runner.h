@@ -94,7 +94,16 @@ public:
     bool TypeText(std::string_view key, std::string_view utf8_text);
     void PressKey(std::string_view key_name, float dt = 0.0f);
     bool Scroll(std::string_view key, float wheel_delta);
+    bool ScrollHorizontal(std::string_view key, float wheel_x);
+    bool ScrollTo(std::string_view key, bool smooth = false);
+    bool DragAndDrop(std::string_view src_key, std::string_view dst_key, float dt = 0.0f);
+    void Pinch(float delta, float dt = 0.0f);
     void MoveMouseAway(float dt = 0.0f);
+
+    [[nodiscard]] std::vector<UISemanticNode> SemanticNodes() const;
+    [[nodiscard]] std::string SemanticJson() const;
+    [[nodiscard]] std::optional<UISemanticNode> FindSemantic(std::string_view role,
+                                                             std::string_view label = "") const;
 
 private:
     Engine &engine_;

@@ -110,6 +110,11 @@ public:
     // Immediate draw convenience helpers:
     void DrawQuad(float x, float y, float w, float h, const Color &color = Color::White());
     void DrawQuad(const Rect &dst, const Color &color);
+    void DrawGradientQuad(const Rect &dst, const Color &tl, const Color &tr, const Color &br,
+                          const Color &bl);
+    /// Capture underlying framebuffer behind `points_rect` and draw a multi-tap frosted blur.
+    void DrawBlurredBackdrop(const Rect &points_rect, float blur_radius,
+                             const Color &tint = {1.0f, 1.0f, 1.0f, 0.2f});
 
     // --- line/debug primitives (flushed after the quads each frame) ---
     void DrawLine(float x1, float y1, float x2, float y2, const Color &color);
@@ -178,9 +183,10 @@ public:
 
     // --- scissor clipping ----------------------------------------------------
     /// Restrict all drawing to a rectangle in logical points (top-left
-    /// origin, like every game coordinate). Cleared at the start of each
-    /// frame; nest manually if you need stacked regions.
-    void SetClipRect(const Rect &points_rect);
+    /// origin, like every game coordinate). Optional `radius_points > 0`
+    /// applies SDF anti-aliased rounded-rectangle clipping in the default shader.
+    void SetClipRect(const Rect &points_rect, float radius_points = 0.0f,
+                     const Rect *rrect_points = nullptr);
     void ClearClipRect();
 
     /// Blit a target across the whole of the surface currently being drawn
@@ -324,6 +330,9 @@ private:
     static constexpr std::size_t kMaxCustomShaders = 8;
     std::array<Shader, kMaxCustomShaders> shaders_{};
     Shader *active_shader_ = nullptr;
+    Texture2D backdrop_tex_;
+    int backdrop_cap_w_ = 0;
+    int backdrop_cap_h_ = 0;
 };
 
 } // namespace fake2d

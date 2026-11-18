@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.16 FATAL_ERROR)
 
 project(fake2d VERSION 1.55.0 LANGUAGES CXX)
+if (APPLE)
+    enable_language(OBJCXX)
+endif ()
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

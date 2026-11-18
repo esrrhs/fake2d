@@ -1575,6 +1575,9 @@ void RegisterUiApi(fakelua::State *state, Engine *engine) {
             if (str == "end" || str == "right" || str == "bottom") return UIAxisAlign::End;
             if (str == "stretch" || str == "fill") return UIAxisAlign::Stretch;
             if (str == "baseline") return UIAxisAlign::Baseline;
+            if (str == "space_between" || str == "between") return UIAxisAlign::SpaceBetween;
+            if (str == "space_around" || str == "around") return UIAxisAlign::SpaceAround;
+            if (str == "space_evenly" || str == "evenly") return UIAxisAlign::SpaceEvenly;
             return fallback;
         }
         UIScrollDir ScrollDir(int i) const {
@@ -2168,6 +2171,92 @@ void RegisterUiApi(fakelua::State *state, Engine *engine) {
     });
     add("ui_logical_w", 0, [](UISystem &ui, const Args &a) { return a.Number(ui.LogicalWidth()); });
     add("ui_logical_h", 0, [](UISystem &ui, const Args &a) { return a.Number(ui.LogicalHeight()); });
+    add("ui_grid_cols_begin", 1, [](UISystem &ui, const Args &a) {
+        ui.GridColumnsBegin(a.I(0), a.N(1, -1.0f), a.N(2, -1.0f), a.N(3, 0.0f));
+        return a.Nil();
+    });
+    add("ui_next_row_span", 1, [](UISystem &ui, const Args &a) {
+        ui.NextRowSpan(a.I(0));
+        return a.Nil();
+    });
+    add("ui_next_gradient", 8, [](UISystem &ui, const Args &a) {
+        ui.NextGradient(a.C(0), a.C(4), a.B(8));
+        return a.Nil();
+    });
+    add("ui_next_blur", 0, [](UISystem &ui, const Args &a) {
+        ui.NextBackdropBlur(a.N(0, 4.0f));
+        return a.Nil();
+    });
+    add("ui_next_clip", 0, [](UISystem &ui, const Args &a) {
+        ui.NextClip(a.count <= 0 || a.B(0));
+        return a.Nil();
+    });
+    add("ui_next_dir", 1, [](UISystem &ui, const Args &a) {
+        ui.NextDirection(a.S(0) == "rtl" ? UILayoutDirection::RTL : UILayoutDirection::LTR);
+        return a.Nil();
+    });
+    add("ui_dir_begin", 1, [](UISystem &ui, const Args &a) {
+        ui.LayoutDirectionBegin(a.S(0) == "rtl" ? UILayoutDirection::RTL : UILayoutDirection::LTR);
+        return a.Nil();
+    });
+    add("ui_dir_end", 0, [](UISystem &ui, const Args &a) { ui.LayoutDirectionEnd(); return a.Nil(); });
+    add("ui_safe_area_begin", 0, [](UISystem &ui, const Args &a) {
+        ui.SafeAreaBegin(a.N(0, 0.0f));
+        return a.Nil();
+    });
+    add("ui_safe_area_end", 0, [](UISystem &ui, const Args &a) { ui.SafeAreaEnd(); return a.Nil(); });
+    add("ui_set_safe_area", 4, [](UISystem &ui, const Args &a) {
+        ui.SetSafeAreaInsets(a.N(0), a.N(1), a.N(2), a.N(3));
+        return a.Nil();
+    });
+    add("ui_next_placeholder", 1, [](UISystem &ui, const Args &a) {
+        ui.NextPlaceholder(a.S(0));
+        return a.Nil();
+    });
+    add("ui_next_tooltip", 1, [](UISystem &ui, const Args &a) {
+        ui.NextTooltip(a.S(0));
+        return a.Nil();
+    });
+    add("ui_next_semantics", 1, [](UISystem &ui, const Args &a) {
+        ui.NextSemantics(a.S(0), a.S(1), a.S(2), a.S(3));
+        return a.Nil();
+    });
+    add("ui_next_visible", 1, [](UISystem &ui, const Args &a) { ui.NextVisible(a.B(0)); return a.Nil(); });
+    add("ui_next_enabled", 1, [](UISystem &ui, const Args &a) { ui.NextEnabled(a.B(0)); return a.Nil(); });
+    add("ui_focus_request", 1, [](UISystem &ui, const Args &a) { ui.RequestFocus(a.S(0)); return a.Nil(); });
+    add("ui_focus_clear", 0, [](UISystem &ui, const Args &a) { ui.ClearFocus(); return a.Nil(); });
+    add("ui_scroll_to", 1, [](UISystem &ui, const Args &a) {
+        ui.ScrollToWidget(a.S(0), a.count <= 1 || a.B(1));
+        return a.Nil();
+    });
+    add("ui_drag_source", 3, [](UISystem &ui, const Args &a) {
+        return a.Bool(ui.DragSourceBegin(a.S(0), a.S(1), a.S(2)));
+    });
+    add("ui_drag_source_end", 0, [](UISystem &ui, const Args &a) { ui.DragSourceEnd(); return a.Nil(); });
+    add("ui_drag_preview", 0, [](UISystem &ui, const Args &a) { return a.Bool(ui.DragPreviewBegin()); });
+    add("ui_drag_preview_end", 0, [](UISystem &ui, const Args &a) { ui.DragPreviewEnd(); return a.Nil(); });
+    add("ui_drop_target", 1, [](UISystem &ui, const Args &a) {
+        return a.Bool(ui.DropTargetBegin(a.S(0), a.S(1)));
+    });
+    add("ui_drop_target_end", 0, [](UISystem &ui, const Args &a) { ui.DropTargetEnd(); return a.Nil(); });
+    add("ui_is_dragging", 0, [](UISystem &ui, const Args &a) { return a.Bool(ui.IsDragging()); });
+    add("ui_drag_type", 0, [](UISystem &ui, const Args &a) { return a.String(ui.ActiveDragType()); });
+    add("ui_drag_payload", 0, [](UISystem &ui, const Args &a) { return a.String(ui.ActiveDragPayload()); });
+    add("ui_is_drop_hovered", 1, [](UISystem &ui, const Args &a) { return a.Bool(ui.IsDropHovered(a.S(0))); });
+    add("ui_drop_payload", 1, [](UISystem &ui, const Args &a) { return a.String(ui.DroppedPayload(a.S(0))); });
+    add("ui_menubar_begin", 0, [](UISystem &ui, const Args &a) { ui.MenuBarBegin(); return a.Nil(); });
+    add("ui_menubar_end", 0, [](UISystem &ui, const Args &a) { ui.MenuBarEnd(); return a.Nil(); });
+    add("ui_menu_begin", 2, [](UISystem &ui, const Args &a) { return a.Bool(ui.MenuBegin(a.S(0), a.S(1))); });
+    add("ui_menu_end", 0, [](UISystem &ui, const Args &a) { ui.MenuEnd(); return a.Nil(); });
+    add("ui_menu_item", 2, [](UISystem &ui, const Args &a) {
+        return a.Bool(ui.MenuItem(a.S(0), a.S(1), a.S(2), a.B(3)));
+    });
+    add("ui_menu_separator", 0, [](UISystem &ui, const Args &a) { ui.MenuSeparator(); return a.Nil(); });
+    add("ui_cursor_shape", 0, [](UISystem &ui, const Args &a) {
+        return a.Number(static_cast<float>(ui.DesiredCursorShape()));
+    });
+    add("ui_pinch_delta", 0, [](UISystem &ui, const Args &a) { return a.Number(ui.PinchDelta()); });
+    add("ui_semantic_json", 0, [](UISystem &ui, const Args &a) { return a.String(ui.SemanticJson()); });
 }
 
 void RegisterLineApi(fakelua::State *state, Engine *engine) {

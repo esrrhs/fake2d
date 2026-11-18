@@ -57,6 +57,15 @@ public:
     /// Cursor shape: 0 arrow, 1 ibeam, 2 crosshair, 3 hand, 4 hresize,
     /// 5 vresize (ignored for headless contexts).
     void SetCursorShape(int shape);
+    [[nodiscard]] int CursorShape() const { return cursor_shape_; }
+    /// Notify native OS IME of the active text caret rect (logical window points, top-left origin).
+    void SetImeCursorRect(int window_x, int window_y, int line_height);
+    struct ImeRect {
+        int x = 0;
+        int y = 0;
+        int height = 0;
+    };
+    [[nodiscard]] ImeRect ImeCursorRect() const { return ime_rect_; }
     /// Logical window size in points.
     [[nodiscard]] int Width() const { return width_; }
     [[nodiscard]] int Height() const { return height_; }
@@ -92,6 +101,8 @@ private:
     bool resizable_ = true;
     int min_width_ = 0;
     int min_height_ = 0;
+    int cursor_shape_ = 0;
+    ImeRect ime_rect_{};
     GLFWcursor *cursors_[6] = {}; // lazily created standard cursors
     // Windowed geometry saved when entering fullscreen for a clean restore.
     int windowed_x_ = 0;

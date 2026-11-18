@@ -155,6 +155,9 @@ UIAxisAlign ParseAxisAlign(const std::string &str, UIAxisAlign fallback) {
     if (str == "end" || str == "right" || str == "bottom") return UIAxisAlign::End;
     if (str == "stretch" || str == "fill") return UIAxisAlign::Stretch;
     if (str == "baseline") return UIAxisAlign::Baseline;
+    if (str == "space_between" || str == "between") return UIAxisAlign::SpaceBetween;
+    if (str == "space_around" || str == "around") return UIAxisAlign::SpaceAround;
+    if (str == "space_evenly" || str == "evenly") return UIAxisAlign::SpaceEvenly;
     return fallback;
 }
 
@@ -1155,6 +1158,169 @@ void RegisterLayoutUILuaApi(LS *s, LuaUIHost *host) {
             auto *u = ui_sys();
             return u ? u->ThemeMetric(name) : 0.0;
         });
+    RegVar(s, host, "ui_grid_cols_begin", 1, [ui_sys](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) {
+            u->GridColumnsBegin(static_cast<int>(ArgNum(st, a, n, 0)),
+                                n > 1 ? static_cast<float>(ArgNum(st, a, n, 1)) : -1.0f,
+                                n > 2 ? static_cast<float>(ArgNum(st, a, n, 2)) : -1.0f,
+                                n > 3 ? static_cast<float>(ArgNum(st, a, n, 3)) : 0.0f);
+        }
+        return 0.0;
+    });
+    Reg<void(LS *, std::int64_t)>(s, host, "ui_next_row_span", [ui_sys](LS *, std::int64_t rows) {
+        if (auto *u = ui_sys()) u->NextRowSpan(static_cast<int>(rows));
+    });
+    RegVar(s, host, "ui_next_gradient", 2, [ui_sys, col_of](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) {
+            const Color s_col = col_of(static_cast<std::int64_t>(ArgNum(st, a, n, 0)));
+            const Color e_col = col_of(static_cast<std::int64_t>(ArgNum(st, a, n, 1)));
+            u->NextGradient(s_col, e_col, n > 2 && ArgBool(st, a, n, 2));
+        }
+        return 0.0;
+    });
+    RegVar(s, host, "ui_next_blur", 0, [ui_sys](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) u->NextBackdropBlur(n > 0 ? static_cast<float>(ArgNum(st, a, n, 0)) : 4.0f);
+        return 0.0;
+    });
+    RegVar(s, host, "ui_next_clip", 0, [ui_sys](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) u->NextClip(n <= 0 || ArgBool(st, a, n, 0));
+        return 0.0;
+    });
+    Reg<void(LS *, std::string)>(s, host, "ui_next_dir", [ui_sys](LS *, std::string d) {
+        if (auto *u = ui_sys()) {
+            u->NextDirection(d == "rtl" ? UILayoutDirection::RTL : UILayoutDirection::LTR);
+        }
+    });
+    Reg<void(LS *, std::string)>(s, host, "ui_dir_begin", [ui_sys](LS *, std::string d) {
+        if (auto *u = ui_sys()) {
+            u->LayoutDirectionBegin(d == "rtl" ? UILayoutDirection::RTL : UILayoutDirection::LTR);
+        }
+    });
+    Reg<void(LS *)>(s, host, "ui_dir_end", [ui_sys](LS *) {
+        if (auto *u = ui_sys()) u->LayoutDirectionEnd();
+    });
+    RegVar(s, host, "ui_safe_area_begin", 0, [ui_sys](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) u->SafeAreaBegin(n > 0 ? static_cast<float>(ArgNum(st, a, n, 0)) : 0.0f);
+        return 0.0;
+    });
+    Reg<void(LS *)>(s, host, "ui_safe_area_end", [ui_sys](LS *) {
+        if (auto *u = ui_sys()) u->SafeAreaEnd();
+    });
+    Reg<void(LS *, double, double, double, double)>(
+        s, host, "ui_set_safe_area", [ui_sys](LS *, double l, double t, double r, double b) {
+            if (auto *u = ui_sys()) {
+                u->SetSafeAreaInsets(static_cast<float>(l), static_cast<float>(t),
+                                     static_cast<float>(r), static_cast<float>(b));
+            }
+        });
+    Reg<void(LS *, std::string)>(s, host, "ui_next_placeholder", [ui_sys](LS *, std::string ph) {
+        if (auto *u = ui_sys()) u->NextPlaceholder(ph);
+    });
+    Reg<void(LS *, std::string)>(s, host, "ui_next_tooltip", [ui_sys](LS *, std::string tip) {
+        if (auto *u = ui_sys()) u->NextTooltip(tip);
+    });
+    RegVar(s, host, "ui_next_semantics", 1, [ui_sys](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) {
+            u->NextSemantics(ArgStr(st, a, n, 0),
+                             n > 1 ? ArgStr(st, a, n, 1) : "",
+                             n > 2 ? ArgStr(st, a, n, 2) : "",
+                             n > 3 ? ArgStr(st, a, n, 3) : "");
+        }
+        return 0.0;
+    });
+    Reg<void(LS *, bool)>(s, host, "ui_next_visible", [ui_sys](LS *, bool v) {
+        if (auto *u = ui_sys()) u->NextVisible(v);
+    });
+    Reg<void(LS *, bool)>(s, host, "ui_next_enabled", [ui_sys](LS *, bool en) {
+        if (auto *u = ui_sys()) u->NextEnabled(en);
+    });
+    Reg<void(LS *, std::string)>(s, host, "ui_focus_request", [ui_sys](LS *, std::string key) {
+        if (auto *u = ui_sys()) u->RequestFocus(key);
+    });
+    Reg<void(LS *)>(s, host, "ui_focus_clear", [ui_sys](LS *) {
+        if (auto *u = ui_sys()) u->ClearFocus();
+    });
+    RegVar(s, host, "ui_scroll_to", 1, [ui_sys](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) u->ScrollToWidget(ArgStr(st, a, n, 0), n <= 1 || ArgBool(st, a, n, 1));
+        return 0.0;
+    });
+    Reg<bool(LS *, std::string, std::string, std::string)>(
+        s, host, "ui_drag_source", [ui_sys](LS *, std::string key, std::string tp, std::string pl) -> bool {
+            auto *u = ui_sys();
+            return u && u->DragSourceBegin(key, tp, pl);
+        });
+    Reg<void(LS *)>(s, host, "ui_drag_source_end", [ui_sys](LS *) {
+        if (auto *u = ui_sys()) u->DragSourceEnd();
+    });
+    Reg<bool(LS *)>(s, host, "ui_drag_preview", [ui_sys](LS *) -> bool {
+        auto *u = ui_sys();
+        return u && u->DragPreviewBegin();
+    });
+    Reg<void(LS *)>(s, host, "ui_drag_preview_end", [ui_sys](LS *) {
+        if (auto *u = ui_sys()) u->DragPreviewEnd();
+    });
+    RegVar(s, host, "ui_drop_target", 1, [ui_sys](LS *st, CVar *a, int n) -> bool {
+        auto *u = ui_sys();
+        return u && u->DropTargetBegin(ArgStr(st, a, n, 0), n > 1 ? ArgStr(st, a, n, 1) : "");
+    });
+    Reg<void(LS *)>(s, host, "ui_drop_target_end", [ui_sys](LS *) {
+        if (auto *u = ui_sys()) u->DropTargetEnd();
+    });
+    Reg<bool(LS *)>(s, host, "ui_is_dragging", [ui_sys](LS *) -> bool {
+        auto *u = ui_sys();
+        return u && u->IsDragging();
+    });
+    Reg<std::string(LS *)>(s, host, "ui_drag_type", [ui_sys](LS *) -> std::string {
+        auto *u = ui_sys();
+        return u ? std::string(u->ActiveDragType()) : std::string{};
+    });
+    Reg<std::string(LS *)>(s, host, "ui_drag_payload", [ui_sys](LS *) -> std::string {
+        auto *u = ui_sys();
+        return u ? std::string(u->ActiveDragPayload()) : std::string{};
+    });
+    Reg<bool(LS *, std::string)>(s, host, "ui_is_drop_hovered", [ui_sys](LS *, std::string key) -> bool {
+        auto *u = ui_sys();
+        return u && u->IsDropHovered(key);
+    });
+    Reg<std::string(LS *, std::string)>(s, host, "ui_drop_payload", [ui_sys](LS *, std::string key) -> std::string {
+        auto *u = ui_sys();
+        return u ? u->DroppedPayload(key) : std::string{};
+    });
+    Reg<void(LS *)>(s, host, "ui_menubar_begin", [ui_sys](LS *) {
+        if (auto *u = ui_sys()) u->MenuBarBegin();
+    });
+    Reg<void(LS *)>(s, host, "ui_menubar_end", [ui_sys](LS *) {
+        if (auto *u = ui_sys()) u->MenuBarEnd();
+    });
+    Reg<bool(LS *, std::string, std::string)>(
+        s, host, "ui_menu_begin", [ui_sys](LS *, std::string key, std::string lbl) -> bool {
+            auto *u = ui_sys();
+            return u && u->MenuBegin(key, lbl);
+        });
+    Reg<void(LS *)>(s, host, "ui_menu_end", [ui_sys](LS *) {
+        if (auto *u = ui_sys()) u->MenuEnd();
+    });
+    RegVar(s, host, "ui_menu_item", 2, [ui_sys](LS *st, CVar *a, int n) -> bool {
+        auto *u = ui_sys();
+        return u && u->MenuItem(ArgStr(st, a, n, 0), ArgStr(st, a, n, 1),
+                                n > 2 ? ArgStr(st, a, n, 2) : "",
+                                n > 3 && ArgBool(st, a, n, 3));
+    });
+    Reg<void(LS *)>(s, host, "ui_menu_separator", [ui_sys](LS *) {
+        if (auto *u = ui_sys()) u->MenuSeparator();
+    });
+    Reg<double(LS *)>(s, host, "ui_cursor_shape", [ui_sys](LS *) -> double {
+        auto *u = ui_sys();
+        return u ? static_cast<double>(u->DesiredCursorShape()) : 0.0;
+    });
+    Reg<double(LS *)>(s, host, "ui_pinch_delta", [ui_sys](LS *) -> double {
+        auto *u = ui_sys();
+        return u ? static_cast<double>(u->PinchDelta()) : 0.0;
+    });
+    Reg<std::string(LS *)>(s, host, "ui_semantic_json", [ui_sys](LS *) -> std::string {
+        auto *u = ui_sys();
+        return u ? u->SemanticJson() : std::string{};
+    });
 }
 
 } // namespace fake2d

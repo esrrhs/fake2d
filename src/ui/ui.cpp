@@ -152,10 +152,37 @@ void UISystem::NewFrame() {
     align_stack_.clear();
     align_groups_.clear();
     id_stack_.clear();
+    dir_stack_.clear();
     focus_scopes_.clear();
     active_focus_scope_keys_.clear();
     virtual_stack_.clear();
+    pending_drag_sources_.clear();
+    pending_drop_targets_.clear();
+    drop_hovered_key_.clear();
+    drop_results_.clear();
+    menu_stack_.clear();
+    menu_bar_active_ = false;
+    desired_cursor_shape_ = 0;
     ime_cursor_rect_ = {};
+    for (auto &kv : scroll_states_) {
+        auto &sc = kv.second;
+        if (sc.has_target) {
+            const float alpha = std::min(1.0f, frame_dt_ * 14.0f);
+            sc.offset += (sc.target_offset - sc.offset) * alpha;
+            if (std::abs(sc.target_offset - sc.offset) < 0.5f) {
+                sc.offset = sc.target_offset;
+                sc.has_target = false;
+            }
+        }
+        if (sc.has_target_x) {
+            const float alpha = std::min(1.0f, frame_dt_ * 14.0f);
+            sc.offset_x += (sc.target_offset_x - sc.offset_x) * alpha;
+            if (std::abs(sc.target_offset_x - sc.offset_x) < 0.5f) {
+                sc.offset_x = sc.target_offset_x;
+                sc.has_target_x = false;
+            }
+        }
+    }
     text_activated_.clear();
     list_views_.clear();
     active_list_view_.clear();
@@ -918,9 +945,37 @@ std::size_t PrevChar(std::string_view text, std::size_t i) {
         --i;
     return i;
 }
+int CharClass(std::string_view text, std::size_t p) {
+    if (p >= text.size())
+        return -1;
+    const unsigned char c = static_cast<unsigned char>(text[p]);
+    if (c < 128) {
+        if (std::isalnum(c) || c == '_') return 1;
+        if (std::isspace(c)) return 0;
+        return 2;
+    }
+    return 3;
+}
+std::size_t PrevWord(std::string_view text, std::size_t i) {
+    while (i > 0 && CharClass(text, PrevChar(text, i)) == 0)
+        i = PrevChar(text, i);
+    const int k = i > 0 ? CharClass(text, PrevChar(text, i)) : -1;
+    while (i > 0 && CharClass(text, PrevChar(text, i)) == k)
+        i = PrevChar(text, i);
+    return i;
+}
+std::size_t NextWord(std::string_view text, std::size_t i) {
+    const int k = i < text.size() ? CharClass(text, i) : -1;
+    while (i < text.size() && CharClass(text, i) == k)
+        i = NextChar(text, i);
+    while (i < text.size() && CharClass(text, i) == 0)
+        i = NextChar(text, i);
+    return i;
+}
 } // namespace
 bool UISystem::EditText(std::string_view key, const Rect &r, std::size_t max_chars, bool multiline,
-                        bool password, bool allow_draw, bool allow_input) {
+                        bool password, bool allow_draw, bool allow_input,
+                        std::string_view placeholder, float radius, float alpha) {
     if (!renderer_ || !input_)
         return false;
     auto &s = widgets_[std::string(key)];
@@ -983,10 +1038,14 @@ bool UISystem::EditText(std::string_view key, const Rect &r, std::size_t max_cha
         }
         s.pressed = hover && CanInteract() && input_->MouseDown(0);
         s.hover = hover;
+        if (hover && desired_cursor_shape_ == 0) {
+            desired_cursor_shape_ = 1; // I-beam
+        }
         const bool focused = CanInteract() && focused_ == key;
         const bool shift = input_->KeyDown("left_shift") || input_->KeyDown("right_shift");
         const bool ctrl = input_->KeyDown("left_control") || input_->KeyDown("right_control") ||
                           input_->KeyDown("left_super") || input_->KeyDown("right_super");
+        const bool word_mod = ctrl || input_->KeyDown("left_alt") || input_->KeyDown("right_alt");
         const Vec2 old_caret = caret_pos(s.caret);
         const float mouse_scroll_x = multiline ? 0 : std::max(0.0f, old_caret.x - width + 2);
         const float mouse_scroll_y = multiline ? std::max(0.0f, old_caret.y - (r.height - 12 - lh)) : 0;
@@ -1014,11 +1073,18 @@ bool UISystem::EditText(std::string_view key, const Rect &r, std::size_t max_cha
                                              std::chrono::steady_clock::now().time_since_epoch())
                                              .count();
                 const float dx = m.x - s.last_click_pos.x, dy = m.y - s.last_click_pos.y;
-                const bool double_click =
+                const bool multi_click =
                     s.last_click >= 0 && now - s.last_click < .35 && dx * dx + dy * dy < 25;
+                s.click_streak = multi_click ? (s.click_streak + 1) : 1;
                 if (!shift)
                     s.anchor = index;
-                if (double_click && !s.text.empty()) {
+                if (s.click_streak >= 3 && !s.text.empty()) {
+                    s.anchor = 0;
+                    s.caret = s.text.size();
+                    s.selecting = false;
+                    s.last_click = -1;
+                    s.click_streak = 0;
+                } else if (s.click_streak == 2 && !s.text.empty()) {
                     const auto cls = [](std::string_view text, std::size_t p) {
                         if (p >= text.size())
                             return -1;
@@ -1042,7 +1108,8 @@ bool UISystem::EditText(std::string_view key, const Rect &r, std::size_t max_cha
                     s.anchor = a;
                     s.caret = b;
                     s.selecting = false;
-                    s.last_click = -1;
+                    s.last_click = now;
+                    s.last_click_pos = m;
                 } else {
                     s.last_click = now;
                     s.last_click_pos = m;
@@ -1116,22 +1183,25 @@ bool UISystem::EditText(std::string_view key, const Rect &r, std::size_t max_cha
                         insert(utf);
                     }
             if (input_->KeyPressed("backspace") && !erase_selection() && s.caret > 0) {
-                auto prev = PrevChar(s.text, s.caret);
+                auto prev = word_mod ? PrevWord(s.text, s.caret) : PrevChar(s.text, s.caret);
                 s.text.erase(prev, s.caret - prev);
                 s.caret = s.anchor = prev;
                 changed = true;
             }
             if (input_->KeyPressed("delete") && !erase_selection() && s.caret < s.text.size()) {
-                s.text.erase(s.caret, NextChar(s.text, s.caret) - s.caret);
+                auto nxt = word_mod ? NextWord(s.text, s.caret) : NextChar(s.text, s.caret);
+                s.text.erase(s.caret, nxt - s.caret);
                 changed = true;
             }
             glyphs = layout();
-            if (input_->KeyPressed("left"))
-                move(!shift && s.anchor != s.caret ? std::min(s.anchor, s.caret)
-                                                   : PrevChar(s.text, s.caret));
-            if (input_->KeyPressed("right"))
-                move(!shift && s.anchor != s.caret ? std::max(s.anchor, s.caret)
-                                                   : NextChar(s.text, s.caret));
+            if (input_->KeyPressed("left")) {
+                const std::size_t tgt = word_mod ? PrevWord(s.text, s.caret) : PrevChar(s.text, s.caret);
+                move(!shift && s.anchor != s.caret ? std::min(s.anchor, s.caret) : tgt);
+            }
+            if (input_->KeyPressed("right")) {
+                const std::size_t tgt = word_mod ? NextWord(s.text, s.caret) : NextChar(s.text, s.caret);
+                move(!shift && s.anchor != s.caret ? std::max(s.anchor, s.caret) : tgt);
+            }
             Vec2 caret = caret_pos(s.caret);
             if (input_->KeyPressed("home")) {
                 std::size_t index = 0;
@@ -1176,6 +1246,7 @@ bool UISystem::EditText(std::string_view key, const Rect &r, std::size_t max_cha
     }
     if (allow_draw) {
         auto dim = [&](Color c) {
+            c.a *= alpha;
             if (IsDisabled())
                 c.a *= 0.4f;
             return c;
@@ -1186,10 +1257,21 @@ bool UISystem::EditText(std::string_view key, const Rect &r, std::size_t max_cha
         const float scroll_x = multiline ? 0 : std::max(0.0f, caret.x - width + 2);
         const float scroll_y =
             multiline ? std::max(0.0f, caret.y + lh - std::max(lh, r.height - 12)) : 0;
-        renderer_->DrawQuad(MapRect(r), dim(ThemeColor("border")));
-        renderer_->DrawQuad(
-            MapRect({r.x + 2, r.y + 2, std::max(0.0f, r.width - 4), std::max(0.0f, r.height - 4)}),
-            dim(ThemeColor("field")));
+        const Color brd_c = dim(focused_draw ? ThemeColor("accent") : ThemeColor("border"));
+        const Color fld_c = dim(ThemeColor("field"));
+        if (radius > 0.5f) {
+            DrawRoundedQuad(r, radius, brd_c);
+            DrawRoundedQuad({r.x + 2, r.y + 2, std::max(0.0f, r.width - 4), std::max(0.0f, r.height - 4)},
+                            std::max(0.0f, radius - 1.5f), fld_c);
+        } else {
+            renderer_->DrawQuad(MapRect(r), brd_c);
+            renderer_->DrawQuad(
+                MapRect({r.x + 2, r.y + 2, std::max(0.0f, r.width - 4), std::max(0.0f, r.height - 4)}),
+                fld_c);
+        }
+        const Rect inner_clip{r.x + 3.0f, r.y + 3.0f, std::max(0.0f, r.width - 6.0f),
+                              std::max(0.0f, r.height - 6.0f)};
+        ApplyClipRectDirect(inner_clip, std::max(0.0f, radius - 2.0f));
         // Per-glyph selection follows exactly the same wrapped geometry as text.
         const auto lo = std::min(s.caret, s.anchor), hi = std::max(s.caret, s.anchor);
         for (const auto &g : glyphs) {
@@ -1206,12 +1288,17 @@ bool UISystem::EditText(std::string_view key, const Rect &r, std::size_t max_cha
                                     scale * scale_, dim(ThemeColor("text")), true);
             }
         }
-        if (s.text.empty() && !focused_draw)
-            DrawFittedText("click to type", r.x + 6, r.y + 6, width, scale, {.45f, .48f, .55f, 1});
+        if (s.text.empty() && !focused_draw) {
+            const std::string_view ph = placeholder.empty() ? std::string_view("click to type") : placeholder;
+            DrawFittedText(ph, r.x + 6, r.y + 6, width, scale, dim({.45f, .48f, .55f, 1}));
+        }
         if (focused_draw) {
             const Vec2 c = caret_pos(s.caret);
             const Rect caret_r{r.x + 6 + c.x - scroll_x, r.y + 6 + c.y - scroll_y, 1.5f, lh};
-            renderer_->DrawQuad(MapRect(caret_r), dim(ThemeColor("text")));
+            const bool caret_visible = clock_seconds_ <= 0.0f || std::fmod(clock_seconds_, 1.0f) < 0.62f;
+            if (caret_visible) {
+                renderer_->DrawQuad(MapRect(caret_r), dim(ThemeColor("text")));
+            }
             UpdateImeCaret(caret_r);
         }
     }
@@ -1279,6 +1366,7 @@ void UISystem::NavigateCurrent() {
     stick_held_ = stick;
     if (step && !focus_ring_.empty()) {
         AdvanceRing(focus_ring_, step, nav_focus_, focused_);
+        EnsureFocusedVisible();
     }
     if (!editing && nav_activate_) {
         auto target =
@@ -1345,6 +1433,7 @@ bool UISystem::EndFrameUI() {
     if (!deferred_auto_nodes_.empty() || !deferred_rich_links_.empty()) {
         ResolveDeferredAutoWidgets();
     }
+    ProcessDragAndDrop();
     recording_ = false;
     --deferred_;
     frame_stats_.interaction_ms +=
@@ -1828,6 +1917,7 @@ void UISystem::EndAlignGroup() {
 bool UISystem::IsInteractiveKind(std::string_view kind) {
     return kind == "button" || kind == "tab" || kind == "checkbox" || kind == "slider" ||
            kind == "image button" || kind == "combo" || kind == "combo_item" ||
+           kind == "menu" || kind == "menu_item" ||
            kind == "text_input" || kind == "text_area" || kind == "text input" ||
            kind == "text area" || kind == "password" || kind == "radio" ||
            kind == "splitter" || kind == "tree";

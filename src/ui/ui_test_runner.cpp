@@ -550,6 +550,8 @@ bool UITestDriver::HoverText(std::string_view substring, std::string_view kind, 
 bool UITestDriver::HoverAt(const Vec2 &logical_pos, float dt) {
     mouse_logical_ = logical_pos;
     StepFrame(dt);
+    // Pump 1 settle frame so hover-opened submenus/popups render into AuditRects().
+    StepFrame(0.0f);
     return true;
 }
 
@@ -659,6 +661,107 @@ bool UITestDriver::Scroll(std::string_view key, float wheel_delta) {
 void UITestDriver::MoveMouseAway(float dt) {
     mouse_logical_ = {-10000.0f, -10000.0f};
     StepFrame(dt);
+}
+
+bool UITestDriver::ScrollHorizontal(std::string_view key, float wheel_x) {
+    const Rect r = RectOf(key);
+    if (r.width <= 0.0f || r.height <= 0.0f) {
+        return false;
+    }
+    auto &in = engine_.GetInput();
+    auto &ui = engine_.GetUI();
+    mouse_logical_ = {r.x + r.width * 0.5f, r.y + r.height * 0.5f};
+    in.InjectFrame(ui.LogicalToWindow(mouse_logical_), {}, {}, 0.0);
+    in.InjectWheelX(static_cast<double>(wheel_x));
+    ui.NewFrame();
+    if (render_frame_) {
+        render_frame_();
+    }
+    StepFrame();
+    return true;
+}
+
+bool UITestDriver::ScrollTo(std::string_view key, bool smooth) {
+    engine_.GetUI().ScrollToWidget(key, smooth);
+    StepFrame(smooth ? 0.25f : 0.0f);
+    return IsVisible(key);
+}
+
+bool UITestDriver::DragAndDrop(std::string_view src_key, std::string_view dst_key, float dt) {
+    const Rect sr = RectOf(src_key);
+    const Rect dr = RectOf(dst_key);
+    if (sr.width <= 0.0f || sr.height <= 0.0f || dr.width <= 0.0f || dr.height <= 0.0f) {
+        return false;
+    }
+    auto &in = engine_.GetInput();
+    auto &ui = engine_.GetUI();
+    const Vec2 start{sr.x + sr.width * 0.5f, sr.y + sr.height * 0.5f};
+    const Vec2 end{dr.x + dr.width * 0.5f, dr.y + dr.height * 0.5f};
+    const Vec2 mid{(start.x + end.x) * 0.5f, (start.y + end.y) * 0.5f};
+
+    in.InjectFrame(ui.LogicalToWindow(start), {}, {0});
+    ui.NewFrame();
+    if (render_frame_) render_frame_();
+
+    // Move beyond drag threshold
+    in.InjectFrame(ui.LogicalToWindow({start.x + 12.0f, start.y + 12.0f}), {}, {0});
+    ui.NewFrame();
+    if (render_frame_) render_frame_();
+
+    in.InjectFrame(ui.LogicalToWindow(mid), {}, {0});
+    ui.NewFrame();
+    if (render_frame_) render_frame_();
+
+    in.InjectFrame(ui.LogicalToWindow(end), {}, {0});
+    ui.NewFrame();
+    if (render_frame_) render_frame_();
+
+    mouse_logical_ = end;
+    in.InjectFrame(ui.LogicalToWindow(end), {}, {});
+    ui.NewFrame();
+    if (render_frame_) render_frame_();
+    StepFrame(dt);
+    return true;
+}
+
+void UITestDriver::Pinch(float delta, float dt) {
+    auto &in = engine_.GetInput();
+    auto &ui = engine_.GetUI();
+    in.InjectFrame(ui.LogicalToWindow(mouse_logical_), {}, {}, 0.0);
+    in.InjectPinch(static_cast<double>(delta));
+    ui.NewFrame();
+    if (render_frame_) render_frame_();
+    StepFrame(dt);
+}
+
+std::vector<UISemanticNode> UITestDriver::SemanticNodes() const {
+    return engine_.GetUI().SemanticNodes();
+}
+
+std::string UITestDriver::SemanticJson() const {
+    return engine_.GetUI().SemanticJson();
+}
+
+namespace {
+std::optional<UISemanticNode> FindSemRec(const std::vector<UISemanticNode> &nodes,
+                                         std::string_view role, std::string_view label) {
+    for (const auto &n : nodes) {
+        const bool role_ok = role.empty() || n.role == role;
+        const bool lbl_ok = label.empty() || n.label.find(label) != std::string::npos || n.key == label;
+        if (role_ok && lbl_ok) {
+            return n;
+        }
+        if (auto child = FindSemRec(n.children, role, label)) {
+            return child;
+        }
+    }
+    return std::nullopt;
+}
+} // namespace
+
+std::optional<UISemanticNode> UITestDriver::FindSemantic(std::string_view role,
+                                                         std::string_view label) const {
+    return FindSemRec(SemanticNodes(), role, label);
 }
 
 } // namespace fake2d

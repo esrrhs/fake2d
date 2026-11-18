@@ -150,6 +150,9 @@ public:
     /// Cursor shape: 0 arrow, 1 ibeam, 2 crosshair, 3 hand, 4 hresize,
     /// 5 vresize.
     void SetCursorShape(int shape);
+    [[nodiscard]] int WindowCursorShape() const;
+    /// Last native IME candidate rect pushed to the OS window (window points, top-left origin).
+    [[nodiscard]] Rect WindowImeCursorRect() const;
 
     [[nodiscard]] bool IsRunning() const;
     /// Gameplay delta after time scale / hitstop. This is the `dt` scripts

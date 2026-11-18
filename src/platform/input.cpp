@@ -142,8 +142,9 @@ void Input::Attach(void *native_window) {
         GLFWwindow *window = static_cast<GLFWwindow *>(window_);
         // The engine owns no other user pointer on this window.
         glfwSetWindowUserPointer(window, this);
-        glfwSetScrollCallback(window, [](GLFWwindow *win, double /*dx*/, double dy) {
+        glfwSetScrollCallback(window, [](GLFWwindow *win, double dx, double dy) {
             if (Input *input = static_cast<Input *>(glfwGetWindowUserPointer(win))) {
+                input->wheel_x_pending_ += dx;
                 input->wheel_pending_ += dy;
             }
         });
@@ -209,6 +210,8 @@ void Input::InjectFrame(const Vec2 &mouse_pos,
     mouse_delta_ = {mouse_pos.x - mouse_pos_.x, mouse_pos.y - mouse_pos_.y};
     mouse_pos_ = mouse_pos;
     wheel_ = wheel;
+    wheel_x_ = 0.0;
+    pinch_delta_ = 0.0;
     text_input_ = text;
     std::fill(ai_applied_keys_, ai_applied_keys_ + kKeyCount, std::uint8_t{0});
     std::fill(ai_applied_buttons_, ai_applied_buttons_ + kButtonCount, std::uint8_t{0});
@@ -303,6 +306,8 @@ void Input::ApplySnapshot(const InputFrameSnapshot &snap) {
     mouse_pos_ = {snap.mouse_x, snap.mouse_y};
     mouse_delta_ = {snap.mouse_dx, snap.mouse_dy};
     wheel_ = snap.wheel;
+    wheel_x_ = 0.0;
+    pinch_delta_ = 0.0;
 
     text_input_.clear();
     text_input_.reserve(InputFrameSnapshot::kMaxText);
@@ -418,6 +423,10 @@ void Input::NewFrame(void *native_window) {
 
     wheel_ = wheel_pending_;
     wheel_pending_ = 0.0;
+    wheel_x_ = wheel_x_pending_;
+    wheel_x_pending_ = 0.0;
+    pinch_delta_ = pinch_pending_;
+    pinch_pending_ = 0.0;
 
     // Publish the codepoints that arrived since the previous frame (the
     // callback runs during PollEvents, which precedes NewFrame).

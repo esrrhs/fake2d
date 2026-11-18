@@ -171,11 +171,20 @@ in vec2 v_uv;
 in vec4 v_color;
 
 uniform sampler2D u_texture;
+uniform vec4 u_clip_rrect;
+uniform float u_clip_radius;
 
 out vec4 frag_color;
 
 void main() {
-    frag_color = texture(u_texture, v_uv) * v_color;
+    vec4 col = texture(u_texture, v_uv) * v_color;
+    if (u_clip_radius > 0.0) {
+        vec2 q = abs(gl_FragCoord.xy - u_clip_rrect.xy) - u_clip_rrect.zw;
+        float dist = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - u_clip_radius;
+        col.a *= 1.0 - smoothstep(-0.75, 0.75, dist);
+        if (col.a <= 0.001) discard;
+    }
+    frag_color = col;
 }
 )";
 
@@ -204,9 +213,18 @@ varying vec2 v_uv;
 varying vec4 v_color;
 
 uniform sampler2D u_texture;
+uniform vec4 u_clip_rrect;
+uniform float u_clip_radius;
 
 void main() {
-    gl_FragColor = texture2D(u_texture, v_uv) * v_color;
+    vec4 col = texture2D(u_texture, v_uv) * v_color;
+    if (u_clip_radius > 0.0) {
+        vec2 q = abs(gl_FragCoord.xy - u_clip_rrect.xy) - u_clip_rrect.zw;
+        float dist = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - u_clip_radius;
+        col.a *= 1.0 - smoothstep(-0.75, 0.75, dist);
+        if (col.a <= 0.001) discard;
+    }
+    gl_FragColor = col;
 }
 )";
 

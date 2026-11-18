@@ -282,6 +282,24 @@ void SpriteBatch::ApplyClip() const {
               static_cast<GLsizei>(clip_.width), static_cast<GLsizei>(clip_.height));
 }
 
+void SpriteBatch::ApplyClipUniforms() const {
+    if (!current_shader_ || !current_shader_->IsValid()) {
+        return;
+    }
+    if (clip_active_ && clip_radius_ > 0.0f) {
+        const float max_r = std::min(clip_rrect_.width, clip_rrect_.height) * 0.5f;
+        const float r = std::clamp(clip_radius_, 0.0f, std::max(0.0f, max_r));
+        const float cx = clip_rrect_.x + clip_rrect_.width * 0.5f;
+        const float cy = clip_rrect_.y + clip_rrect_.height * 0.5f;
+        const float hw = std::max(0.0f, clip_rrect_.width * 0.5f - r);
+        const float hh = std::max(0.0f, clip_rrect_.height * 0.5f - r);
+        current_shader_->SetVec4("u_clip_rrect", Color{cx, cy, hw, hh});
+        current_shader_->SetFloat("u_clip_radius", r);
+    } else {
+        current_shader_->SetFloat("u_clip_radius", 0.0f);
+    }
+}
+
 void SpriteBatch::RestoreClip() {
     glDisable(GL_SCISSOR_TEST);
 }
@@ -295,6 +313,7 @@ void SpriteBatch::FlushImmediate() {
 
     current_shader_->Bind();
     current_shader_->SetMat4("u_view_projection", current_view_projection_);
+    ApplyClipUniforms();
 
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, current_texture_id_);
@@ -400,6 +419,7 @@ void SpriteBatch::FlushSorted() {
 
     current_shader_->Bind();
     current_shader_->SetMat4("u_view_projection", current_view_projection_);
+    ApplyClipUniforms();
     glActiveTexture(GL_TEXTURE0);
 
     auto upload_quads = [&]() {
@@ -532,6 +552,7 @@ void SpriteBatch::DrawMeshRange(std::uint32_t texture_id, BlendMode blend,
     ApplyBlend(blend);
     current_shader_->Bind();
     current_shader_->SetMat4("u_view_projection", current_view_projection_);
+    ApplyClipUniforms();
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, texture_id);
     current_shader_->SetInt("u_texture", 0);
@@ -781,6 +802,7 @@ void SpriteBatch::FlushMesh() {
     ApplyBlend(mesh_blend_);
     current_shader_->Bind();
     current_shader_->SetMat4("u_view_projection", current_view_projection_);
+    ApplyClipUniforms();
 
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, mesh_texture_id_);
@@ -941,6 +963,26 @@ void SpriteBatch::DrawGradientV(const Rect &dst, const Color &top, const Color &
     }
 }
 
+void SpriteBatch::DrawGradientQuad(const Rect &dst, const Color &tl, const Color &tr, const Color &br,
+                                   const Color &bl) {
+    const std::uint32_t tex_id = Texture2D::White().Id();
+    EnsureCapacity(1, tex_id);
+
+    const size_t v_idx = current_quads_ * 4;
+    const float l = dst.x;
+    const float t = dst.y;
+    const float r = dst.x + dst.width;
+    const float b = dst.y + dst.height;
+
+    vertices_[v_idx + 0] = {{l, t}, {0.0f, 0.0f}, tl};
+    vertices_[v_idx + 1] = {{r, t}, {1.0f, 0.0f}, tr};
+    vertices_[v_idx + 2] = {{r, b}, {1.0f, 1.0f}, br};
+    vertices_[v_idx + 3] = {{l, b}, {0.0f, 1.0f}, bl};
+
+    RecordCommand(tex_id);
+    ++current_quads_;
+}
+
 void SpriteBatch::DrawBezierTapered(const Vec2 &p0, const Vec2 &c0, const Vec2 &c1, const Vec2 &p1,
                                     float w0, float w1, const Color &color) {
     const float chord = std::hypot(c0.x - p0.x, c0.y - p0.y) +
@@ -970,6 +1012,7 @@ void SpriteBatch::FlushLines() {
     ApplyBlend(current_blend_);
     current_shader_->Bind();
     current_shader_->SetMat4("u_view_projection", current_view_projection_);
+    ApplyClipUniforms();
 
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, Texture2D::White().Id());
@@ -983,7 +1026,11 @@ void SpriteBatch::FlushLines() {
     if (glcaps::legacy_mode) {
         ConfigureLineAttribs();
     }
+    ApplyClip();
     glDrawArrays(GL_LINES, 0, static_cast<GLsizei>(current_lines_ * 2));
+    if (clip_active_) {
+        RestoreClip();
+    }
     glBindVertexArray(0);
 
     ++draw_call_count_;

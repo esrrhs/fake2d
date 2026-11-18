@@ -47,6 +47,10 @@ set(FAKE2D_SOURCES
     ui/ui_test_runner.cpp
 )
 
+if (APPLE)
+    list(APPEND FAKE2D_SOURCES platform/window_cocoa.mm)
+endif ()
+
 if (FAKE2D_WITH_FAKELUA)
     list(APPEND FAKE2D_SOURCES
         script/lua_ui.cpp
@@ -95,6 +99,10 @@ target_compile_definitions(fake2d
         $<$<PLATFORM_ID:Windows>:NOMINMAX>
 )
 
+if (APPLE)
+    list(APPEND FAKE2D_SOURCES platform/window_cocoa.mm)
+endif ()
+
 if (FAKE2D_WITH_FAKELUA)
     target_link_libraries(fake2d PUBLIC fakelua::fakelua)
     target_compile_definitions(fake2d PUBLIC FAKE2D_WITH_FAKELUA=1)
@@ -142,9 +150,12 @@ target_link_libraries(fake2d PRIVATE $<BUILD_INTERFACE:nlohmann_json::nlohmann_j
 # miniaudio platform backends.
 if (APPLE)
     target_link_libraries(fake2d PUBLIC
+        "-framework Cocoa"
         "-framework Foundation"
         "-framework CoreAudio"
         "-framework AudioToolbox")
+elseif (WIN32)
+    target_link_libraries(fake2d PUBLIC imm32)
 elseif (UNIX)
     find_package(Threads REQUIRED)
     target_link_libraries(fake2d PUBLIC Threads::Threads ${CMAKE_DL_LIBS})

@@ -8,6 +8,15 @@
 
 #if defined(__APPLE__)
 #include <OpenGL/OpenGL.h>
+namespace fake2d::platform::detail {
+void SetCocoaImeCursorRect(GLFWwindow *handle, int window_x, int window_y, int line_height);
+void ClearCocoaImeCursorRect(GLFWwindow *handle);
+} // namespace fake2d::platform::detail
+#elif defined(_WIN32)
+#define GLFW_EXPOSE_NATIVE_WIN32
+#include <GLFW/glfw3native.h>
+#include <windows.h>
+#include <imm.h>
 #endif
 
 #include <cstdio>
@@ -226,6 +235,9 @@ void Window::Destroy() {
         return;
     }
     if (handle_) {
+#if defined(__APPLE__)
+        detail::ClearCocoaImeCursorRect(handle_);
+#endif
         glfwMakeContextCurrent(handle_);
         Shader::ReleaseDefault2D();
         Texture2D::ReleaseWhite();
@@ -281,7 +293,14 @@ void Window::SetMinSize(int width, int height) {
 }
 
 void Window::SetCursorShape(int shape) {
-    if (handle_ == nullptr || shape < 0 || shape >= 6) {
+    if (shape < 0 || shape >= 6) {
+        return;
+    }
+    if (shape == cursor_shape_) {
+        return;
+    }
+    cursor_shape_ = shape;
+    if (handle_ == nullptr) {
         return;
     }
     if (cursors_[shape] == nullptr) {
@@ -297,6 +316,33 @@ void Window::SetCursorShape(int shape) {
         cursors_[shape] = glfwCreateStandardCursor(glfw_shape);
     }
     glfwSetCursor(handle_, cursors_[shape]);
+}
+
+void Window::SetImeCursorRect(int window_x, int window_y, int line_height) {
+    ime_rect_ = {window_x, window_y, line_height};
+    if (!handle_) {
+        return;
+    }
+#if defined(__APPLE__)
+    detail::SetCocoaImeCursorRect(handle_, window_x, window_y, line_height);
+#elif defined(_WIN32)
+    if (HWND hwnd = glfwGetWin32Window(handle_)) {
+        if (HIMC himc = ImmGetContext(hwnd)) {
+            COMPOSITIONFORM cf{};
+            cf.dwStyle = CFS_POINT;
+            cf.ptCurrentPos.x = static_cast<LONG>(window_x);
+            cf.ptCurrentPos.y = static_cast<LONG>(window_y);
+            ImmSetCompositionWindow(himc, &cf);
+            CANDIDATEFORM cdf{};
+            cdf.dwIndex = 0;
+            cdf.dwStyle = CFS_CANDIDATEPOS;
+            cdf.ptCurrentPos.x = static_cast<LONG>(window_x);
+            cdf.ptCurrentPos.y = static_cast<LONG>(window_y + (line_height > 0 ? line_height : 16));
+            ImmSetCandidateWindow(himc, &cdf);
+            ImmReleaseContext(hwnd, himc);
+        }
+    }
+#endif
 }
 
 bool Window::ShouldClose() const {

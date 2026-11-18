@@ -41,7 +41,41 @@ struct UISize {
     }
 };
 
-enum class UIAxisAlign : std::uint8_t { Start, Center, End, Stretch, Baseline };
+enum class UIAxisAlign : std::uint8_t {
+    Start,
+    Center,
+    End,
+    Stretch,
+    Baseline,
+    SpaceBetween,
+    SpaceAround,
+    SpaceEvenly,
+};
+
+enum class UILayoutDirection : std::uint8_t { LTR, RTL };
+
+struct UISafeAreaInsets {
+    float left = 0.0f;
+    float top = 0.0f;
+    float right = 0.0f;
+    float bottom = 0.0f;
+};
+
+struct UISemanticNode {
+    std::string key;
+    std::string role;
+    std::string label;
+    std::string value;
+    std::string hint;
+    Rect rect{};
+    Rect clip_rect{};
+    bool enabled = true;
+    bool focused = false;
+    bool checked = false;
+    bool selected = false;
+    std::vector<std::string> actions;
+    std::vector<UISemanticNode> children;
+};
 
 enum class UIScrollDir : std::uint8_t { Vertical, Horizontal, Both };
 
@@ -301,7 +335,17 @@ class UISystem {
     void AnchorToEnd();
     void GridBegin(float min_col_w, float col_gap = -1.0f, float row_gap = -1.0f,
                    float pad = 0.0f);
+    void GridColumnsBegin(int cols, float col_gap = -1.0f, float row_gap = -1.0f,
+                          float pad = 0.0f);
     void GridEnd();
+    void SafeAreaBegin(float extra_pad = 0.0f);
+    void SafeAreaEnd();
+    void SetSafeAreaInsets(float left, float top, float right, float bottom);
+    [[nodiscard]] UISafeAreaInsets SafeAreaInsets() const { return safe_area_; }
+    void SetLayoutDirection(UILayoutDirection dir) { default_layout_dir_ = dir; }
+    [[nodiscard]] UILayoutDirection LayoutDirection() const;
+    void LayoutDirectionBegin(UILayoutDirection dir);
+    void LayoutDirectionEnd();
     struct VirtualRange {
         int first = 0;
         int count = 0;
@@ -319,18 +363,52 @@ class UISystem {
     bool ModalBegin(std::string_view key, UISize w = UISize::Auto(), UISize h = UISize::Auto());
     bool ListView(std::string_view key, UISize view_h = UISize::Grow());
 
-    // ID scoping stack, Focus Scopes, IME caret & live DevTools Inspector
+    // ID scoping stack, Focus Scopes, IME caret, Cursor, Scroll-to & live DevTools Inspector
     void PushID(std::string_view id);
     void PushID(int id);
     void PopID();
     [[nodiscard]] std::string ScopedKey(std::string_view key) const;
     void FocusScopeBegin(std::string_view key, bool trap = true);
     void FocusScopeEnd();
+    void RequestFocus(std::string_view key);
+    void ClearFocus();
+    void ScrollToWidget(std::string_view key, bool smooth = true);
+    [[nodiscard]] int DesiredCursorShape() const { return desired_cursor_shape_; }
+    [[nodiscard]] float PinchDelta() const;
     [[nodiscard]] Rect ImeCursorRect() const { return ime_cursor_rect_; }
     void SetImeRectCallback(std::function<void(const Rect &)> cb) { ime_rect_cb_ = std::move(cb); }
     void SetInspector(bool enabled) { inspector_enabled_ = enabled; }
     [[nodiscard]] bool IsInspectorEnabled() const { return inspector_enabled_; }
     void ToggleInspector() { inspector_enabled_ = !inspector_enabled_; }
+
+    // Drag & Drop across containers
+    bool DragSourceBegin(std::string_view key, std::string_view type, std::string_view payload);
+    void DragSourceEnd();
+    bool DragPreviewBegin();
+    void DragPreviewEnd();
+    bool DropTargetBegin(std::string_view key, std::string_view accepted_types = {});
+    void DropTargetEnd();
+    [[nodiscard]] bool IsDragging() const { return drag_active_; }
+    [[nodiscard]] std::string_view ActiveDragType() const { return drag_type_; }
+    [[nodiscard]] std::string_view ActiveDragPayload() const { return drag_payload_; }
+    [[nodiscard]] std::string_view ActiveDragKey() const { return drag_source_key_; }
+    [[nodiscard]] bool IsDropHovered(std::string_view key) const;
+    [[nodiscard]] std::string DroppedPayload(std::string_view target_key) const;
+    [[nodiscard]] std::string DroppedType(std::string_view target_key) const;
+
+    // Hierarchical MenuBar / Submenus
+    void MenuBarBegin();
+    void MenuBarEnd();
+    bool MenuBegin(std::string_view key, std::string_view label);
+    void MenuEnd();
+    bool MenuItem(std::string_view key, std::string_view label, std::string_view shortcut = {},
+                  bool checked = false);
+    void MenuSeparator();
+
+    // Semantic / Accessibility Tree export
+    [[nodiscard]] std::vector<UISemanticNode> SemanticNodes() const;
+    [[nodiscard]] UISemanticNode SemanticTree() const;
+    [[nodiscard]] std::string SemanticJson() const;
 
     // One-shot layout & visual style modifiers applied to the next child/container in Two-Pass layout.
     void NextSize(UISize w, UISize h);
@@ -340,16 +418,27 @@ class UISystem {
     void NextShrink(float weight = 1.0f);
     void NextAspect(float ratio);
     void NextSpan(int cols = 1);
+    void NextRowSpan(int rows = 1);
     void NextAlign(UIAxisAlign cross_align);
     void NextMainAlign(UIAxisAlign main_align);
     void NextPad(float l, float t, float r, float b);
     void NextMargin(float l, float t, float r, float b);
     void NextMargin(float all) { NextMargin(all, all, all, all); }
     void NextBg(const Color &col, float radius = 0.0f);
+    void NextGradient(const Color &start_col, const Color &end_col, bool horizontal = false);
     void NextBorder(const Color &col, float width = 1.0f);
     void NextRadius(float radius);
     void NextShadow(float offset_y = 4.0f, float spread = 6.0f, float alpha = 0.35f);
+    void NextBackdropBlur(float radius = 4.0f);
     void NextAlpha(float alpha);
+    void NextClip(bool clip = true);
+    void NextDirection(UILayoutDirection dir);
+    void NextPlaceholder(std::string_view text);
+    void NextTooltip(std::string_view text);
+    void NextSemantics(std::string_view role, std::string_view label = {},
+                       std::string_view value = {}, std::string_view hint = {});
+    void NextVisible(bool visible);
+    void NextEnabled(bool enabled);
     void NextTransition(std::string_view anim_key, float duration_sec = 0.18f);
 
     // Heightless auto-sized widgets (intrinsic size computed from font & theme metrics).
@@ -397,6 +486,9 @@ class UISystem {
         /// Grab offset from the thumb's top-left, so dragging does not make
         /// the thumb jump under the cursor.
         float grab = 0.0f;
+        float hover_t = 0.0f;
+        float press_t = 0.0f;
+        float focus_t = 0.0f;
         struct EditSnapshot {
             std::string text;
             std::size_t caret = 0, anchor = 0;
@@ -404,6 +496,7 @@ class UISystem {
         std::vector<EditSnapshot> undo, redo;
         bool selecting = false;
         double last_click = -1;
+        int click_streak = 0;
         Vec2 last_click_pos{};
         std::size_t caret = 0, anchor = 0;
         std::string text; // text field content
@@ -434,6 +527,8 @@ class UISystem {
     struct ScrollState {
         float height = 0, offset = 0;
         float width = 0, offset_x = 0;
+        float target_offset = 0, target_offset_x = 0;
+        bool has_target = false, has_target_x = false;
     };
     void Record(std::string_view kind, const Rect &rect, std::string_view name = {});
     std::string Ellipsize(std::string_view text, float width, float scale) const;
@@ -515,7 +610,8 @@ class UISystem {
     Rect MapRect(Rect r) const;
     Vec2 RawMouse() const;
     bool EditText(std::string_view key, const Rect &r, std::size_t max_chars, bool multiline,
-                  bool password = false, bool allow_draw = true, bool allow_input = true);
+                  bool password = false, bool allow_draw = true, bool allow_input = true,
+                  std::string_view placeholder = {}, float radius = 0.0f, float alpha = 1.0f);
     Constraints next_limits_;
     int deferred_ = 0;
     std::vector<bool> disabled_;
@@ -541,7 +637,9 @@ class UISystem {
                                                           {"row_gap", 4},
                                                           {"col_gap", 6},
                                                           {"card_pad", 8},
-                                                          {"scrollbar_width", 12}};
+                                                          {"scrollbar_width", 12},
+                                                          {"corner_radius", 0},
+                                                          {"state_transition_ms", 0}};
     std::unordered_map<std::string, Color> theme_colors_{
         {"panel", {.07f, .09f, .14f, 1}},  {"button", {.16f, .22f, .34f, 1}},
         {"hover", {.20f, .35f, .65f, 1}},  {"pressed", {.25f, .45f, .85f, 1}},
@@ -626,20 +724,28 @@ class UISystem {
     struct AutoLayoutMod {
         bool has_w = false, has_h = false, has_cross = false, has_main = false, has_pad = false;
         bool has_margin = false, has_shrink = false, has_aspect = false, has_span = false;
+        bool has_row_span = false;
         bool has_bg = false, has_border = false, has_radius = false, has_shadow = false;
-        bool has_alpha = false, has_anim = false;
+        bool has_alpha = false, has_anim = false, has_grad = false, has_blur = false;
+        bool has_clip = false, clip_val = false, has_dir = false;
+        bool has_placeholder = false, has_tip = false, has_sem = false;
+        bool has_visible = false, visible_val = true;
+        bool has_enabled = false, enabled_val = true;
         UISize w{}, h{};
         UIAxisAlign cross = UIAxisAlign::Start;
         UIAxisAlign main = UIAxisAlign::Start;
+        UILayoutDirection dir = UILayoutDirection::LTR;
         float pad_l = 0, pad_t = 0, pad_r = 0, pad_b = 0;
         float margin_l = 0, margin_t = 0, margin_r = 0, margin_b = 0;
         float shrink = 0.0f, aspect_ratio = 0.0f;
-        int col_span = 1;
-        Color bg_col{}, border_col{};
-        float border_w = 1.0f, radius = 0.0f, alpha_mul = 1.0f;
+        int col_span = 1, row_span = 1;
+        Color bg_col{}, grad_start{}, grad_end{}, border_col{};
+        bool grad_horiz = false;
+        float border_w = 1.0f, radius = 0.0f, alpha_mul = 1.0f, backdrop_blur = 0.0f;
         float shadow_off_y = 0.0f, shadow_spread = 0.0f, shadow_alpha = 0.0f;
         std::string anim_key;
         float anim_duration = 0.0f;
+        std::string placeholder, tip, sem_role, sem_label, sem_value, sem_hint;
     };
     struct SolvedWidgetInfo {
         Rect rect{};
@@ -663,6 +769,7 @@ class UISystem {
         enum class Kind : std::uint8_t {
             Root, AnchorRoot, VStack, HStack, ZStack, Grid, Table, TableRow, TableCell,
             Flow, Scroll, Card, CustomBox, CachedBox, Spacer, Divider,
+            SafeArea, DragSource, DropTarget, MenuBar, Menu, MenuItem, MenuSeparator,
             Text, RichText, Button, Slider, Checkbox, RadioButton, ProgressBar,
             TextInput, TextPassword, TextArea, Tab, Tree, ComboBegin, ComboItem,
             Image, ImageButton, Splitter, Window, ListViewSlot
@@ -673,19 +780,28 @@ class UISystem {
         std::string key;
         std::string anchor_target_key;
         std::string text;
+        std::string shortcut;
+        std::string placeholder;
+        std::string drag_type, drag_payload, drop_accept;
+        std::string sem_role, sem_label, sem_value, sem_hint;
         UISize width_spec = UISize::Auto();
         UISize height_spec = UISize::Auto();
         Constraints limits{};
         float pad_l = 0, pad_t = 0, pad_r = 0, pad_b = 0;
         float margin_l = 0, margin_t = 0, margin_r = 0, margin_b = 0;
         float shrink = 0.0f, aspect_ratio = 0.0f;
-        int col_span = 1;
+        int col_span = 1, row_span = 1;
+        int grid_fixed_cols = 0;
         float min_col_w = 120.0f;
         float gap = 0, line_gap = 0;
         UIAxisAlign cross_align = UIAxisAlign::Stretch;
         UIAxisAlign main_align = UIAxisAlign::Start;
+        bool has_cross_override = false;
+        UILayoutDirection layout_dir = UILayoutDirection::LTR;
         UIScrollDir scroll_dir = UIScrollDir::Vertical;
         bool clip_children = false;
+        float clip_radius = 0.0f;
+        bool visible = true;
         bool block_input = false;
         bool overlay = false;
         bool use_screen_origin = false;
@@ -694,8 +810,10 @@ class UISystem {
         Rect clip_override{};
         bool draw_panel = false, themed_panel = false;
         bool has_bg = false, has_border = false, has_shadow = false;
+        bool has_grad = false, grad_horiz = false;
         Color fill_col{}, border_col{}, track_col{}, bg_col{}, custom_border_col{};
-        float border_w = 1.0f, radius = 0.0f, alpha_mul = 1.0f;
+        Color grad_start{}, grad_end{};
+        float border_w = 1.0f, radius = 0.0f, alpha_mul = 1.0f, backdrop_blur = 0.0f;
         float shadow_off_y = 0.0f, shadow_spread = 0.0f, shadow_alpha = 0.0f;
         std::string anim_key;
         float anim_duration = 0.0f;
@@ -739,6 +857,7 @@ class UISystem {
         Rect rect{};
         Rect content_rect{};
         Rect clip_rect{0.0f, 0.0f, 1e9f, 1e9f};
+        Rect clip_rrect{0.0f, 0.0f, 1e9f, 1e9f};
         float est_avail_w = 0;
     };
 
@@ -751,38 +870,56 @@ class UISystem {
                           bool focusable = true, bool release_anywhere = false);
     void MeasureAutoNode(int idx, float avail_w, float avail_h);
     void ArrangeAutoNode(int idx, const Rect &final_rect, const Rect &parent_clip,
-                         bool in_scroll, std::uint32_t root_id, int row_id, int col_idx);
-    void CommitAutoNode(int idx, const Rect &parent_bounds);
-    void ApplyClipRectDirect(const Rect &clip_rect);
+                         bool in_scroll, std::uint32_t root_id, int row_id, int col_idx,
+                         float parent_clip_radius = 0.0f,
+                         const Rect &parent_clip_rrect = {0.0f, 0.0f, 1e9f, 1e9f});
+    void CommitAutoNode(int idx, const Rect &parent_bounds, bool overlay_pass = false,
+                        std::vector<int> *overlay_queue = nullptr);
+    void ApplyClipRectDirect(const Rect &clip_rect, float clip_radius = 0.0f,
+                             const Rect *clip_rrect = nullptr);
     void DrawButtonVisual(const Rect &r, bool hover, bool pressed, bool disabled,
                           std::string_view text, float scale, const Color &btn_c,
                           const Color &hov_c, const Color &prs_c, const Color &brd_c,
-                          const Color &txt_c);
-    void DrawProgressVisual(const Rect &r, float value, const Color &fill, const Color &track);
+                          const Color &txt_c, float radius = 0.0f, float hover_t = 0.0f,
+                          float press_t = 0.0f, float alpha = 1.0f);
+    void DrawProgressVisual(const Rect &r, float value, const Color &fill, const Color &track,
+                            float radius = 0.0f, float alpha = 1.0f);
     void DrawSliderVisual(const Rect &r, float value, float min_v, float max_v, bool hover,
-                          bool dragging);
+                          bool dragging, float radius = 0.0f, float hover_t = 0.0f,
+                          float alpha = 1.0f);
     void DrawCheckboxVisual(const Rect &r, bool checked, std::string_view label, float scale,
-                            bool hover, bool radio);
+                            bool hover, bool radio, float radius = 0.0f, float hover_t = 0.0f,
+                            float alpha = 1.0f);
     void DrawTabVisual(const Rect &r, std::string_view label, bool active, bool hover,
-                       bool pressed, float scale);
-    void DrawTreeVisual(const Rect &r, std::string_view label, bool open, bool hover, float scale);
+                       bool pressed, float scale, float radius = 0.0f, float hover_t = 0.0f,
+                       float alpha = 1.0f);
+    void DrawTreeVisual(const Rect &r, std::string_view label, bool open, bool hover, float scale,
+                        float radius = 0.0f, float alpha = 1.0f);
     void DrawComboVisual(const Rect &r, std::string_view label, bool open, bool selected,
-                         bool hover, float scale, bool is_item);
+                         bool hover, float scale, bool is_item, float radius = 0.0f,
+                         float hover_t = 0.0f, float alpha = 1.0f);
     void DrawScrollbarVisual(const Rect &viewport, float content_h, float offset, bool hover,
-                             bool dragging);
+                             bool dragging, float radius = 0.0f, float alpha = 1.0f);
     void DrawHScrollbarVisual(const Rect &viewport, float content_w, float offset_x, bool hover,
-                              bool dragging);
+                              bool dragging, float radius = 0.0f, float alpha = 1.0f);
     void DrawRoundedQuad(const Rect &r, float radius, const Color &color);
+    void DrawRoundedGradientQuad(const Rect &r, float radius, const Color &start_col,
+                                 const Color &end_col, bool horizontal = false);
     void DrawRoundedFrame(const Rect &r, float radius, float thickness, const Color &color);
     void DrawDropShadow(const Rect &r, float radius, float off_y, float spread, float alpha);
     void DrawNodeBackdrop(const Rect &r, const AutoNode &node);
+    void StepWidgetTransition(WidgetState &st, bool hover, bool pressed, bool focused);
+    void EnsureFocusedVisible();
+    void ProcessDragAndDrop();
     void UpdateImeCaret(const Rect &caret_logical_rect);
     void DrawInspectorOverlay();
+    UISemanticNode BuildSemanticNode(int idx) const;
     [[nodiscard]] std::string ResolveKeyLookup(std::string_view key) const;
     Rect ApplyTransitionBox(const AutoNode &node, const Rect &target_rect);
     void CaptureSubtreeCache(int cached_box_idx);
     bool ReplaySubtreeCache(int cached_box_idx, float origin_x, float origin_y,
-                            const Rect &parent_clip, bool in_scroll, std::uint32_t root_id);
+                            const Rect &parent_clip, float parent_clip_radius, bool in_scroll,
+                            std::uint32_t root_id);
 
     // Auto-layout entry points called from UISystem methods when InAutoLayout()
     float AutoText(std::string_view text, float scale, UITextOverflow overflow, int align,
@@ -833,6 +970,36 @@ class UISystem {
     Rect last_emitted_ime_rect_{};
     std::function<void(const Rect &)> ime_rect_cb_;
     bool inspector_enabled_ = false;
+    std::string inspector_selected_key_;
+    bool inspector_show_issues_ = false;
+    bool inspector_show_semantics_ = false;
+    Vec2 inspector_panel_pos_{16.0f, 16.0f};
+    bool inspector_dragging_ = false;
+    Vec2 inspector_drag_grab_{};
+    int desired_cursor_shape_ = 0;
+    UILayoutDirection default_layout_dir_ = UILayoutDirection::LTR;
+    std::vector<UILayoutDirection> dir_stack_;
+    UISafeAreaInsets safe_area_{};
+    std::string pending_scroll_key_;
+    bool pending_scroll_smooth_ = true;
+    std::vector<std::string> pending_drop_targets_;
+    std::vector<std::string> pending_drag_sources_;
+    bool drag_pending_ = false;
+    bool drag_active_ = false;
+    Vec2 drag_press_pos_{};
+    std::string drag_pending_key_, drag_pending_type_, drag_pending_payload_;
+    std::string drag_source_key_, drag_type_, drag_payload_;
+    std::string drop_hovered_key_;
+    struct DropPayloadRecord {
+        std::string type;
+        std::string payload;
+    };
+    std::unordered_map<std::string, DropPayloadRecord> drop_results_;
+    std::vector<std::string> open_menu_path_;
+    std::vector<std::string> menu_stack_;
+    std::string hovered_menu_key_;
+    float hovered_menu_timer_ = 0.0f;
+    bool menu_bar_active_ = false;
     float last_frame_clock_ = 0.0f;
     float frame_dt_ = 1.0f / 60.0f;
     struct AnimBoxState {

@@ -55,6 +55,13 @@ public:
     [[nodiscard]] bool MouseReleased(std::int64_t button) const;
     /// Accumulated vertical wheel movement this frame (positive = away from user).
     [[nodiscard]] double MouseWheel() const { return wheel_; }
+    /// Accumulated horizontal scroll movement this frame (positive = right/trackpad swipe).
+    [[nodiscard]] double MouseWheelX() const { return wheel_x_; }
+    /// Accumulated pinch-to-zoom delta this frame (positive = zoom in).
+    [[nodiscard]] double PinchDelta() const { return pinch_delta_; }
+    /// Inject synthetic horizontal wheel or pinch delta for tests/platform bridges.
+    void InjectWheelX(double wheel_x) { wheel_x_ = wheel_x; }
+    void InjectPinch(double delta) { pinch_delta_ = delta; }
 
     // --- synthetic frames ---------------------------------------------------
     /// Fill the snapshot by hand instead of polling a window — headless tests
@@ -170,6 +177,10 @@ private:
     Vec2 ai_mouse_pos_{0.0f, 0.0f};
     double wheel_ = 0.0;
     double wheel_pending_ = 0.0;
+    double wheel_x_ = 0.0;
+    double wheel_x_pending_ = 0.0;
+    double pinch_delta_ = 0.0;
+    double pinch_pending_ = 0.0;
     /// Codepoints handed to the current frame; the callback fills the pending
     /// buffer, which NewFrame swaps in (see TextCodepoints).
     std::vector<unsigned int> text_input_;

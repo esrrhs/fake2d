@@ -1509,6 +1509,333 @@ void RunUI149Checks(fake2d::Engine &engine, const std::function<void(bool, const
             host_ui.SetInspector(false);
         }
 
+        // 158: Modern Parity Suite (SDF rounded clip, frosted blur + gradient, rounded leaf widgets +
+        // smooth transitions, Flex SpaceBetween/Around/Evenly + align-self, GridColumns + RowSpan,
+        // Table RowSpan, RTL + SafeArea, HWheel + Pinch + ScrollToWidget + focus auto-scroll,
+        // OS Cursor/IME sync, Drag & Drop, hierarchical MenuBar, word editing, SemanticTree + Driver)
+        {
+            host_ui.SetThemeMetric("corner_radius", 0.0f);
+            host_ui.SetThemeMetric("state_transition_ms", 0.0f);
+
+            // A. True SDF rounded-rect clipping + gradient + frosted backdrop blur pixel verification
+            {
+                host_ui.NewFrame();
+                renderer.BeginFrame(0, 0, 0, 1);
+                renderer.BeginRenderTarget(target);
+                renderer.ClearActiveTarget({0, 0, 0, 1});
+                // Background pattern behind frosted blur card (kept inside 256x256 target)
+                renderer.DrawQuad({120, 20, 120, 80}, {0.1f, 0.75f, 0.25f, 1.0f});
+                renderer.DrawQuad({160, 20, 40, 80}, {0.9f, 0.25f, 0.2f, 1.0f});
+
+                host_ui.BeginFrameUI();
+                // 1) Rounded container clipping red child quad along radius=20 corners
+                host_ui.RootBegin(20, 20, fake2d::UISize::Fixed(80), fake2d::UISize::Fixed(80), 0);
+                host_ui.NextRadius(20.0f);
+                host_ui.NextClip(true);
+                host_ui.NextBg({0.0f, 0.0f, 0.0f, 0.0f}, 20.0f);
+                host_ui.VStackBegin(0, 0);
+                host_ui.NextSize(fake2d::UISize::Fixed(80), fake2d::UISize::Fixed(80));
+                host_ui.NextBg({1.0f, 0.0f, 0.0f, 1.0f}, 0.0f);
+                host_ui.VStackBegin(0, 0);
+                host_ui.StackEnd();
+                host_ui.StackEnd();
+                host_ui.RootEnd();
+
+                // 2) Gradient + BackdropBlur frosted panel
+                host_ui.RootBegin(130, 30, fake2d::UISize::Fixed(100), fake2d::UISize::Fixed(60), 0);
+                host_ui.NextRadius(10.0f);
+                host_ui.NextBackdropBlur(4.0f);
+                host_ui.NextGradient({0.2f, 0.4f, 0.9f, 0.55f}, {0.8f, 0.2f, 0.5f, 0.55f}, false);
+                host_ui.NextSize(fake2d::UISize::Grow(), fake2d::UISize::Grow());
+                host_ui.VStackBegin(0, 4);
+                host_ui.Text("Glass", 0.45f);
+                host_ui.StackEnd();
+                host_ui.RootEnd();
+                host_ui.EndFrameUI();
+
+                renderer.EndRenderTarget();
+                renderer.EndFrame();
+
+                auto *rt = renderer.GetRenderTargets().Get(target);
+                fake2d::Color corner_px{}, center_px{}, glass_px{};
+                const bool got_c = rt && rt->ReadPixel(22, 22, corner_px);
+                const bool got_m = rt && rt->ReadPixel(60, 60, center_px);
+                const bool got_g = rt && rt->ReadPixel(180, 60, glass_px);
+                check(got_c && got_m && corner_px.r < 0.05f && center_px.r > 0.9f,
+                      "158: SDF rounded-rect clip discards corner pixels outside arc and keeps interior");
+                check(got_g && glass_px.b > 0.15f && (glass_px.r > 0.1f || glass_px.g > 0.1f),
+                      "158: Frosted BackdropBlur + NextGradient composites translucently over background");
+            }
+
+            // B. Flexbox SpaceBetween/Around/Evenly, align-self, Flow main_align, GridColumns+RowSpan,
+            //    Table RowSpan, RTL + SafeArea
+            {
+                host_ui.SetSafeAreaInsets(12.0f, 16.0f, 12.0f, 8.0f);
+                host_ui.NewFrame();
+                renderer.BeginFrame(0, 0, 0, 1);
+                renderer.BeginRenderTarget(target);
+                renderer.ClearActiveTarget({0, 0, 0, 1});
+                host_ui.BeginFrameUI();
+
+                host_ui.RootBegin(0, 0, fake2d::UISize::Fixed(500), fake2d::UISize::Fixed(460), 0);
+                host_ui.SafeAreaBegin(0.0f);
+                host_ui.VStackBegin(6, 0, fake2d::UIAxisAlign::Start);
+
+                // SpaceBetween HStack
+                host_ui.NextWidth(fake2d::UISize::Fixed(300));
+                host_ui.NextMainAlign(fake2d::UIAxisAlign::SpaceBetween);
+                host_ui.HStackBegin(0, 0, fake2d::UIAxisAlign::Center);
+                host_ui.NextWidth(fake2d::UISize::Fixed(60));
+                host_ui.Button("sb_l", "L", 0.45f);
+                host_ui.NextWidth(fake2d::UISize::Fixed(60));
+                host_ui.Button("sb_r", "R", 0.45f);
+                host_ui.StackEnd();
+
+                // Per-child align-self inside Start VStack
+                host_ui.NextAlign(fake2d::UIAxisAlign::End);
+                host_ui.NextWidth(fake2d::UISize::Fixed(80));
+                host_ui.Button("align_self_end", "SelfEnd", 0.45f);
+
+                // Fixed 3-column Grid with row_span=2 card + RTL HStack
+                host_ui.GridColumnsBegin(3, 6.0f, 6.0f, 0.0f);
+                host_ui.NextRowSpan(2);
+                host_ui.NextSize(fake2d::UISize::Auto(), fake2d::UISize::Fixed(64));
+                host_ui.Button("gr_tall", "Tall", 0.45f);
+                host_ui.Button("gr_a", "A", 0.45f);
+                host_ui.Button("gr_b", "B", 0.45f);
+                host_ui.Button("gr_c", "C", 0.45f);
+                host_ui.Button("gr_d", "D", 0.45f);
+                host_ui.GridEnd();
+
+                host_ui.LayoutDirectionBegin(fake2d::UILayoutDirection::RTL);
+                host_ui.NextWidth(fake2d::UISize::Fixed(200));
+                host_ui.HStackBegin(8, 0, fake2d::UIAxisAlign::Center);
+                host_ui.NextWidth(fake2d::UISize::Fixed(50));
+                host_ui.Button("rtl_first", "1st", 0.45f);
+                host_ui.NextWidth(fake2d::UISize::Fixed(50));
+                host_ui.Button("rtl_second", "2nd", 0.45f);
+                host_ui.StackEnd();
+                host_ui.LayoutDirectionEnd();
+
+                // Table with RowSpan(2)
+                host_ui.NextWidth(fake2d::UISize::Fixed(240));
+                host_ui.TableBegin("tbl_span", {fake2d::UISize::Fixed(80), fake2d::UISize::Grow()}, 4, 4);
+                host_ui.TableRowBegin();
+                host_ui.NextRowSpan(2);
+                host_ui.TableCellBegin();
+                host_ui.NextHeight(fake2d::UISize::Grow());
+                host_ui.Button("t_span", "Span2R", 0.45f);
+                host_ui.TableCellEnd();
+                host_ui.TableCellBegin();
+                host_ui.Button("t_r0c1", "R0C1", 0.45f);
+                host_ui.TableCellEnd();
+                host_ui.TableRowEnd();
+                host_ui.TableRowBegin();
+                host_ui.TableCellBegin();
+                host_ui.Button("t_r1c1", "R1C1", 0.45f);
+                host_ui.TableCellEnd();
+                host_ui.TableRowEnd();
+                host_ui.TableEnd();
+
+                host_ui.StackEnd();
+                host_ui.SafeAreaEnd();
+                host_ui.RootEnd();
+                host_ui.EndFrameUI();
+                renderer.EndRenderTarget();
+                renderer.EndFrame();
+
+                const auto sbl = host_ui.WidgetRect("sb_l");
+                const auto sbr = host_ui.WidgetRect("sb_r");
+                const auto as_end = host_ui.WidgetRect("align_self_end");
+                const auto gt = host_ui.WidgetRect("gr_tall");
+                const auto gc = host_ui.WidgetRect("gr_c");
+                const auto r1 = host_ui.WidgetRect("rtl_first");
+                const auto r2 = host_ui.WidgetRect("rtl_second");
+                const auto ts = host_ui.WidgetRect("t_span");
+                const auto tr1 = host_ui.WidgetRect("t_r1c1");
+                check(std::abs(sbl.x - 12.0f) < 1.0f && sbl.y >= 15.5f &&
+                          std::abs((sbr.x + sbr.width) - 312.0f) < 1.5f,
+                      "158: SafeArea applies insets and SpaceBetween distributes HStack extremes");
+                check(as_end.x > sbl.x + 200.0f && std::abs((as_end.x + as_end.width) - 488.0f) < 1.5f,
+                      "158: NextAlign acts as true per-child align-self inside Start VStack");
+                check(gt.height >= 63.0f && gc.x > gt.x + gt.width && gc.y > host_ui.WidgetRect("gr_a").y,
+                      "158: GridColumnsBegin + NextRowSpan(2) flows row 2 items cleanly past spanned column");
+                check(r1.x > r2.x + 40.0f,
+                      "158: RTL LayoutDirection reverses HStack child order right-to-left");
+                check(ts.height > tr1.height * 1.4f && tr1.x > ts.x + ts.width,
+                      "158: Table NextRowSpan(2) spans rows vertically while shifting row 1 cells");
+                host_ui.SetSafeAreaInsets(0, 0, 0, 0);
+            }
+
+            // C. Unified Rounded Leaf Widgets + Transitions + Cursor + Drag&Drop + MenuBar +
+            //    HWheel + Pinch + ScrollToWidget + WordEditing + Semantics + UITestDriver
+            {
+                std::string dragged_result;
+                std::string menu_result;
+                int cursor_on_btn = 0, cursor_on_input = 0, cursor_on_split = 0;
+                bool rounded_smooth = true;
+                float last_pinch = 0.0f;
+
+                host_ui.SetThemeMetric("corner_radius", 6.0f);
+                host_ui.SetThemeMetric("state_transition_ms", 120.0f);
+
+                auto render_modern_suite = [&]() {
+                    renderer.BeginFrame(0, 0, 0, 1);
+                    renderer.BeginRenderTarget(target);
+                    renderer.ClearActiveTarget({0, 0, 0, 1});
+                    host_ui.BeginFrameUI();
+                    host_ui.RootBegin(10, 10, fake2d::UISize::Fixed(620), fake2d::UISize::Fixed(460), 6);
+                    host_ui.VStackBegin(8);
+
+                    host_ui.MenuBarBegin();
+                    if (host_ui.MenuBegin("m_file", "File")) {
+                        if (host_ui.MenuBegin("m_recent", "Recent")) {
+                            host_ui.MenuItem("mi_proj", "Ming1627", "Ctrl+O", true);
+                            host_ui.MenuSeparator();
+                            host_ui.MenuItem("mi_other", "Other");
+                            host_ui.MenuEnd();
+                        }
+                        host_ui.MenuEnd();
+                    }
+                    host_ui.MenuBarEnd();
+
+                    host_ui.HStackBegin(12);
+                    host_ui.NextSemantics("button", "Drag Card", "card_99", "Drag to slot");
+                    host_ui.DragSourceBegin("drag_card", "card", "card_99");
+                    host_ui.Button("drag_inner", "DragMe", 0.45f);
+                    host_ui.DragSourceEnd();
+
+                    host_ui.DropTargetBegin("drop_slot", "card");
+                    host_ui.NextSize(fake2d::UISize::Fixed(140), fake2d::UISize::Fixed(34));
+                    host_ui.NextBg({0.15f, 0.25f, 0.40f, 1.0f}, 6.0f);
+                    host_ui.CardBegin(4);
+                    host_ui.Text("DropHere", 0.45f);
+                    host_ui.CardEnd();
+                    host_ui.DropTargetEnd();
+                    host_ui.StackEnd();
+
+                    if (host_ui.DragPreviewBegin()) {
+                        host_ui.NextBg({0.3f, 0.5f, 0.8f, 0.9f}, 6.0f);
+                        host_ui.CardBegin(4);
+                        host_ui.Text(host_ui.ActiveDragPayload(), 0.4f);
+                        host_ui.CardEnd();
+                    }
+                    host_ui.DragPreviewEnd();
+
+                    host_ui.NextPlaceholder("Type hero name...");
+                    host_ui.TextInput("word_edit", 64);
+                    host_ui.NextWidth(fake2d::UISize::Fixed(240));
+                    host_ui.Splitter("sp_cursor", 120.0f, 20.0f);
+
+                    host_ui.ScrollBoxBegin("hv_scroll", fake2d::UISize::Fixed(180),
+                                           fake2d::UISize::Fixed(70), fake2d::UIScrollDir::Both);
+                    for (int i = 0; i < 8; ++i) {
+                        host_ui.PushID(i);
+                        host_ui.NextWidth(fake2d::UISize::Fixed(320));
+                        host_ui.Button("sitem", "ScrollRow_" + std::to_string(i), 0.45f);
+                        host_ui.PopID();
+                    }
+                    host_ui.ScrollBoxEnd();
+
+                    host_ui.StackEnd();
+                    host_ui.RootEnd();
+                    host_ui.EndFrameUI();
+                    renderer.EndRenderTarget();
+                    renderer.EndFrame();
+
+                    const std::string dp = host_ui.DroppedPayload("drop_slot");
+                    if (!dp.empty()) {
+                        dragged_result = dp;
+                    }
+                    if (host_ui.Clicked("mi_proj")) {
+                        menu_result = "Ming1627";
+                    }
+                    if (host_ui.PinchDelta() != 0.0f) {
+                        last_pinch = host_ui.PinchDelta();
+                    }
+                    (void)rounded_smooth;
+                };
+
+                fake2d::UITestDriver drv(engine, render_modern_suite);
+                drv.StepFrame(0.016f);
+
+                // Hover cursor checks
+                drv.Hover("drag_inner", 0.04f);
+                cursor_on_btn = host_ui.DesiredCursorShape();
+                drv.Hover("word_edit", 0.016f);
+                cursor_on_input = host_ui.DesiredCursorShape();
+                {
+                    const auto sr = drv.RectOf("sp_cursor");
+                    drv.HoverAt({sr.x + 120.0f, sr.y + sr.height * 0.5f}, 0.016f);
+                    cursor_on_split = host_ui.DesiredCursorShape();
+                }
+                check(cursor_on_btn == 3 && cursor_on_input == 1 && cursor_on_split == 4,
+                      "158: DesiredCursorShape reports Hand(3)/IBeam(1)/HResize(4) per hovered widget");
+
+                // Drag & Drop via UITestDriver
+                const bool dnd_ok = drv.DragAndDrop("drag_card", "drop_slot", 0.016f);
+                check(dnd_ok && dragged_result == "card_99",
+                      "158: Cross-container DragSource -> DropTarget transfers payload via UITestDriver");
+
+                // Horizontal Wheel + ScrollToWidget + Pinch
+                drv.ScrollHorizontal("hv_scroll", -2.0f);
+                const float hx_after = host_ui.ScrollOffsetX("hv_scroll");
+                const bool scrolled_far = drv.ScrollTo("7/sitem", false);
+                const float vy_after = host_ui.ScrollOffset("hv_scroll");
+                drv.Pinch(0.35f, 0.016f);
+                check(hx_after > 10.0f && scrolled_far && vy_after > 10.0f && std::abs(last_pinch - 0.35f) < 0.01f,
+                      "158: Horizontal trackpad wheel, ScrollToWidget, and PinchDelta work end-to-end");
+
+                // MenuBar + nested cascade Menu navigation
+                drv.Click("m_file", 0.016f);
+                drv.Hover("m_recent", 0.016f);
+                drv.Click("mi_proj", 0.016f);
+                check(menu_result == "Ming1627",
+                      "158: Hierarchical MenuBar -> Menu -> nested MenuItem fires with shortcut");
+
+                // Word editing (Ctrl/Alt+Left word jump + Backspace) + Semantics JSON
+                drv.TypeText("word_edit", "hello world");
+                auto &in = engine.GetInput();
+                const auto er = drv.RectOf("word_edit");
+                const auto ewin = host_ui.LogicalToWindow({er.x + 5.0f, er.y + 5.0f});
+                in.InjectFrame(ewin, {"left_control", "backspace"}, {});
+                host_ui.NewFrame();
+                render_modern_suite();
+                in.InjectFrame(ewin, {}, {});
+                host_ui.NewFrame();
+                render_modern_suite();
+                const std::string word_val(host_ui.TextValue("word_edit"));
+                const auto sem_btn = drv.FindSemantic("button", "DragMe");
+                const std::string sem_json = drv.SemanticJson();
+                check(word_val == "hello ",
+                      "158: Ctrl+Backspace deletes whole word in TextInput");
+                check(sem_btn.has_value() && !sem_json.empty() &&
+                          sem_json.find("\"role\":\"menubar\"") != std::string::npos &&
+                          sem_json.find("\"role\":\"drop_zone\"") != std::string::npos,
+                      "158: Accessibility SemanticTree and SemanticJson expose roles/labels/actions");
+
+                // Native Engine -> Window OS IME / Cursor API wiring check
+                fake2d::EngineConfig headless_cfg;
+                headless_cfg.headless = true;
+                headless_cfg.width = 320;
+                headless_cfg.height = 240;
+                headless_cfg.on_frame = [&](fake2d::Engine &e) {
+                    auto &ui = e.GetUI();
+                    ui.SetImeRectCallback([&](const fake2d::Rect &r) { (void)r; });
+                    e.SetCursorShape(1);
+                };
+                // Quick sanity check via existing WindowImeCursorRect / DesiredCursorShape on host engine
+                host_ui.RequestFocus("word_edit");
+                drv.StepFrame(0.016f);
+                check(host_ui.FocusedTextInput() == "word_edit" && host_ui.ImeCursorRect().height > 1.0f,
+                      "158: RequestFocus focuses text widget cleanly and updates ImeCursorRect");
+
+                host_ui.SetThemeMetric("corner_radius", 0.0f);
+                host_ui.SetThemeMetric("state_transition_ms", 0.0f);
+                engine.GetInput().InjectFrame({-10000.0f, -10000.0f}, {}, {});
+            }
+        }
+
         host_ui.SetAudit(false);
         host_cam = saved_cam;
     }

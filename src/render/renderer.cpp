@@ -395,6 +395,9 @@ void Renderer::Shutdown() {
         lights_.Shutdown();
         // Targets hold an FBO + texture each; free them before the context goes.
         targets_.Clear();
+        backdrop_tex_.Destroy();
+        backdrop_cap_w_ = 0;
+        backdrop_cap_h_ = 0;
         active_target_ = 0;
         batch_.Shutdown();
         ready_ = false;
@@ -407,6 +410,81 @@ void Renderer::DrawQuad(float x, float y, float w, float h, const Color &color) 
 
 void Renderer::DrawQuad(const Rect &dst, const Color &color) {
     batch_.DrawQuad(dst, color);
+}
+
+void Renderer::DrawGradientQuad(const Rect &dst, const Color &tl, const Color &tr, const Color &br,
+                                const Color &bl) {
+    batch_.DrawGradientQuad(dst, tl, tr, br, bl);
+}
+
+void Renderer::DrawBlurredBackdrop(const Rect &points_rect, float blur_radius, const Color &tint) {
+    if (!ready_ || points_rect.width <= 1.0f || points_rect.height <= 1.0f || blur_radius <= 0.0f) {
+        return;
+    }
+    const RenderTarget *target = active_target_ ? targets_.Get(active_target_) : nullptr;
+    const float cs = target ? 1.0f : camera_.ContentScale();
+    const int surface_w = target ? target->Width() : width_;
+    const int surface_h = target ? target->Height() : height_;
+    if (surface_w <= 0 || surface_h <= 0) {
+        return;
+    }
+    const int rx = std::clamp(static_cast<int>(std::floor(points_rect.x * cs)), 0, surface_w);
+    const int rw = std::clamp(static_cast<int>(std::ceil(points_rect.width * cs)), 0, surface_w - rx);
+    const int ry_top = std::clamp(static_cast<int>(std::floor(points_rect.y * cs)), 0, surface_h);
+    const int rh = std::clamp(static_cast<int>(std::ceil(points_rect.height * cs)), 0, surface_h - ry_top);
+    const int py = surface_h - (ry_top + rh);
+    if (rw < 2 || rh < 2) {
+        DrawQuad(points_rect, tint);
+        return;
+    }
+
+    batch_.Flush();
+    batch_.FlushLines();
+
+    if (!backdrop_tex_.IsValid() || rw > backdrop_cap_w_ || rh > backdrop_cap_h_) {
+        backdrop_cap_w_ = std::max(backdrop_cap_w_, std::max(64, rw));
+        backdrop_cap_h_ = std::max(backdrop_cap_h_, std::max(64, rh));
+        backdrop_tex_.Create(backdrop_cap_w_, backdrop_cap_h_, nullptr, 4, TextureFilter::Linear,
+                             TextureWrap::Clamp);
+    }
+    if (backdrop_tex_.IsValid()) {
+        glBindTexture(GL_TEXTURE_2D, backdrop_tex_.Id());
+        glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, rx, py, rw, rh);
+        glBindTexture(GL_TEXTURE_2D, 0);
+
+        const float u1 = static_cast<float>(rw) / static_cast<float>(backdrop_cap_w_);
+        const float v_top = static_cast<float>(rh) / static_cast<float>(backdrop_cap_h_);
+        const Vec2 corners[4] = {
+            {points_rect.x, points_rect.y},
+            {points_rect.x + points_rect.width, points_rect.y},
+            {points_rect.x + points_rect.width, points_rect.y + points_rect.height},
+            {points_rect.x, points_rect.y + points_rect.height},
+        };
+        const float spread = std::clamp(blur_radius, 0.5f, 12.0f);
+        const float du = spread / static_cast<float>(backdrop_cap_w_);
+        const float dv = spread / static_cast<float>(backdrop_cap_h_);
+        struct Tap {
+            float dx, dy, alpha;
+        };
+        const Tap taps[] = {
+            {0.0f, 0.0f, 0.36f},
+            {-du, -dv, 0.16f},
+            {du, -dv, 0.16f},
+            {-du, dv, 0.16f},
+            {du, dv, 0.16f},
+        };
+        for (const auto &tp : taps) {
+            const float u0_t = std::clamp(0.0f + tp.dx, 0.0f, u1);
+            const float u1_t = std::clamp(u1 + tp.dx, 0.0f, u1);
+            const float v0_t = std::clamp(v_top + tp.dy, 0.0f, v_top);
+            const float v1_t = std::clamp(0.0f + tp.dy, 0.0f, v_top);
+            const Vec2 uvs[4] = {{u0_t, v0_t}, {u1_t, v0_t}, {u1_t, v1_t}, {u0_t, v1_t}};
+            batch_.DrawVertices(backdrop_tex_, corners, uvs, {1.0f, 1.0f, 1.0f, tp.alpha});
+        }
+    }
+    if (tint.a > 0.0f) {
+        DrawQuad(points_rect, tint);
+    }
 }
 
 void Renderer::DrawLine(float x1, float y1, float x2, float y2, const Color &color) {
@@ -518,7 +596,7 @@ float Renderer::DrawTextEx(std::string_view text, float x, float y, float scale,
     return font_.DrawTextEx(batch_, text, x, y, scale, align, wrap_width, tint);
 }
 
-void Renderer::SetClipRect(const Rect &points_rect) {
+void Renderer::SetClipRect(const Rect &points_rect, float radius_points, const Rect *rrect_points) {
     if (!ready_) {
         return;
     }
@@ -526,33 +604,33 @@ void Renderer::SetClipRect(const Rect &points_rect) {
         ClearClipRect();
         return;
     }
-    // Logical points (top-left origin) -> GL window coords (physical pixels,
-    // bottom-left origin). zoom/rotation are not baked in: clip UI in screen
-    // space, or convert world rects via camera_world_to_screen first.
     const RenderTarget *target = active_target_ ? targets_.Get(active_target_) : nullptr;
     const float cs = target ? 1.0f : camera_.ContentScale();
     const float surface_height = target ? static_cast<float>(target->Height())
                                         : static_cast<float>(height_);
-    const Rect phys{
-        points_rect.x * cs,
-        surface_height - (points_rect.y + points_rect.height) * cs,
-        points_rect.width * cs,
-        points_rect.height * cs};
+    auto to_phys = [&](const Rect &pr) -> Rect {
+        return {pr.x * cs, surface_height - (pr.y + pr.height) * cs, pr.width * cs, pr.height * cs};
+    };
+    const Rect phys = to_phys(points_rect);
+    const Rect rrect_phys = rrect_points ? to_phys(*rrect_points) : phys;
+    const float rad_px = radius_points > 0.0f ? radius_points * cs : 0.0f;
     if (batch_.ClipActive()) {
         const Rect &cur = batch_.ClipRect();
+        const Rect &curr_rr = batch_.ClipRRect();
         if (std::abs(phys.x - cur.x) < 1e-3f && std::abs(phys.y - cur.y) < 1e-3f &&
-            std::abs(phys.width - cur.width) < 1e-3f && std::abs(phys.height - cur.height) < 1e-3f) {
+            std::abs(phys.width - cur.width) < 1e-3f && std::abs(phys.height - cur.height) < 1e-3f &&
+            std::abs(rrect_phys.x - curr_rr.x) < 1e-3f && std::abs(rrect_phys.y - curr_rr.y) < 1e-3f &&
+            std::abs(rrect_phys.width - curr_rr.width) < 1e-3f &&
+            std::abs(rrect_phys.height - curr_rr.height) < 1e-3f &&
+            std::abs(rad_px - batch_.ClipRadius()) < 1e-3f) {
             return;
         }
     }
-    // Clip state is sampled at flush time, but quads/lines may sit buffered
-    // across the boundary — flush first so a rect only ever clips the draws
-    // submitted while it is active.
     if (batch_.HasPendingDraws()) {
         batch_.Flush();
         batch_.FlushLines();
     }
-    batch_.SetClipRectPhysical(phys);
+    batch_.SetClipRectPhysical(phys, rad_px, &rrect_phys);
 }
 
 void Renderer::ClearClipRect() {
