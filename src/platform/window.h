@@ -79,6 +79,9 @@ private:
     unsigned fbo_texture_ = 0;
 #endif
     RenderMode render_mode_ = RenderMode::GLFW;
+    // GLFW close flag has no handle on the CGL headless fallback, so
+    // RequestQuit / RequestRelaunch keep their request here instead.
+    bool should_close_ = false;
     GLFWwindow *handle_ = nullptr;
     int width_ = 0;
     int height_ = 0;

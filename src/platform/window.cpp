@@ -108,6 +108,7 @@ bool Window::CreateCGLHeadless(int width, int height) {
 
     cgl_context_ = ctx;
     render_mode_ = RenderMode::CGLHeadlessFBO;
+    should_close_ = false;
     width_ = width;
     height_ = height;
     fb_width_ = width;
@@ -118,6 +119,7 @@ bool Window::CreateCGLHeadless(int width, int height) {
 #endif
 
 bool Window::Create(const WindowDesc &desc) {
+    should_close_ = false;
     glfwSetErrorCallback([](int code, const char *message) {
         std::fprintf(stderr, "fake2d: GLFW error %d: %s\n", code,
                      message ? message : "(no message)");
@@ -299,13 +301,15 @@ void Window::SetCursorShape(int shape) {
 
 bool Window::ShouldClose() const {
     if (render_mode_ == RenderMode::CGLHeadlessFBO) {
-        // No window events exist; the loop is driven by the frame budget.
-        return false;
+        // No GLFW window exists; RequestQuit / RequestRelaunch still have
+        // to stop the loop before the frame budget runs out.
+        return should_close_;
     }
     return handle_ == nullptr || glfwWindowShouldClose(handle_);
 }
 
 void Window::SetShouldClose(bool close) {
+    should_close_ = close;
     if (handle_) {
         glfwSetWindowShouldClose(handle_, close ? GLFW_TRUE : GLFW_FALSE);
     }
