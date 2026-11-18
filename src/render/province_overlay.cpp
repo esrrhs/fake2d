@@ -370,14 +370,16 @@ bool ProvinceOverlay::Build(int width, int height, const std::vector<std::uint16
             if (edge) {
                 outlines_[static_cast<std::size_t>(id - 1)].push_back(
                     {static_cast<std::int16_t>(X), static_cast<std::int16_t>(Y)});
-                const float px = (static_cast<float>(X) + 0.5f) / static_cast<float>(ss_);
-                const float py = (static_cast<float>(Y) + 0.5f) / static_cast<float>(ss_);
-                auto &bb = bboxes_[static_cast<std::size_t>(id - 1)];
-                bb.min_x = std::min(bb.min_x, px);
-                bb.max_x = std::max(bb.max_x, px);
-                bb.min_y = std::min(bb.min_y, py);
-                bb.max_y = std::max(bb.max_y, py);
             }
+            // Bounds describe the region, not only its internal outline. A
+            // uniform map has no internal edge at all, but still has bounds.
+            const float px = (static_cast<float>(X) + 0.5f) / static_cast<float>(ss_);
+            const float py = (static_cast<float>(Y) + 0.5f) / static_cast<float>(ss_);
+            auto &bb = bboxes_[static_cast<std::size_t>(id - 1)];
+            bb.min_x = std::min(bb.min_x, px);
+            bb.max_x = std::max(bb.max_x, px);
+            bb.min_y = std::min(bb.min_y, py);
+            bb.max_y = std::max(bb.max_y, py);
         }
     }
 

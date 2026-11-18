@@ -154,6 +154,12 @@ private:
     std::uint8_t key_tap_hold_[kKeyCount] = {};
     std::uint8_t ai_keys_[kKeyCount] = {};
     std::uint8_t ai_buttons_[kButtonCount] = {};
+    // Preserve the unmerged snapshot so releasing AI on a headless frame
+    // neither leaves a stuck key nor releases a physically held key.
+    std::uint8_t ai_base_keys_[kKeyCount] = {};
+    std::uint8_t ai_base_buttons_[kButtonCount] = {};
+    std::uint8_t ai_applied_keys_[kKeyCount] = {};
+    std::uint8_t ai_applied_buttons_[kButtonCount] = {};
     bool ai_mouse_held_ = false;
     std::uint8_t pad_connected_[kPadCount] = {};
     std::uint8_t pad_buttons_[kPadCount][kPadButtonCount] = {};

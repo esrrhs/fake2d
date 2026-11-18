@@ -210,6 +210,8 @@ void Input::InjectFrame(const Vec2 &mouse_pos,
     mouse_pos_ = mouse_pos;
     wheel_ = wheel;
     text_input_ = text;
+    std::fill(ai_applied_keys_, ai_applied_keys_ + kKeyCount, std::uint8_t{0});
+    std::fill(ai_applied_buttons_, ai_applied_buttons_ + kButtonCount, std::uint8_t{0});
 }
 
 void Input::AiHoldKey(std::string_view key, bool down) {
@@ -275,6 +277,8 @@ void Input::CaptureSnapshot(InputFrameSnapshot &out, std::uint64_t step_index) c
 }
 
 void Input::ApplySnapshot(const InputFrameSnapshot &snap) {
+    std::fill(ai_applied_keys_, ai_applied_keys_ + kKeyCount, std::uint8_t{0});
+    std::fill(ai_applied_buttons_, ai_applied_buttons_ + kButtonCount, std::uint8_t{0});
     std::fill(had_mouse_press_, had_mouse_press_ + kButtonCount, static_cast<std::uint8_t>(0));
     std::fill(tap_hold_, tap_hold_ + kButtonCount, static_cast<std::uint8_t>(0));
     std::fill(had_key_press_, had_key_press_ + kKeyCount, static_cast<std::uint8_t>(0));
@@ -320,25 +324,22 @@ void Input::ApplySnapshot(const InputFrameSnapshot &snap) {
 
 void Input::ApplyAiOverlay(bool advance_edges) {
     for (std::size_t k = 0; k < kKeyCount; ++k) {
-        if (ai_keys_[k] == 0) {
-            continue;
-        }
-        // On the polled path the previous state was already copied by
-        // NewFrame; on the headless path there is no poll, so the copy has to
-        // happen here or a key the AI holds reads as *pressed* forever.
         if (advance_edges) {
             prev_keys_[k] = keys_[k];
+            if (ai_applied_keys_[k]) keys_[k] = ai_base_keys_[k];
         }
-        keys_[k] = 1;
+        ai_base_keys_[k] = keys_[k];
+        ai_applied_keys_[k] = ai_keys_[k];
+        if (ai_keys_[k]) keys_[k] = 1;
     }
     for (std::size_t b = 0; b < kButtonCount; ++b) {
-        if (ai_buttons_[b] == 0) {
-            continue;
-        }
         if (advance_edges) {
             prev_buttons_[b] = buttons_[b];
+            if (ai_applied_buttons_[b]) buttons_[b] = ai_base_buttons_[b];
         }
-        buttons_[b] = 1;
+        ai_base_buttons_[b] = buttons_[b];
+        ai_applied_buttons_[b] = ai_buttons_[b];
+        if (ai_buttons_[b]) buttons_[b] = 1;
     }
     if (ai_mouse_held_) {
         mouse_delta_ = {ai_mouse_pos_.x - mouse_pos_.x,

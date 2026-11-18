@@ -122,3 +122,7 @@ assets/skeleton/_bad*.json
 
 # CI / local fakelua install prefix used by tools/ci_fakelua.sh
 .deps/
+
+# Reproducible local coverage build/evidence (published as CI artifacts).
+build-coverage*/
+reports/coverage/

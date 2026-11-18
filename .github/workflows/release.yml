@@ -18,6 +18,7 @@ permissions:
 # packages need no compiler or tinycc support tree -- only the libfakelua
 # shared library and OpenSSL, which the packaging scripts bundle.
 env:
+  # ObjectSnapshotChain requires NativeObject::GetVersion.
   FAKELUA_REF: e1f27d16d29aa72b79800d4b7beb8fe4d9fe9641
 
 jobs:

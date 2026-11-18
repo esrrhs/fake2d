@@ -58,6 +58,8 @@ public:
 
     /// Shared 1x1 white texture for solid color quad rendering.
     static const Texture2D &White();
+    /// Release the shared texture while its GL context is still current.
+    static void ReleaseWhite();
 
 private:
     std::uint32_t id_ = 0;

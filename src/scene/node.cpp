@@ -14,6 +14,7 @@ void Node::AddChild(std::unique_ptr<Node> child) {
         return;
     }
     child->parent_ = this;
+    child->transform_.MarkDirty();
     children_.push_back(std::move(child));
 }
 
@@ -26,6 +27,7 @@ std::unique_ptr<Node> Node::RemoveChild(const Node *child) {
     std::unique_ptr<Node> detached = std::move(*it);
     children_.erase(it);
     detached->parent_ = nullptr;
+    detached->transform_.MarkDirty();
     return detached;
 }
 
@@ -44,6 +46,9 @@ void Node::Visit(const std::function<void(Node *)> &fn) {
 
 const Mat4 &Node::WorldMatrix() const {
     const Node *p = parent_;
+    // Refresh all ancestors before inspecting their versions. Otherwise a
+    // dirty parent that has not itself been queried leaves descendants stale.
+    if (p) (void)p->WorldMatrix();
     const bool parent_changed = p && (p->world_version_ != parent_version_seen_);
     if (transform_.IsDirty() || parent_changed) {
         world_ = (p ? p->WorldMatrix() : Mat4::Identity()) * transform_.LocalMatrix();

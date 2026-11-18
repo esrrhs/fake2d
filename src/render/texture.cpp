@@ -20,6 +20,11 @@ namespace fake2d {
 
 namespace {
 
+Texture2D &WhiteTexture() {
+    static Texture2D texture;
+    return texture;
+}
+
 // gl3.h ships core-profile enums only; legacy contexts still accept the
 // classic luminance format (0x1909).
 constexpr GLenum kLegacyLuminance = 0x1909;
@@ -195,13 +200,16 @@ void Texture2D::Unbind() const {
 }
 
 const Texture2D &Texture2D::White() {
-    static Texture2D white_tex;
-    static bool initialized = false;
-    if (!initialized) {
+    Texture2D &white_tex = WhiteTexture();
+    if (!white_tex.IsValid()) {
         const std::uint8_t white_pixel[4] = {0xFF, 0xFF, 0xFF, 0xFF};
-        initialized = white_tex.Create(1, 1, white_pixel, 4, TextureFilter::Nearest, TextureWrap::Clamp);
+        white_tex.Create(1, 1, white_pixel, 4, TextureFilter::Nearest, TextureWrap::Clamp);
     }
     return white_tex;
+}
+
+void Texture2D::ReleaseWhite() {
+    WhiteTexture().Destroy();
 }
 
 } // namespace fake2d

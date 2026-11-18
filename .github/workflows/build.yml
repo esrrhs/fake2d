@@ -22,6 +22,7 @@ concurrency:
 # hiredis, mariadb connector, tinycc, ...) are fetched by CPM; only OpenSSL
 # and a C++23 compiler are expected from the runner/system packages.
 env:
+  # ObjectSnapshotChain requires NativeObject::GetVersion.
   FAKELUA_REF: e1f27d16d29aa72b79800d4b7beb8fe4d9fe9641
 
 jobs:
@@ -781,3 +782,79 @@ jobs:
           export PATH="$(cygpath -u "$FLINSTALL")/bin:$PATH"
           export CMAKE_PREFIX_PATH="$FLINSTALL"
           tools/verify-consumer.sh --build-dir build
+
+  coverage:
+    name: linux owned-library line coverage (95% target)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      CC: gcc-14
+      CXX: g++-14
+      GCOV: gcov-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential gcc-14 g++-14 cmake ninja-build pkg-config ccache xvfb \
+            python3-venv libssl-dev libgl1-mesa-dev libx11-dev libxrandr-dev libxi-dev \
+            libxcursor-dev libxinerama-dev patchelf fonts-noto-cjk
+
+      - uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: linux-coverage-fakelua
+          max-size: 2G
+
+      - name: Cache paths
+        run: |
+          echo "CPM_SOURCE_CACHE=$HOME/.cache/CPM" >> "$GITHUB_ENV"
+          echo "FLINSTALL=$GITHUB_WORKSPACE/.deps/fakelua-prefix" >> "$GITHUB_ENV"
+          echo "FAKELUA_SRC=$RUNNER_TEMP/fakelua-src" >> "$GITHUB_ENV"
+          echo "FAKELUA_BUILD=$RUNNER_TEMP/flbuild" >> "$GITHUB_ENV"
+          mkdir -p "$HOME/.cache/CPM"
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/CPM
+          key: Linux-cpm-v2
+          restore-keys: |
+            Linux-cpm-
+
+      - name: Fakelua cache identity
+        run: tools/ci_fakelua.sh identity
+
+      - uses: actions/cache@v4
+        with:
+          path: .deps/fakelua-prefix
+          key: ${{ env.FAKELUA_CACHE_KEY }}
+
+      - name: Build + install fakelua
+        run: tools/ci_fakelua.sh install
+
+      - name: Install pinned coverage reporter
+        run: |
+          python3 -m venv .deps/coverage-venv
+          .deps/coverage-venv/bin/pip install gcovr==8.4
+
+      - name: Build, exercise and enforce owned-library line coverage
+        env:
+          COVERAGE_BUILD_DIR: build-coverage
+          COVERAGE_OUTPUT: reports/coverage/current
+          COVERAGE_JOBS: "2"
+        run: |
+          export PATH="$PWD/.deps/coverage-venv/bin:$PATH"
+          export CMAKE_PREFIX_PATH="$FLINSTALL"
+          export LD_LIBRARY_PATH="$FLINSTALL/lib:${LD_LIBRARY_PATH:-}"
+          tools/run_coverage.sh
+
+      - name: Upload coverage evidence even when the target is unmet
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-owned-library-coverage
+          path: |
+            reports/coverage/current/
+            build-coverage/Testing/Temporary/LastTest.log
+          if-no-files-found: warn

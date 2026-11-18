@@ -36,6 +36,9 @@ public:
 
     /// Shared default 2D shader with projection and sampler uniform.
     static Shader *GetDefault2D();
+    /// Release while the owning GL context is current, before destroying it.
+    /// The next context lazily rebuilds the shared default shader.
+    static void ReleaseDefault2D();
 
 private:
     int GetUniformLocation(std::string_view name);

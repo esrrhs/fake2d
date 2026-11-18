@@ -2595,9 +2595,11 @@ void SkeletonSystem::Update(float dt) {
                         inst.playing = false;
                         inst.reported = false;
                     }
-                } else if (next < 0.0f) {
+                } else if (next <= 0.0f && signed_dt < 0.0f) {
                     next = 0.0f;
                     inst.playing = false;
+                    inst.done = true;
+                    inst.reported = false;
                 }
             }
             inst.time = next;
@@ -2609,7 +2611,9 @@ void SkeletonSystem::Update(float dt) {
                 const Event &ev = clip.events[ei];
                 bool hit;
                 if (wrapped) {
-                    hit = ev.time > start || ev.time <= inst.time;
+                    hit = signed_dt >= 0.0f
+                              ? (ev.time > start || ev.time <= inst.time)
+                              : (ev.time <= start || ev.time > inst.time);
                 } else if (signed_dt >= 0.0f) {
                     hit = ev.time > start && ev.time <= inst.time;
                 } else {

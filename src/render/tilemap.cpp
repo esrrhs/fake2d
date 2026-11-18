@@ -639,7 +639,7 @@ float Tilemap::GroundYAt(float world_x, float reach_y) const {
 
     for (int row = r0; row <= r1; ++row) {
         for (const Layer &layer : layers_) {
-            if (!layer.visible || layer.image_layer) {
+            if (!layer.visible || layer.image_layer || layer.object_layer) {
                 continue;
             }
             const std::uint32_t gid =
@@ -709,7 +709,7 @@ void Tilemap::SetTile(int col, int row, std::uint32_t gid) {
 }
 
 bool Tilemap::SolidAtPixel(float x, float y) const {
-    if (x < 0.0f || y < 0.0f) {
+    if (x < 0.0f || y < 0.0f || tile_width_ <= 0 || tile_height_ <= 0) {
         return false;
     }
     const int col = static_cast<int>(x) / tile_width_;

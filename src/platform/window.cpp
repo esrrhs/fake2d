@@ -1,4 +1,6 @@
 #include "platform/window.h"
+#include "fake2d/shader.h"
+#include "fake2d/texture.h"
 
 #include <GLFW/glfw3.h>
 
@@ -203,6 +205,8 @@ void Window::Destroy() {
         if (cgl_context_) {
             CGLContextObj ctx = static_cast<CGLContextObj>(cgl_context_);
             CGLSetCurrentContext(ctx);
+            Shader::ReleaseDefault2D();
+            Texture2D::ReleaseWhite();
             if (fbo_) {
                 glDeleteFramebuffers(1, &fbo_);
                 fbo_ = 0;
@@ -220,6 +224,9 @@ void Window::Destroy() {
         return;
     }
     if (handle_) {
+        glfwMakeContextCurrent(handle_);
+        Shader::ReleaseDefault2D();
+        Texture2D::ReleaseWhite();
         glfwDestroyWindow(handle_);
         handle_ = nullptr;
         glfwTerminate();

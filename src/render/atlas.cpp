@@ -65,46 +65,48 @@ bool Atlas::Parse(std::string_view json, std::string &out_image_path) {
     nlohmann::json root;
     try {
         root = nlohmann::json::parse(json);
+
+        const auto frames_it = root.find("frames");
+        if (frames_it == root.end()) {
+            std::fprintf(stderr, "fake2d: atlas JSON has no \"frames\" member\n");
+            return false;
+        }
+
+        if (frames_it->is_array()) {
+            for (const auto &frame_json : *frames_it) {
+                AtlasRegion region;
+                if (ReadFrame(frame_json.value("filename", std::string{}), frame_json, region)) {
+                    regions_.emplace(region.name, std::move(region));
+                }
+            }
+        } else if (frames_it->is_object()) {
+            for (auto it = frames_it->begin(); it != frames_it->end(); ++it) {
+                AtlasRegion region;
+                if (ReadFrame(it.key(), it.value(), region)) {
+                    regions_.emplace(region.name, std::move(region));
+                }
+            }
+        } else {
+            std::fprintf(stderr, "fake2d: atlas \"frames\" must be an array or object\n");
+            return false;
+        }
+
+        if (regions_.empty()) {
+            std::fprintf(stderr, "fake2d: atlas JSON contains no usable frames\n");
+            return false;
+        }
+
+        const auto meta_it = root.find("meta");
+        if (meta_it != root.end() && meta_it->is_object()) {
+            out_image_path = meta_it->value("image", std::string{});
+        }
+        return true;
     } catch (const std::exception &e) {
-        std::fprintf(stderr, "fake2d: atlas JSON parse failed: %s\n", e.what());
+        regions_.clear();
+        out_image_path.clear();
+        std::fprintf(stderr, "fake2d: atlas JSON/schema parse failed: %s\n", e.what());
         return false;
     }
-
-    const auto frames_it = root.find("frames");
-    if (frames_it == root.end()) {
-        std::fprintf(stderr, "fake2d: atlas JSON has no \"frames\" member\n");
-        return false;
-    }
-
-    if (frames_it->is_array()) {
-        for (const auto &frame_json : *frames_it) {
-            AtlasRegion region;
-            if (ReadFrame(frame_json.value("filename", std::string{}), frame_json, region)) {
-                regions_.emplace(region.name, std::move(region));
-            }
-        }
-    } else if (frames_it->is_object()) {
-        for (auto it = frames_it->begin(); it != frames_it->end(); ++it) {
-            AtlasRegion region;
-            if (ReadFrame(it.key(), it.value(), region)) {
-                regions_.emplace(region.name, std::move(region));
-            }
-        }
-    } else {
-        std::fprintf(stderr, "fake2d: atlas \"frames\" must be an array or object\n");
-        return false;
-    }
-
-    if (regions_.empty()) {
-        std::fprintf(stderr, "fake2d: atlas JSON contains no usable frames\n");
-        return false;
-    }
-
-    const auto meta_it = root.find("meta");
-    if (meta_it != root.end() && meta_it->is_object()) {
-        out_image_path = meta_it->value("image", std::string{});
-    }
-    return true;
 }
 
 bool Atlas::LoadFromFile(const std::string &json_path, TextureFilter filter, TextureWrap wrap) {

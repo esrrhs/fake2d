@@ -516,6 +516,13 @@ void SpriteBatch::DrawMeshRange(std::uint32_t texture_id, BlendMode blend,
         max_mesh_indices_ = std::max(max_mesh_indices_, index_count);
         mesh_vertices_.resize(max_mesh_verts_);
         mesh_indices_.resize(max_mesh_indices_);
+        // Meshes share the quad VBO: grow GPU vertex storage as well as the
+        // CPU scratch and index buffer before uploading an oversized mesh.
+        glBindBuffer(GL_ARRAY_BUFFER, vbo_);
+        glBufferData(GL_ARRAY_BUFFER,
+                     static_cast<GLsizeiptr>(max_mesh_verts_ * sizeof(Vertex2D)),
+                     nullptr, GL_DYNAMIC_DRAW);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh_ibo_);
         glBufferData(GL_ELEMENT_ARRAY_BUFFER,
                      static_cast<GLsizeiptr>(max_mesh_indices_ * sizeof(std::uint32_t)),
@@ -744,6 +751,13 @@ void SpriteBatch::EnsureMeshCapacity(size_t verts_to_add, size_t indices_to_add,
         max_mesh_indices_ = std::max(max_mesh_indices_, indices_to_add);
         mesh_vertices_.resize(max_mesh_verts_);
         mesh_indices_.resize(max_mesh_indices_);
+        // Meshes share the quad VBO: grow GPU vertex storage as well as the
+        // CPU scratch and index buffer before uploading an oversized mesh.
+        glBindBuffer(GL_ARRAY_BUFFER, vbo_);
+        glBufferData(GL_ARRAY_BUFFER,
+                     static_cast<GLsizeiptr>(max_mesh_verts_ * sizeof(Vertex2D)),
+                     nullptr, GL_DYNAMIC_DRAW);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
         if (mesh_ibo_) {
             glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh_ibo_);
             glBufferData(GL_ELEMENT_ARRAY_BUFFER,

@@ -26,6 +26,7 @@ void host_log(std::string message) {
 struct RuleHost::Impl {
     fakelua::State *state = nullptr;
     NativeChecker check;
+    ~Impl() { if (state) fakelua::FakeluaDeleteState(state); }
 };
 
 RuleHost::RuleHost() : impl_(new Impl()) {}
@@ -112,6 +113,7 @@ bool RuleHost::CompileUnit(const std::string &path, bool interp, const char *log
 }
 
 void RuleHost::LintUnit(const std::string &path, const char *lint_tag) {
+    LintUnitImpl(impl_->state, path, lint_tag, impl_->check);
 }
 
 bool RuleHost::CompileUnitWithFallback(const std::string &path, bool &interp, const char *log_prefix) {

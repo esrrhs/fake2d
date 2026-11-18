@@ -27,6 +27,14 @@ option(FAKE2D_INSTALL "Generate install rules for fake2d" ON)
 # Register the headless self-test suites with CTest (needs the example app).
 option(FAKE2D_BUILD_TESTS "Register headless test suites with CTest" ON)
 
+# Instrument owned targets only; dependency code is outside the coverage scope.
+option(FAKE2D_COVERAGE "Instrument Linux/GCC core library line coverage" OFF)
+if (FAKE2D_COVERAGE)
+    if (NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        message(FATAL_ERROR "FAKE2D_COVERAGE requires Linux and GCC/gcov")
+    endif ()
+endif ()
+
 if (FAKE2D_WITH_FAKELUA)
     find_package(fakelua REQUIRED)
     message(STATUS "Found FakeLua: ${fakelua_DIR}")
@@ -55,9 +63,39 @@ CPMAddPackage(
 find_package(OpenGL REQUIRED)
 
 add_subdirectory(src)
+if (FAKE2D_COVERAGE)
+    target_compile_options(fake2d PRIVATE --coverage -O0 -g)
+    target_link_options(fake2d PUBLIC --coverage)
+    # Compile every public header with emitted inline bodies. Without this,
+    # never-used inline functions silently disappear from the denominator.
+    file(GLOB _coverage_headers RELATIVE "${CMAKE_SOURCE_DIR}/include" "include/fake2d/*.h")
+    set(_coverage_includes "")
+    foreach (_header IN LISTS _coverage_headers)
+        string(APPEND _coverage_includes "#include \"${_header}\"\n")
+    endforeach ()
+    file(GLOB_RECURSE _coverage_private_headers RELATIVE "${CMAKE_SOURCE_DIR}/src" "src/*.h")
+    foreach (_header IN LISTS _coverage_private_headers)
+        string(APPEND _coverage_includes "#include \"${_header}\"\n")
+    endforeach ()
+    file(WRITE "${CMAKE_BINARY_DIR}/coverage_headers.cpp" "${_coverage_includes}")
+    add_library(fake2d_coverage_headers OBJECT "${CMAKE_BINARY_DIR}/coverage_headers.cpp")
+    target_include_directories(fake2d_coverage_headers PRIVATE "${CMAKE_SOURCE_DIR}/src")
+    target_link_libraries(fake2d_coverage_headers PRIVATE fake2d::fake2d)
+    target_compile_options(fake2d_coverage_headers PRIVATE --coverage -O0 -g -fkeep-inline-functions)
+endif ()
 
 if (FAKE2D_BUILD_TESTS)
     enable_testing()
+    if(FAKE2D_COVERAGE)
+        set(_coverage_gcov "$ENV{GCOV}")
+        if(_coverage_gcov STREQUAL "")
+            set(_coverage_gcov gcov)
+        endif()
+        add_test(NAME fake2d-coverage-reporter
+            COMMAND python3 ${CMAKE_SOURCE_DIR}/tools/test_coverage_blocks.py
+                    --compiler ${CMAKE_CXX_COMPILER} --gcov ${_coverage_gcov})
+
+    endif()
     # Compile-and-run guard: inject windef.h's near/far macros, include the
     # same header chain as hello, then use `auto near` / member `far`. This
     # is its own executable so it is not counted as a hello self-test suite.
@@ -67,10 +105,55 @@ if (FAKE2D_BUILD_TESTS)
         ${CMAKE_SOURCE_DIR}/src)
     target_link_libraries(fake2d_win_macro_compat PRIVATE fake2d::fake2d)
     add_test(NAME fake2d-win-macro-compat COMMAND fake2d_win_macro_compat)
+    add_executable(fake2d_coverage_regression tests/coverage_regression.cpp)
+    target_include_directories(fake2d_coverage_regression PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(fake2d_coverage_regression PRIVATE fake2d::fake2d)
+    if (FAKE2D_COVERAGE)
+        target_compile_options(fake2d_coverage_regression PRIVATE --coverage -O0 -g)
+    endif ()
+    find_program(FAKE2D_TEST_XVFB xvfb-run)
+    set(_regression_prefix)
+    if (FAKE2D_TEST_XVFB)
+        list(APPEND _regression_prefix "${FAKE2D_TEST_XVFB}" -a)
+    endif ()
+    add_test(NAME fake2d-coverage-regression
+        COMMAND ${_regression_prefix} $<TARGET_FILE:fake2d_coverage_regression>)
+    set_tests_properties(fake2d-coverage-regression PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}" TIMEOUT 120
+        ENVIRONMENT "LIBGL_ALWAYS_SOFTWARE=1")
+    add_executable(fake2d_coverage_gaps tests/coverage_gap_tests.cpp)
+    set_target_properties(fake2d_coverage_gaps PROPERTIES ENABLE_EXPORTS ON)
+    target_include_directories(fake2d_coverage_gaps PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(fake2d_coverage_gaps PRIVATE fake2d::fake2d nlohmann_json::nlohmann_json)
+    if (FAKE2D_COVERAGE)
+        target_compile_options(fake2d_coverage_gaps PRIVATE --coverage -O0 -g)
+    endif ()
+    add_test(NAME fake2d-coverage-gaps COMMAND ${_regression_prefix} $<TARGET_FILE:fake2d_coverage_gaps>)
+    set_tests_properties(fake2d-coverage-gaps PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}" TIMEOUT 180
+        ENVIRONMENT "LIBGL_ALWAYS_SOFTWARE=1")
+    add_executable(fake2d_coverage_deep tests/coverage_deep_tests.cpp)
+    set_target_properties(fake2d_coverage_deep PROPERTIES ENABLE_EXPORTS ON)
+    target_include_directories(fake2d_coverage_deep PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(fake2d_coverage_deep PRIVATE fake2d::fake2d nlohmann_json::nlohmann_json)
+    if (FAKE2D_COVERAGE)
+        target_compile_options(fake2d_coverage_deep PRIVATE --coverage -O0 -g)
+        # Observe genuine child crash counters before the real signal/_Exit.
+        # Wrappers delegate unchanged; no product hooks or fabricated counts.
+        target_compile_definitions(fake2d_coverage_deep PRIVATE FAKE2D_TEST_CRASH_PROFILE=1)
+        target_link_options(fake2d_coverage_deep PRIVATE -Wl,--wrap=raise -Wl,--wrap=_Exit)
+    endif ()
+    add_test(NAME fake2d-coverage-deep COMMAND ${_regression_prefix} $<TARGET_FILE:fake2d_coverage_deep>)
+    set_tests_properties(fake2d-coverage-deep PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}" TIMEOUT 300
+        ENVIRONMENT "LIBGL_ALWAYS_SOFTWARE=1")
 endif ()
 
 if (FAKE2D_BUILD_EXAMPLES)
     add_subdirectory(examples/hello)
+    if (FAKE2D_COVERAGE)
+        target_compile_options(fake2d_hello PRIVATE --coverage -O0 -g)
+    endif ()
 endif ()
 
 # --- Install: make fake2d consumable by other projects via find_package ---

@@ -55,6 +55,9 @@ public:
     void Spawn(const Vec2 &top_left) {
         position_ = top_left;
         velocity_ = {0.0f, 0.0f};
+        on_ground_ = false;
+        coyote_ = jump_buffer_ = 0.0f;
+        jump_release_cut_used_ = false;
     }
     [[nodiscard]] Vec2 Position() const { return position_; }
     [[nodiscard]] Vec2 Center() const {

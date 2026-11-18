@@ -11,6 +11,11 @@ namespace fake2d {
 
 namespace {
 
+Shader &Default2DShader() {
+    static Shader shader;
+    return shader;
+}
+
 GLuint CompileShader(GLenum type, std::string_view source) {
     GLuint shader = glCreateShader(type);
     const char *src_ptr = source.data();
@@ -357,9 +362,9 @@ void Shader::SetMat4(std::string_view name, const Mat4 &val) {
 }
 
 Shader *Shader::GetDefault2D() {
-    static Shader default_shader;
-    static bool initialized = false;
-    if (!initialized) {
+    Shader &default_shader = Default2DShader();
+    if (!default_shader.IsValid()) {
+        bool initialized = false;
         if (glcaps::legacy_mode) {
             initialized = default_shader.LoadFromSource(kDefaultVertexShader120,
                                                         kDefaultFragmentShader120);
@@ -371,7 +376,11 @@ Shader *Shader::GetDefault2D() {
             default_shader.SetInt("u_texture", 0);
         }
     }
-    return initialized ? &default_shader : nullptr;
+    return default_shader.IsValid() ? &default_shader : nullptr;
+}
+
+void Shader::ReleaseDefault2D() {
+    Default2DShader().Destroy();
 }
 
 } // namespace fake2d

@@ -46,11 +46,13 @@ bool ProvinceMap::Load(const std::string &png_path, int province_count) {
             neighbors[static_cast<std::size_t>(b - 1)].push_back(a - 1);
         }
     };
-    for (int y = 0; y + 1 < h; ++y)
-        for (int x = 0; x + 1 < w; ++x) {
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x) {
             const int a = ids[static_cast<std::size_t>(y) * w + x];
-            link(a, ids[static_cast<std::size_t>(y) * w + x + 1]);
-            link(a, ids[static_cast<std::size_t>(y + 1) * w + x]);
+            if (x + 1 < w)
+                link(a, ids[static_cast<std::size_t>(y) * w + x + 1]);
+            if (y + 1 < h)
+                link(a, ids[static_cast<std::size_t>(y + 1) * w + x]);
         }
     for (int p = 0; p < province_count; ++p) {
         if (pixels[static_cast<std::size_t>(p)] > 0) {
