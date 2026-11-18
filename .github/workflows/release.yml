@@ -18,7 +18,7 @@ permissions:
 # packages need no compiler or tinycc support tree -- only the libfakelua
 # shared library and OpenSSL, which the packaging scripts bundle.
 env:
-  FAKELUA_REF: 9f7216e0e9904d7cd05bbc4109fc22caf6ca57da
+  FAKELUA_REF: e1f27d16d29aa72b79800d4b7beb8fe4d9fe9641
 
 jobs:
   # Produce the demo maps with a real build once (plain JSON, portable across

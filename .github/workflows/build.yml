@@ -22,7 +22,7 @@ concurrency:
 # hiredis, mariadb connector, tinycc, ...) are fetched by CPM; only OpenSSL
 # and a C++23 compiler are expected from the runner/system packages.
 env:
-  FAKELUA_REF: 9f7216e0e9904d7cd05bbc4109fc22caf6ca57da
+  FAKELUA_REF: e1f27d16d29aa72b79800d4b7beb8fe4d9fe9641
 
 jobs:
   # Short Linux job that only produces the generated demo maps. macOS and
