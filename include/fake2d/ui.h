@@ -196,6 +196,7 @@ class UISystem {
         int layer = 0;
         bool suppressed = false;
         bool in_scroll = false;
+        bool disabled = false;
     };
     struct LayoutIssue {
         std::string category; // "overflow", "viewport", "overlap", "align_h", "align_v", "align_group"
@@ -207,6 +208,12 @@ class UISystem {
         float delta = 0.0f;
         std::string message;
     };
+    [[nodiscard]] static bool IsInteractiveKind(std::string_view kind);
+    // Group layout rules: sibling alignment (left|right|center_x|top|bottom|center_y|width|height|
+    // no_overlap|equal_spacing_x|equal_spacing_y), parent centering/containment (center_x_in_parent|
+    // center_y_in_parent|center_in_parent|group_center_x_in_parent|group_center_y_in_parent|
+    // group_center_in_parent|symmetric_x|symmetric_y|fit_parent), and selection modifiers
+    // (include_text|widgets).
     void BeginAlignGroup(std::string_view key, std::string_view rules = "top|height|no_overlap");
     void EndAlignGroup();
     void SetAudit(bool enabled) { audit_enabled_ = enabled; }
@@ -401,6 +408,7 @@ class UISystem {
         std::string rules;
         std::size_t depth = 0;
         std::uint32_t parent_box_id = 0;
+        Rect parent_rect{};
         int layer = 0;
         bool suppressed = false;
         std::size_t audit_start = 0;

@@ -20,6 +20,7 @@
 #include "fake2d/log.h"
 #include "fake2d/save_store.h"
 #include "fake2d/steam.h"
+#include "fake2d/ui_test_runner.h"
 #include "render/gl.h" // benchmark reports the actual current GL driver/context
 
 #include <algorithm>

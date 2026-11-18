@@ -881,6 +881,231 @@ void RunUI149Checks(fake2d::Engine &engine, const std::function<void(bool, const
               std::abs(anchored_r.y - (10.0f + 160.0f - 24.0f - 12.0f)) < 1.0f,
           "152: PushRelated(overlay) + PushAnchor bottom-right places widget accurately");
 
+    // 153: Parent centering, symmetric margins, Row/Col child collection, include_text, equal spacing
+    const auto parent_center_ok = run_layout_audit([&]() {
+        ui.Push(10, 10, 200, 100, 0);
+        ui.BeginAlignGroup("centered_card_ok", "center_in_parent|symmetric_x|symmetric_y|fit_parent");
+        ui.Push(60, 35, 80, 30, 0);
+        ui.Button("cen_ok_btn", 30, "OK", 0.4f);
+        ui.Pop();
+        ui.EndAlignGroup();
+        ui.Pop();
+    });
+    check(parent_center_ok.empty(), "153: centered single widget in parent passes AuditLayout");
+
+    const auto parent_center_bad = run_layout_audit([&]() {
+        ui.Push(10, 10, 200, 100, 0);
+        ui.BeginAlignGroup("centered_card_bad", "center_in_parent|symmetric_x");
+        ui.Push(40, 35, 80, 30, 0); // offset X by -20px
+        ui.Button("cen_bad_btn", 30, "Off", 0.4f);
+        ui.Pop();
+        ui.EndAlignGroup();
+        ui.Pop();
+    });
+    check(std::any_of(parent_center_bad.begin(), parent_center_bad.end(),
+                      [](const auto &iss) { return iss.rule == "center_x_in_parent"; }) &&
+              std::any_of(parent_center_bad.begin(), parent_center_bad.end(),
+                          [](const auto &iss) { return iss.rule == "symmetric_x"; }),
+          "153: off-center single widget caught by center_x_in_parent & symmetric_x");
+
+    const auto row_col_bad = run_layout_audit([&]() {
+        ui.Push(10, 10, 240, 40, 0);
+        ui.BeginAlignGroup("row_hdr_bad", "center_y|height|no_overlap");
+        ui.Row(8, {-1, 24, 24});
+        ui.RowAlign(1);
+        ui.Col(0);
+        ui.Text("Title", 0.4f, fake2d::UITextOverflow::Ellipsis, 1);
+        ui.ColEnd();
+        ui.Col(0);
+        ui.Button("rh_a", 24, "?", 0.4f);
+        ui.ColEnd();
+        ui.Col(0);
+        ui.Button("rh_b", 18, "x", 0.4f); // mismatched height inside Row/Col
+        ui.ColEnd();
+        ui.RowEnd();
+        ui.EndAlignGroup();
+        ui.Pop();
+    });
+    check(std::any_of(row_col_bad.begin(), row_col_bad.end(),
+                      [](const auto &iss) {
+                          return iss.category == "align_group" && iss.rule == "height";
+                      }),
+          "153: AlignGroup collects Row/Col children and catches height mismatch");
+
+    const auto spacing_group_ok = run_layout_audit([&]() {
+        ui.Push(0, 0, 240, 80, 0);
+        ui.BeginAlignGroup("bar_ok",
+                           "top|center_y|group_center_x_in_parent|equal_spacing_x|no_overlap");
+        // 3 buttons of width 60 spaced by 10 at x=20, 90, 160 inside 240 -> span [20..220], center = 120
+        ui.PushAnchor("left", "top", 60, 30, 20, 25, 0, true);
+        ui.Button("sp_1", 30, "1", 0.4f);
+        ui.Pop();
+        ui.PushAnchor("left", "top", 60, 30, 90, 25, 0, true);
+        ui.Button("sp_2", 30, "2", 0.4f);
+        ui.Pop();
+        ui.PushAnchor("left", "top", 60, 30, 160, 25, 0, true);
+        ui.Button("sp_3", 30, "3", 0.4f);
+        ui.Pop();
+        ui.EndAlignGroup();
+        ui.Pop();
+    });
+    check(spacing_group_ok.empty(),
+          "153: group_center_x_in_parent + equal_spacing_x passes cleanly");
+
+    const auto spacing_group_bad = run_layout_audit([&]() {
+        ui.Push(0, 0, 240, 80, 0);
+        ui.BeginAlignGroup("bar_bad", "group_center_x_in_parent|equal_spacing_x");
+        ui.PushAnchor("left", "top", 60, 30, 10, 25, 0, true);
+        ui.Button("spb_1", 30, "1", 0.4f);
+        ui.Pop();
+        ui.PushAnchor("left", "top", 60, 30, 80, 25, 0, true);
+        ui.Button("spb_2", 30, "2", 0.4f);
+        ui.Pop();
+        ui.PushAnchor("left", "top", 60, 30, 165, 25, 0, true); // gap 10 vs 25; union center 117.5 != 120
+        ui.Button("spb_3", 30, "3", 0.4f);
+        ui.Pop();
+        ui.EndAlignGroup();
+        ui.Pop();
+    });
+    check(std::any_of(spacing_group_bad.begin(), spacing_group_bad.end(),
+                      [](const auto &iss) { return iss.rule == "group_center_x_in_parent"; }) &&
+              std::any_of(spacing_group_bad.begin(), spacing_group_bad.end(),
+                          [](const auto &iss) { return iss.rule == "equal_spacing_x"; }),
+          "153: asymmetric group & uneven spacing caught by AlignGroup");
+
+    // 154: Engine-level fake2d::RunUITests end-to-end validation (layout + clickability + errors)
+    {
+        auto &host_ui = engine.GetUI();
+        auto &host_cam = renderer.GetCamera();
+        fake2d::Camera2D saved_cam = host_cam;
+        host_cam.SetViewport(640, 480);
+        host_ui.SetScale(0, 0, "width");
+
+        std::size_t simulated_script_errs = 0;
+        bool fail_btn_clicked = false;
+        fake2d::UITestTarget pass_target;
+        pass_target.name = "engine_suite_pass";
+        pass_target.render_frame = [&]() {
+            renderer.BeginFrame(0, 0, 0, 1);
+            renderer.BeginRenderTarget(target);
+            renderer.ClearActiveTarget({0, 0, 0, 1});
+            host_ui.Push(40, 20, 560, 440, 12);
+            host_ui.BeginAlignGroup("runner_hdr", "center_y|height|no_overlap");
+            host_ui.Row(10, {120, 120, 120});
+            host_ui.Col(0);
+            host_ui.Button("rt_btn", 28, "Action", 0.45f);
+            host_ui.ColEnd();
+            host_ui.Col(0);
+            host_ui.Tab("rt_tab", 28, "Tab", true, 0.45f);
+            host_ui.ColEnd();
+            host_ui.Col(0);
+            host_ui.Checkbox("rt_chk", 28, true, "Opt", 0.45f);
+            host_ui.ColEnd();
+            host_ui.RowEnd();
+            host_ui.EndAlignGroup();
+
+            host_ui.Push(0, 8, 220, 28, 0);
+            host_ui.Slider("rt_sld", 24, 0.5f, 0.0f, 1.0f);
+            host_ui.Pop();
+            host_ui.Push(0, 8, 220, 28, 0);
+            host_ui.RadioButton("rt_rad", 20, false, "Choice", 0.45f);
+            host_ui.Pop();
+            host_ui.Push(0, 8, 220, 28, 0);
+            host_ui.TextInput("rt_txt", 26, 32);
+            host_ui.Pop();
+            host_ui.Push(0, 8, 220, 28, 0);
+            host_ui.DisabledBegin(true);
+            host_ui.Button("rt_dis", 24, "Disabled", 0.45f);
+            host_ui.DisabledEnd();
+            host_ui.Pop();
+            host_ui.Push(0, 8, 220, 48, 0);
+            host_ui.ScrollBegin("rt_scr", 48);
+            host_ui.Button("rt_vis", 24, "Visible", 0.45f);
+            host_ui.Button("rt_skip_0", 30, "Mid", 0.45f);
+            host_ui.Button("rt_off", 24, "ScrolledOff", 0.45f);
+            host_ui.ScrollEnd();
+            host_ui.Pop();
+            host_ui.Pop();
+            renderer.EndRenderTarget();
+            renderer.EndFrame();
+        };
+
+        fake2d::UITestConfig cfg_pass;
+        cfg_pass.get_error_count = [&]() { return simulated_script_errs; };
+        const auto rep_pass = fake2d::RunUITests(engine, {pass_target}, {}, cfg_pass);
+        check(rep_pass.Passed() && rep_pass.violations == 0 && rep_pass.click_failures == 0 &&
+                  rep_pass.script_errors == 0 && rep_pass.buttons_tested >= 8 &&
+                  rep_pass.disabled_tested >= 1 && rep_pass.skipped_offscreen >= 1,
+              "154: RunUITests passes clean layout, clickable widgets, disabled guard, and scroll skip");
+
+        fake2d::UITestTarget bad_layout_target;
+        bad_layout_target.name = "engine_suite_bad_layout";
+        bad_layout_target.render_frame = [&]() {
+            renderer.BeginFrame(0, 0, 0, 1);
+            renderer.BeginRenderTarget(target);
+            renderer.ClearActiveTarget({0, 0, 0, 1});
+            host_ui.Push(20, 20, 300, 120, 0);
+            host_ui.BeginAlignGroup("bad_cen", "center_x_in_parent");
+            host_ui.Push(10, 10, 100, 28, 0);
+            host_ui.Button("bl_off", 28, "OffCenter", 0.45f);
+            host_ui.Pop();
+            host_ui.EndAlignGroup();
+            host_ui.PushAnchor("left", "top", 100, 28, 10, 50, 0, true);
+            host_ui.Button("bl_ov1", 28, "Ov1", 0.45f);
+            host_ui.Pop();
+            host_ui.PushAnchor("left", "top", 100, 28, 40, 56, 0, true);
+            host_ui.Button("bl_ov2", 28, "Ov2", 0.45f);
+            host_ui.Pop();
+            host_ui.Pop();
+            renderer.EndRenderTarget();
+            renderer.EndFrame();
+        };
+        const auto rep_bad_layout = fake2d::RunUITests(engine, {bad_layout_target}, {}, cfg_pass);
+        check(!rep_bad_layout.Passed() && rep_bad_layout.violations >= 2,
+              "154: RunUITests rejects off-center and overlapping widgets");
+
+        fake2d::UITestTarget occluded_target;
+        occluded_target.name = "engine_suite_occluded";
+        occluded_target.render_frame = [&]() {
+            renderer.BeginFrame(0, 0, 0, 1);
+            renderer.BeginRenderTarget(target);
+            renderer.ClearActiveTarget({0, 0, 0, 1});
+            host_ui.Push(20, 20, 120, 40, 0);
+            host_ui.Button("occ_under", 40, "Covered", 0.45f);
+            host_ui.Pop();
+            host_ui.Push(20, 20, 120, 40, 0);
+            host_ui.ThemedPanel();
+            host_ui.Pop();
+            renderer.EndRenderTarget();
+            renderer.EndFrame();
+        };
+        const auto rep_occ = fake2d::RunUITests(engine, {occluded_target}, {}, cfg_pass);
+        check(!rep_occ.Passed() && rep_occ.click_failures >= 1,
+              "154: RunUITests catches completely occluded button as unclickable");
+
+        fake2d::UITestTarget err_target;
+        err_target.name = "engine_suite_click_err";
+        err_target.render_frame = [&]() {
+            renderer.BeginFrame(0, 0, 0, 1);
+            renderer.BeginRenderTarget(target);
+            renderer.ClearActiveTarget({0, 0, 0, 1});
+            host_ui.Push(20, 20, 120, 32, 0);
+            if (host_ui.Button("err_btn", 32, "Explode", 0.45f)) {
+                fail_btn_clicked = true;
+                ++simulated_script_errs;
+            }
+            host_ui.Pop();
+            renderer.EndRenderTarget();
+            renderer.EndFrame();
+        };
+        const auto rep_err = fake2d::RunUITests(engine, {err_target}, {}, cfg_pass);
+        check(fail_btn_clicked && !rep_err.Passed() && rep_err.script_errors >= 1,
+              "154: RunUITests triggers click handler and catches script error");
+
+        host_ui.SetAudit(false);
+        host_cam = saved_cam;
+    }
+
     renderer.GetRenderTargets().Destroy(target);
 }
 

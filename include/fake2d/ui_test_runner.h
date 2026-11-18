@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "fake2d/math.h"
@@ -34,6 +35,14 @@ struct UITestCustomCheck {
 struct UITestConfig {
     std::string filter_pattern;
     std::function<std::size_t()> get_error_count;
+    /// Run `UISystem::AuditLayout()` on each target (overflow, viewport, overlap, alignment, centering).
+    bool audit_layout = true;
+    /// Exercise mouse press/release on every visible interactive widget.
+    bool test_clicks = true;
+    /// Verify enabled visible widgets are unoccluded, clipped to >1px, and register click/focus response.
+    bool verify_clickable = true;
+    /// Optional predicate returning true if a specific widget intentionally opts out of ClickCount verification.
+    std::function<bool(std::string_view target, std::string_view widget, std::string_view kind)> allow_no_click;
 };
 
 struct UITestReport {
@@ -41,13 +50,18 @@ struct UITestReport {
     std::size_t buttons_tested = 0;
     std::size_t violations = 0;
     std::size_t script_errors = 0;
+    std::size_t click_failures = 0;
+    std::size_t skipped_offscreen = 0;
+    std::size_t disabled_tested = 0;
     double elapsed_seconds = 0.0;
 
-    [[nodiscard]] bool Passed() const { return violations == 0 && script_errors == 0; }
+    [[nodiscard]] bool Passed() const {
+        return violations == 0 && script_errors == 0 && click_failures == 0;
+    }
 };
 
-/// Unified automated UI bounds auditor & clickable widget stresser driven directly
-/// by `fake2d::UISystem` (`AuditRects()`, `OverflowCount()`, and `LogicalToWindow()`).
+/// Unified automated UI layout auditor & clickable widget stresser driven directly
+/// by `fake2d::UISystem` (`AuditLayout()`, `AuditRects()`, `ClickCount()`, and `LogicalToWindow()`).
 UITestReport RunUITests(Engine &engine,
                         const std::vector<UITestTarget> &targets,
                         const std::vector<UITestCustomCheck> &custom_checks,

@@ -1,5 +1,6 @@
 #include "fake2d/ui_test_runner.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 
@@ -8,6 +9,30 @@
 #include "fake2d/ui.h"
 
 namespace fake2d {
+
+namespace {
+
+Rect IntersectRect(const Rect &a, const Rect &b) {
+    const float x0 = std::max(a.x, b.x);
+    const float y0 = std::max(a.y, b.y);
+    const float x1 = std::min(a.x + a.width, b.x + b.width);
+    const float y1 = std::min(a.y + a.height, b.y + b.height);
+    return {x0, y0, std::max(0.0f, x1 - x0), std::max(0.0f, y1 - y0)};
+}
+
+std::string DisplayWidgetName(const UISystem::AuditRect &a, std::size_t idx) {
+    if (!a.name.empty()) {
+        return a.name;
+    }
+    return a.kind + "#" + std::to_string(idx);
+}
+
+bool IsTextEditorKind(std::string_view kind) {
+    return kind == "text_input" || kind == "text_area" || kind == "text input" ||
+           kind == "text area" || kind == "password";
+}
+
+} // namespace
 
 UITestReport RunUITests(Engine &engine,
                         const std::vector<UITestTarget> &targets,
@@ -56,86 +81,279 @@ UITestReport RunUITests(Engine &engine,
             target.render_frame();
         }
 
+        const auto rects = uisys.AuditRects();
+        const float vw = uisys.LogicalWidth();
+        const float vh = uisys.LogicalHeight();
+        const Rect viewport = (vw > 1.0f && vh > 1.0f) ? Rect{0.0f, 0.0f, vw, vh}
+                                                       : Rect{-1e6f, -1e6f, 2e6f, 2e6f};
+
+        int max_layer = 0;
+        for (const auto &r : rects) {
+            if (!r.suppressed && r.kind != "tooltip") {
+                max_layer = std::max(max_layer, r.layer);
+            }
+        }
+
+        std::size_t target_violations = 0;
+        if (config.audit_layout) {
+            const auto issues = uisys.AuditLayout();
+            target_violations = issues.size();
+            for (const auto &iss : issues) {
+                std::fprintf(stderr, "    - [LAYOUT %s:%s] %s\n",
+                             iss.category.c_str(), iss.rule.c_str(), iss.message.c_str());
+            }
+            report.violations += target_violations;
+            if (target_violations > 0) {
+                std::fprintf(stderr, "  [LAYOUT FAIL] %zu layout/alignment/overflow violations total.\n",
+                             target_violations);
+            } else {
+                std::fprintf(stderr, "  [LAYOUT PASS] 0 layout/alignment/overflow violations.\n");
+            }
+        }
+
         struct ClickItem {
+            std::size_t audit_idx;
             std::string kind;
             std::string name;
             Rect rect;
+            Rect vis;
+            Vec2 probe;
+            bool disabled = false;
         };
         std::vector<ClickItem> buttons;
-        for (const auto &a : uisys.AuditRects()) {
-            const bool interactive = a.kind == "button" || a.kind == "tab" ||
-                                     a.kind == "checkbox" || a.kind == "slider" ||
-                                     a.kind == "image button" || a.kind == "combo" ||
-                                     a.kind == "combo_item";
-            if (!a.suppressed && interactive && a.rect.width > 0.0f && a.rect.height > 0.0f) {
-                buttons.push_back({a.kind, a.name, a.rect});
+        std::size_t target_click_failures = 0;
+        std::size_t target_skipped_offscreen = 0;
+
+        auto occluded_by_higher_layer = [&](std::size_t idx, const Rect &r_a, const Vec2 &pt) -> bool {
+            const auto &a = rects[idx];
+            (void)r_a;
+            for (std::size_t j = 0; j < rects.size(); ++j) {
+                if (j == idx) continue;
+                const auto &s = rects[j];
+                if (s.suppressed || s.kind == "tooltip" || s.rect.width <= 0.5f || s.rect.height <= 0.5f) {
+                    continue;
+                }
+                if (s.layer > a.layer) {
+                    const Rect sv = IntersectRect(s.rect, s.clip_rect);
+                    if (sv.Contains(pt)) return true;
+                }
             }
+            return false;
+        };
+
+        auto occluded_on_same_layer = [&](std::size_t idx, const Vec2 &pt) -> bool {
+            const auto &a = rects[idx];
+            for (std::size_t j = idx + 1; j < rects.size(); ++j) {
+                const auto &s = rects[j];
+                if (s.suppressed || s.kind == "tooltip" || s.layer != a.layer ||
+                    s.rect.width <= 0.5f || s.rect.height <= 0.5f) {
+                    continue;
+                }
+                if (UISystem::IsInteractiveKind(s.kind) ||
+                    ((s.kind == "panel" || s.kind == "window") && s.root_box_id != a.root_box_id)) {
+                    const Rect sv = IntersectRect(s.rect, s.clip_rect);
+                    if (sv.Contains(pt)) return true;
+                }
+            }
+            return false;
+        };
+
+        for (std::size_t i = 0; i < rects.size(); ++i) {
+            const auto &a = rects[i];
+            if (a.suppressed || !UISystem::IsInteractiveKind(a.kind) ||
+                a.rect.width <= 0.0f || a.rect.height <= 0.0f) {
+                continue;
+            }
+            const std::string wname = DisplayWidgetName(a, i);
+            const Rect clipped = IntersectRect(a.rect, a.clip_rect);
+            const Rect vis = IntersectRect(clipped, viewport);
+            if (vis.width <= 1.0f || vis.height <= 1.0f) {
+                if (a.in_scroll) {
+                    ++target_skipped_offscreen;
+                    ++report.skipped_offscreen;
+                } else if (!a.disabled && config.test_clicks && config.verify_clickable) {
+                    ++target_click_failures;
+                    std::fprintf(stderr, "  [CLICK FAIL] Widget '%s' (%s) clipped to empty outside scroll!\n",
+                                 wname.c_str(), a.kind.c_str());
+                }
+                continue;
+            }
+
+            // Pick a visible, unoccluded probe point inside `vis`.
+            const float mx = std::min(2.0f, vis.width * 0.2f);
+            const float my = std::min(2.0f, vis.height * 0.2f);
+            const float x0 = vis.x + mx, x1 = vis.x + vis.width - mx;
+            const float y0 = vis.y + my, y1 = vis.y + vis.height - my;
+            std::vector<Vec2> candidates;
+            // Checkboxes and radios paint their clickable box on the leading left edge (size x size).
+            if (a.kind == "checkbox" || a.kind == "radio") {
+                const float lead_x = std::clamp(a.rect.x + std::min(a.rect.height, a.rect.width) * 0.45f, x0, x1);
+                candidates.push_back({lead_x, (y0 + y1) * 0.5f});
+            }
+            candidates.push_back({(x0 + x1) * 0.5f, (y0 + y1) * 0.5f});
+            candidates.push_back({x0 + (x1 - x0) * 0.25f, (y0 + y1) * 0.5f});
+            candidates.push_back({x0 + (x1 - x0) * 0.75f, (y0 + y1) * 0.5f});
+            candidates.push_back({(x0 + x1) * 0.5f, y0 + (y1 - y0) * 0.25f});
+            candidates.push_back({(x0 + x1) * 0.5f, y0 + (y1 - y0) * 0.75f});
+            for (int gy = 0; gy < 5; ++gy) {
+                for (int gx = 0; gx < 5; ++gx) {
+                    candidates.push_back({x0 + (x1 - x0) * (gx / 4.0f), y0 + (y1 - y0) * (gy / 4.0f)});
+                }
+            }
+
+            bool found_probe = false;
+            bool covered_by_modal_layer = false;
+            Vec2 chosen = candidates.front();
+            for (const Vec2 &c : candidates) {
+                if (occluded_by_higher_layer(i, vis, c)) {
+                    covered_by_modal_layer = true;
+                    continue;
+                }
+                if (!occluded_on_same_layer(i, c)) {
+                    chosen = c;
+                    found_probe = true;
+                    break;
+                }
+            }
+            if (!found_probe) {
+                if (covered_by_modal_layer && a.layer < max_layer) {
+                    // Underlying widget covered by an active modal on a higher layer.
+                    continue;
+                }
+                if (!a.disabled && config.test_clicks && config.verify_clickable) {
+                    ++target_click_failures;
+                    std::fprintf(stderr,
+                                 "  [CLICK FAIL] Widget '%s' (%s at %.1f,%.1f,%.1fx%.1f) is occluded and unclickable!\n",
+                                 wname.c_str(), a.kind.c_str(), vis.x, vis.y, vis.width, vis.height);
+                }
+                continue;
+            }
+            buttons.push_back({i, a.kind, wname, a.rect, vis, chosen, a.disabled});
         }
 
-        const auto issues = uisys.AuditLayout();
-        const std::size_t target_violations = issues.size();
-        for (const auto &iss : issues) {
-            std::fprintf(stderr, "    - [LAYOUT %s:%s] %s\n",
-                         iss.category.c_str(), iss.rule.c_str(), iss.message.c_str());
-        }
-
-        report.violations += target_violations;
-        if (target_violations > 0) {
-            std::fprintf(stderr, "  [LAYOUT FAIL] %zu layout/alignment/overflow violations total.\n",
-                         target_violations);
-        } else {
-            std::fprintf(stderr, "  [LAYOUT PASS] 0 layout/alignment/overflow violations.\n");
-        }
-
-        std::fprintf(stderr, "  Registered %zu clickable widgets.\n", buttons.size());
+        std::fprintf(stderr, "  Registered %zu clickable widgets (%zu scrolled-off skipped).\n",
+                     buttons.size(), target_skipped_offscreen);
 
         std::size_t target_btn_errors = 0;
-        for (std::size_t b_idx = 0; b_idx < buttons.size(); ++b_idx) {
-            const auto &btn = buttons[b_idx];
-            const std::size_t before_errs = config.get_error_count ? config.get_error_count() : 0;
+        if (config.test_clicks) {
+            for (std::size_t b_idx = 0; b_idx < buttons.size(); ++b_idx) {
+                const auto &btn = buttons[b_idx];
+                const std::size_t before_errs = config.get_error_count ? config.get_error_count() : 0;
 
-            const Vec2 logical_center{btn.rect.x + btn.rect.width * 0.5f,
-                                      btn.rect.y + btn.rect.height * 0.5f};
-            const Vec2 win_center = uisys.LogicalToWindow(logical_center);
+                auto reset_and_draw = [&]() {
+                    if (target.reset_state) {
+                        target.reset_state();
+                    }
+                    uisys.NewFrame();
+                    if (target.render_frame) {
+                        target.render_frame();
+                    }
+                    if (target.after_click) {
+                        target.after_click();
+                    }
+                };
 
-            auto reset_and_draw = [&]() {
-                if (target.reset_state) {
-                    target.reset_state();
+                bool cur_disabled = btn.disabled;
+                Vec2 cur_probe = btn.probe;
+                bool still_present = true;
+
+                if (b_idx > 0) {
+                    // Settle cached auto-heights and transient layout state cleanly before clicking next widget.
+                    in.InjectFrame({-10000.0f, -10000.0f}, {}, {});
+                    reset_and_draw();
+                    still_present = false;
+                    const auto &fresh_rects = uisys.AuditRects();
+                    for (std::size_t j = 0; j < fresh_rects.size(); ++j) {
+                        const auto &fr = fresh_rects[j];
+                        if (fr.suppressed || fr.kind != btn.kind ||
+                            DisplayWidgetName(fr, j) != btn.name) {
+                            continue;
+                        }
+                        const Rect fr_vis = IntersectRect(IntersectRect(fr.rect, fr.clip_rect), viewport);
+                        if (fr_vis.width > 1.0f && fr_vis.height > 1.0f) {
+                            still_present = true;
+                            cur_disabled = fr.disabled;
+                            if (!fr_vis.Contains(cur_probe)) {
+                                cur_probe = {fr_vis.x + fr_vis.width * 0.5f,
+                                             fr_vis.y + fr_vis.height * 0.5f};
+                            }
+                            break;
+                        }
+                    }
                 }
-                uisys.NewFrame();
-                if (target.render_frame) {
-                    target.render_frame();
-                }
-                if (target.after_click) {
-                    target.after_click();
-                }
-            };
 
-            in.InjectFrame(win_center, {}, {0});
-            reset_and_draw();
-            in.InjectFrame(win_center, {}, {});
-            reset_and_draw();
-            in.InjectFrame({-10000.0f, -10000.0f}, {}, {});
+                if (!still_present) {
+                    report.buttons_tested++;
+                    continue;
+                }
 
-            const std::size_t after_errs = config.get_error_count ? config.get_error_count() : 0;
-            if (after_errs > before_errs) {
-                target_btn_errors += (after_errs - before_errs);
-                std::fprintf(stderr, "  [CLICK ERROR] Button #%zu (%s '%s' at %.1f,%.1f) triggered %zu script error(s)!\n",
-                             b_idx, btn.kind.c_str(), btn.name.c_str(), btn.rect.x, btn.rect.y,
-                             (after_errs - before_errs));
+                const int before_clicks = uisys.ClickCount();
+                const Vec2 win_pt = uisys.LogicalToWindow(cur_probe);
+
+                in.InjectFrame(win_pt, {}, {0});
+                reset_and_draw();
+                in.InjectFrame(win_pt, {}, {});
+                reset_and_draw();
+                const int after_clicks = uisys.ClickCount();
+                const std::string focused_after(uisys.FocusedTextInput());
+                in.InjectFrame({-10000.0f, -10000.0f}, {}, {});
+
+                const std::size_t after_errs = config.get_error_count ? config.get_error_count() : 0;
+                if (after_errs > before_errs) {
+                    target_btn_errors += (after_errs - before_errs);
+                    std::fprintf(stderr,
+                                 "  [CLICK ERROR] Button #%zu (%s '%s' at %.1f,%.1f) triggered %zu script error(s)!\n",
+                                 b_idx, btn.kind.c_str(), btn.name.c_str(), btn.rect.x, btn.rect.y,
+                                 (after_errs - before_errs));
+                }
+
+                if (cur_disabled) {
+                    ++report.disabled_tested;
+                    if (config.verify_clickable && after_clicks != before_clicks) {
+                        ++target_click_failures;
+                        std::fprintf(stderr,
+                                     "  [CLICK FAIL] Disabled widget #%zu (%s '%s') fired a click unexpectedly!\n",
+                                     b_idx, btn.kind.c_str(), btn.name.c_str());
+                    }
+                } else if (config.verify_clickable &&
+                           (!config.allow_no_click ||
+                            !config.allow_no_click(target.name, btn.name, btn.kind))) {
+                    if (IsTextEditorKind(btn.kind)) {
+                        const bool name_is_synthetic = btn.name.find('#') != std::string::npos;
+                        if (focused_after.empty() || (!name_is_synthetic && focused_after != btn.name)) {
+                            ++target_click_failures;
+                            std::fprintf(stderr,
+                                         "  [CLICK FAIL] Text widget #%zu (%s '%s' at %.1f,%.1f) failed to focus (focused='%s')!\n",
+                                         b_idx, btn.kind.c_str(), btn.name.c_str(), cur_probe.x,
+                                         cur_probe.y, focused_after.c_str());
+                        }
+                    } else if (btn.kind != "splitter") {
+                        if (after_clicks <= before_clicks) {
+                            ++target_click_failures;
+                            std::fprintf(stderr,
+                                         "  [CLICK FAIL] Widget #%zu (%s '%s' at %.1f,%.1f) did not register click!\n",
+                                         b_idx, btn.kind.c_str(), btn.name.c_str(), cur_probe.x,
+                                         cur_probe.y);
+                        }
+                    }
+                }
+                report.buttons_tested++;
             }
-            report.buttons_tested++;
         }
 
+        report.click_failures += target_click_failures;
         report.script_errors += target_btn_errors;
         report.targets_tested++;
 
-        if (target_violations == 0 && target_btn_errors == 0) {
-            std::fprintf(stderr, "[UI_TEST] Target '%s': PASS (%zu buttons clicked, 0 violations, 0 script errors)\n",
+        if (target_violations == 0 && target_btn_errors == 0 && target_click_failures == 0) {
+            std::fprintf(stderr,
+                         "[UI_TEST] Target '%s': PASS (%zu buttons clicked, 0 violations, 0 click failures, 0 script errors)\n",
                          target.name.c_str(), buttons.size());
         } else {
-            std::fprintf(stderr, "[UI_TEST] Target '%s': FAIL (%zu buttons clicked, %zu violations, %zu script errors)\n",
-                         target.name.c_str(), buttons.size(), target_violations, target_btn_errors);
+            std::fprintf(stderr,
+                         "[UI_TEST] Target '%s': FAIL (%zu buttons clicked, %zu violations, %zu click failures, %zu script errors)\n",
+                         target.name.c_str(), buttons.size(), target_violations,
+                         target_click_failures, target_btn_errors);
         }
     }
 
@@ -162,8 +380,11 @@ UITestReport RunUITests(Engine &engine,
     std::fprintf(stderr, "======================================================================\n");
     std::fprintf(stderr, "Total Screens/Sub-tabs Tested: %zu\n", report.targets_tested);
     std::fprintf(stderr, "Total Clickable Buttons Tested: %zu\n", report.buttons_tested);
-    std::fprintf(stderr, "Total Overflow Violations:     %zu\n", report.violations);
-    std::fprintf(stderr, "Total FakeLua Script Errors:   %zu\n", report.script_errors);
+    std::fprintf(stderr, "Total Disabled Widgets Checked: %zu\n", report.disabled_tested);
+    std::fprintf(stderr, "Total Scrolled-Off Skipped:    %zu\n", report.skipped_offscreen);
+    std::fprintf(stderr, "Total Layout Violations:       %zu\n", report.violations);
+    std::fprintf(stderr, "Total Click/Hit Failures:      %zu\n", report.click_failures);
+    std::fprintf(stderr, "Total Script Errors:           %zu\n", report.script_errors);
     std::fprintf(stderr, "Execution Time:                %.2f seconds\n", report.elapsed_seconds);
     std::fprintf(stderr, "======================================================================\n");
     std::fprintf(stderr, report.Passed() ? "FINAL VERDICT: [PASS]\n" : "FINAL VERDICT: [FAIL]\n");
