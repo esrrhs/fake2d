@@ -1841,6 +1841,14 @@ std::vector<UISystem::LayoutIssue> UISystem::AuditLayout() const {
                           a.bounds.x, a.bounds.y, a.bounds.width, a.bounds.height);
             issues.push_back({"overflow", "bounds", label, "", a.rect, a.bounds, 1.0f, buf});
         }
+        if (!a.suppressed && !a.disabled && !a.in_scroll && IsInteractiveKind(a.kind) &&
+            (a.rect.width <= 0.5f || a.rect.height <= 0.5f)) {
+            char buf[256];
+            std::snprintf(buf, sizeof(buf),
+                          "zero_size: enabled %s '%s' collapsed to (%.1fx%.1f)",
+                          a.kind.c_str(), label.c_str(), a.rect.width, a.rect.height);
+            issues.push_back({"zero_size", "non_empty", label, "", a.rect, a.bounds, 1.0f, buf});
+        }
         if (has_vp && !a.suppressed && IsInteractiveKind(a.kind) &&
             a.rect.width > 0.0f && a.rect.height > 0.0f) {
             const Rect &check_r = a.in_scroll ? a.clip_rect : a.rect;

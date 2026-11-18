@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <functional>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -66,5 +67,41 @@ UITestReport RunUITests(Engine &engine,
                         const std::vector<UITestTarget> &targets,
                         const std::vector<UITestCustomCheck> &custom_checks,
                         const UITestConfig &config);
+
+/// High-level semantic UI test driver built on Two-Pass `AuditRects()` & `AuditLayout()`.
+/// Lets functional and layout tests interact by widget key or text instead of hardcoded pixel math.
+class UITestDriver {
+public:
+    using FrameFn = std::function<void()>;
+
+    UITestDriver(Engine &engine, FrameFn render_frame);
+
+    std::vector<UISystem::LayoutIssue> StepFrame(float dt = 0.0f);
+    [[nodiscard]] std::vector<UISystem::LayoutIssue> Audit() const;
+
+    [[nodiscard]] std::optional<UISystem::AuditRect> Find(std::string_view key) const;
+    [[nodiscard]] std::optional<UISystem::AuditRect> FindByText(std::string_view substring,
+                                                                std::string_view kind = "") const;
+    [[nodiscard]] std::optional<Vec2> ProbePoint(std::string_view key) const;
+    [[nodiscard]] bool IsVisible(std::string_view key) const;
+    [[nodiscard]] Rect RectOf(std::string_view key) const;
+
+    bool Hover(std::string_view key, float dt = 0.0f);
+    bool HoverText(std::string_view substring, std::string_view kind = "", float dt = 0.0f);
+    bool HoverAt(const Vec2 &logical_pos, float dt = 0.0f);
+    bool Click(std::string_view key, float dt = 0.0f);
+    bool ClickText(std::string_view substring, std::string_view kind = "", float dt = 0.0f);
+    bool TypeText(std::string_view key, std::string_view utf8_text);
+    void PressKey(std::string_view key_name, float dt = 0.0f);
+    bool Scroll(std::string_view key, float wheel_delta);
+    void MoveMouseAway(float dt = 0.0f);
+
+private:
+    Engine &engine_;
+    FrameFn render_frame_;
+    Vec2 mouse_logical_{-10000.0f, -10000.0f};
+
+    bool ClickAuditIdx(std::size_t idx, float dt);
+};
 
 } // namespace fake2d

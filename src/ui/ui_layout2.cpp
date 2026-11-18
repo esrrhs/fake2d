@@ -2243,8 +2243,21 @@ void UISystem::CommitAutoNode(int idx, const Rect &parent_bounds) {
         e.bounds = parent_bounds;
         e.overflow = ov;
         e.name = std::string(name);
+        if (!node.text.empty()) {
+            e.text = node.text;
+        } else if (node.kind == AutoNode::Kind::TextInput ||
+                   node.kind == AutoNode::Kind::TextArea ||
+                   node.kind == AutoNode::Kind::TextPassword) {
+            if (const auto it = widgets_.find(node.key); it != widgets_.end()) {
+                e.text = it->second.text;
+            }
+        }
         e.clip_rect = clip;
         e.box_id = node.box_id;
+        e.parent_box_id =
+            (node.parent >= 0 && static_cast<std::size_t>(node.parent) < auto_nodes_.size())
+                ? auto_nodes_[static_cast<std::size_t>(node.parent)].box_id
+                : 0;
         e.root_box_id = node.root_box_id;
         e.box_depth = node.box_depth;
         e.row_id = node.row_id;

@@ -1207,6 +1207,74 @@ void RunUI149Checks(fake2d::Engine &engine, const std::function<void(bool, const
         const auto rep_tp = fake2d::RunUITests(engine, {tp_target}, {}, cfg_tp);
         check(rep_tp.Passed() && tp_clicked && rep_tp.buttons_tested == 1,
               "155: RunUITests verifies and clicks Two-Pass Auto-Layout button");
+
+        // 156: High-level semantic UITestDriver functional flow + zero-size layout guard
+        {
+            bool panel_open = false;
+            bool submitted_ok = false;
+            int hovered_ticks = 0;
+            std::string typed_name;
+            fake2d::UITestDriver driver(engine, [&]() {
+                renderer.BeginFrame(0, 0, 0, 1);
+                renderer.BeginRenderTarget(target);
+                renderer.ClearActiveTarget({0, 0, 0, 1});
+                host_ui.BeginFrameUI();
+                host_ui.RootAnchorBegin("center", "center", fake2d::UISize::Fixed(320),
+                                        fake2d::UISize::Auto(), 0, 0, 12);
+                host_ui.VStackBegin(8);
+                if (!panel_open) {
+                    host_ui.Button("drv_open", "Open Form", 0.45f);
+                } else {
+                    host_ui.Text("Enter Realm Name", 0.45f);
+                    host_ui.TextInput("drv_input", 32);
+                    host_ui.Button("drv_submit", "Confirm", 0.45f);
+                }
+                host_ui.StackEnd();
+                host_ui.RootEnd();
+                host_ui.EndFrameUI();
+                if (!panel_open) {
+                    if (host_ui.IsHovered("drv_open")) {
+                        ++hovered_ticks;
+                    }
+                    if (host_ui.Clicked("drv_open")) {
+                        panel_open = true;
+                    }
+                } else {
+                    typed_name = std::string(host_ui.TextValue("drv_input"));
+                    if (host_ui.Clicked("drv_submit")) {
+                        submitted_ok = true;
+                    }
+                }
+                renderer.EndRenderTarget();
+                renderer.EndFrame();
+            });
+            check(driver.StepFrame().empty(), "156: UITestDriver initial frame has zero layout issues");
+            check(driver.FindByText("Open Form", "button").has_value(),
+                  "156: AuditRect records button text for semantic FindByText lookup");
+            check(driver.HoverText("Open Form", "button", 0.1f) && hovered_ticks > 0,
+                  "156: UITestDriver::HoverText hovers solved visible widget without pixels");
+            check(driver.ClickText("Open Form", "button") && panel_open,
+                  "156: UITestDriver::ClickText opens next screen without hardcoded coords");
+            check(driver.TypeText("drv_input", "Ming") && typed_name == "Ming",
+                  "156: UITestDriver::TypeText focuses and types text into Two-Pass input");
+            check(driver.Click("drv_submit") && submitted_ok && driver.Audit().empty(),
+                  "156: UITestDriver::Click completes functional flow with clean layout");
+
+            host_ui.NewFrame();
+            renderer.BeginFrame(0, 0, 0, 1);
+            renderer.BeginRenderTarget(target);
+            host_ui.RootBegin(10, 10, fake2d::UISize::Fixed(100), fake2d::UISize::Fixed(60));
+            host_ui.NextSize(fake2d::UISize::Fixed(0), fake2d::UISize::Fixed(24));
+            host_ui.Button("collapsed_btn", "X", 0.45f);
+            host_ui.RootEnd();
+            renderer.EndRenderTarget();
+            renderer.EndFrame();
+            const auto zero_issues = host_ui.AuditLayout();
+            check(std::any_of(zero_issues.begin(), zero_issues.end(),
+                              [](const auto &iss) { return iss.category == "zero_size"; }),
+                  "156: AuditLayout catches collapsed 0px enabled interactive button");
+        }
+
         host_ui.SetAudit(false);
         host_cam = saved_cam;
     }

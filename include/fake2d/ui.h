@@ -158,8 +158,10 @@ class UISystem {
         Rect bounds;
         bool overflow = false;
         std::string name;
+        std::string text;
         Rect clip_rect{0.0f, 0.0f, 1e9f, 1e9f};
         std::uint32_t box_id = 0;
+        std::uint32_t parent_box_id = 0;
         std::uint32_t root_box_id = 0;
         std::uint32_t box_depth = 0;
         int row_id = -1;

@@ -6,6 +6,7 @@
 
 #include "fake2d/engine.h"
 #include "fake2d/input.h"
+#include "fake2d/text_utils.h"
 #include "fake2d/ui.h"
 
 namespace fake2d {
@@ -20,6 +21,12 @@ Rect IntersectRect(const Rect &a, const Rect &b) {
     return {x0, y0, std::max(0.0f, x1 - x0), std::max(0.0f, y1 - y0)};
 }
 
+Rect ViewportRect(const UISystem &uisys) {
+    const float vw = uisys.LogicalWidth();
+    const float vh = uisys.LogicalHeight();
+    return (vw > 1.0f && vh > 1.0f) ? Rect{0.0f, 0.0f, vw, vh} : Rect{-1e6f, -1e6f, 2e6f, 2e6f};
+}
+
 std::string DisplayWidgetName(const UISystem::AuditRect &a, std::size_t idx) {
     if (!a.name.empty()) {
         return a.name;
@@ -30,6 +37,146 @@ std::string DisplayWidgetName(const UISystem::AuditRect &a, std::size_t idx) {
 bool IsTextEditorKind(std::string_view kind) {
     return kind == "text_input" || kind == "text_area" || kind == "text input" ||
            kind == "text area" || kind == "password";
+}
+
+struct ProbeResolution {
+    bool visible = false;
+    bool found_probe = false;
+    bool covered_by_modal_layer = false;
+    Rect vis{};
+    Vec2 probe{};
+};
+
+ProbeResolution ResolveAuditProbe(const std::vector<UISystem::AuditRect> &rects,
+                                  std::size_t idx,
+                                  const Rect &viewport,
+                                  int max_layer) {
+    ProbeResolution res;
+    const auto &a = rects[idx];
+    const Rect clipped = IntersectRect(a.rect, a.clip_rect);
+    res.vis = IntersectRect(clipped, viewport);
+    if (res.vis.width <= 1.0f || res.vis.height <= 1.0f) {
+        return res;
+    }
+    res.visible = true;
+
+    const float mx = std::min(2.0f, res.vis.width * 0.2f);
+    const float my = std::min(2.0f, res.vis.height * 0.2f);
+    const float x0 = res.vis.x + mx, x1 = res.vis.x + res.vis.width - mx;
+    const float y0 = res.vis.y + my, y1 = res.vis.y + res.vis.height - my;
+    std::vector<Vec2> candidates;
+    if (a.kind == "checkbox" || a.kind == "radio") {
+        const float lead_x = std::clamp(a.rect.x + std::min(a.rect.height, a.rect.width) * 0.45f, x0, x1);
+        candidates.push_back({lead_x, (y0 + y1) * 0.5f});
+    }
+    candidates.push_back({(x0 + x1) * 0.5f, (y0 + y1) * 0.5f});
+    candidates.push_back({x0 + (x1 - x0) * 0.25f, (y0 + y1) * 0.5f});
+    candidates.push_back({x0 + (x1 - x0) * 0.75f, (y0 + y1) * 0.5f});
+    candidates.push_back({(x0 + x1) * 0.5f, y0 + (y1 - y0) * 0.25f});
+    candidates.push_back({(x0 + x1) * 0.5f, y0 + (y1 - y0) * 0.75f});
+    for (int gy = 0; gy < 5; ++gy) {
+        for (int gx = 0; gx < 5; ++gx) {
+            candidates.push_back({x0 + (x1 - x0) * (gx / 4.0f), y0 + (y1 - y0) * (gy / 4.0f)});
+        }
+    }
+
+    auto occluded_by_higher_layer = [&](const Vec2 &pt) -> bool {
+        for (std::size_t j = 0; j < rects.size(); ++j) {
+            if (j == idx) continue;
+            const auto &s = rects[j];
+            if (s.suppressed || s.kind == "tooltip" || s.rect.width <= 0.5f || s.rect.height <= 0.5f) {
+                continue;
+            }
+            if (s.layer > a.layer) {
+                const Rect sv = IntersectRect(s.rect, s.clip_rect);
+                if (sv.Contains(pt)) return true;
+            }
+        }
+        return false;
+    };
+
+    auto occluded_on_same_layer = [&](const Vec2 &pt) -> bool {
+        for (std::size_t j = idx + 1; j < rects.size(); ++j) {
+            const auto &s = rects[j];
+            if (s.suppressed || s.kind == "tooltip" || s.layer != a.layer ||
+                s.rect.width <= 0.5f || s.rect.height <= 0.5f) {
+                continue;
+            }
+            if (UISystem::IsInteractiveKind(s.kind) ||
+                ((s.kind == "panel" || s.kind == "window") && s.root_box_id != a.root_box_id)) {
+                const Rect sv = IntersectRect(s.rect, s.clip_rect);
+                if (sv.Contains(pt)) return true;
+            }
+        }
+        return false;
+    };
+
+    res.probe = candidates.front();
+    for (const Vec2 &c : candidates) {
+        if (occluded_by_higher_layer(c)) {
+            res.covered_by_modal_layer = true;
+            continue;
+        }
+        if (!occluded_on_same_layer(c)) {
+            res.probe = c;
+            res.found_probe = true;
+            return res;
+        }
+    }
+    if (a.layer >= max_layer) {
+        res.covered_by_modal_layer = false;
+    }
+    return res;
+}
+
+int MaxAuditLayer(const std::vector<UISystem::AuditRect> &rects) {
+    int max_layer = 0;
+    for (const auto &r : rects) {
+        if (!r.suppressed && r.kind != "tooltip") {
+            max_layer = std::max(max_layer, r.layer);
+        }
+    }
+    return max_layer;
+}
+
+bool MatchesQuery(const UISystem::AuditRect &a,
+                  std::string_view query,
+                  bool by_text,
+                  std::string_view kind,
+                  bool require_enabled) {
+    if (a.suppressed || (require_enabled && a.disabled) || (!kind.empty() && a.kind != kind)) {
+        return false;
+    }
+    if (!by_text) {
+        return a.name == query;
+    }
+    return (!a.text.empty() && a.text.find(query) != std::string::npos) ||
+           (a.text.empty() && a.name.find(query) != std::string::npos);
+}
+
+std::optional<std::size_t> FindMatchingAuditIdx(const std::vector<UISystem::AuditRect> &rects,
+                                                const Rect &vp,
+                                                int max_layer,
+                                                std::string_view query,
+                                                bool by_text,
+                                                std::string_view kind,
+                                                bool require_enabled,
+                                                bool allow_occluded_fallback) {
+    std::optional<std::size_t> fallback;
+    for (std::size_t i = 0; i < rects.size(); ++i) {
+        const auto &a = rects[i];
+        if (!MatchesQuery(a, query, by_text, kind, require_enabled)) {
+            continue;
+        }
+        const auto pr = ResolveAuditProbe(rects, i, vp, max_layer);
+        if (pr.visible && pr.found_probe) {
+            return i;
+        }
+        if (allow_occluded_fallback && !fallback.has_value()) {
+            fallback = i;
+        }
+    }
+    return fallback;
 }
 
 } // namespace
@@ -82,17 +229,8 @@ UITestReport RunUITests(Engine &engine,
         }
 
         const auto rects = uisys.AuditRects();
-        const float vw = uisys.LogicalWidth();
-        const float vh = uisys.LogicalHeight();
-        const Rect viewport = (vw > 1.0f && vh > 1.0f) ? Rect{0.0f, 0.0f, vw, vh}
-                                                       : Rect{-1e6f, -1e6f, 2e6f, 2e6f};
-
-        int max_layer = 0;
-        for (const auto &r : rects) {
-            if (!r.suppressed && r.kind != "tooltip") {
-                max_layer = std::max(max_layer, r.layer);
-            }
-        }
+        const Rect viewport = ViewportRect(uisys);
+        const int max_layer = MaxAuditLayer(rects);
 
         std::size_t target_violations = 0;
         if (config.audit_layout) {
@@ -124,40 +262,6 @@ UITestReport RunUITests(Engine &engine,
         std::size_t target_click_failures = 0;
         std::size_t target_skipped_offscreen = 0;
 
-        auto occluded_by_higher_layer = [&](std::size_t idx, const Rect &r_a, const Vec2 &pt) -> bool {
-            const auto &a = rects[idx];
-            (void)r_a;
-            for (std::size_t j = 0; j < rects.size(); ++j) {
-                if (j == idx) continue;
-                const auto &s = rects[j];
-                if (s.suppressed || s.kind == "tooltip" || s.rect.width <= 0.5f || s.rect.height <= 0.5f) {
-                    continue;
-                }
-                if (s.layer > a.layer) {
-                    const Rect sv = IntersectRect(s.rect, s.clip_rect);
-                    if (sv.Contains(pt)) return true;
-                }
-            }
-            return false;
-        };
-
-        auto occluded_on_same_layer = [&](std::size_t idx, const Vec2 &pt) -> bool {
-            const auto &a = rects[idx];
-            for (std::size_t j = idx + 1; j < rects.size(); ++j) {
-                const auto &s = rects[j];
-                if (s.suppressed || s.kind == "tooltip" || s.layer != a.layer ||
-                    s.rect.width <= 0.5f || s.rect.height <= 0.5f) {
-                    continue;
-                }
-                if (UISystem::IsInteractiveKind(s.kind) ||
-                    ((s.kind == "panel" || s.kind == "window") && s.root_box_id != a.root_box_id)) {
-                    const Rect sv = IntersectRect(s.rect, s.clip_rect);
-                    if (sv.Contains(pt)) return true;
-                }
-            }
-            return false;
-        };
-
         for (std::size_t i = 0; i < rects.size(); ++i) {
             const auto &a = rects[i];
             if (a.suppressed || !UISystem::IsInteractiveKind(a.kind) ||
@@ -165,9 +269,8 @@ UITestReport RunUITests(Engine &engine,
                 continue;
             }
             const std::string wname = DisplayWidgetName(a, i);
-            const Rect clipped = IntersectRect(a.rect, a.clip_rect);
-            const Rect vis = IntersectRect(clipped, viewport);
-            if (vis.width <= 1.0f || vis.height <= 1.0f) {
+            const ProbeResolution pr = ResolveAuditProbe(rects, i, viewport, max_layer);
+            if (!pr.visible) {
                 if (a.in_scroll) {
                     ++target_skipped_offscreen;
                     ++report.skipped_offscreen;
@@ -178,45 +281,8 @@ UITestReport RunUITests(Engine &engine,
                 }
                 continue;
             }
-
-            // Pick a visible, unoccluded probe point inside `vis`.
-            const float mx = std::min(2.0f, vis.width * 0.2f);
-            const float my = std::min(2.0f, vis.height * 0.2f);
-            const float x0 = vis.x + mx, x1 = vis.x + vis.width - mx;
-            const float y0 = vis.y + my, y1 = vis.y + vis.height - my;
-            std::vector<Vec2> candidates;
-            // Checkboxes and radios paint their clickable box on the leading left edge (size x size).
-            if (a.kind == "checkbox" || a.kind == "radio") {
-                const float lead_x = std::clamp(a.rect.x + std::min(a.rect.height, a.rect.width) * 0.45f, x0, x1);
-                candidates.push_back({lead_x, (y0 + y1) * 0.5f});
-            }
-            candidates.push_back({(x0 + x1) * 0.5f, (y0 + y1) * 0.5f});
-            candidates.push_back({x0 + (x1 - x0) * 0.25f, (y0 + y1) * 0.5f});
-            candidates.push_back({x0 + (x1 - x0) * 0.75f, (y0 + y1) * 0.5f});
-            candidates.push_back({(x0 + x1) * 0.5f, y0 + (y1 - y0) * 0.25f});
-            candidates.push_back({(x0 + x1) * 0.5f, y0 + (y1 - y0) * 0.75f});
-            for (int gy = 0; gy < 5; ++gy) {
-                for (int gx = 0; gx < 5; ++gx) {
-                    candidates.push_back({x0 + (x1 - x0) * (gx / 4.0f), y0 + (y1 - y0) * (gy / 4.0f)});
-                }
-            }
-
-            bool found_probe = false;
-            bool covered_by_modal_layer = false;
-            Vec2 chosen = candidates.front();
-            for (const Vec2 &c : candidates) {
-                if (occluded_by_higher_layer(i, vis, c)) {
-                    covered_by_modal_layer = true;
-                    continue;
-                }
-                if (!occluded_on_same_layer(i, c)) {
-                    chosen = c;
-                    found_probe = true;
-                    break;
-                }
-            }
-            if (!found_probe) {
-                if (covered_by_modal_layer && a.layer < max_layer) {
+            if (!pr.found_probe) {
+                if (pr.covered_by_modal_layer) {
                     // Underlying widget covered by an active modal on a higher layer.
                     continue;
                 }
@@ -224,11 +290,11 @@ UITestReport RunUITests(Engine &engine,
                     ++target_click_failures;
                     std::fprintf(stderr,
                                  "  [CLICK FAIL] Widget '%s' (%s at %.1f,%.1f,%.1fx%.1f) is occluded and unclickable!\n",
-                                 wname.c_str(), a.kind.c_str(), vis.x, vis.y, vis.width, vis.height);
+                                 wname.c_str(), a.kind.c_str(), pr.vis.x, pr.vis.y, pr.vis.width, pr.vis.height);
                 }
                 continue;
             }
-            buttons.push_back({i, a.kind, wname, a.rect, vis, chosen, a.disabled});
+            buttons.push_back({i, a.kind, wname, a.rect, pr.vis, pr.probe, a.disabled});
         }
 
         std::fprintf(stderr, "  Registered %zu clickable widgets (%zu scrolled-off skipped).\n",
@@ -391,6 +457,208 @@ UITestReport RunUITests(Engine &engine,
     std::fprintf(stderr, "======================================================================\n\n");
 
     return report;
+}
+
+// ---------------------------------------------------------------------------
+// High-Level Semantic UITestDriver
+// ---------------------------------------------------------------------------
+
+UITestDriver::UITestDriver(Engine &engine, FrameFn render_frame)
+    : engine_(engine), render_frame_(std::move(render_frame)) {
+    engine_.GetUI().SetAudit(true);
+}
+
+std::vector<UISystem::LayoutIssue> UITestDriver::StepFrame(float dt) {
+    auto &in = engine_.GetInput();
+    auto &ui = engine_.GetUI();
+    if (dt > 0.0f) {
+        ui.SetClockSeconds(ui.ClockSeconds() + dt);
+    }
+    in.InjectFrame(ui.LogicalToWindow(mouse_logical_), {}, {});
+    ui.NewFrame();
+    if (render_frame_) {
+        render_frame_();
+    }
+    return ui.AuditLayout();
+}
+
+std::vector<UISystem::LayoutIssue> UITestDriver::Audit() const {
+    return engine_.GetUI().AuditLayout();
+}
+
+std::optional<UISystem::AuditRect> UITestDriver::Find(std::string_view key) const {
+    const auto &rects = engine_.GetUI().AuditRects();
+    const auto idx = FindMatchingAuditIdx(
+        rects, ViewportRect(engine_.GetUI()), MaxAuditLayer(rects), key, false, "", false, true);
+    return idx.has_value() ? std::optional<UISystem::AuditRect>(rects[*idx]) : std::nullopt;
+}
+
+std::optional<UISystem::AuditRect> UITestDriver::FindByText(std::string_view substring,
+                                                            std::string_view kind) const {
+    const auto &rects = engine_.GetUI().AuditRects();
+    const auto idx = FindMatchingAuditIdx(
+        rects, ViewportRect(engine_.GetUI()), MaxAuditLayer(rects), substring, true, kind, false, true);
+    return idx.has_value() ? std::optional<UISystem::AuditRect>(rects[*idx]) : std::nullopt;
+}
+
+std::optional<Vec2> UITestDriver::ProbePoint(std::string_view key) const {
+    const auto &rects = engine_.GetUI().AuditRects();
+    const Rect vp = ViewportRect(engine_.GetUI());
+    const int max_layer = MaxAuditLayer(rects);
+    const auto idx = FindMatchingAuditIdx(rects, vp, max_layer, key, false, "", false, false);
+    if (!idx.has_value()) {
+        return std::nullopt;
+    }
+    return ResolveAuditProbe(rects, *idx, vp, max_layer).probe;
+}
+
+bool UITestDriver::IsVisible(std::string_view key) const {
+    const auto found = Find(key);
+    if (found.has_value()) {
+        const Rect clipped = IntersectRect(found->rect, found->clip_rect);
+        const Rect vis = IntersectRect(clipped, ViewportRect(engine_.GetUI()));
+        return vis.width > 1.0f && vis.height > 1.0f;
+    }
+    const Rect nr = engine_.GetUI().NamedRect(key);
+    return nr.width > 1.0f && nr.height > 1.0f;
+}
+
+Rect UITestDriver::RectOf(std::string_view key) const {
+    if (const auto found = Find(key); found.has_value()) {
+        return found->rect;
+    }
+    const Rect wr = engine_.GetUI().WidgetRect(key);
+    if (wr.width > 0.0f && wr.height > 0.0f) {
+        return wr;
+    }
+    return engine_.GetUI().NamedRect(key);
+}
+
+bool UITestDriver::Hover(std::string_view key, float dt) {
+    const auto pt = ProbePoint(key);
+    return pt.has_value() && HoverAt(*pt, dt);
+}
+
+bool UITestDriver::HoverText(std::string_view substring, std::string_view kind, float dt) {
+    const auto &rects = engine_.GetUI().AuditRects();
+    const Rect vp = ViewportRect(engine_.GetUI());
+    const int max_layer = MaxAuditLayer(rects);
+    const auto idx = FindMatchingAuditIdx(rects, vp, max_layer, substring, true, kind, false, false);
+    return idx.has_value() && HoverAt(ResolveAuditProbe(rects, *idx, vp, max_layer).probe, dt);
+}
+
+bool UITestDriver::HoverAt(const Vec2 &logical_pos, float dt) {
+    mouse_logical_ = logical_pos;
+    StepFrame(dt);
+    return true;
+}
+
+bool UITestDriver::ClickAuditIdx(std::size_t idx, float dt) {
+    const auto &rects = engine_.GetUI().AuditRects();
+    if (idx >= rects.size() || rects[idx].disabled) {
+        return false;
+    }
+    const Rect vp = ViewportRect(engine_.GetUI());
+    const int max_layer = MaxAuditLayer(rects);
+    const auto pr = ResolveAuditProbe(rects, idx, vp, max_layer);
+    if (!pr.visible || !pr.found_probe) {
+        return false;
+    }
+    auto &in = engine_.GetInput();
+    auto &ui = engine_.GetUI();
+    mouse_logical_ = pr.probe;
+    const Vec2 win_pt = ui.LogicalToWindow(mouse_logical_);
+    const float half_dt = dt * 0.5f;
+    if (half_dt > 0.0f) ui.SetClockSeconds(ui.ClockSeconds() + half_dt);
+    in.InjectFrame(win_pt, {}, {0});
+    ui.NewFrame();
+    if (render_frame_) render_frame_();
+    if (half_dt > 0.0f) ui.SetClockSeconds(ui.ClockSeconds() + half_dt);
+    in.InjectFrame(win_pt, {}, {});
+    ui.NewFrame();
+    if (render_frame_) render_frame_();
+    // Pump 1 settle frame so state transitions triggered after EndFrameUI() render and update AuditRects().
+    in.InjectFrame(win_pt, {}, {});
+    ui.NewFrame();
+    if (render_frame_) render_frame_();
+    return true;
+}
+
+bool UITestDriver::Click(std::string_view key, float dt) {
+    const auto &rects = engine_.GetUI().AuditRects();
+    const auto idx = FindMatchingAuditIdx(
+        rects, ViewportRect(engine_.GetUI()), MaxAuditLayer(rects), key, false, "", true, false);
+    return idx.has_value() && ClickAuditIdx(*idx, dt);
+}
+
+bool UITestDriver::ClickText(std::string_view substring, std::string_view kind, float dt) {
+    const auto &rects = engine_.GetUI().AuditRects();
+    const auto idx = FindMatchingAuditIdx(
+        rects, ViewportRect(engine_.GetUI()), MaxAuditLayer(rects), substring, true, kind, true, false);
+    return idx.has_value() && ClickAuditIdx(*idx, dt);
+}
+
+bool UITestDriver::TypeText(std::string_view key, std::string_view utf8_text) {
+    if (engine_.GetUI().FocusedTextInput() != key) {
+        if (!Click(key)) {
+            return false;
+        }
+    }
+    auto &in = engine_.GetInput();
+    auto &ui = engine_.GetUI();
+    const std::vector<unsigned> codepoints = utf8::Decode(utf8_text);
+    in.InjectFrame(ui.LogicalToWindow(mouse_logical_), {}, {}, 0.0, codepoints);
+    ui.NewFrame();
+    if (render_frame_) {
+        render_frame_();
+    }
+    StepFrame();
+    return true;
+}
+
+void UITestDriver::PressKey(std::string_view key_name, float dt) {
+    auto &in = engine_.GetInput();
+    auto &ui = engine_.GetUI();
+    const Vec2 win_pt = ui.LogicalToWindow(mouse_logical_);
+    const float half_dt = dt * 0.5f;
+    if (half_dt > 0.0f) {
+        ui.SetClockSeconds(ui.ClockSeconds() + half_dt);
+    }
+    in.InjectFrame(win_pt, {key_name}, {});
+    ui.NewFrame();
+    if (render_frame_) {
+        render_frame_();
+    }
+    if (half_dt > 0.0f) {
+        ui.SetClockSeconds(ui.ClockSeconds() + half_dt);
+    }
+    in.InjectFrame(win_pt, {}, {});
+    ui.NewFrame();
+    if (render_frame_) {
+        render_frame_();
+    }
+}
+
+bool UITestDriver::Scroll(std::string_view key, float wheel_delta) {
+    const Rect r = RectOf(key);
+    if (r.width <= 0.0f || r.height <= 0.0f) {
+        return false;
+    }
+    auto &in = engine_.GetInput();
+    auto &ui = engine_.GetUI();
+    mouse_logical_ = {r.x + r.width * 0.5f, r.y + r.height * 0.5f};
+    in.InjectFrame(ui.LogicalToWindow(mouse_logical_), {}, {}, static_cast<double>(wheel_delta));
+    ui.NewFrame();
+    if (render_frame_) {
+        render_frame_();
+    }
+    StepFrame();
+    return true;
+}
+
+void UITestDriver::MoveMouseAway(float dt) {
+    mouse_logical_ = {-10000.0f, -10000.0f};
+    StepFrame(dt);
 }
 
 } // namespace fake2d
