@@ -1418,8 +1418,10 @@ void RunUI149Checks(fake2d::Engine &engine, const std::function<void(bool, const
                   "157: PushID scopes child keys cleanly");
 
             // C. Subtree Cache Hit/Invalidate, FocusScope Trap, IME Caret, Transition, Inspector
-            fake2d::Rect ime_reported{};
-            host_ui.SetImeRectCallback([&](const fake2d::Rect &cr) { ime_reported = cr; });
+            // The UI retains this callback beyond this test block. Keep its
+            // observation storage alive through the callback's own lifetime.
+            auto ime_reported = std::make_shared<fake2d::Rect>();
+            host_ui.SetImeRectCallback([ime_reported](const fake2d::Rect &cr) { *ime_reported = cr; });
             std::uint64_t ver = 1;
             int cache_miss_builds = 0;
             bool wide_anim = false;
@@ -1489,13 +1491,13 @@ void RunUI149Checks(fake2d::Engine &engine, const std::function<void(bool, const
             render_cached_and_scoped(0.016f);
             const std::string after_tab2(host_ui.FocusedTextInput());
             host_in.InjectFrame({-1000, -1000}, {}, {});
-            if (!(after_tab1 == "ime_field" && after_tab2.empty() && ime_reported.height > 1.0f &&
+            if (!(after_tab1 == "ime_field" && after_tab2.empty() && ime_reported->height > 1.0f &&
                   ime_cur.height > 1.0f)) {
                 std::printf("157_IME_DBG tab1='%s' tab2='%s' ime_cb=%.1f ime_cur=%.1f\n",
-                            after_tab1.c_str(), after_tab2.c_str(), ime_reported.height,
+                            after_tab1.c_str(), after_tab2.c_str(), ime_reported->height,
                             ime_cur.height);
             }
-            check(after_tab1 == "ime_field" && after_tab2.empty() && ime_reported.height > 1.0f &&
+            check(after_tab1 == "ime_field" && after_tab2.empty() && ime_reported->height > 1.0f &&
                       ime_cur.height > 1.0f,
                   "157: FocusScope traps Tab cycle and EditText emits IME cursor rect");
 

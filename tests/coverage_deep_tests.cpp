@@ -84,6 +84,11 @@ static void upstream_layout_contracts(Renderer &renderer) {
     const std::string parent="center_in_parent|symmetric_x|symmetric_y|fit_parent";
     REQUIRE(audit(parent,{{40,45,20,10}}).empty());
     auto issues=audit(parent,{{10,20,20,10}});
+    if (issues.size()!=4) {
+        std::fprintf(stderr,"alignment issues=%zu\n",issues.size());
+        for (const auto &entry:ui.AuditRects()) std::fprintf(stderr,"audit %s %s rect=%g,%g,%g,%g\n",entry.kind.c_str(),entry.name.c_str(),entry.rect.x,entry.rect.y,entry.rect.width,entry.rect.height);
+        for (const auto &issue:issues) std::fprintf(stderr,"issue %s delta=%g\n",issue.rule.c_str(),issue.delta);
+    }
     REQUIRE(issues.size()==4);
     for(const auto &issue:issues){
         REQUIRE(issue.delta>0&&issue.b_name=="upstream"&&!issue.message.empty());
@@ -182,6 +187,197 @@ static void ui_extra_contracts(Fixtures &f,Renderer &renderer){
     const int target=renderer.GetRenderTargets().Create(128,128);REQUIRE(target>0);ui.NewFrame();renderer.BeginFrame(0,0,0,1);REQUIRE(renderer.BeginRenderTarget(target));renderer.ClearActiveTarget({0,0,0,1});
     ui.RootBegin(10,20,UISize::Fixed(60),UISize::Fixed(40));ui.CanvasBegin(UISize::Grow(),UISize::Grow());ui.DisabledBegin();ui.DrawSpriteAt(&Texture2D::White(),1,2,8,8,{1,0,0,1});ui.DisabledEnd();ui.FillRect(30,0,8,8,{0,1,0,1});ui.DrawSpriteAt(nullptr,0,0,5,5);ui.FillRect(0,0,0,1,Color::White());ui.CanvasEnd();ui.RootEnd();renderer.EndRenderTarget();renderer.EndFrame();
     auto *rt=renderer.GetRenderTargets().Get(target);Color pixel;REQUIRE(rt->ReadPixel(12,23,pixel)&&near_value(pixel.r,.4f)&&pixel.g<.01f);REQUIRE(rt->ReadPixel(42,22,pixel)&&pixel.g>.99f&&pixel.r<.01f);REQUIRE(rt->ReadPixel(2,2,pixel)&&pixel.r<.01f&&pixel.g<.01f);renderer.GetRenderTargets().Destroy(target);
+}
+// Verify exported accessibility output of real controls, including redaction.
+static void ci_ui_semantics(Renderer &renderer){
+    Camera2D camera(640,480);Input input;UISystem ui;ui.Bind(&input,&camera,&renderer);
+    input.InjectFrame({-1000,-1000},{},{});ui.NewFrame();renderer.BeginFrame(0,0,0,1);
+    REQUIRE(ui.SemanticTree().role=="application"&&ui.SemanticNodes().empty());
+    REQUIRE(!ui.MenuBegin("outside","Outside")&&!ui.MenuItem("outside","Outside"));ui.MenuSeparator();
+    auto invalid=ui.VirtualBegin("invalid",0,0);REQUIRE(invalid.first==0&&invalid.count==0);ui.VirtualEnd();ui.VirtualEnd();
+    REQUIRE(ui.ScopedKey("").empty()&&ui.ScopedKey("/absolute")=="absolute");
+    ui.PushID("scope");REQUIRE(ui.ScopedKey("child")=="scope/child");
+    REQUIRE(ui.DroppedType("missing").empty()&&ui.DroppedPayload("/missing").empty());ui.PopID();
+    ui.RootBegin(0,0,UISize::Fixed(600),UISize::Fixed(1500),0,false);ui.VStackBegin(0,0);
+    REQUIRE(!ui.Button("button","Button")&&!ui.ImageButton("image-button",&Texture2D::White(),{0,0,1,1},"Image"));
+    REQUIRE(!ui.Checkbox("check",true,"Check")&&!ui.RadioButton("radio",true,"Radio"));
+    REQUIRE(ui.Slider("slider",.25f,0,1)==.25f);ui.SetTextValue("text","visible");ui.SetTextValue("secret","must-never-appear");
+    REQUIRE(!ui.TextInput("text")&&!ui.TextPassword("secret"));
+    REQUIRE(!ui.Tab("tab","Tab",true)&&!ui.Tree("tree","Tree",false));
+    REQUIRE(!ui.ComboBegin("combo","Combo",false)&&!ui.ComboItem("option","Option",true));
+    ui.ProgressBar(.75f,Color::Green());ui.Text("Label");ui.RichText("Rich");ui.Image(&Texture2D::White(),{0,0,1,1});
+    REQUIRE(ui.Splitter("split",40,10)==40);
+    ui.DragSourceBegin("source","inventory","item-42");ui.Text("Drag");ui.DragSourceEnd();
+    ui.DropTargetBegin("target","inventory");ui.Text("Drop");ui.DropTargetEnd();
+    ui.MenuBarBegin();REQUIRE(!ui.MenuBegin("menu","Menu"));ui.MenuBarEnd();REQUIRE(!ui.MenuItem("item","Item","Ctrl+I",true));
+    ui.ScrollBoxBegin("scroll",UISize::Fixed(20));ui.Text("Scroll");ui.ScrollBoxEnd();
+    ui.TableBegin("table",{UISize::Fixed(40)},0,0);ui.TableRowBegin();ui.TableCellBegin();ui.Text("Cell");ui.TableCellEnd();ui.TableRowEnd();ui.TableEnd();
+    const std::string escaped="quote\" slash\\ newline\nreturn\rtab\t";
+    ui.NextSemantics("status",escaped,"value",escaped);ui.CanvasBegin(UISize::Fixed(10),UISize::Fixed(10));ui.CanvasEnd();
+    ui.RequestFocus("text");ui.StackEnd();ui.RootEnd();renderer.EndFrame();
+    auto roots=ui.SemanticNodes();REQUIRE(roots.size()==1&&roots[0].role=="window");
+    std::unordered_map<std::string,UISemanticNode> keyed;std::unordered_map<std::string,int> roles;bool custom=false;
+    std::function<void(const UISemanticNode&)> walk=[&](const UISemanticNode &n){
+        ++roles[n.role];if(!n.key.empty())keyed[n.key]=n;
+        if(n.role=="status"){REQUIRE(n.label==escaped&&n.hint==escaped&&n.value=="value");custom=true;}
+        for(const auto &c:n.children)walk(c);
+    };walk(ui.SemanticTree());REQUIRE(custom);
+    const std::pair<const char*,const char*> expected[]={{"button","button"},{"image-button","button"},{"check","checkbox"},{"radio","radio"},{"slider","slider"},{"text","text_field"},{"secret","text_field"},{"tab","tab"},{"tree","tree_item"},{"combo","combobox"},{"option","option"},{"split","splitter"},{"source","draggable"},{"target","drop_zone"},{"menu","menu"},{"item","menuitem"},{"scroll","scroll_view"},{"table","table"}};
+    for(const auto &[key,role]:expected){REQUIRE(keyed.count(key)==1);REQUIRE(keyed.at(key).role==role);}
+    REQUIRE(keyed.at("check").checked&&keyed.at("radio").selected);
+    REQUIRE(keyed.at("slider").actions==std::vector<std::string>{"adjust"});
+    REQUIRE(keyed.at("text").value=="visible"&&keyed.at("text").focused);REQUIRE(keyed.at("secret").value=="***");
+    for(const auto *role:{"progressbar","text","image","menubar","row","cell"})REQUIRE(roles[role]>0);
+    const std::string encoded=ui.SemanticJson();auto parsed=nlohmann::json::parse(encoded);
+    REQUIRE(parsed["role"]=="application"&&parsed["children"].size()==1);REQUIRE(encoded.find("must-never-appear")==std::string::npos);
+    REQUIRE(encoded.find("\\n")!=std::string::npos&&encoded.find("\\r")!=std::string::npos&&encoded.find("\\t")!=std::string::npos);
+    ui.ClearFocus();REQUIRE(ui.FocusedTextInput().empty());ui.NewFrame();ui.RequestFocus("text");REQUIRE(ui.FocusedTextInput()=="text");ui.ClearFocus();
+    REQUIRE(ui.SemanticNodes().empty()&&!ui.IsDragging()&&!ui.IsDropHovered("target"));
+}
+static void ci_ui_geometry_and_pixels(Renderer &renderer){
+    Camera2D camera(128,128);Input input;UISystem ui;ui.Bind(&input,&camera,&renderer);
+    auto begin=[&](){input.InjectFrame({-1000,-1000},{},{});ui.NewFrame();renderer.BeginFrame(0,0,0,1);};
+    begin();ui.RootBegin(0,0,UISize::Percent(.5f),UISize::Percent(.25f),0,false);ui.RememberBox("percent-root");ui.RootEnd();
+    REQUIRE(ui.NamedRect("percent-root").width==64&&ui.NamedRect("percent-root").height==32);
+    ui.RootBegin(0,0,UISize::Grow(),UISize::Grow(),0,false);ui.RememberBox("grow-root");ui.RootEnd();
+    REQUIRE(ui.NamedRect("grow-root").width==128&&ui.NamedRect("grow-root").height==128);
+    renderer.EndFrame();
+    auto target=[&](const Rect &r){ui.RootBegin(r.x,r.y,UISize::Fixed(r.width),UISize::Fixed(r.height),0,false);ui.RememberBox("anchor");ui.RootEnd();};
+    auto anchored=[&](const char *placement,float x,float y,float width=10){
+        ui.AnchorToBegin("anchor",placement,2,UISize::Fixed(width),UISize::Fixed(8));ui.RememberBox("popup");ui.AnchorToEnd();
+        auto r=ui.NamedRect("popup");REQUIRE(near_value(r.x,x)&&near_value(r.y,y)&&r.width==width&&r.height==8);
+    };
+    begin();target({4,4,20,10});anchored("top_start",4,16);anchored("top_center",9,16);anchored("top_end",14,16);anchored("left_start",26,4);anchored("right_start",26,4);renderer.EndFrame();
+    begin();target({110,50,10,10});anchored("right_start",88,50,20);renderer.EndFrame();
+    begin();target({50,116,10,10});anchored("bottom_start",50,106,20);renderer.EndFrame();
+    begin();ui.AnchorToBegin("absent","bottom_start",2,UISize::Fixed(10),UISize::Fixed(8));ui.RememberBox("absent-popup");ui.AnchorToEnd();
+    REQUIRE(ui.NamedRect("absent-popup").x==64&&ui.NamedRect("absent-popup").y==66);renderer.EndFrame();
+    begin();ui.RootBegin(4,4,UISize::Fixed(20),UISize::Fixed(10),0,false);ui.NextSize(UISize::Fixed(20),UISize::Fixed(10));ui.Button("previous","Previous");ui.RootEnd();renderer.EndFrame();
+    begin();ui.AnchorToBegin("previous","bottom_start",2,UISize::Fixed(10),UISize::Fixed(8));ui.RememberBox("prior-popup");ui.AnchorToEnd();
+    REQUIRE(ui.NamedRect("prior-popup").x==4&&ui.NamedRect("prior-popup").y==16);renderer.EndFrame();
+    const int rt=renderer.GetRenderTargets().Create(128,128);REQUIRE(rt>0);begin();REQUIRE(renderer.BeginRenderTarget(rt));renderer.ClearActiveTarget(Color::Black());
+    ui.RootBegin(0,0,UISize::Fixed(32),UISize::Fixed(16),0,false);ui.NextGradient(Color::Red(),Color::Green(),true);ui.NextBorder(Color::Blue(),1);ui.NextRadius(0);ui.CanvasBegin(UISize::Grow(),UISize::Grow());ui.CanvasEnd();ui.RootEnd();
+    ui.RootBegin(40,0,UISize::Fixed(16),UISize::Fixed(32),0,false);ui.NextGradient(Color::Red(),Color::Blue(),false);ui.CanvasBegin(UISize::Grow(),UISize::Grow());ui.CanvasEnd();ui.RootEnd();
+    ui.RootBegin(80,0,UISize::Fixed(16),UISize::Fixed(16),0,false);ui.NextVisible(false);ui.NextBg(Color::Green());ui.CanvasBegin(UISize::Grow(),UISize::Grow());ui.CanvasEnd();ui.RootEnd();
+    ui.RootBegin(0,40,UISize::Fixed(100),UISize::Fixed(40),0,false);ui.NextDirection(UILayoutDirection::RTL);ui.HStackBegin(0,0);
+    ui.NextSize(UISize::Fixed(10),UISize::Fixed(10));ui.NextEnabled(false);ui.NextTooltip("Disabled hint");ui.Button("disabled","Disabled");
+    ui.NextSize(UISize::Fixed(10),UISize::Fixed(10));ui.Button("enabled","Enabled");ui.StackEnd();ui.RootEnd();
+    REQUIRE(ui.WidgetRect("disabled").x>ui.WidgetRect("enabled").x);
+    bool disabled=false;std::function<void(const UISemanticNode&)> find=[&](const UISemanticNode &n){if(n.key=="disabled"){REQUIRE(!n.enabled&&n.hint=="Disabled hint");disabled=true;}for(const auto &c:n.children)find(c);};find(ui.SemanticTree());REQUIRE(disabled);
+    renderer.EndRenderTarget();renderer.EndFrame();Color c;auto *surface=renderer.GetRenderTargets().Get(rt);
+    REQUIRE(surface->ReadPixel(16,8,c)&&c.r>.3f&&c.r<.7f&&c.g>.3f&&c.g<.7f&&c.b<.05f);
+    REQUIRE(surface->ReadPixel(0,8,c)&&c.b>.95f&&c.r<.05f);
+    REQUIRE(surface->ReadPixel(48,16,c)&&c.r>.3f&&c.r<.7f&&c.b>.3f&&c.b<.7f&&c.g<.05f);
+    REQUIRE(surface->ReadPixel(88,8,c)&&c.r<.01f&&c.g<.01f&&c.b<.01f);
+    renderer.GetRenderTargets().Destroy(rt);REQUIRE(!renderer.GetRenderTargets().Get(rt));
+}
+static void ci_ui_inspector(Renderer &renderer){
+    Camera2D camera(640,480);Input input;UISystem ui;ui.Bind(&input,&camera,&renderer);ui.SetAudit(true);ui.SetInspector(true);
+    const int target=renderer.GetRenderTargets().Create(640,480);REQUIRE(target>0);
+    auto frame=[&](Vec2 mouse,bool down){
+        input.InjectFrame(mouse,{},down?std::vector<std::int64_t>{0}:std::vector<std::int64_t>{});ui.NewFrame();
+        renderer.BeginFrame(0,0,0,1);REQUIRE(renderer.BeginRenderTarget(target));renderer.ClearActiveTarget(Color::Black());
+        ui.RootBegin(400,320,UISize::Fixed(120),UISize::Fixed(100),0,false);
+        ui.NextMargin(4);ui.NextPad(2,2,2,2);ui.NextSize(UISize::Fixed(80),UISize::Fixed(40));ui.Button("inspect","Inspect");ui.RootEnd();
+        renderer.EndRenderTarget();renderer.EndFrame();
+    };
+    frame({430,350},true);REQUIRE(ui.IsInspectorEnabled());auto *surface=renderer.GetRenderTargets().Get(target);Color c;
+    REQUIRE(surface->ReadPixel(22,20,c)&&c.b>.15f); // actual Inspector header paint
+    REQUIRE(surface->ReadPixel(402,330,c)&&c.r>.08f); // actual highlighted margin outside widget
+    frame({-1000,-1000},false);const float before=ui.ThemeMetric("corner_radius");
+    // With a selected box, first metric row starts at y=112. Exercise the real
+    // hit-tested theme stepper rather than calling SetThemeMetric in the test.
+    frame({337,120},true);REQUIRE(ui.ThemeMetric("corner_radius")==before+2);
+    frame({-1000,-1000},false);frame({120,212},true); // issue panel toggle
+    frame({-1000,-1000},false);REQUIRE(surface->ReadPixel(20,300,c)&&c.b>.05f);
+    frame({260,212},true); // semantic panel toggle
+    frame({-1000,-1000},false);REQUIRE(surface->ReadPixel(20,400,c)&&c.b>.05f);
+    // Drag the header and validate its new physical location and cleared old one.
+    frame({40,24},true);frame({80,64},true);frame({-1000,-1000},false);
+    REQUIRE(surface->ReadPixel(62,60,c)&&c.b>.15f);
+    REQUIRE(surface->ReadPixel(22,20,c)&&c.r<.01f&&c.g<.01f&&c.b<.01f);
+    ui.SetInspector(false);frame({-1000,-1000},false);
+    REQUIRE(surface->ReadPixel(62,60,c)&&c.r<.01f&&c.g<.01f&&c.b<.01f);
+    renderer.GetRenderTargets().Destroy(target);REQUIRE(!renderer.GetRenderTargets().Get(target));
+}
+static void ci_ui_drag_lifecycle(Renderer &renderer){
+    for(const auto &accept:std::vector<std::string>{"*","other,item","other",""}){
+        Camera2D camera(128,128);Input input;UISystem ui;ui.Bind(&input,&camera,&renderer);
+        auto frame=[&](float x,bool down,bool escape=false){
+            input.InjectFrame({x,10},escape?std::vector<std::string_view>{"escape"}:std::vector<std::string_view>{},down?std::vector<std::int64_t>{0}:std::vector<std::int64_t>{});
+            ui.NewFrame();renderer.BeginFrame(0,0,0,1);ui.BeginFrameUI();ui.RootBegin(0,0,UISize::Fixed(100),UISize::Fixed(30),0,false);ui.HStackBegin(10,0);
+            ui.NextSize(UISize::Fixed(40),UISize::Fixed(20));ui.DragSourceBegin("source","item","payload-42");ui.Text("Source");ui.DragSourceEnd();
+            ui.NextSize(UISize::Fixed(40),UISize::Fixed(20));ui.DropTargetBegin("target",accept);ui.Text("Target");ui.DropTargetEnd();
+            ui.StackEnd();ui.RootEnd();REQUIRE(ui.EndFrameUI());renderer.EndFrame();
+        };
+        frame(10,false);frame(10,true);REQUIRE(!ui.IsDragging());frame(30,true);
+        REQUIRE(ui.IsDragging()&&ui.ActiveDragType()=="item"&&ui.ActiveDragPayload()=="payload-42"&&ui.ActiveDragKey()=="source");
+        frame(65,true);const bool accepts=accept!="other";REQUIRE(ui.IsDropHovered("target")==accepts);
+        frame(65,false);REQUIRE(!ui.IsDragging());
+        REQUIRE(ui.DroppedPayload("target")== (accepts?"payload-42":""));REQUIRE(ui.DroppedType("target")== (accepts?"item":""));
+        frame(10,false);REQUIRE(ui.DroppedPayload("target").empty());
+        frame(10,true);frame(30,true);REQUIRE(ui.IsDragging());frame(65,true,true);
+        REQUIRE(!ui.IsDragging()&&ui.ActiveDragType().empty()&&ui.ActiveDragPayload().empty()&&!ui.IsDropHovered("target"));
+        frame(65,false);REQUIRE(ui.DroppedPayload("target").empty());
+        frame(10,true);frame(10,false);REQUIRE(!ui.IsDragging()&&ui.DroppedType("target").empty());
+    }
+}
+static void ci_ui_menu_lifecycle(Renderer &renderer){
+    Camera2D camera(128,128);Input input;UISystem ui;ui.Bind(&input,&camera,&renderer);bool action=false;
+    auto frame=[&](Vec2 mouse,bool down){
+        input.InjectFrame(mouse,{},down?std::vector<std::int64_t>{0}:std::vector<std::int64_t>{});ui.NewFrame();renderer.BeginFrame(0,0,0,1);
+        ui.RootBegin(0,0,UISize::Fixed(128),UISize::Fixed(100),0,false);ui.MenuBarBegin();const bool opened=ui.MenuBegin("file","File");
+        action=false;if(opened){action=ui.MenuItem("action","Action");ui.MenuEnd();}ui.MenuBarEnd();ui.RootEnd();renderer.EndFrame();return opened;
+    };
+    REQUIRE(!frame({10,5},false));REQUIRE(!frame({10,5},true));REQUIRE(frame({10,5},false));
+    REQUIRE(ui.WidgetRect("action").width>0);REQUIRE(frame({10,5},true));REQUIRE(!frame({10,5},false));
+    REQUIRE(!frame({10,5},true));REQUIRE(frame({10,5},false));auto r=ui.WidgetRect("action");Vec2 mid{r.x+r.width/2,r.y+r.height/2};
+    REQUIRE(frame(mid,true));REQUIRE(frame(mid,false));REQUIRE(action);REQUIRE(!frame({-1000,-1000},false));
+    // An unbalanced recorded frame is rejected until the actual containers close.
+    ui.NewFrame();renderer.BeginFrame(0,0,0,1);ui.TableColLimits(0,1,2);REQUIRE(ui.SemanticNodes().empty());ui.BeginFrameUI();
+    ui.RootBegin(0,0,UISize::Fixed(100),UISize::Fixed(40),0,false);ui.RememberBox("balanced");ui.HStackBegin();ui.CanvasBegin(UISize::Fixed(10),UISize::Fixed(10));
+    REQUIRE(!ui.EndFrameUI());ui.CanvasEnd();ui.StackEnd();ui.RootEnd();REQUIRE(ui.EndFrameUI());
+    REQUIRE(!ui.InAutoLayout()&&ui.NamedRect("balanced").width==100);ui.StackEnd();REQUIRE(!ui.InAutoLayout());renderer.EndFrame();
+}
+static void ci_ui_flex_boundaries(Renderer &renderer){
+    Camera2D camera(128,128);Input input;UISystem ui;ui.Bind(&input,&camera,&renderer);input.InjectFrame({-1000,-1000},{},{});ui.NewFrame();renderer.BeginFrame(0,0,0,1);
+    for(bool horizontal:{false,true}){
+        ui.RootBegin(0,0,UISize::Fixed(100),UISize::Fixed(100),0,false);
+        ui.NextSize(UISize::Grow(),UISize::Grow());if(horizontal)ui.HStackBegin(0,0);else ui.VStackBegin(0,0);
+        ui.CanvasBegin(UISize::Percent(.25f),UISize::Percent(.25f));ui.RememberBox("quarter");ui.CanvasEnd();
+        ui.CanvasBegin(UISize::Grow(),UISize::Grow());ui.RememberBox("remaining");ui.CanvasEnd();ui.StackEnd();ui.RootEnd();
+        auto q=ui.NamedRect("quarter"),rest=ui.NamedRect("remaining");REQUIRE(q.width==25&&q.height==25);REQUIRE(horizontal?rest.width==75:rest.height==75);
+        ui.RootBegin(0,0,UISize::Fixed(100),UISize::Fixed(100),0,false);ui.NextSize(UISize::Grow(),UISize::Grow());if(horizontal)ui.HStackBegin(0,0);else ui.VStackBegin(0,0);
+        for(int i=0;i<2;++i){ui.NextShrink(1);ui.CanvasBegin(UISize::Fixed(80),UISize::Fixed(80));ui.RememberBox(i==0?"shrink-a":"shrink-b");ui.CanvasEnd();}ui.StackEnd();ui.RootEnd();
+        auto a=ui.NamedRect("shrink-a"),b=ui.NamedRect("shrink-b");REQUIRE(horizontal?(a.width==50&&b.width==50):(a.height==50&&b.height==50));
+    }
+    ui.RootBegin(0,0,UISize::Fixed(100),UISize::Fixed(40),0,false);ui.NextDirection(UILayoutDirection::RTL);ui.TableBegin("percent-table",{UISize::Percent(.25f),UISize::Grow()},0,0);ui.TableRowBegin();
+    ui.TableCellBegin();ui.RememberBox("pct-cell");ui.Text("A");ui.TableCellEnd();ui.TableCellBegin();ui.RememberBox("rest-cell");ui.Text("B");ui.TableCellEnd();ui.TableRowEnd();ui.TableEnd();ui.RootEnd();
+    REQUIRE(ui.NamedRect("pct-cell").width==25&&ui.NamedRect("pct-cell").x==75&&ui.NamedRect("rest-cell").width==75);
+    for(bool fixed:{false,true}){
+        ui.RootBegin(0,0,UISize::Fixed(100),UISize::Fixed(100),0,false);ui.NextWidth(fixed?UISize::Fixed(40):UISize::Auto());const float side=fixed?1.0f:200.0f;ui.Image(&Texture2D::White(),{0,0,side,side});ui.Remember("intrinsic-image");ui.RootEnd();
+        auto r=ui.NamedRect("intrinsic-image");REQUIRE(r.width==(fixed?40:100)&&r.height==r.width);
+    }
+    renderer.EndFrame();
+}
+static void ci_ui_scroll_visibility(Renderer &renderer){
+    Camera2D camera(128,128);Input input;UISystem ui;ui.Bind(&input,&camera,&renderer);
+    auto frame=[&](){
+        input.InjectFrame({-1000,-1000},{},{});ui.NewFrame();renderer.BeginFrame(0,0,0,1);ui.RootBegin(0,0,UISize::Fixed(100),UISize::Fixed(100),0,false);
+        ui.ScrollBoxBegin("reveal",UISize::Fixed(40),UISize::Fixed(40),UIScrollDir::Both);ui.CanvasBegin(UISize::Fixed(200),UISize::Fixed(200));
+        ui.NextSize(UISize::Fixed(10),UISize::Fixed(10));ui.Button("near","Near");
+        ui.NextMargin(100,100,0,0);ui.NextSize(UISize::Fixed(10),UISize::Fixed(10));ui.Button("far","Far");ui.CanvasEnd();ui.ScrollBoxEnd();ui.RootEnd();renderer.EndFrame();
+    };
+    frame();REQUIRE(ui.ScrollOffset("reveal")==0&&ui.ScrollOffsetX("reveal")==0);ui.ScrollToWidget("",true);
+    ui.ScrollToWidget("far",true);REQUIRE(ui.ScrollOffset("reveal")==0&&ui.ScrollOffsetX("reveal")==0);
+    frame();REQUIRE(ui.ScrollOffset("reveal")>0&&ui.ScrollOffset("reveal")<200&&ui.ScrollOffsetX("reveal")>0&&ui.ScrollOffsetX("reveal")<200);
+    ui.ScrollToWidget("near",false);REQUIRE(ui.ScrollOffset("reveal")==0&&ui.ScrollOffsetX("reveal")==0);frame();
+    REQUIRE(ui.WidgetRect("near").x==0&&ui.WidgetRect("near").y==0);
+    auto virtual_frame=[&](){
+        input.InjectFrame({-1000,-1000},{},{});ui.NewFrame();renderer.BeginFrame(0,0,0,1);ui.RootBegin(0,0,UISize::Fixed(100),UISize::Fixed(100),0,false);ui.ScrollBoxBegin("virtual-reveal",UISize::Fixed(40));
+        auto range=ui.VirtualBegin("virtual-reveal",100,10,1);for(int i=0;i<range.count;++i)ui.Spacer(10);ui.VirtualEnd();ui.ScrollBoxEnd();ui.RootEnd();renderer.EndFrame();return range;
+    };
+    REQUIRE(virtual_frame().first==0);ui.SetScrollOffset("virtual-reveal",500);auto r=virtual_frame();REQUIRE(r.first==49&&r.count>0&&r.count<10);REQUIRE(ui.ScrollContentHeight("virtual-reveal")==1000);
 }
 static void log_crash_contracts(Fixtures &f){
 #if !defined(_WIN32)
@@ -514,9 +710,13 @@ static void ui_input_rich_edges(Renderer &renderer){
     REQUIRE(icon_frame(true).empty());REQUIRE(icon_frame(false)=="go");REQUIRE(icon_frame(false).empty());
     std::string many;for(unsigned cp=0x1000;cp<0x1000+4100;++cp){many+=char(0xe0|(cp>>12));many+=char(0x80|((cp>>6)&63));many+=char(0x80|(cp&63));}
     input.InjectFrame({-100,-100},{},{});rich.NewFrame();renderer.BeginFrame(0,0,0,1);rich.RootBegin(0,0,UISize::Fixed(60),UISize::Fixed(100));
-    REQUIRE(rich.RichText(many,1).empty()&&rich.Stats().rich_glyphs==4100);
+    auto many_link=rich.RichText(many,1);
     rich.RememberBox("rich-many");
-    REQUIRE(rich.RichText("A",1).empty()&&rich.Stats().rich_glyphs==4101);rich.RootEnd();REQUIRE(rich.NamedRect("rich-many").height>0);renderer.EndFrame();
+    rich.RootEnd(); // Two-Pass measurement publishes glyph counters here.
+    REQUIRE(many_link.empty()&&rich.Stats().rich_glyphs==4100);
+    rich.RootBegin(0,0,UISize::Fixed(60),UISize::Fixed(100));
+    auto extra_link=rich.RichText("A",1);rich.RootEnd();
+    REQUIRE(extra_link.empty()&&rich.Stats().rich_glyphs==4101);REQUIRE(rich.NamedRect("rich-many").height>0);renderer.EndFrame();
     for(bool deferred:{false,true}){
         Input pad_input;UISystem pad;pad.Bind(&pad_input,&camera,&renderer);float value=.5f;
         auto frame=[&](float axis,bool tab=false){InputFrameSnapshot snap;snap.mouse_x=-100;snap.mouse_y=-100;snap.pad_connected[0]=1;snap.pad_axes[0][0]=axis;snap.SetKey(GLFW_KEY_TAB,tab);pad_input.ApplySnapshot(snap);pad.NewFrame();renderer.BeginFrame(0,0,0,1);
@@ -638,13 +838,17 @@ static void ui_tests(Renderer &renderer){
         UISystem textured;textured.Bind(&input,&camera,&renderer);input.InjectFrame({-100,-100},{},{});textured.NewFrame();
         int target=renderer.GetRenderTargets().Create(128,128);REQUIRE(target>0);
         renderer.BeginFrame(0,0,0,1);REQUIRE(renderer.BeginRenderTarget(target));renderer.ClearActiveTarget({0,0,0,1});
-        if(deferred){textured.RootBegin(8,8,UISize::Fixed(40),UISize::Fixed(40),2);textured.CanvasBegin(UISize::Grow(),UISize::Grow());}
-        else{textured.RootBegin(8,8,UISize::Fixed(40),UISize::Fixed(40),2);}
+        if(deferred)REQUIRE(textured.BeginFrameUI());
+        textured.RootBegin(8,8,UISize::Fixed(40),UISize::Fixed(40),2);
+        textured.CanvasBegin(UISize::Grow(),UISize::Grow());
         textured.DrawNineSliceAt(&Texture2D::White(),.25f,{1,0,0,1});
-        if(deferred)textured.CanvasEnd();
+        // The old LastRect assertion described the padded drawing content,
+        // not the outer 40px root. Retain that exact 36px geometry check.
         textured.RememberBox("slice-rect");
+        textured.CanvasEnd();
         textured.DrawNineSliceAt(nullptr,1);
         textured.RootEnd();
+        if(deferred)REQUIRE(textured.EndFrameUI());
         auto rect=textured.NamedRect("slice-rect");REQUIRE(rect.x==10&&rect.y==10&&rect.width==36&&rect.height==36);
         textured.DisabledBegin();
         textured.DrawSpriteRect(&Texture2D::White(),{0,0,1,1},{60,8,20,20},{0,1,0,1});
@@ -677,6 +881,12 @@ static void lua_ui_deep(Engine &engine,Fixtures &f){
     int target=renderer.GetRenderTargets().Create(128,128);REQUIRE(target>0);renderer.BeginFrame(0,0,0,1);REQUIRE(renderer.BeginRenderTarget(target));renderer.ClearActiveTarget({0,0,0,1});int result=0;fakelua::Call(st,fakelua::JIT_INTERP,"deep_ui_contract",result);renderer.EndRenderTarget();renderer.EndFrame();REQUIRE(result==123);
     Color pixel;auto *rt=renderer.GetRenderTargets().Get(target);for(auto point:std::vector<Vec2>{{10,8},{43,20},{43,60}}){REQUIRE(rt->ReadPixel(int(point.x),int(point.y),pixel));if(pixel.r<.95f||pixel.g>.05f||pixel.b>.05f)std::fprintf(stderr,"UI pixel %.0f,%.0f = %.3f %.3f %.3f\n",point.x,point.y,pixel.r,pixel.g,pixel.b);REQUIRE(pixel.r>.95f&&pixel.g<.05f&&pixel.b<.05f);}
     REQUIRE(rt->ReadPixel(85,16,pixel)&&near_value(pixel.r,ui.ThemeColor("panel").r));renderer.GetRenderTargets().Destroy(target);
+    fakelua::CompileFile(st,"tests/ci_ui_bindings.lua",cc);
+    engine.GetInput().InjectFrame({-1000,-1000},{},{});ui.NewFrame();
+    renderer.BeginFrame(0,0,0,1);result=0;
+    fakelua::Call(st,fakelua::JIT_INTERP,"ci_ui_layout_contract",result,false);REQUIRE(result==126);
+    REQUIRE(ui.ScrollContentHeight("ci-virtual")>=1000);
+    renderer.EndFrame();
     host.engine=nullptr;result=0;fakelua::Call(st,fakelua::JIT_INTERP,"deep_ui_detached",result);REQUIRE(result==124);textures.Clear();
 }
 static void binding_tests(Fixtures &f){
@@ -715,6 +925,11 @@ static void binding_tests(Fixtures &f){
     fakelua::RegisterNativeFunction(st,"hot_begin",false,std::function<void(fakelua::State*,double,double,bool)>([&](auto*,double x,double y,bool down){engine.GetInput().InjectFrame({float(x),float(y)},{},down?std::vector<std::int64_t>{0}:std::vector<std::int64_t>{});engine.GetUI().NewFrame();engine.GetRenderer().BeginFrame(0,0,0,1);}));
     fakelua::RegisterNativeFunction(st,"hot_end",false,std::function<void(fakelua::State*)>([&](auto*){engine.GetRenderer().EndFrame();}));
     fakelua::CompileFile(st,"tests/coverage_hot_bindings.lua",cc);result=0;fakelua::Call(st,fakelua::JIT_INTERP,"hot_contract",result,f.dir.string(),mapfile);REQUIRE(result==777);
+    fakelua::CompileFile(st,"tests/ci_ui_bindings.lua",cc);
+    engine.GetInput().InjectFrame({-1000,-1000},{},{});engine.GetUI().NewFrame();
+    engine.GetRenderer().BeginFrame(0,0,0,1);int ci_result=0;
+    fakelua::Call(st,fakelua::JIT_INTERP,"ci_ui_layout_contract",ci_result,true);REQUIRE(ci_result==126);
+    engine.GetRenderer().EndFrame();
     lua_ui_deep(engine,f);int frozen=0;engine.SetFrameCallback([&](Engine &e){if(e.FrameIndex()==0){REQUIRE(e.DeltaTime()==0);++frozen;}});
     REQUIRE(engine.Run(2)==0&&engine.FrameIndex()==2&&frozen==1&&!engine.IsRunning());engine.Shutdown();
     auto run_config=[&](EngineConfig options,int expected){Engine e;REQUIRE(e.Init(options));REQUIRE(e.Run(2)==expected&&!e.IsRunning());};
@@ -851,7 +1066,7 @@ static void physics_edge_tests(){
 int main(){try{
     Fixtures f;text_utility_contracts();interpolation_contracts();storage_tests(f);province_map_contracts(f);i18n_view_contracts(f);log_crash_contracts(f);physics_edge_tests();skeleton_public_asset_tests();
     {platform::Window window;platform::WindowDesc desc;desc.width=128;desc.height=128;desc.headless=true;REQUIRE(window.Create(desc));
-    Renderer renderer;REQUIRE(renderer.Init(128,128));shared_white_context_regression(renderer);sprite_batch_primitives(renderer);sprite_mesh_capacity_regression(renderer);shader_tests();resource_atlas_contracts(f);font_ladder_contracts();ui_extra_contracts(f,renderer);upstream_layout_contracts(renderer);input_tests(window);ui_tests(renderer);ui_input_rich_edges(renderer);skeleton_deep(f,renderer);font_deep(f,renderer);}
+    Renderer renderer;REQUIRE(renderer.Init(128,128));shared_white_context_regression(renderer);sprite_batch_primitives(renderer);sprite_mesh_capacity_regression(renderer);shader_tests();resource_atlas_contracts(f);font_ladder_contracts();ui_extra_contracts(f,renderer);ci_ui_semantics(renderer);ci_ui_geometry_and_pixels(renderer);ci_ui_inspector(renderer);ci_ui_drag_lifecycle(renderer);ci_ui_menu_lifecycle(renderer);ci_ui_flex_boundaries(renderer);ci_ui_scroll_visibility(renderer);upstream_layout_contracts(renderer);input_tests(window);ui_tests(renderer);ui_input_rich_edges(renderer);skeleton_deep(f,renderer);font_deep(f,renderer);}
 #ifdef FAKE2D_WITH_FAKELUA
     binding_tests(f);
 #endif

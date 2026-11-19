@@ -1,6 +1,7 @@
 #include "fake2d/ui.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <limits>
@@ -866,6 +867,9 @@ bool UISystem::ModalBegin(std::string_view key, UISize w, UISize h) {
 }
 
 bool UISystem::ListView(std::string_view key, UISize view_h) {
+    if (!InAutoLayout()) {
+        return false;
+    }
     const std::string k(key);
     if (list_views_.count(k)) {
         return false;
@@ -1021,6 +1025,12 @@ float UISystem::AutoText(std::string_view text, float scale, UITextOverflow over
     }
     // Return estimated height for callers checking Text() return
     const float w = std::max(0.0f, node.est_avail_w);
+    if (overflow == UITextOverflow::Shrink && renderer_ && !text.empty()) {
+        const float natural = renderer_->MeasureText(text, sc);
+        const float used = natural > w && natural > 0.0f
+                               ? std::max(node.min_scale, sc * w / natural) : sc;
+        return FontLineHeightPx(used);
+    }
     if (overflow == UITextOverflow::Wrap && renderer_ && w > 0.0f && !text.empty()) {
         return renderer_->GetFont().MeasureTextEx(text, sc, w);
     }
@@ -1267,6 +1277,13 @@ std::string UISystem::AutoRichText(std::string_view markup, float scale) {
     node.scale = sc;
     node.width_spec = UISize::Grow(1.0f);
     node.height_spec = UISize::Auto();
+    if (!recording_) {
+        const auto previous = prev_solved_widgets_.find(node.key);
+        if (previous != prev_solved_widgets_.end()) {
+            node.input_processed = true;
+            DrawRichTextSolved(node, previous->second.rect, previous->second.clip_rect, false, true);
+        }
+    }
     return clicked_link_;
 }
 
@@ -1390,6 +1407,18 @@ bool UISystem::AutoTextArea(std::string_view key, UISize h_spec, std::size_t max
         const float def_h = FontLineHeightPx(sc) * 4.0f + 2.0f * ThemeMetric("input_pad_y");
         node.height_spec = (h_spec.kind == UISizeKind::Auto) ? UISize::Fixed(def_h) : h_spec;
     }
+    // Immediate TextArea reports edits in this call, not one frame later.
+    // Use the same previous-frame geometry policy as immediate sliders, then
+    // paint at commit without consuming the keyboard event a second time.
+    if (!recording_ && !node.disabled && input_ && CanInteract()) {
+        const auto previous = prev_solved_widgets_.find(node.key);
+        if (previous != prev_solved_widgets_.end() && !previous->second.disabled) {
+            node.input_processed = true;
+            return EditText(node.key, previous->second.rect, node.max_chars,
+                            true, false, false, true, node.placeholder,
+                            node.radius, node.alpha_mul);
+        }
+    }
     return false;
 }
 
@@ -1490,7 +1519,8 @@ float UISystem::MeasureRichTextHeight(std::string_view markup, float scale, floa
     return y + lh;
 }
 
-void UISystem::DrawRichTextSolved(const AutoNode &node, const Rect &r, const Rect &clip) {
+void UISystem::DrawRichTextSolved(const AutoNode &node, const Rect &r, const Rect &clip,
+                                  bool allow_draw, bool allow_input) {
     if (!renderer_ || r.width <= 0.0f || node.text.empty()) {
         return;
     }
@@ -1508,7 +1538,7 @@ void UISystem::DrawRichTextSolved(const AutoNode &node, const Rect &r, const Rec
     std::size_t run_end = 0;
 
     const Rect text_clip = IntersectClip(clip, r);
-    ApplyClipRectDirect(text_clip);
+    if (allow_draw) ApplyClipRectDirect(text_clip);
 
     auto flush = [&](bool image_run = false) {
         if (run.empty()) {
@@ -1521,7 +1551,7 @@ void UISystem::DrawRichTextSolved(const AutoNode &node, const Rect &r, const Rec
             const Rect vis = IntersectClip(rr, text_clip);
             if (recording_) {
                 deferred_rich_links_.push_back({link, key, state_key, rr, vis, -1});
-            } else {
+            } else if (allow_input) {
                 auto &st = widgets_[state_key];
                 const bool hover = !node.disabled && vis.width > 0.0f && vis.Contains(Mouse()) && CanInteract() && MouseVisible();
                 const bool activate = !node.disabled && CanInteract() && nav_focus_ == key && nav_activate_;
@@ -1540,12 +1570,12 @@ void UISystem::DrawRichTextSolved(const AutoNode &node, const Rect &r, const Rec
                     nav_focus_ = key;
                 }
             }
-            FocusIndicator(key, rr);
+            if (allow_draw) FocusIndicator(key, rr);
             Color uc = color;
             if (node.disabled) uc.a *= 0.4f;
-            renderer_->DrawQuad(MapRect({rr.x, rr.y + lh - 2.0f, rr.width, 1.0f}), uc);
+            if (allow_draw) renderer_->DrawQuad(MapRect({rr.x, rr.y + lh - 2.0f, rr.width, 1.0f}), uc);
         }
-        if (!image_run) {
+        if (!image_run && allow_draw) {
             Color tc = color;
             if (node.disabled) tc.a *= 0.4f;
             renderer_->DrawText(run, rr.x * scale_ + scale_offset_.x, rr.y * scale_ + scale_offset_.y,
@@ -1645,7 +1675,7 @@ void UISystem::DrawRichTextSolved(const AutoNode &node, const Rect &r, const Rec
                 run = " ";
                 flush(true);
             }
-            if (icon.texture && icon.texture->IsValid()) {
+            if (allow_draw && icon.texture && icon.texture->IsValid()) {
                 Color col = color;
                 if (node.disabled) col.a *= 0.4f;
                 renderer_->DrawSprite(*icon.texture, icon.source, MapRect(rr), col);
@@ -1879,7 +1909,10 @@ void UISystem::MeasureAutoNode(int idx, float avail_w, float avail_h) {
                                 : 0.0f;
             apply_explicit_size(w + pad_x, h + pad_y);
         } else {
-            const float h = node.text.empty() ? 0.0f : line_h;
+            const float used = node.overflow == UITextOverflow::Shrink && nat_w > inner_avail_w && nat_w > 0.0f
+                                   ? std::max(node.min_scale, sc * inner_avail_w / nat_w) : sc;
+            const float h = node.text.empty() ? 0.0f : FontLineHeightPx(used);
+            node.baseline = node.margin_t + node.pad_t + h * 0.8f;
             apply_explicit_size(nat_w + pad_x, h + pad_y);
         }
         return;
@@ -3238,8 +3271,27 @@ void UISystem::CommitAutoNode(int idx, const Rect &parent_bounds, bool overlay_p
         }
     };
 
-    if (!node.tip_text.empty() && !node.suppressed && tip_recorder_ && vis.width > 0.0f && vis.height > 0.0f) {
-        tip_recorder_(vis, node.tip_text, false);
+    if (!node.tip_text.empty() && !node.suppressed && vis.width > 0.0f && vis.height > 0.0f) {
+        if (tip_recorder_) {
+            tip_recorder_(vis, node.tip_text, false);
+        }
+        // Keep the built-in tooltip path usable without an external tracker.
+        if (input_ && camera_ && MouseVisible() && vis.Contains(Mouse())) {
+            const std::string key = std::to_string(static_cast<int>(vis.x)) + "," +
+                                    std::to_string(static_cast<int>(vis.y)) + "," + node.tip_text;
+            const double now = std::chrono::duration<double>(
+                std::chrono::steady_clock::now().time_since_epoch()).count();
+            if (key != tip_hover_key_) {
+                tip_hover_key_ = key;
+                tip_hover_since_ = now;
+            }
+            if (tip_delay_ <= 0.0f || now - tip_hover_since_ >= tip_delay_) {
+                tooltip_ = node.tip_text;
+                tooltip_mouse_ = Mouse();
+            }
+        } else {
+            tip_hover_key_.clear();
+        }
     }
     if (!node.context_menu_key.empty() && !node.disabled && input_ && CanInteract() &&
         MouseVisible() && vis.width > 0.0f && vis.Contains(Mouse()) && input_->MousePressed(1)) {
@@ -3350,6 +3402,11 @@ void UISystem::CommitAutoNode(int idx, const Rect &parent_bounds, bool overlay_p
             }
         }
         emit_audit("panel", node.key);
+    } else if (!node.align_group_ids.empty() &&
+               (node.kind == AutoNode::Kind::Root || node.kind == AutoNode::Kind::AnchorRoot)) {
+        // Explicit alignment constraints describe geometry, even for a
+        // transparent container with no panel paint to emit an audit record.
+        emit_audit("auto box", node.key);
     }
     if (renderer_) {
         for (const auto &cmd : node.custom_cmds) {
@@ -3595,6 +3652,25 @@ void UISystem::CommitAutoNode(int idx, const Rect &parent_bounds, bool overlay_p
         register_focus(false, true);
         auto &st = widgets_[node.key];
         const bool hov = st.hover || (vis.width > 0 && vis.Contains(Mouse()) && CanInteract() && MouseVisible());
+        // A newly submitted immediate slider has no previous-frame geometry.
+        // Its solved rectangle is now available: retain the initial press so
+        // next frame's normal drag path sees the original thumb grab offset.
+        // Recording/deferred frames process input in ResolveDeferredAutoNodes.
+        if (!recording_ && !prev_solved_widgets_.contains(node.key) &&
+            !node.disabled && input_ && CanInteract() && hov &&
+            (modal_.empty() || modal_ == node.modal_id) &&
+            (popup_.empty() || popup_ == node.popup_id) &&
+            node.max_val > node.min_val && input_->MousePressed(0)) {
+            const float thumb_w = r.height * 0.6f;
+            const float range_px = std::max(1.0f, r.width - thumb_w);
+            const float t = (node.val - node.min_val) / (node.max_val - node.min_val);
+            const Rect thumb{r.x + t * range_px, r.y, thumb_w, r.height};
+            st.grab = thumb.Contains(Mouse()) ? Mouse().x - thumb.x : thumb_w * 0.5f;
+            st.dragging = st.pressed = true;
+            nav_focus_ = node.key;
+            pointer_over_ = true;
+            ++click_count_;
+        }
         if (hov && !node.disabled && desired_cursor_shape_ == 0) desired_cursor_shape_ = 3;
         StepWidgetTransition(st, hov, st.dragging, nav_focus_ == node.key);
         DrawSliderVisual(r, node.val, node.min_val, node.max_val, hov, st.dragging,
@@ -3664,7 +3740,7 @@ void UISystem::CommitAutoNode(int idx, const Rect &parent_bounds, bool overlay_p
         emit_audit("text_area", node.key);
         register_focus(true, false);
         if (!node.disabled && vis.width > 0 && vis.Contains(Mouse()) && MouseVisible()) desired_cursor_shape_ = 1;
-        EditText(node.key, r, node.max_chars, true, false, true, !recording_,
+        EditText(node.key, r, node.max_chars, true, false, true, !recording_ && !node.input_processed,
                  node.placeholder, node.radius, node.alpha_mul);
         break;
     }
@@ -3713,7 +3789,7 @@ void UISystem::CommitAutoNode(int idx, const Rect &parent_bounds, bool overlay_p
     }
     case AutoNode::Kind::RichText: {
         emit_audit("rich text", node.key);
-        DrawRichTextSolved(node, r, clip);
+        DrawRichTextSolved(node, r, clip, true, !node.input_processed);
         break;
     }
     case AutoNode::Kind::ListViewSlot: {

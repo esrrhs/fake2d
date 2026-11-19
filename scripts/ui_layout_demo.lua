@@ -84,7 +84,7 @@ local function update_body(dt)
             ui_table_row_end()
         ui_table_end()
         -- The same scroll ID grows, then shrinks, including while scrolled.
-        ui_scroll("dynamic", "grow")
+        ui_scroll("dynamic", 106)
             ui_text(paragraph, 0.6)
             if S.stage == 1 then ui_text(long, 0.6) ui_text(long, 0.6) end
         ui_scroll_end()
@@ -97,6 +97,8 @@ function update(dt)
     ui_begin()
     local result = update_body(dt)
     ui_end()
+    -- Deferred geometry is available only after ui_end solves this frame.
+    S.child_h = ui_named("dyn_child", "h")
     ui_root_begin(34, 550, S.width - 20, "auto", 0, false)
         ui_vstack(2, 0, "stretch")
         ui_text("scroll h=" .. string.format("%.1f", ui_scroll_content_h("dynamic")) .. " offset=" .. string.format("%.1f", ui_scroll_offset("dynamic")), 0.42)

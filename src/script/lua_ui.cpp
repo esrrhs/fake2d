@@ -696,9 +696,9 @@ void RegisterLayoutUILuaApi(LS *s, LuaUIHost *host) {
         });
     RegVar(s, host, "ui_checkbox", 2, [ui_sys](LS *st, CVar *a, int n) -> bool {
         auto *u = ui_sys();
-        if (!u) return false;
-        const std::string key = ArgStr(st, a, n, 0);
         const bool v = ArgBool(st, a, n, 1);
+        if (!u) return v;
+        const std::string key = ArgStr(st, a, n, 0);
         const std::string lbl = n > 2 ? ArgStr(st, a, n, 2) : std::string{};
         const float sc = n > 3 ? static_cast<float>(ArgNum(st, a, n, 3)) : 0.0f;
         return u->Checkbox(key, v, lbl, sc);

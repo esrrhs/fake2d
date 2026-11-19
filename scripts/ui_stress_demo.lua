@@ -88,6 +88,10 @@ function update(dt)
         ui_modal_end()
     end
     ui_end()
+    -- Observe this state after the deferred layout has been solved, not the
+    -- preceding state's cached rectangle.
+    S.auto_h = ui_named("stress_auto_card", "h")
+    S.follows_y = ui_widget_rect("follows", "y")
     if S.last_state ~= S.step then
         S.last_state = S.step
         log_number(S.auto_h) log_number(ui_scroll_content_h("dynamic-stress")) log_number(ui_scroll_offset("dynamic-stress"))

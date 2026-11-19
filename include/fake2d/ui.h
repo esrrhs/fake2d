@@ -807,6 +807,7 @@ class UISystem {
         bool use_screen_origin = false;
         bool has_clip_override = false;
         bool defer_commit = false;
+        bool input_processed = false; // immediate text interaction already resolved from prior geometry
         Rect clip_override{};
         bool draw_panel = false, themed_panel = false;
         bool has_bg = false, has_border = false, has_shadow = false;
@@ -945,7 +946,8 @@ class UISystem {
     bool AutoTextArea(std::string_view key, UISize h_spec, std::size_t max_chars);
     bool AutoTextPassword(std::string_view key, UISize h_spec, std::size_t max_chars);
     float MeasureRichTextHeight(std::string_view markup, float scale, float avail_w);
-    void DrawRichTextSolved(const AutoNode &node, const Rect &r, const Rect &clip);
+    void DrawRichTextSolved(const AutoNode &node, const Rect &r, const Rect &clip,
+                            bool allow_draw = true, bool allow_input = true);
 
     void ResolveDeepestWheel(int root_idx);
     void ResolveDeferredAutoWidgets();
