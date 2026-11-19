@@ -43,7 +43,7 @@ Fake2D 不仅是渲染器，更是一套自洽完备的 2D 游戏开发平台：
 - **多趟后处理与 FBO**：离屏渲染目标（RenderTarget）、Ping-Pong 缓冲交换、Bloom 辉光、可分离 9 抽头高斯模糊、波浪扭曲特效、战争迷雾（Fog of War）以及全景小地图烘焙；
 - **实时 2D 光照与投影阴影**：点光源带径向柔和衰减，每个遮挡物向外投影硬阴影，光源移动时阴影随之扫过场景。整个通道只用一张生成的衰减贴图与一次 Multiply 混合，并按混合状态合批——64 个运动光照打满 256 个遮挡物槽位仍是 4 个 Draw Call、0.7 ms。遮挡物支持矩形、多边形与实时物理刚体，每道阴影都被约束在自己的光照圆内，每帧阴影四边形预算兜住最坏情况；
 - **2D 骨骼动画**：骨骼层级由关键帧剪辑驱动，一套走路循环是一串角度而不是两百张图。骨架从 JSON 载入（bones / slots / attachments / skins / clips 的 Spine 风格结构），逐通道线性或阶梯插值，交叉淡入淡出时旧剪辑仍在底层继续播放，时间轴事件跨过循环接缝也能命中当帧，并支持双臂两骨 IK 与指向 IK。代价是量出来的：一张图集上的 12 个部件只需 1 个 Draw Call，12 个士兵加起来仍是 1 个；
-- **即时模式 UI（Immediate-Mode UI）**：开箱即用的 UI 控件库（Panel、Button、盒内 Text、Slider、Checkbox、TextInput、ScrollArea、ProgressBar、RadioButton、Combo、可拖拽 Window、Tab 标签页、Tree 折叠树、Tooltip）。 **1.47.0 统一切换盒模型 API（破坏性变更）**：光标排版、同帧固定/弹性列、滚动高度自动测量、嵌套裁剪求交、文字/控件统一审计与共享布局常量。**1.48.0 新增**：内容自适应盒、约束/流式/网格/分隔条、参考分辨率/关系、主题/九宫格、富文本/选区剪贴板、多行输入、禁用态/图片/模态菜单、键盘手柄焦点、虚拟列表、代码驱动动画和分页；**1.49.0 新增**：显式同帧布局/交互边界（不会重跑调用方）、按稳定 ID 缓存高度和保持锚点的变高虚拟列表、真实 UI 性能基准、带种子的动态压力测试、撤销重做、拖选/双击词选和密码输入；**1.50.0 新增**：富文本按样式/行批处理与复杂度门槛、预算内文本行预测量、未包帧调用限频诊断；不含可视化编辑器，GLFW 预编辑预览仍不支持。详见 [迁移/API](docs/SCRIPTING.md#ui)。
+- **即时模式 UI（Immediate-Mode UI）**：开箱即用的 UI 控件库（Panel、Card、Button、盒内 Text、Slider、Checkbox、TextInput/TextArea、ScrollArea、ProgressBar、RadioButton、Combo、可拖拽 Window、Tab 标签页、Tree 折叠树、Table、Grid、Menu、Tooltip）。 **1.47.0 统一切换盒模型 API（破坏性变更）**：光标排版、同帧固定/弹性列、滚动高度自动测量、嵌套裁剪求交、文字/控件统一审计与共享布局常量。**1.48.0 新增**：内容自适应盒、约束/流式/网格/分隔条、参考分辨率/关系、主题/九宫格、富文本/选区剪贴板、多行输入、禁用态/图片/模态菜单、键盘手柄焦点、虚拟列表、代码驱动动画和分页；**1.49.0 新增**：显式同帧布局/交互边界（不会重跑调用方）、按稳定 ID 缓存高度和保持锚点的变高虚拟列表、真实 UI 性能基准、带种子的动态压力测试、撤销重做、拖选/双击词选和密码输入；**1.50.0 新增**：富文本按样式/行批处理与复杂度门槛、预算内文本行预测量、未包帧调用限频诊断；**1.56.0 全面升级为三阶段两遍自动布局引擎（`Measure -> Arrange -> Commit`）**：支持 Flexbox（`VStack`/`HStack`、`Grow`/`Shrink`/`SpaceBetween`/`Baseline`）、2D 网格与表格、`ZStack`/`Overlay`/`AnchorTo`、SDF 圆角裁切、渐变、阴影、毛玻璃背景模糊、2D 滚动、子树布局缓存、跨容器拖拽、原生 Cocoa/Win32 输入法预编辑与候选窗定位、无障碍语义树（`SemanticTree`）及 `UITestDriver`。详见 [迁移/API](docs/SCRIPTING.md#ui)。
 - **文本与平台能力层**：UTF-8 按需字形图集（原生支持 CJK/日文/韩文，`font_load` 可载入任意 TTF/TTC/OTF，缺字自动回退字体）、中文逐字换行与英文按词换行（含禁则与 kerning）、旋转/阴影/描边/自动缩字、运行时切换的 TSV 语言包（BOM 兼容、缺 key 报告、printf 格式串校验）、跨平台资源/用户目录、带 CRC 与 `.bak` 回滚的 v2 存档容器、实体快照存读、文件日志与崩溃报告、离线成就镜像、`mod.json` 模组管理器，以及可选 Steamworks 适配层（成就 / Rich Presence / 语言 / 云存档开关，未链接 SDK 时自动降级为零依赖 stub）。
 - **玩法基础工具**：确定性 splitmix64 随机数、命名缓动曲线与帧率无关的 `Approach`、可重绑的输入动作映射、窗口尺寸/resizable/最小尺寸/光标控制、音频 pitch/循环/停止，以及运行时 FPS / 帧耗时 / draw call 统计。
 - **2.5D 清版动作套件**：全局游戏时间缩放 + 命中停顿 `time_set_scale`/`time_hitstop`（脚本、物理、动画、粒子一起定格）；每个实体 16 个数值 + 4 个字符串槽、最多 512 个实体，足以承载完整角色阵容；动画剪辑池扩至 128；配合 `draw_set_z` + `batch_set_sorted` 实现深度正确的横版 y 排序。
@@ -385,15 +385,16 @@ function update(dt)
     -- 绘制玩家色块矩形或精灵
     draw_quad(player_x - 16, player_y - 16, 32, 32, 60, 180, 255, 255)
     
-    -- 绘制即时模式 UI
+    -- 绘制即时模式 UI（Two-Pass 自动布局）
     ui_begin()
-    ui_push(20, 20, 220, 40)
+    ui_root_begin(20, 20, 220, "auto", 8, true)
     ui_panel(0.1, 0.12, 0.18, 1)
     ui_text("SCORE: 1200", 1.0, "ellipsis")
-    ui_pop()
-    ui_push(camera_viewport_w() - 110, 10, 100, 32)
-    ui_button("btn_pause", 32, "PAUSE")
-    ui_pop()
+    ui_root_end()
+    ui_root_begin(camera_viewport_w() - 110, 10, 100, "auto", 0, false)
+    ui_next_height(32)
+    ui_button("btn_pause", "PAUSE")
+    ui_root_end()
     ui_end()
     if ui_clicked("btn_pause") then
         -- 处理暂停逻辑

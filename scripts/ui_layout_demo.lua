@@ -56,6 +56,7 @@ local function update_body(dt)
     end
     ui_root_begin(24, 18, width, 580, 10, true)
         ui_panel()
+        ui_next_height("grow")
         ui_vstack(6, 0, "stretch")
         ui_text("DYNAMIC TEXT / Two-Pass", 0.75)
         ui_text("SPACE auto | N text | L language | D digits | W width | R resize | A audit", 0.4)
@@ -63,10 +64,7 @@ local function update_body(dt)
             ui_remember_box("dyn_child")
             ui_text(paragraph, 0.62)
         ui_card_end()
-        local child_h = ui_named("dyn_child", "h")
-        S.child_h = child_h
-        S.width = width
-        ui_text("Following sibling: child h=" .. string.format("%.1f", child_h), 0.45)
+        ui_text("Following sibling: child h=" .. string.format("%.1f", S.child_h or 0), 0.45)
         ui_table_begin("dyn_tbl", 8, 4, 140, "grow", "grow")
             ui_table_row("start")
                 ui_cell()
@@ -90,6 +88,8 @@ local function update_body(dt)
         ui_scroll_end()
         ui_vstack_end()
     ui_root_end()
+    S.child_h = ui_named("dyn_child", "h")
+    S.width = width
     return 0
 end
 

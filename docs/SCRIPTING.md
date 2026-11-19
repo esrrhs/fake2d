@@ -1851,22 +1851,27 @@ to height. Use fixed-row or 1.49 variable-row List APIs below for virtualization
 function update(dt)
     ui_begin()
     local w = math.min(ui_layout_token("panel_width"), camera_viewport_w() - 40)
-    ui_push(20, 20, w, 460, 12)
+    ui_root_begin(20, 20, w, 460, 12, true)
         ui_panel(0.10, 0.12, 0.18, 1)
-        ui_text("能吏抚恤百姓，长句自动换行并推动下一行。")
-        ui_row(8, 120, -1, -1)
-            ui_col() ui_text("江南长名称货物") ui_col_end()
-            ui_col() ui_text("现价(时价偏离)", 0.6, "ellipsis") ui_col_end()
-            ui_col() ui_text("产出涌入", 0.6, "ellipsis") ui_col_end()
-        ui_row_end()
-        ui_scroll_begin("list", 240)
-            local i = 0 + 0
-            while i < 24 do
-                ui_text("row " .. string.format("%d", i + 1))
-                i = i + 1
-            end
-        ui_scroll_end()
-    ui_pop()
+        ui_next_height("grow")
+        ui_vstack(8, 0, "stretch")
+            ui_text("能吏抚恤百姓，长句自动换行并推动下一行。")
+            ui_table_begin("goods_tbl", 8, 4, 120, "grow", "grow")
+                ui_table_row("center")
+                    ui_cell() ui_text("江南长名称货物") ui_cell_end()
+                    ui_cell() ui_text("现价(时价偏离)", 0.6, "ellipsis") ui_cell_end()
+                    ui_cell() ui_text("产出涌入", 0.6, "ellipsis") ui_cell_end()
+                ui_table_row_end()
+            ui_table_end()
+            ui_scroll("list", 240)
+                local i = 0 + 0
+                while i < 24 do
+                    ui_text("row " .. string.format("%d", i + 1))
+                    i = i + 1
+                end
+            ui_scroll_end()
+        ui_vstack_end()
+    ui_root_end()
     ui_end()
     return 0
 end
@@ -2084,10 +2089,13 @@ function update(dt)
         ui_vlist_configure("log", "stable-a,stable-b,stable-c", 32, "data-v1")
     end
     ui_begin()
-    ui_push(20, 20, 400, 240, 8)
-        ui_button("clear", 28, "Clear selection")
-        ui_list_view("log", 180)
-    ui_pop()
+    ui_root_begin(20, 20, 400, 240, 8, true)
+        ui_vstack(6, 0, "stretch")
+            ui_next_height(28)
+            ui_button("clear", "Clear selection")
+            ui_list_view("log", 180)
+        ui_vstack_end()
+    ui_root_end()
     ui_layout_end()
     if ui_list_view_begin("log") then
         ui_vlist_begin("log", 180)
@@ -2095,7 +2103,8 @@ function update(dt)
         while row >= 0 do
             local id = ui_vlist_id("log", row)
             ui_text("田亩 / variable wrapped text for " .. id)
-            ui_button("select/" .. id, 24, id)
+            ui_next_height(24)
+            ui_button("select/" .. id, id)
             ui_vlist_row_end()
             row = ui_vlist_next()
         end

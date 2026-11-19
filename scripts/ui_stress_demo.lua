@@ -81,6 +81,8 @@ function update(dt)
         ui_text("Current state: " .. string.format("%d", S.step % 3) .. " (short / long / short)", 0.45)
         ui_vstack_end()
     ui_root_end()
+    S.auto_h = ui_named("stress_auto_card", "h")
+    S.follows_y = ui_widget_rect("follows", "y")
     if ui_modal_begin("stress-dialog", 340, "auto") then
         ui_text("Modal declared after all controls", 0.6)
         ui_text("Only this dialog receives current-frame focus/input.", 0.45)
