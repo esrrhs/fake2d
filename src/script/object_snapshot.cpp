@@ -25,6 +25,16 @@ constexpr unsigned kDeltaMaxPerMonth = 31;
 struct VersionMark {
     std::uint64_t version = 0;
     std::uint64_t gen = 0;
+    bool has_table = false;
+    std::vector<NObj *> children;
+};
+
+struct ObjSnapEntry {
+    std::uint64_t own_version = 0;
+    std::uint64_t check_gen = 0;
+    bool check_ok = false;
+    std::string bytes;
+    std::vector<NObj *> children;
 };
 
 struct SnapOut {
@@ -94,8 +104,36 @@ bool is_transient_key(const ObjectSnapshotChain::Schema &schema, std::string_vie
 void write_obj(NObj *o, SnapOut &out, const ObjectSnapshotChain::Schema &schema, bool full,
                std::size_t depth, std::int64_t id_shift);
 
-void write_fields(NObj *o, SnapOut &out, const ObjectSnapshotChain::Schema &schema, bool full,
-                  std::size_t depth, std::int64_t id_shift) {
+bool cache_entry_valid(NObj *o, std::unordered_map<NObj *, ObjSnapEntry> &cache,
+                       std::uint64_t check_gen, std::size_t depth = 0) {
+    if (!o) return true;
+    if (depth > 64) return false;
+    auto it = cache.find(o);
+    if (it == cache.end()) return false;
+    ObjSnapEntry &e = it->second;
+    if (e.check_gen == check_gen) return e.check_ok;
+    bool ok = (o->GetVersion() == e.own_version);
+    if (ok) {
+        for (NObj *c : e.children) {
+            if (!cache_entry_valid(c, cache, check_gen, depth + 1)) {
+                ok = false;
+                break;
+            }
+        }
+    }
+    e.check_gen = check_gen;
+    e.check_ok = ok;
+    return ok;
+}
+
+void write_obj_cached(NObj *o, SnapOut &out, const ObjectSnapshotChain::Schema &schema,
+                      std::unordered_map<NObj *, ObjSnapEntry> &cache,
+                      std::uint64_t check_gen, std::size_t depth);
+
+void write_fields_impl(NObj *o, SnapOut &out, const ObjectSnapshotChain::Schema &schema, bool full,
+                       std::size_t depth, std::int64_t id_shift,
+                       std::unordered_map<NObj *, ObjSnapEntry> *cache, std::uint64_t check_gen,
+                       std::vector<NObj *> *out_children) {
     auto &fs = out.scratch_at(depth);
     const std::string_view tname = o->GetTypeName();
     o->ForEach([&](std::string_view key, NObj::FieldKind k) {
@@ -121,7 +159,13 @@ void write_fields(NObj *o, SnapOut &out, const ObjectSnapshotChain::Schema &sche
             case NObj::FieldKind::Float: out.f64(o->GetFloat(key)); break;
             case NObj::FieldKind::Bool: out.u8(o->GetBool(key) ? 1 : 0); break;
             case NObj::FieldKind::String: out.str(o->GetString(key)); break;
-            case NObj::FieldKind::Object: write_obj(o->GetObject(key), out, schema, full, depth + 1, id_shift); break;
+            case NObj::FieldKind::Object: {
+                NObj *child = o->GetObject(key);
+                if (out_children && child) out_children->push_back(child);
+                if (cache) write_obj_cached(child, out, schema, *cache, check_gen, depth + 1);
+                else write_obj(child, out, schema, full, depth + 1, id_shift);
+                break;
+            }
             default: break;
         }
     }
@@ -137,7 +181,36 @@ void write_obj(NObj *o, SnapOut &out, const ObjectSnapshotChain::Schema &schema,
     }
     out.str(o->GetTypeName());
     out.i64(o->GetId() - id_shift);
-    write_fields(o, out, schema, full, depth, id_shift);
+    write_fields_impl(o, out, schema, full, depth, id_shift, nullptr, 0, nullptr);
+}
+
+void write_obj_cached(NObj *o, SnapOut &out, const ObjectSnapshotChain::Schema &schema,
+                      std::unordered_map<NObj *, ObjSnapEntry> &cache,
+                      std::uint64_t check_gen, std::size_t depth) {
+    if (!o) {
+        out.str({});
+        out.i64(0);
+        out.u32(0);
+        return;
+    }
+    if (depth <= 64 && cache_entry_valid(o, cache, check_gen, depth)) {
+        const auto &cached = cache.find(o)->second.bytes;
+        out.b.append(cached.data(), cached.size());
+        return;
+    }
+    const std::size_t start_pos = out.b.size();
+    out.str(o->GetTypeName());
+    out.i64(o->GetId());
+    std::vector<NObj *> kids;
+    write_fields_impl(o, out, schema, false, depth, 0, &cache, check_gen, &kids);
+    if (depth <= 64) {
+        ObjSnapEntry &e = cache[o];
+        e.own_version = o->GetVersion();
+        e.check_gen = check_gen;
+        e.check_ok = true;
+        e.children = std::move(kids);
+        e.bytes.assign(out.b.data() + start_pos, out.b.size() - start_pos);
+    }
 }
 
 void clear_recursive(NObj *o) {
@@ -217,15 +290,21 @@ OwnedSet capture_set(const ObjectSnapshotChain::View &view) {
 
 void write_body(SnapOut &out, const ObjectSnapshotChain::Schema &schema,
                 const ObjectSnapshotChain::View &view, const OwnedSet &set,
-                bool full, std::int64_t id_shift) {
-    write_obj(set.root, out, schema, full, 0, id_shift);
+                bool full, std::int64_t id_shift,
+                std::unordered_map<NObj *, ObjSnapEntry> *cache = nullptr,
+                std::uint64_t check_gen = 0) {
+    auto emit = [&](NObj *o) {
+        if (cache && !full && id_shift == 0) write_obj_cached(o, out, schema, *cache, check_gen, 0);
+        else write_obj(o, out, schema, full, 0, id_shift);
+    };
+    emit(set.root);
     for (std::size_t i = 0; i < view.lists.size(); ++i) {
         if (!view.lists[i].persistent) {
             out.u32(0);
             continue;
         }
         out.u32(static_cast<std::uint32_t>(set.lists[i].size()));
-        for (NObj *o : set.lists[i]) write_obj(o, out, schema, full, 0, id_shift);
+        for (NObj *o : set.lists[i]) emit(o);
     }
     out.i64(set.next_id);
 }
@@ -254,25 +333,33 @@ bool walk_dirty(NObj *o, std::unordered_map<NObj *, VersionMark> &marks, std::ui
                 bool commit, std::size_t &table_objs, std::size_t depth = 0) {
     if (!o) return false;
     if (depth > 64) return true;
-    bool dirty = false;
-    bool has_table = false;
     const std::uint64_t v = o->GetVersion();
     auto it = marks.find(o);
-    if (it == marks.end() || it->second.version != v) dirty = true;
-    if (commit) {
-        if (it == marks.end()) marks[o] = VersionMark{v, gen};
-        else { it->second.version = v; it->second.gen = gen; }
+    if (it != marks.end() && it->second.version == v) {
+        if (commit) it->second.gen = gen;
+        bool dirty = it->second.has_table;
+        if (it->second.has_table && commit) ++table_objs;
+        for (NObj *c : it->second.children) {
+            if (walk_dirty(c, marks, gen, commit, table_objs, depth + 1)) dirty = true;
+        }
+        return dirty;
     }
+    bool dirty = true;
+    bool has_table = false;
+    std::vector<NObj *> kids;
     o->ForEach([&](std::string_view key, NObj::FieldKind k) {
         if (k == NObj::FieldKind::Table) {
             has_table = true;
         } else if (k == NObj::FieldKind::Object) {
-            if (walk_dirty(o->GetObject(key), marks, gen, commit, table_objs, depth + 1)) dirty = true;
+            if (NObj *c = o->GetObject(key)) kids.push_back(c);
         }
     });
-    if (has_table) {
-        dirty = true;
-        if (commit) ++table_objs;
+    for (NObj *c : kids) {
+        walk_dirty(c, marks, gen, commit, table_objs, depth + 1);
+    }
+    if (has_table && commit) ++table_objs;
+    if (commit) {
+        marks[o] = VersionMark{v, gen, has_table, std::move(kids)};
     }
     return dirty;
 }
@@ -298,7 +385,8 @@ struct DeltaItems {
 };
 
 std::string encode_delta(const DeltaItems &items, const ObjectSnapshotChain::Schema &schema,
-                         std::int64_t next_id, std::int64_t elapsed) {
+                         std::int64_t next_id, std::int64_t elapsed,
+                         std::unordered_map<NObj *, ObjSnapEntry> &cache, std::uint64_t check_gen) {
     SnapOut out;
     out.u32(kDeltaMagic);
     out.u32(kDeltaFmt);
@@ -307,7 +395,7 @@ std::string encode_delta(const DeltaItems &items, const ObjectSnapshotChain::Sch
     out.u32(static_cast<std::uint32_t>(items.upserts.size()));
     for (const auto &[list, o] : items.upserts) {
         out.u8(list);
-        write_obj(o, out, schema, false, 0, 0);
+        write_obj_cached(o, out, schema, cache, check_gen, 0);
     }
     out.u32(static_cast<std::uint32_t>(items.deletes.size()));
     for (const auto &[list, id] : items.deletes) {
@@ -403,11 +491,20 @@ struct ObjectSnapshotChain::Impl {
     std::vector<std::string> deltas;
     std::size_t delta_bytes = 0;
     std::unordered_map<NObj *, VersionMark> versions;
+    mutable std::unordered_map<NObj *, ObjSnapEntry> obj_cache;
     std::uint64_t gen = 0;
+    mutable std::uint64_t cache_gen = 0;
     std::vector<std::vector<std::int64_t>> list_ids;
     std::int64_t next_id = 0;
     std::size_t table_objs = 0;
     mutable std::size_t reserve_bytes = 0;
+
+    void prune_cache() const {
+        for (auto it = obj_cache.begin(); it != obj_cache.end();) {
+            if (!versions.count(it->first)) it = obj_cache.erase(it);
+            else ++it;
+        }
+    }
 
     void refresh_baselines(const View &view, const OwnedSet &set, int y, int m, int d) {
         const auto pidx = persistent_indices(view);
@@ -422,11 +519,15 @@ struct ObjectSnapshotChain::Impl {
         }
         const std::uint64_t g = ++gen;
         std::size_t tables = 0;
-        versions.clear();
         walk_dirty(set.root, versions, g, true, tables);
         for (std::size_t k = 0; k < pidx.size(); ++k) {
             for (NObj *o : set.lists[pidx[k]]) walk_dirty(o, versions, g, true, tables);
         }
+        for (auto it = versions.begin(); it != versions.end();) {
+            if (it->second.gen != g) it = versions.erase(it);
+            else ++it;
+        }
+        prune_cache();
         table_objs = tables;
     }
 };
@@ -448,7 +549,11 @@ std::string ObjectSnapshotChain::SnapshotFull(void *lua_state, const Schema &sch
     out.reserve(impl_->reserve_bytes);
     out.b.append(schema.magic, 4);
     out.u32(1);
-    write_body(out, schema, view, set, include_transients, 0);
+    if (!include_transients) {
+        write_body(out, schema, view, set, false, 0, &impl_->obj_cache, ++impl_->cache_gen);
+    } else {
+        write_body(out, schema, view, set, true, 0);
+    }
     impl_->reserve_bytes = std::max(impl_->reserve_bytes, out.b.size());
     return out.b;
 }
@@ -458,7 +563,7 @@ bool ObjectSnapshotChain::Reset(void *lua_state, const Schema &schema, const Vie
     const OwnedSet set = capture_set(view);
     SnapOut out;
     out.reserve(impl_->reserve_bytes);
-    write_body(out, schema, view, set, false, 0);
+    write_body(out, schema, view, set, false, 0, &impl_->obj_cache, ++impl_->cache_gen);
     impl_->reserve_bytes = std::max(impl_->reserve_bytes, out.b.size());
     impl_->anchor_body = std::move(out.b);
     impl_->deltas.clear();
@@ -516,9 +621,10 @@ bool ObjectSnapshotChain::CatchUp(void *lua_state, const Schema &schema, const V
         if (it->second.gen != g) it = impl_->versions.erase(it);
         else ++it;
     }
+    impl_->prune_cache();
     impl_->table_objs = tables;
     impl_->next_id = set.next_id;
-    std::string body = encode_delta(items, schema, set.next_id, elapsed);
+    std::string body = encode_delta(items, schema, set.next_id, elapsed, impl_->obj_cache, ++impl_->cache_gen);
     impl_->delta_bytes += body.size();
     impl_->deltas.push_back(std::move(body));
     if (!schema.stats_env.empty() && std::getenv(schema.stats_env.c_str())) {
@@ -596,7 +702,7 @@ std::string ObjectSnapshotChain::SnapshotForSave(void *lua_state, const Schema &
             items.listops.emplace_back(static_cast<std::uint8_t>(k + 1), ids);
         }
     }
-    const std::string now = encode_delta(items, schema, set.next_id, elapsed);
+    const std::string now = encode_delta(items, schema, set.next_id, elapsed, impl_->obj_cache, ++impl_->cache_gen);
     SnapOut out;
     auto put_block = [&](const std::string &blk) {
         out.u32(static_cast<std::uint32_t>(blk.size()));
@@ -621,6 +727,8 @@ bool ObjectSnapshotChain::Restore(void *lua_state, const Schema &schema, View &v
     auto &mgr = fakelua::GetNativeObjectManager(s);
 
     auto install = [&](const std::string &body) -> bool {
+        impl_->versions.clear();
+        impl_->obj_cache.clear();
         if (*view.group) mgr.DestroyGroup(*view.group);
         if (mgr.GlobalGet(schema.root_global)) mgr.GlobalDestroy(schema.root_global);
         *view.root = nullptr;
