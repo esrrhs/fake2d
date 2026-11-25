@@ -197,7 +197,20 @@ protected:
         if(job_.value("script_errors",false))EXPECT_FALSE(std::regex_search(log,std::regex("syntax error|CompileFile.*failed|update\\(\\) failed")))<<log;
         if(job_.contains("forbidden_literals"))for(auto &value:job_["forbidden_literals"]){auto s=value.get<std::string>();EXPECT_EQ(log.find(s),std::string::npos)<<"forbidden literal "<<s<<"\n"<<log;}
         if(job_.contains("contains"))for(auto &value:job_["contains"]){auto s=value.get<std::string>();EXPECT_NE(log.find(s),std::string::npos)<<"missing marker "<<s<<"\n"<<log;}
-        if(job_.contains("forbids"))for(auto &value:job_["forbids"]){auto s=value.get<std::string>();EXPECT_FALSE(std::regex_search(log,std::regex(s)))<<"forbidden regex "<<s<<"\n"<<log;}
+        if(job_.contains("forbids"))for(auto &value:job_["forbids"]){
+            const auto s=value.get<std::string>();
+            SCOPED_TRACE("forbidden regex "+s);
+            const std::regex pattern(s);
+            // Examples come from the same declarative case as the real log
+            // predicate: exercise parsing and positive/negative semantics on
+            // every CI standard library, without substituting the demo check.
+            for(const auto &example:job_.value("forbid_examples",Json::array())){
+                const auto text=example.at(0).get<std::string>();
+                EXPECT_EQ(std::regex_search(text,pattern),example.at(1).get<bool>())
+                    <<"example: "<<text;
+            }
+            EXPECT_FALSE(std::regex_search(log,pattern))<<"forbidden regex "<<s<<"\n"<<log;
+        }
         if(job_.contains("screenshot") && !job_["screenshot"].is_null()){
             auto shot=Utf8(job_["screenshot"].get<std::string>());if(shot.is_relative())shot=Utf8(FAKE2D_SOURCE_ROOT)/shot;
             ASSERT_TRUE(fs::is_regular_file(shot))<<shot;EXPECT_GT(fs::file_size(shot),0u)<<shot;

@@ -46,7 +46,8 @@ def gpu_cases(hello, jobs):
     return [case('GpuSmoke', item['label'],
                  hello.with_name('fake2d_benchmarks' + hello.suffix) if item['benchmark'] else hello,
                  item['args'], screenshot=item['screenshot'],
-                 contains=item['contains'], forbids=item['forbids'], script_errors=True)
+                 contains=item['contains'], forbids=item['forbids'],
+                 forbid_examples=item.get('forbid_examples', []), script_errors=True)
             for item in jobs]
 
 

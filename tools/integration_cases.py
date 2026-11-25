@@ -1,7 +1,8 @@
 """Declarative existing workloads; assertions belong to native Google Test."""
 def job(label: str, args: list[str], screenshot: str | None = None,
         contains: list[str] | None = None,
-        forbids: list[str] | None = None, benchmark: bool = False) -> dict:
+        forbids: list[str] | None = None, benchmark: bool = False,
+        forbid_examples: list[tuple[str, bool]] | None = None) -> dict:
     return {
         "label": label,
         "benchmark": benchmark,
@@ -9,6 +10,7 @@ def job(label: str, args: list[str], screenshot: str | None = None,
         "screenshot": screenshot,
         "contains": contains or [],
         "forbids": forbids or [],
+        "forbid_examples": forbid_examples or [],
     }
 
 
@@ -41,7 +43,19 @@ CORE_JOBS = [
     job("phys-lua", ["--headless", "--fixed-sim-dt", "--frames", "200",
                      "--entry", "scripts/phys_test.lua"],
         contains=["[script] 0"],
-        forbids=[r"\[script] (10[0-9][0-9]|200[0-9])"]),
+        # Escape both literal brackets: libc++ ECMAScript rejects a bare ']'.
+        # Keep the old Python search semantics, including unanchored/prefix hits.
+        forbids=[r"\[script\] (10[0-9][0-9]|200[0-9])"],
+        forbid_examples=[
+            ("[script] 1000", True), ("[script] 1099", True),
+            ("[script] 2000", True), ("[script] 2009", True),
+            ("prefix [script] 1001\n", True), ("[script] 10000", True),
+            ("[script] 20090", True),
+            ("", False), ("[script] 0", False), ("[script] 999", False),
+            ("[script] 1100", False), ("[script] 1999", False),
+            ("[script] 2010", False), ("[scripts] 1000", False),
+            ("[script]\n1000", False), ("[script] -1000", False),
+        ]),
 ]
 
 # macOS/Windows do not run the long Linux milestone gates; keep a JIT compile
