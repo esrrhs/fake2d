@@ -183,19 +183,13 @@ function log_number(v)
     fix_rec(v)
 end
 
-local function fix_has(code)
-    if fix_tget(fix_seen, code) == 1 then return true end
-    return false
-end
-
-local function fix_in_range(lo, hi)
+-- Raw observations only. Google Test owns presence/range/absence predicates.
+function fix_emit_codes()
     local i = 1
     while i <= fix_nlog do
-        local v = fix_tget(fix_logs, i)
-        if v >= lo and v <= hi then return true end
+        print("FIX_CODE " .. string.format("%.17g", fix_tget(fix_logs, i)))
         i = i + 1
     end
-    return false
 end
 
 -- ---------------------------------------------------------------- map
@@ -651,37 +645,6 @@ TAIL = '''-- AUTO-GENERATED driver tail. Scenario selected by FIX_SCENARIO.
 -- (and its tuned frame counts) was built against. The game body exposes its
 -- per-frame step as fix_game_step(dt); the runner does the rename.
 
-local function fix_expect(code, label, fails)
-    if fix_has(code) then
-        print("PASS " .. label)
-    else
-        print("FAIL " .. label .. " (missing " .. string.format("%d", code) .. ")")
-        fails = fails + 1
-    end
-    return fails
-end
-
-local function fix_expect_range(lo, hi, label, fails)
-    if fix_in_range(lo, hi) then
-        print("PASS " .. label)
-    else
-        print("FAIL " .. label .. " (no code in " .. string.format("%d", lo)
-              .. ".." .. string.format("%d", hi) .. ")")
-        fails = fails + 1
-    end
-    return fails
-end
-
-local function fix_forbid(code, label, fails)
-    if fix_has(code) then
-        print("FAIL " .. label .. " (unexpected " .. string.format("%d", code) .. ")")
-        fails = fails + 1
-    else
-        print("PASS " .. label)
-    end
-    return fails
-end
-
 local FSX = get_global_obj("fixtures")
 
 -- Split into helpers so no single function grows near the interpreter's
@@ -695,51 +658,6 @@ local function fix_run_frames()
     return 0
 end
 
-local function fix_assert()
-    local sc = fix_scenario_get()
-    if sc == nil then sc = "platformer_smoke" end
-    local fails = 0
-    if sc == "mario_smoke" then
-        fails = fix_expect(900112, "mario: map loads 112 cols", fails)
-        fails = fix_expect(900207, "mario: 7 goombas read from spawns object layer", fails)
-        fails = fix_expect(201001, "mario: mode stays PLAY", fails)
-        fails = fix_expect(204080, "mario: idle player holds spawn px=80", fails)
-        fails = fix_forbid(300010, "mario: no goomba death", fails)
-        fails = fix_forbid(300011, "mario: no pit death", fails)
-        fails = fix_forbid(300012, "mario: no timeout death", fails)
-    elseif sc == "mario_death" then
-        fails = fix_expect(300004, "mario: death sequence finished", fails)
-        fails = fix_expect(301002, "mario: one life spent (lives=2)", fails)
-    elseif sc == "mario_win" then
-        fails = fix_expect(300005, "mario: pole touch starts win", fails)
-        fails = fix_expect(300021, "mario: slide reaches ground", fails)
-        fails = fix_expect(300022, "mario: walk reaches castle -> clear", fails)
-        fails = fix_expect_range(300023, 304000, "mario: time bonus banked", fails)
-    elseif sc == "mario_die3" then
-        fails = fix_expect(301000, "mario: third death reaches GAME OVER", fails)
-        fails = fix_expect(840000, "mario: reopen restores lives/score/tiles/goombas", fails)
-    elseif sc == "mario_phys" then
-        fails = fix_expect_range(820000, 820999, "mario PHYS: walk plateau ~150", fails)
-        fails = fix_expect_range(821000, 821999, "mario PHYS: full-hop apex ~130px", fails)
-        fails = fix_expect_range(822000, 822999, "mario PHYS: run plateau ~235", fails)
-    elseif sc == "mario_blocks" then
-        fails = fix_expect(830001, "mario BLOCKS: ? block becomes USED", fails)
-        fails = fix_expect(830002, "mario BLOCKS: USED block does not retrigger", fails)
-        fails = fix_expect(830003, "mario BLOCKS: mid block spawns mushroom", fails)
-        fails = fix_expect(830004, "mario BLOCKS: mushroom grows player", fails)
-        fails = fix_expect(830007, "mario BLOCKS: bonk kills goomba above", fails)
-        fails = fix_expect(830005, "mario BLOCKS: big form breaks brick", fails)
-        fails = fix_expect_range(830006, 830106, "mario BLOCKS: bump offset anim played", fails)
-    elseif sc == "slope_smoke" then
-        fails = fix_expect(900001, "slope: lab initializes", fails)
-        fails = fix_expect_range(900000, 900099, "slope: feet trace logs", fails)
-    else
-        print("PASS platformer: " .. string.format("%d", FSX.frames) .. " frames ran clean")
-    end
-
-    print("FAILURES " .. string.format("%d", fails))
-    return fails
-end
 
 function init()
     fix_boot()
@@ -748,7 +666,9 @@ function init()
     local fr = os.getenv("FIX_FRAMES")
     if fr ~= nil then FSX.frames = tonumber(fr) end
     fix_run_frames()
-    return fix_assert()
+    fix_emit_codes()
+    print("FIX_DONE")
+    return 0
 end
 
 function fini()

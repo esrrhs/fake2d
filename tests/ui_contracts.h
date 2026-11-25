@@ -1,6 +1,7 @@
 // Shared by --ui-test, --ui-stress and --ui-bench; this is not a second test runner.
 // Included inside main.cpp's anonymous namespace, after engine headers.
-void RunUI150Checks(fake2d::Engine &engine, const std::function<void(bool, const char *)> &check) {
+template <class Check>
+void RunUI150Checks(fake2d::Engine &engine, const Check &check) {
     auto &renderer = engine.GetRenderer();
     fake2d::Input input;
     fake2d::Camera2D camera;
@@ -177,7 +178,8 @@ void RunUI150Checks(fake2d::Engine &engine, const std::function<void(bool, const
     renderer.GetRenderTargets().Destroy(target);
 }
 
-void RunUI149Checks(fake2d::Engine &engine, const std::function<void(bool, const char *)> &check) {
+template <class Check>
+void RunUI149Checks(fake2d::Engine &engine, const Check &check) {
     using fake2d::UISystem;
     auto &renderer = engine.GetRenderer();
     fake2d::Input input;
@@ -1845,8 +1847,9 @@ void RunUI149Checks(fake2d::Engine &engine, const std::function<void(bool, const
     renderer.GetRenderTargets().Destroy(target);
 }
 
+template <class Check>
 void RunUIStressChecks(fake2d::Engine &engine, std::uint32_t seed, int frames,
-                       const std::function<void(bool, const char *)> &check) {
+                       const Check &check) {
     auto &renderer = engine.GetRenderer();
     fake2d::Input input;
     fake2d::Camera2D camera;
@@ -2008,7 +2011,9 @@ void RunUIStressChecks(fake2d::Engine &engine, std::uint32_t seed, int frames,
 int RunUIStress(fake2d::Engine &engine, std::uint32_t seed, int frames) {
     int checks = 0, failures = 0;
     engine.GetRenderer().AddFallbackFont("assets/fonts/ui_layout_test.otf", 28);
-    RunUIStressChecks(engine, seed, frames, [&](bool ok, const char *what) {
+    RunUIStressChecks(engine, seed, frames, [&](bool ok, const char *what, std::source_location where = std::source_location::current()) {
+        testing::ScopedTrace migration_trace(where.file_name(), where.line(), what);
+        EXPECT_TRUE(ok) << what;
         ++checks;
         if (!ok) {
             ++failures;
@@ -2017,187 +2022,5 @@ int RunUIStress(fake2d::Engine &engine, std::uint32_t seed, int frames) {
     });
     std::printf("[ui-stress] %s: %d checks, %d failures seed=%u frames=%d\n",
                 failures ? "FAIL" : "PASS", checks, failures, seed, frames);
-    return failures ? 1 : 0;
-}
-
-int RunUIBenchmark(fake2d::Engine &engine) {
-    auto &renderer = engine.GetRenderer();
-    renderer.AddFallbackFont("assets/fonts/ui_layout_test.otf", 28);
-    if (!renderer.IsReady())
-        return 1;
-    const auto gl_string = [](unsigned int name) {
-        const auto *value = glGetString(name);
-        return value ? reinterpret_cast<const char *>(value) : "unavailable";
-    };
-#ifdef NDEBUG
-    const char *build_mode = "NDEBUG";
-#else
-    const char *build_mode = "Debug/assertions";
-#endif
-#if defined(__VERSION__)
-    const char *compiler = __VERSION__;
-#elif defined(_MSC_VER)
-    const char *compiler = "MSVC";
-#else
-    const char *compiler = "unavailable";
-#endif
-    std::printf("UI_BENCH_CONTEXT renderer=\"%s\" vendor=\"%s\" gl_version=\"%s\" compiler=\"%s\" "
-                "build=\"%s\"\n",
-                gl_string(GL_RENDERER), gl_string(GL_VENDOR), gl_string(GL_VERSION), compiler,
-                build_mode);
-    constexpr int warmup = 8, samples = 30;
-    std::printf("UI_BENCH_CONFIG version=%s target=640x480 warmup=%d samples=%d "
-                "timer=steady_clock_cpu gpu_time=not_measured allocations=not_instrumented\n",
-                FAKE2D_VERSION_STRING, warmup, samples);
-    int failures = 0;
-    for (const std::string scenario :
-         {"fixed_1000", "variable_1200", "rich_64_links", "nested_scroll_64"}) {
-        fake2d::Input input;
-        fake2d::Camera2D camera;
-        camera.SetViewport(640, 480);
-        fake2d::UISystem ui;
-        ui.Bind(&input, &camera, &renderer);
-        ui.SetAudit(true);
-        const int target = renderer.GetRenderTargets().Create(640, 480);
-        std::vector<std::string> ids;
-        for (int i = 0; i < 1200; ++i)
-            ids.push_back("bench/" + std::to_string(i));
-        ui.ConfigureVariableList("rows", ids, 32, "bench");
-        std::vector<double> layout, interaction, total, draw_calls, quads;
-        std::size_t max_nodes = 0, max_visible = 0, max_commands = 0, max_steps = 0;
-        std::size_t max_rich_batches = 0, max_rich_glyphs = 0;
-        int min_rows = 100000, max_rows = 0;
-        for (int frame = -warmup; frame < samples; ++frame) {
-            const auto start = std::chrono::steady_clock::now();
-            input.InjectFrame({630, 470}, {}, {});
-            ui.NewFrame();
-            renderer.BeginFrame(0, 0, 0, 1);
-            renderer.BeginRenderTarget(target);
-            ui.BeginFrameUI();
-            ui.RootBegin(10, 10, fake2d::UISize::Fixed(620), fake2d::UISize::Fixed(460));
-            int rows = 0;
-            if (scenario == "fixed_1000" || scenario == "variable_1200") {
-                ui.ListView("rows", fake2d::UISize::Fixed(360));
-            } else if (scenario == "rich_64_links") {
-                ui.ScrollBoxBegin("rich", fake2d::UISize::Fixed(360));
-                for (int i = 0; i < 64; ++i) {
-                    ui.RichText("[color=#ffbb55][b]Rich 田亩[/b][/color] [link=link" +
-                                    std::to_string(i) + "]Read[/link] price " +
-                                    std::to_string(i * 12345),
-                                .6f);
-                    ++rows;
-                }
-                ui.ScrollBoxEnd();
-            } else {
-                ui.ScrollBoxBegin("outer", fake2d::UISize::Fixed(360));
-                ui.SetScrollOffset("inner", static_cast<float>((frame + warmup) * 7));
-                ui.VStackBegin(0, 4);
-                ui.ThemedPanel();
-                ui.Text("Measured nested auto panel", .6f);
-                ui.ScrollBoxBegin("inner", fake2d::UISize::Fixed(200));
-                for (int i = 0; i < 64; ++i) {
-                    ui.Text("田亩 English population " + std::to_string(i) +
-                                " LongUnbreakableLatinPopulation12345678901234567890",
-                            .6f);
-                    ++rows;
-                }
-                ui.ScrollBoxEnd();
-                ui.StackEnd();
-                ui.ScrollBoxEnd();
-            }
-            ui.RootEnd();
-            ui.EndLayout();
-            if (ui.ListViewBegin("rows")) {
-                if (scenario == "fixed_1000") {
-                    ui.SetScrollOffset("rows", static_cast<float>((frame + warmup) * 17));
-                    auto range = ui.ListBegin("rows", 0, 1000, 24);
-                    for (int i = 0; i < range.count; ++i) {
-                        const int row = range.first + i;
-                        ui.NextHeight(fake2d::UISize::Fixed(24));
-                        ui.Button(ids[row], "田亩 population " + std::to_string(row));
-                        ++rows;
-                    }
-                    ui.ListEnd();
-                } else {
-                    ui.SetScrollOffset("rows", static_cast<float>((frame + warmup) * 31));
-                    ui.VariableListBegin("rows", 0);
-                    for (int row = ui.VariableListNext(); row >= 0; row = ui.VariableListNext()) {
-                        ui.Text(
-                            row % 3 == 0
-                                ? "能吏抚恤百姓修复水利田亩营制长句自动换行国朝纪事能吏抚恤百姓修复"
-                                  "水利田亩营制长句自动换行"
-                                : "LongUnbreakableLatinPopulation123456789012345678901234567890",
-                            .55f);
-                        ui.NextHeight(fake2d::UISize::Fixed(20));
-                        ui.Button(ids[row], "row");
-                        ui.VariableListRowEnd();
-                        ++rows;
-                    }
-                    ui.VariableListEnd();
-                }
-                ui.ListViewEnd();
-            }
-            const bool balanced = ui.EndFrameUI();
-            renderer.EndRenderTarget();
-            renderer.EndFrame();
-            const auto &stats = ui.Stats();
-            const bool workload =
-                balanced && ui.OverflowCount() == 0 &&
-                (scenario == "fixed_1000" ? rows >= 15 && rows <= 16
-                 : scenario == "variable_1200"
-                     ? rows > 0 && rows < 20 &&
-                           stats.measured_rows == static_cast<std::size_t>(rows) &&
-                           stats.tree_steps < 2000
-                     : scenario == "rich_64_links"
-                         ? rows == 64 && stats.rich_batches <= 320 &&
-                               renderer.DrawCallCount() <= 400 && stats.nodes == 66
-                         : rows == 64);
-            if (!workload) {
-                ++failures;
-                std::printf(
-                    "UI_BENCH_FAILURE scenario=%s frame=%d rows=%d nodes=%zu steps=%zu audit=%zu\n",
-                    scenario.c_str(), frame, rows, stats.nodes, stats.tree_steps,
-                    ui.OverflowCount());
-            }
-            if (frame < 0)
-                continue;
-            layout.push_back(stats.layout_ms);
-            interaction.push_back(stats.interaction_ms);
-            total.push_back(
-                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start)
-                    .count());
-            draw_calls.push_back(static_cast<double>(renderer.DrawCallCount()));
-            quads.push_back(static_cast<double>(renderer.QuadCount()));
-            min_rows = std::min(min_rows, rows);
-            max_rows = std::max(max_rows, rows);
-            max_nodes = std::max(max_nodes, stats.nodes);
-            max_visible = std::max(max_visible, stats.visible);
-            max_commands = std::max(max_commands, stats.draw_commands);
-            max_steps = std::max(max_steps, stats.tree_steps);
-            max_rich_batches = std::max(max_rich_batches, stats.rich_batches);
-            max_rich_glyphs = std::max(max_rich_glyphs, stats.rich_glyphs);
-        }
-        auto mean = [](const std::vector<double> &values) {
-            double sum = 0;
-            for (double value : values)
-                sum += value;
-            return sum / values.size();
-        };
-        auto percentile = [](std::vector<double> values, double q) {
-            std::sort(values.begin(), values.end());
-            return values[static_cast<std::size_t>(q * (values.size() - 1))];
-        };
-        std::printf(
-            "UI_BENCH scenario=%s layout_ms_mean=%.6f layout_ms_p50=%.6f layout_ms_p95=%.6f "
-            "interaction_ms_mean=%.6f total_cpu_ms_mean=%.6f submitted_rows_min=%d "
-            "submitted_rows_max=%d nodes_max=%zu visible_max=%zu draw_commands_max=%zu "
-            "draw_calls_mean=%.1f quads_mean=%.1f tree_steps_max=%zu rich_batches_max=%zu rich_glyphs_max=%zu\n",
-            scenario.c_str(), mean(layout), percentile(layout, .5), percentile(layout, .95),
-            mean(interaction), mean(total), min_rows, max_rows, max_nodes, max_visible,
-            max_commands, mean(draw_calls), mean(quads), max_steps, max_rich_batches, max_rich_glyphs);
-        renderer.GetRenderTargets().Destroy(target);
-    }
-    std::printf("[ui-bench] %s: 4 workloads, %d counter failures\n", failures ? "FAIL" : "PASS",
-                failures);
     return failures ? 1 : 0;
 }

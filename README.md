@@ -28,7 +28,7 @@ Engineered around modern industry standards (aligned with Raylib, MonoGame, and 
 - **Dynamic Streaming VBO**: Backed by a pre-allocated static index buffer (standard `0-1-2-2-3-0` quad pattern);
 - **Unified 1×1 Pure White Texture**: Solid colored geometry, UI panels, health bars, and textured sprites share the exact same GLSL shader and vertex layout—completely eliminating batch-breaking pipeline swaps;
 - **Multi-Key Batch Sorting**: Deferred command buffer supporting multi-key stable sorting (`Layer → Depth/Z → Blend Mode → Texture ID`). Identical textures and states coalesce into unified draw calls automatically; supports Alpha, Additive, and Multiply blending;
-- **Extreme Throughput**: Built-in benchmark (`--bench`) demonstrates **674.4 → 8.0 draw calls** in a 768-sprite / 8-texture workload.
+- **Extreme Throughput**: Google Benchmark (`SpriteBatchTrace`) demonstrates **674.4 → 8.0 draw calls** in a 768-sprite / 8-texture workload.
 
 ### 3. Decoupled 2D Camera & Coordinates (Camera2D)
 - Independent orthographic view-projection matrix calculation supporting smooth panning, zoom scaling, rotation, and exact `ScreenToWorld` / `WorldToScreen` coordinate inversions;
@@ -183,7 +183,7 @@ Every game demo renders its scene from committed image assets rather than
 primitives painted at first run: CC0 pixel packs (Chasersgaming, ansimuz,
 FisherG), AI-illustrated key art under `assets/`, and tile sheets relit from
 AI-generated materials. `tools/art_key.py` bakes the committed PNGs from the raw
-generations, and `--art-test` walks the whole art tree and loads every file, so
+generations, and `EngineContracts.art` walks the whole art tree and loads every file, so
 a folder that falls out of `.gitignore` fails the build instead of silently
 dropping a demo back to its painters.
 
@@ -202,7 +202,7 @@ UP/DOWN or the mouse selects, ENTER or a click launches, TAB cycles the
 category filter (all / games / engine features), the wheel and PAGEUP/PAGEDOWN
 scroll, ESC quits. The catalogue is `include/fake2d/demos.h` — the same table
 the command line parses — so the menu can only ever offer a demo the host knows
-how to start, and adding a row there lists it automatically. `--launcher-test`
+how to start, and adding a row there lists it automatically. `Launcher.catalog`
 gates that table (unique flags, known categories, script files that exist).
 
 Picking a demo starts `--<flag>-demo` as a **child process** and waits for it, so
@@ -255,8 +255,8 @@ that round trip about a second instead of five; `--jit` compiles natively anyway
 ./build/bin/fake2d_hello --ui3-demo
 ./build/bin/fake2d_hello --ui-variable-demo
 ./build/bin/fake2d_hello --ui-stress-demo
-./build/bin/fake2d_hello --headless --ui-stress --frames 300 --ui-stress-seed 42
-./build/bin/fake2d_hello --headless --ui-bench
+./build/bin/fake2d_engine_tests --gtest_filter=Seeds/UIStress.states/Seed42
+./build/bin/fake2d_ui_benchmark --benchmark_out=ui-bench.json --benchmark_out_format=json
 
 # UTF-8/CJK text & platform layer (L switches language, SAVE writes a v2 slot)
 ./build/bin/fake2d_hello --text-demo
@@ -303,15 +303,15 @@ that round trip about a second instead of five; `--jit` compiles natively anyway
 ./build/bin/fake2d_hello --variable-step --mario-demo
 
 # Run graphics SpriteBatch benchmark (immediate vs sorted)
-./build/bin/fake2d_hello --headless --bench
+./build/bin/fake2d_benchmarks --benchmark_filter=SpriteBatchTrace
 
 # Run physics broadphase benchmark (brute-force vs spatial hash)
-./build/bin/fake2d_hello --headless --phys-bench
+./build/bin/fake2d_benchmarks --benchmark_filter=PhysicsTrace
 ```
 
 ### Headless Verification & Testing
 
-Fake2D supports first-class headless execution in display-less CI environments (e.g. Linux with xvfb). The Build workflow uses the same shared entry points on Linux (Xvfb/llvmpipe), macOS (CGL FBO) and Windows (Mesa llvmpipe): `ctest` (the 31 suites, both `--ui-stress` seeds, `--ui-bench`, and `fake2d-win-macro-compat`), `tools/check_ui_demos.py`, `tools/run_demo_scripts.py` (exit code plus `syntax error` / `CompileFile` / `update()` log scan), `tools/run_gpu_smoke.py`, and `tools/verify-consumer.sh` (`find_package(fake2d 1.55)`). Long gameplay milestone screenshots and full staged-package `tools/verify-package.sh` stay Linux-only on Build. A short `linux assets` job uploads the generated maps so macOS/Windows do not wait for the full Linux test gate; `linux tests` starts in parallel. Fakelua installs are cached under a key that includes image, arch, compiler, OpenSSL and `FAKELUA_REF`. The cache also stores TinyCC's runtime headers (`lib/tcc/include`) and rematerializes them at libtcc's baked `CONFIG_TCCDIR` after a restore, so TCC/INTERP fixtures still compile once the build tree is gone. `tools/check-docs.py --ctest-log` reuses CTest PASS counts instead of running the 31 suites twice. These headless gates use the in-memory Input clipboard and injected focus/gamepad events; they are not a real-desktop clipboard, physical gamepad, or IME composition pass. GLFW 3.4 still has no public preedit API, so inline IME preview remains unsupported.
+Fake2D supports first-class headless execution in display-less CI environments (e.g. Linux with xvfb). The Build workflow uses the same shared entry points on Linux (Xvfb/llvmpipe), macOS (CGL FBO) and Windows (Mesa llvmpipe): `ctest` (the 31 suites, both parameterized stress seeds, the `fake2d-ui-bench` Google Benchmark counter gate, and `fake2d-win-macro-compat`), `tools/check_ui_demos.py`, `tools/run_demo_scripts.py` (exit code plus `syntax error` / `CompileFile` / `update()` log scan), `tools/run_gpu_smoke.py`, and `tools/verify-consumer.sh` (`find_package(fake2d 1.55)`). Long gameplay milestone screenshots and full staged-package `tools/verify-package.sh` stay Linux-only on Build. A short `linux assets` job uploads the generated maps so macOS/Windows do not wait for the full Linux test gate; `linux tests` starts in parallel. Fakelua installs are cached under a key that includes image, arch, compiler, OpenSSL and `FAKELUA_REF`. The cache also stores TinyCC's runtime headers (`lib/tcc/include`) and rematerializes them at libtcc's baked `CONFIG_TCCDIR` after a restore, so TCC/INTERP fixtures still compile once the build tree is gone. `tools/check-docs.py --ctest-log` reuses CTest PASS counts instead of running the 31 suites twice. These headless gates use the in-memory Input clipboard and injected focus/gamepad events; they are not a real-desktop clipboard, physical gamepad, or IME composition pass. GLFW 3.4 still has no public preedit API, so inline IME preview remains unsupported.
 
 
 ```bash
@@ -321,8 +321,8 @@ xvfb-run ./build/bin/fake2d_hello --headless --frames 60
 # Capture framebuffer screenshot for visual regression testing
 xvfb-run ./build/bin/fake2d_hello --headless --mario-demo --shot-frame 60 --screenshot mario.png
 
-# Reject screenshots that saved but drew nothing (exit 2): colour floor probe
-xvfb-run ./build/bin/fake2d_hello --headless --text-demo --screenshot text.png --shot-min-colors 12
+# Native Google Test owns screenshot/colour/log assertions; the demo only emits GL telemetry.
+python3 tools/run_gpu_smoke.py --hello ./build/bin/fake2d_hello --profile core
 
 # Hand the controls to the attract driver. `--ai` presses the keys and drags the
 # pointer for demos that have no attract policy, and switches on the in-script
@@ -334,41 +334,41 @@ xvfb-run ./build/bin/fake2d_hello --headless --ai --contra-demo --frames 2500
 # Record / replay the Input snapshot stream (Phase 52, F2IR fixtures)
 ./build/bin/fake2d_hello --headless --ai --mario-demo --frames 120 --record /tmp/mario.f2ir
 ./build/bin/fake2d_hello --headless --mario-demo --frames 120 --replay /tmp/mario.f2ir
-./build/bin/fake2d_hello --replay-test
+./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.replay
 # Pin RNG + assert matching world hashes across two seeded sessions (Phase 53)
-./build/bin/fake2d_hello --determinism-test
+./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.determinism
 ./build/bin/fake2d_hello --headless --frames 60 --rng-seed 42
 
 # Run the 31 built-in engine self-test suites (verified via exit codes)
 ctest --test-dir build --output-on-failure   # all 31 registered suites
-xvfb-run ./build/bin/fake2d_hello --phys-query-test    # Ray casts, overlaps, contact lifecycle
-xvfb-run ./build/bin/fake2d_hello --phys-filter-test   # 16-bit category/mask collision filtering
-xvfb-run ./build/bin/fake2d_hello --phys-rigid-test    # Rotational inertia, friction, resting stacks
-xvfb-run ./build/bin/fake2d_hello --phys-extended-test # Joints, sleeping, kinematic bodies, anti-tunneling
-xvfb-run ./build/bin/fake2d_hello --timestep-test      # Fixed-step accumulator & camera smooth
-xvfb-run ./build/bin/fake2d_hello --map-object-test    # Tiled object groups & custom properties
-xvfb-run ./build/bin/fake2d_hello --path-test          # Tilemap A* pathfinding & string pulling
-xvfb-run ./build/bin/fake2d_hello --tile-test          # Tiled tileset animation clock ticks
-xvfb-run ./build/bin/fake2d_hello --rt-test            # RenderTarget FBO pool & blit checks
-xvfb-run ./build/bin/fake2d_hello --ui-test            # Immediate UI widgets & input injection
-xvfb-run ./build/bin/fake2d_hello --post-test          # Post-processing grade & minimap bake
-xvfb-run ./build/bin/fake2d_hello --fx-test            # Multi-pass ping-pong blur & uniforms
-xvfb-run ./build/bin/fake2d_hello --fog-test           # Fog of war multiply blending & rt_sample
-xvfb-run ./build/bin/fake2d_hello --light-test         # Light pools, shadow containment, budget
-xvfb-run ./build/bin/fake2d_hello --light-bench        # Lighting stays batched: calls flat in lights
-xvfb-run ./build/bin/fake2d_hello --skeleton-test      # Bone hierarchy, clips, cross-fade, IK, events
-xvfb-run ./build/bin/fake2d_hello --audio-test         # Mixer buses, envelopes, streamed music
-xvfb-run ./build/bin/fake2d_hello --font-test          # UTF-8/CJK glyph atlas, wrapping, rotation, shrink
-xvfb-run ./build/bin/fake2d_hello --platform-test      # i18n packs & format guards, user paths, save v2, Steam stub, UI text
-xvfb-run ./build/bin/fake2d_hello --gameplay-test      # RNG, easing, entity snapshots, actions, window
-xvfb-run ./build/bin/fake2d_hello --determinism-test   # Seeded world-hash identity (Phase 53)
-xvfb-run ./build/bin/fake2d_hello --combat-test        # Time scale, hit-stop, 16-slot actors, clip pool
-xvfb-run ./build/bin/fake2d_hello --shmup-test         # Shooter sprite sheets, nearest filtering, missing files
-xvfb-run ./build/bin/fake2d_hello --snooker-test       # Shaded ball sprite, alpha/shading probes, loader rejection
-xvfb-run ./build/bin/fake2d_hello --contra-test         # Soldier strips, blast sheet, moon/glow probes, loader rejection
-xvfb-run ./build/bin/fake2d_hello --city-test           # City tileset/building atlas, base map roads/lake, loader rejection
-xvfb-run ./build/bin/fake2d_hello --rts-test            # RTS terrain/unit/building sprites, battle map pads/ore/water
-xvfb-run ./build/bin/fake2d_hello --vn-test             # VN backgrounds/portraits, alpha probes, loader rejection
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.phys_query    # Ray casts, overlaps, contact lifecycle
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.phys_filter   # 16-bit category/mask collision filtering
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.phys_rigid    # Rotational inertia, friction, resting stacks
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.phys_extended # Joints, sleeping, kinematic bodies, anti-tunneling
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.timestep      # Fixed-step accumulator & camera smooth
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.map_object    # Tiled object groups & custom properties
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.path          # Tilemap A* pathfinding & string pulling
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.tile          # Tiled tileset animation clock ticks
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.rt            # RenderTarget FBO pool & blit checks
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.ui            # Immediate UI widgets & input injection
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.post          # Post-processing grade & minimap bake
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.fx            # Multi-pass ping-pong blur & uniforms
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.fog           # Fog of war multiply blending & rt_sample
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.light         # Light pools, shadow containment, budget
+xvfb-run ./build/bin/fake2d_benchmarks --benchmark_filter=LightingTrace        # Lighting stays batched: calls flat in lights
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.skeleton      # Bone hierarchy, clips, cross-fade, IK, events
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.audio         # Mixer buses, envelopes, streamed music
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.font          # UTF-8/CJK glyph atlas, wrapping, rotation, shrink
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.platform      # i18n packs & format guards, user paths, save v2, Steam stub, UI text
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.gameplay      # RNG, easing, entity snapshots, actions, window
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.determinism   # Seeded world-hash identity (Phase 53)
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.combat        # Time scale, hit-stop, 16-slot actors, clip pool
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.shmup         # Shooter sprite sheets, nearest filtering, missing files
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.snooker       # Shaded ball sprite, alpha/shading probes, loader rejection
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.contra         # Soldier strips, blast sheet, moon/glow probes, loader rejection
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.city           # City tileset/building atlas, base map roads/lake, loader rejection
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.rts            # RTS terrain/unit/building sprites, battle map pads/ore/water
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.vn             # VN backgrounds/portraits, alpha probes, loader rejection
 ```
 
 ---

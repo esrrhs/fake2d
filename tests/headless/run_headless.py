@@ -146,24 +146,22 @@ def pad_optional_ui_calls(body, api, minimums):
     return body
 
 
-def verify_optional_ui_padding(api, minimums):
-    # Regression for the real call shape that otherwise fails under
-    # all three standalone flua backends despite working with native Args.
-    before = 'ui_root_begin(x, y, math.min(3, text_width("a,(b)", .6)), h(), 0)'
-    assert pad_optional_ui_calls(before, api, minimums) == before[:-1] + ', nil)'
-    before = 'ui_text("田, x", .6, "wrap", 0, 1, 1, 1, 1)'
-    assert pad_optional_ui_calls(before, api, minimums) == before[:-1] + ', nil)'
-    before = '-- ui_root_begin(1)\nlocal s = "ui_root_begin(1)"\nlocal t = [=[ui_root_begin(1)]=]'
-    assert pad_optional_ui_calls(before, api, minimums) == before
-    before = 'ui_panel(-- ignored (, )\n)'
-    assert pad_optional_ui_calls(before, api, minimums) == before[:-1] + 'nil, nil, nil, nil)'
-    before = 'ui_root_begin(1, 2, 3, ui_text("nested"), 0, true)'
-    assert pad_optional_ui_calls(before, api, minimums).count('nil') == api['ui_text'][1] - 1
-    try:
-        pad_optional_ui_calls('ui_root_begin(1)', api, minimums)
-        raise AssertionError("fixture adapter must not hide missing required arguments")
-    except ValueError:
-        pass
+def optional_ui_padding_data(api, minimums):
+    pairs=[]
+    for before, expected in [
+        ('ui_root_begin(x, y, math.min(3, text_width("a,(b)", .6)), h(), 0)', None),
+        ('ui_text("田, x", .6, "wrap", 0, 1, 1, 1, 1)', None),
+        ('-- ui_root_begin(1)\nlocal s = "ui_root_begin(1)"\nlocal t = [=[ui_root_begin(1)]=]', 'same'),
+        ('ui_panel(-- ignored (, )\n)', 'panel')]:
+        after=pad_optional_ui_calls(before,api,minimums)
+        expected=before if expected=='same' else before[:-1]+'nil, nil, nil, nil)' if expected=='panel' else before[:-1]+', nil)'
+        pairs.append({'before':before,'actual':after,'expected':expected})
+    nested=pad_optional_ui_calls('ui_root_begin(1, 2, 3, ui_text("nested"), 0, true)',api,minimums)
+    error=''
+    try: pad_optional_ui_calls('ui_root_begin(1)',api,minimums)
+    except ValueError: error='ValueError'
+    return {'pairs':pairs,'nested_nil_count':nested.count('nil'),
+            'expected_nested_nil_count':api['ui_text'][1]-1,'missing_required_error':error}
 
 
 def main():
@@ -178,6 +176,7 @@ def main():
                     help="comma-separated FakeLua backends (default 0,1,2)")
     ap.add_argument("--scenario", default=None,
                     help="run only scenarios containing this substring")
+    ap.add_argument("--test-binary", default=str(repo_root/"build/bin/fake2d_integration_tests"))
     args = ap.parse_args()
 
     flua = resolve_flua(args.flua)
@@ -194,7 +193,7 @@ def main():
     api = parse_native_api(bindings)
     minimums = {name: int(count) for name, count in
                 re.findall(r'add\("(ui_\w+)",\s*(\d+),', bindings.read_text())}
-    verify_optional_ui_padding(api, minimums)
+    padding = optional_ui_padding_data(api, minimums)
     head = (workdir / "m_head.lua").read_text()
     tail = (workdir / "m_tail.lua").read_text()
 
@@ -203,6 +202,7 @@ def main():
     # chunk — its own main-chunk register budget — and declares package
     # "main" itself; cross-file references resolve at runtime.
     chunk_paths = {}
+    definitions = {}
     for _, script, _, _ in scenarios:
         if script not in chunk_paths:
             body = pad_optional_ui_calls((args.repo / script).read_text(), api, minimums)
@@ -210,7 +210,7 @@ def main():
             # call; the driver tail owns the name the flua host looks up, so
             # rename the game's to fix_game_step(dt) — exactly one
             # definition per script.
-            assert body.count("function update(dt)") == 1, script
+            definitions[script] = body.count("function update(dt)")
             body = body.replace("function update(dt)",
                                 "function fix_game_step(dt)", 1)
             scen_dir = workdir / ("d_" + Path(script).stem)
@@ -220,41 +220,25 @@ def main():
             write_lua(scen_dir / "c_tail.lua", 'package "main"\n\n' + tail)
             chunk_paths[script] = scen_dir
 
-    total = 0
-    failures = 0
+    sys.path.insert(0,str(repo_root/'tools'))
+    from integration_bridge import case, run_cases
+    binary=Path(args.test_binary)
+    jobs=[case('HeadlessFixtures','OptionalArgumentPadding',binary,[],kind='padding',
+               transport_mode='data',data={'padding':padding,'definitions':definitions})]
+    import json
+    expectations=json.loads((repo_root/"tests/headless/expected_checks.json").read_text())
     for jit in jits:
-        print(f"===== flua --jit_type={jit} =====")
         for name, script, frames, extra_env in scenarios:
-            total += 1
-            rc, stdout, stderr = run_case(
-                flua, chunk_paths[script], jit, name, frames, extra_env)
-            # flua prints string results quoted: "PASS ..." / "FAILURES 0"
-            marks = [ln.strip().strip('"') for ln in stdout.splitlines()
-                     if ln.strip().strip('"').startswith(("PASS", "FAIL"))]
-            summary = next((ln for ln in marks
-                            if ln.startswith("FAILURES")), "")
-            bad = [ln for ln in marks
-                   if ln.startswith("FAIL ") or ln.startswith("FAIL\t")]
-            case_failed = ("FAILURES 0" not in summary) or bool(bad)
-            if case_failed:
-                failures += 1
-                print(f"BAD  {name} (rc={rc}) chunk={chunk_paths[script]}")
-                for ln in marks:
-                    print("     " + ln)
-                # Surface the full compiler/runtime diagnostics (the
-                # exception message line precedes the stack trace).
-                for stream_name, text in (("stdout", stdout), ("stderr", stderr)):
-                    diag = [l for l in text.splitlines() if l.strip()]
-                    if diag:
-                        print(f"     --- {stream_name} ---")
-                        for ln in diag[:25]:
-                            print("     " + ln.strip()[:300])
-            else:
-                print(f"OK   {name}")
+            env=dict(extra_env, FIX_SCENARIO=name,FIX_FRAMES=str(frames))
+            jobs.append(case('HeadlessGameplay',name+'_jit'+str(jit),flua,
+                             ['--once','--jit_type='+str(jit),str(chunk_paths[script])],
+                             env=env,unset_env=TEST_ENV_VARS,display=False,
+                             encoding='utf-8',errors='replace',kind='headless',expected_checks=expectations[name]))
+    try:
+        return run_cases(binary,jobs)
+    finally:
+        if own_workdir:
+            import shutil
+            shutil.rmtree(workdir)
 
-    print(f"\n{total - failures}/{total} cases passed")
-    return 1 if failures else 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
+if __name__=='__main__':sys.exit(main())

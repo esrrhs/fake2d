@@ -1,0 +1,74 @@
+[
+  {
+    "label": "entity slots",
+    "source": "README.md",
+    "pattern": "EntityStore` \\((\\d+) native handle-based entity slots\\)",
+    "expected_key": "slots"
+  },
+  {
+    "label": "entity slots",
+    "source": "README_CN.md",
+    "pattern": "EntityStore`（(\\d+) 个持久原生实体槽位）",
+    "expected_key": "slots"
+  },
+  {
+    "label": "suite count",
+    "source": "README.md",
+    "pattern": "\\*\\*(\\d+) Built-in Self-Test Suites\\*\\*",
+    "expected_key": "len(suites)"
+  },
+  {
+    "label": "suite count",
+    "source": "README_CN.md",
+    "pattern": "\\*\\*(\\d+) 项内置自测试套件\\*\\*",
+    "expected_key": "len(suites)"
+  },
+  {
+    "label": "demo count",
+    "source": "README.md",
+    "pattern": "comes with (\\d+) rich, self-contained demos",
+    "expected_key": "demos"
+  },
+  {
+    "label": "demo count",
+    "source": "README_CN.md",
+    "pattern": "自带 (\\d+) 个可直接运行",
+    "expected_key": "demos"
+  },
+  {
+    "label": "launcher demo count",
+    "source": "README.md",
+    "pattern": "Cover-art picker for all (\\d+) demos",
+    "expected_key": "demos"
+  },
+  {
+    "label": "launcher demo count",
+    "source": "README_CN.md",
+    "pattern": "(\\d+) 个 Demo 的封面图选择界面",
+    "expected_key": "demos"
+  },
+  {
+    "label": "test instruction",
+    "source": "README.md",
+    "pattern": "Run the (\\d+) built-in engine self-test suites",
+    "expected_key": "len(suites)"
+  },
+  {
+    "label": "test instruction",
+    "source": "README_CN.md",
+    "pattern": "运行 (\\d+) 组内置无头自测试套件",
+    "expected_key": "len(suites)"
+  },
+  {
+    "label": "assertion total",
+    "source": "README.md",
+    "pattern": "Built-in Self-Test Suites\\*\\*: (\\d+) assertions",
+    "expected_key": "total"
+  },
+  {
+    "label": "assertion total",
+    "source": "README_CN.md",
+    "pattern": "项内置自测试套件\\*\\*：(\\d+) 断言",
+    "expected_key": "total"
+  }
+]

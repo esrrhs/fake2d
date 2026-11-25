@@ -88,7 +88,18 @@ if (FAKE2D_COVERAGE)
 endif ()
 
 if (FAKE2D_BUILD_TESTS)
+    include(cmake/TestFrameworks.cmake)
     enable_testing()
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_executable(fake2d_integration_tests tests/integration_tests.cpp)
+    target_link_libraries(fake2d_integration_tests PRIVATE GTest::gtest nlohmann_json::nlohmann_json)
+    if(WIN32)
+        target_link_libraries(fake2d_integration_tests PRIVATE shell32)
+    endif()
+    target_compile_definitions(fake2d_integration_tests PRIVATE
+        FAKE2D_PYTHON="${Python3_EXECUTABLE}"
+        FAKE2D_TRANSPORT="${CMAKE_SOURCE_DIR}/tools/integration_transport.py"
+        FAKE2D_SOURCE_ROOT="${CMAKE_SOURCE_DIR}")
     if(FAKE2D_COVERAGE)
         set(_coverage_gcov "$ENV{GCOV}")
         if(_coverage_gcov STREQUAL "")
@@ -96,7 +107,8 @@ if (FAKE2D_BUILD_TESTS)
         endif()
         add_test(NAME fake2d-coverage-reporter
             COMMAND python3 ${CMAKE_SOURCE_DIR}/tools/test_coverage_blocks.py
-                    --compiler ${CMAKE_CXX_COMPILER} --gcov ${_coverage_gcov})
+                    --compiler ${CMAKE_CXX_COMPILER} --gcov ${_coverage_gcov}
+                    --test-binary $<TARGET_FILE:fake2d_integration_tests>)
 
     endif()
     # Compile-and-run guard: inject windef.h's near/far macros, include the
@@ -106,28 +118,45 @@ if (FAKE2D_BUILD_TESTS)
     add_executable(fake2d_win_macro_compat tests/win_macro_compat.cpp)
     target_include_directories(fake2d_win_macro_compat PRIVATE
         ${CMAKE_SOURCE_DIR}/src)
-    target_link_libraries(fake2d_win_macro_compat PRIVATE fake2d::fake2d)
+    target_link_libraries(fake2d_win_macro_compat PRIVATE fake2d::fake2d GTest::gtest_main)
     add_test(NAME fake2d-win-macro-compat COMMAND fake2d_win_macro_compat)
-    add_executable(fake2d_coverage_regression tests/coverage_regression.cpp)
+    add_executable(fake2d_ui_benchmark tests/benchmark_ui.cpp)
+    set_target_properties(fake2d_ui_benchmark PROPERTIES ENABLE_EXPORTS ON)
+    target_include_directories(fake2d_ui_benchmark PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(fake2d_ui_benchmark PRIVATE fake2d::fake2d benchmark::benchmark)
+    if (FAKE2D_COVERAGE)
+        target_compile_options(fake2d_ui_benchmark PRIVATE --coverage -O0 -g)
+    endif ()
+    add_executable(fake2d_coverage_regression tests/coverage_regression.cpp tests/gtest_main.cpp)
     target_include_directories(fake2d_coverage_regression PRIVATE ${CMAKE_SOURCE_DIR}/src)
-    target_link_libraries(fake2d_coverage_regression PRIVATE fake2d::fake2d)
+    target_link_libraries(fake2d_coverage_regression PRIVATE GTest::gtest fake2d::fake2d)
     if (FAKE2D_COVERAGE)
         target_compile_options(fake2d_coverage_regression PRIVATE --coverage -O0 -g)
     endif ()
     find_program(FAKE2D_TEST_XVFB xvfb-run)
     set(_regression_prefix)
     if (FAKE2D_TEST_XVFB)
-        list(APPEND _regression_prefix "${FAKE2D_TEST_XVFB}" -a)
+        # A GoogleTest process closes one fixture's last GL client before the
+        # next creates its context. Do not reset the X server in that gap.
+        list(APPEND _regression_prefix "${FAKE2D_TEST_XVFB}" -a
+             -s "-screen 0 1280x1024x24 -noreset")
     endif ()
+    set(_benchmark_prefix)
+    if (FAKE2D_TEST_XVFB)
+        list(APPEND _benchmark_prefix "${FAKE2D_TEST_XVFB}" -a -s "-screen 0 1024x768x24")
+    endif ()
+    add_test(NAME fake2d-ui-bench COMMAND ${_benchmark_prefix} $<TARGET_FILE:fake2d_ui_benchmark>)
+    set_tests_properties(fake2d-ui-bench PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        TIMEOUT 900 ENVIRONMENT "LIBGL_ALWAYS_SOFTWARE=1")
     add_test(NAME fake2d-coverage-regression
         COMMAND ${_regression_prefix} $<TARGET_FILE:fake2d_coverage_regression>)
     set_tests_properties(fake2d-coverage-regression PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}" TIMEOUT 120
         ENVIRONMENT "LIBGL_ALWAYS_SOFTWARE=1")
-    add_executable(fake2d_coverage_gaps tests/coverage_gap_tests.cpp)
+    add_executable(fake2d_coverage_gaps tests/coverage_gap_tests.cpp tests/gtest_main.cpp)
     set_target_properties(fake2d_coverage_gaps PROPERTIES ENABLE_EXPORTS ON)
     target_include_directories(fake2d_coverage_gaps PRIVATE ${CMAKE_SOURCE_DIR}/src)
-    target_link_libraries(fake2d_coverage_gaps PRIVATE fake2d::fake2d nlohmann_json::nlohmann_json)
+    target_link_libraries(fake2d_coverage_gaps PRIVATE GTest::gtest fake2d::fake2d nlohmann_json::nlohmann_json)
     if (FAKE2D_COVERAGE)
         target_compile_options(fake2d_coverage_gaps PRIVATE --coverage -O0 -g)
     endif ()
@@ -135,10 +164,10 @@ if (FAKE2D_BUILD_TESTS)
     set_tests_properties(fake2d-coverage-gaps PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}" TIMEOUT 180
         ENVIRONMENT "LIBGL_ALWAYS_SOFTWARE=1")
-    add_executable(fake2d_coverage_deep tests/coverage_deep_tests.cpp)
+    add_executable(fake2d_coverage_deep tests/coverage_deep_tests.cpp tests/gtest_main.cpp)
     set_target_properties(fake2d_coverage_deep PROPERTIES ENABLE_EXPORTS ON)
     target_include_directories(fake2d_coverage_deep PRIVATE ${CMAKE_SOURCE_DIR}/src)
-    target_link_libraries(fake2d_coverage_deep PRIVATE fake2d::fake2d nlohmann_json::nlohmann_json)
+    target_link_libraries(fake2d_coverage_deep PRIVATE GTest::gtest fake2d::fake2d nlohmann_json::nlohmann_json)
     if (FAKE2D_COVERAGE)
         target_compile_options(fake2d_coverage_deep PRIVATE --coverage -O0 -g)
         # Observe genuine child crash counters before the real signal/_Exit.

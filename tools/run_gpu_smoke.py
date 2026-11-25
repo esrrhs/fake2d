@@ -24,103 +24,14 @@ from ci_common import (
 )
 
 
-def job(label: str, args: list[str], screenshot: str | None = None,
-        contains: list[str] | None = None,
-        forbids: list[str] | None = None) -> dict:
-    return {
-        "label": label,
-        "args": args,
-        "screenshot": screenshot,
-        "contains": contains or [],
-        "forbids": forbids or [],
-    }
+from integration_cases import CORE_JOBS, EXTENDED_EXTRA
+from integration_bridge import gpu_cases, run_cases
 
 
-# Mid-length JIT/GL smoke shared by all three OS jobs.
-CORE_JOBS = [
-    job("scene-30", ["--headless", "--frames", "30", "--scene-demo"]),
-    job("scene-shot", ["--headless", "--frames", "40", "--scene-demo",
-                       "--screenshot", "scene.png"],
-        screenshot="scene.png"),
-    job("text-shot", ["--headless", "--frames", "60", "--text-demo",
-                      "--screenshot", "text.png", "--shot-min-colors", "12"],
-        screenshot="text.png"),
-    job("bench", ["--headless", "--bench"]),
-    job("tile", ["--headless", "--frames", "120", "--tile-demo"]),
-    job("map", ["--headless", "--frames", "120", "--map-demo"]),
-    job("platformer", ["--headless", "--ai", "--frames", "180", "--platformer-demo"]),
-    job("mario", ["--headless", "--ai", "--frames", "180", "--mario-demo"]),
-    job("slope", ["--headless", "--ai", "--frames", "120", "--slope-demo"]),
-    job("path", ["--headless", "--frames", "120", "--path-demo"]),
-    job("rt", ["--headless", "--frames", "120", "--rt-demo"]),
-    job("ui", ["--headless", "--frames", "120", "--ui-demo"]),
-    job("ui2", ["--headless", "--frames", "120", "--ui2-demo"]),
-    job("ui3", ["--headless", "--frames", "120", "--ui3-demo"]),
-    job("post", ["--headless", "--frames", "120", "--post-demo"]),
-    job("fx", ["--headless", "--frames", "120", "--fx-demo"]),
-    job("fog", ["--headless", "--frames", "120", "--fog-demo"]),
-    job("audio", ["--headless", "--frames", "120", "--audio-demo"]),
-    job("spatial", ["--headless", "--frames", "120", "--spatial-demo"]),
-    job("phys-bench", ["--headless", "--phys-bench"]),
-    job("phys-lua", ["--headless", "--fixed-sim-dt", "--frames", "200",
-                     "--entry", "scripts/phys_test.lua"],
-        contains=["[script] 0"],
-        forbids=[r"\[script] (10[0-9][0-9]|200[0-9])"]),
-]
-
-# macOS/Windows do not run the long Linux milestone gates; keep a JIT compile
-# of those game scripts here at modest length. Attract-mode milestones stay
-# Linux-only.
-EXTENDED_EXTRA = [
-    job("angry-birds", ["--headless", "--frames", "120", "--angry-birds-demo"]),
-    job("limbo", ["--headless", "--frames", "120", "--limbo-demo"]),
-    job("skeleton", ["--headless", "--frames", "120", "--skeleton-demo"]),
-    job("light", ["--headless", "--frames", "120", "--light-demo"]),
-    job("light-bench", ["--light-bench"], contains=["[light-bench] PASS"]),
-    job("beat-em-up", ["--headless", "--ai", "--frames", "180", "--beat-em-up-demo"]),
-    job("shmup", ["--headless", "--ai", "--frames", "180", "--shmup-demo"]),
-    job("snooker", ["--headless", "--ai", "--frames", "180", "--snooker-demo"]),
-    job("contra", ["--headless", "--ai", "--frames", "180", "--contra-demo"]),
-    job("city", ["--headless", "--ai", "--frames", "180", "--city-demo"]),
-    job("rts", ["--headless", "--ai", "--frames", "180", "--rts-demo"]),
-    job("vn", ["--headless", "--ai", "--frames", "180", "--vn-demo"]),
-]
-
-
-def run_jobs(hello: Path, jobs: list[dict], errors: list[str]) -> None:
-    import re
-    for item in jobs:
-        label = item["label"]
-        print(f"run_gpu_smoke: {label}: {' '.join(item['args'])}", flush=True)
-        rc, log = run_hello(hello, item["args"])
-        hits = script_error_hits(log)
-        if rc != 0 or hits:
-            reason = f"exit {rc}"
-            if hits:
-                reason += f", log: {', '.join(hits)}"
-            errors.append(f"{label}: {reason}\n{log}")
-            print(f"run_gpu_smoke: FAIL {label} ({reason})", flush=True)
-            continue
-        shot = item["screenshot"]
-        if shot:
-            path = Path(shot) if Path(shot).is_absolute() else ROOT / shot
-            if not path.is_file() or path.stat().st_size == 0:
-                errors.append(f"{label}: missing or empty screenshot {path}")
-                print(f"run_gpu_smoke: FAIL {label} (empty screenshot)", flush=True)
-                continue
-        failed_marker = False
-        for needle in item["contains"]:
-            if needle not in log:
-                errors.append(f"{label}: missing expected output {needle!r}\n{log}")
-                failed_marker = True
-        for pattern in item["forbids"]:
-            if re.search(pattern, log):
-                errors.append(f"{label}: forbidden pattern {pattern!r} in log\n{log}")
-                failed_marker = True
-        if failed_marker:
-            print(f"run_gpu_smoke: FAIL {label} (log markers)", flush=True)
-        else:
-            print(f"run_gpu_smoke: ok {label}", flush=True)
+def run_jobs(hello, jobs, errors):
+    rc = run_cases(hello, gpu_cases(hello, jobs))
+    if rc:
+        errors.append("native Google Test GPU cases failed (see individual assertions above)")
 
 
 def main() -> int:

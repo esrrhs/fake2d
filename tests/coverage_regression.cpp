@@ -1,3 +1,4 @@
+#include "gtest_support.h"
 // Focused, always-on assertions for recently added map/render/snapshot APIs.
 #include "fake2d/object_snapshot.h"
 #include "fake2d/lua_ui.h"
@@ -17,7 +18,6 @@
 #include <stdexcept>
 #include <vector>
 
-#define CHECK(x) do { if (!(x)) { std::fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, #x); throw std::runtime_error(#x); } ++checks; } while (false)
 static int checks = 0;
 using namespace fake2d;
 
@@ -30,22 +30,22 @@ using namespace fake2d;
 // is used before any Renderer exists, so it binds by texture id and
 // reads through a temporary FBO + glReadPixels (core-safe).
 static std::vector<unsigned char> pixels(const Texture2D &tex) {
-    CHECK(tex.IsValid());
+    EXPECT_TRUE((tex.IsValid()) && (++checks, true));
     const int w = tex.Width();
     const int h = tex.Height();
-    CHECK(w > 0 && h > 0);
+    EXPECT_TRUE((w > 0 && h > 0) && (++checks, true));
     std::vector<unsigned char> data(static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 4);
     GLint prev_fbo = 0;
     glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prev_fbo);
     GLuint fbo = 0;
     glGenFramebuffers(1, &fbo);
-    CHECK(fbo != 0);
+    EXPECT_TRUE((fbo != 0) && (++checks, true));
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
                            static_cast<GLuint>(tex.Id()), 0);
-    CHECK(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+    EXPECT_TRUE((glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) && (++checks, true));
     glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, data.data());
-    CHECK(glGetError() == GL_NO_ERROR);
+    EXPECT_TRUE((glGetError() == GL_NO_ERROR) && (++checks, true));
     glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(prev_fbo));
     glDeleteFramebuffers(1, &fbo);
     return data;
@@ -53,84 +53,84 @@ static std::vector<unsigned char> pixels(const Texture2D &tex) {
 
 static void procedural_tests() {
     using namespace procedural_tex;
-    CHECK(!CreateSolidCircle(0).IsValid());
-    CHECK(!CreateShadowNineSlice(-1).IsValid());
-    CHECK(!CreatePaperGrain(0).IsValid());
-    CHECK(!CreateBeveledDisc(-2).IsValid());
+    EXPECT_TRUE((!CreateSolidCircle(0).IsValid()) && (++checks, true));
+    EXPECT_TRUE((!CreateShadowNineSlice(-1).IsValid()) && (++checks, true));
+    EXPECT_TRUE((!CreatePaperGrain(0).IsValid()) && (++checks, true));
+    EXPECT_TRUE((!CreateBeveledDisc(-2).IsValid()) && (++checks, true));
     auto circle = CreateSolidCircle(32, 24, 19, 14);
     auto p = pixels(circle);
-    CHECK(p[3] == 0);
-    CHECK(p[(16 * 32 + 16) * 4 + 3] == 255);
+    EXPECT_TRUE((p[3] == 0) && (++checks, true));
+    EXPECT_TRUE((p[(16 * 32 + 16) * 4 + 3] == 255) && (++checks, true));
     for (std::size_t i = 0; i < p.size(); i += 4) {
-        CHECK(p[i] == 24 && p[i+1] == 19 && p[i+2] == 14);
+        EXPECT_TRUE((p[i] == 24 && p[i+1] == 19 && p[i+2] == 14) && (++checks, true));
     }
     auto shadow = CreateShadowNineSlice(32, 2, 15);
     p = pixels(shadow);
-    CHECK(p[3] == 0 && p[(16 * 32 + 16) * 4 + 3] == 255);
+    EXPECT_TRUE((p[3] == 0 && p[(16 * 32 + 16) * 4 + 3] == 255) && (++checks, true));
     auto paper = CreatePaperGrain(32);
     auto paper2 = CreatePaperGrain(32);
     p = pixels(paper);
-    CHECK(p == pixels(paper2)); // deterministic output, no hidden RNG state
+    EXPECT_TRUE((p == pixels(paper2)) && (++checks, true)); // deterministic output, no hidden RNG state
     bool varied = false;
     for (std::size_t i = 0; i < p.size(); i += 4) {
-        CHECK(p[i+3] == 255 && p[i] >= p[i+1] && p[i+1] >= p[i+2]);
+        EXPECT_TRUE((p[i+3] == 255 && p[i] >= p[i+1] && p[i+1] >= p[i+2]) && (++checks, true));
         varied |= p[i] != p[0];
     }
-    CHECK(varied);
+    EXPECT_TRUE((varied) && (++checks, true));
     auto disc = CreateBeveledDisc(32);
     p = pixels(disc);
-    CHECK(p[3] == 0 && p[(16 * 32 + 16) * 4 + 3] == 255);
+    EXPECT_TRUE((p[3] == 0 && p[(16 * 32 + 16) * 4 + 3] == 255) && (++checks, true));
     auto moved = std::move(disc);
-    CHECK(moved.IsValid() && !disc.IsValid());
+    EXPECT_TRUE((moved.IsValid() && !disc.IsValid()) && (++checks, true));
     moved.Destroy(); moved.Destroy();
-    CHECK(!moved.IsValid());
+    EXPECT_TRUE((!moved.IsValid()) && (++checks, true));
 }
 
 static void overlay_tests() {
-    CHECK(LerpRgb24(0x102030, 0xaabbcc, -1) == 0x102030);
-    CHECK(LerpRgb24(0x102030, 0xaabbcc, 2) == 0xaabbcc);
-    CHECK(LerpRgb24(0, 0xffffff, .5f) == 0x7f7f7f);
-    CHECK(Ramp3Rgb24(.5f, 0, 0x123456, 0xffffff) == 0x123456);
-    CHECK(Ramp3Rgb24(1, 0, 0x123456, 0xffffff) == 0xffffff);
+    EXPECT_TRUE((LerpRgb24(0x102030, 0xaabbcc, -1) == 0x102030) && (++checks, true));
+    EXPECT_TRUE((LerpRgb24(0x102030, 0xaabbcc, 2) == 0xaabbcc) && (++checks, true));
+    EXPECT_TRUE((LerpRgb24(0, 0xffffff, .5f) == 0x7f7f7f) && (++checks, true));
+    EXPECT_TRUE((Ramp3Rgb24(.5f, 0, 0x123456, 0xffffff) == 0x123456) && (++checks, true));
+    EXPECT_TRUE((Ramp3Rgb24(1, 0, 0x123456, 0xffffff) == 0xffffff) && (++checks, true));
     std::vector<std::vector<int>> neighbors{{1, -1, 99}, {0,2}, {1}, {4}, {3}};
     std::vector<int> owners{7,7,8,7,7};
     std::vector<double> scores{2,3,100,10,20}, areas(5,1);
     std::vector<char> seen(5,0);
     auto comp = LargestConnectedComponent({-1,99,0,3}, neighbors, 7, owners, scores, areas, seen);
     std::sort(comp.begin(), comp.end());
-    CHECK((comp == std::vector<int>{3,4}));
-    CHECK(LargestConnectedComponent({}, neighbors, 7, owners, scores, areas, seen).empty());
-    CHECK(!PlaceContiguousLabel({}).valid);
+    EXPECT_TRUE(((comp == std::vector<int>{3,4})) && (++checks, true));
+    EXPECT_TRUE((LargestConnectedComponent({}, neighbors, 7, owners, scores, areas, seen).empty()) && (++checks, true));
+    EXPECT_TRUE((!PlaceContiguousLabel({}).valid) && (++checks, true));
     ProvinceOverlay overlay;
-    CHECK(!overlay.Build(0, 20, {}, 1));
-    CHECK(!overlay.Build(2, 2, {1}, 1));
+    EXPECT_TRUE((!overlay.Build(0, 20, {}, 1)) && (++checks, true));
+    EXPECT_TRUE((!overlay.Build(2, 2, {1}, 1)) && (++checks, true));
     const int n = 128;
     std::vector<std::uint16_t> ids(n*n,1);
     for (int y = 0; y < n; ++y) for (int x = n/2; x < n; ++x) ids[y*n+x] = 2;
-    CHECK(overlay.Build(n,n,ids,2,2));
-    CHECK(overlay.Width()==n && overlay.Height()==n && overlay.Supersample()==2);
-    CHECK(overlay.HidMap().size()==static_cast<std::size_t>(n*n*4));
-    CHECK(overlay.BBoxes().size() >= 2 && !overlay.Outlines().empty());
+    EXPECT_TRUE((overlay.Build(n,n,ids,2,2)) && (++checks, true));
+    EXPECT_TRUE((overlay.Width()==n && overlay.Height()==n && overlay.Supersample()==2) && (++checks, true));
+    EXPECT_TRUE((overlay.HidMap().size()==static_cast<std::size_t>(n*n*4)) && (++checks, true));
+    EXPECT_TRUE((overlay.BBoxes().size() >= 2 && !overlay.Outlines().empty()) && (++checks, true));
     overlay.ComputeBorderDistance({7,8},ids);
-    CHECK(overlay.BorderDistance().size()==ids.size());
-    CHECK(overlay.BorderDistance()[n/2*n+n/2] <= overlay.BorderDistance()[n/2*n+n/4]);
+    EXPECT_TRUE((overlay.BorderDistance().size()==ids.size()) && (++checks, true));
+    EXPECT_TRUE((overlay.BorderDistance()[n/2*n+n/2] <= overlay.BorderDistance()[n/2*n+n/4]) && (++checks, true));
     OverlayPolylineSpec river;
     river.points = {{1,20},{20,22},{46,20}};
     OverlayPolylineSpec canal = river; canal.channel_b = true; canal.meander = false;
     overlay.RasterizePolylines({{},river,canal});
-    CHECK(overlay.HasPolylines());
+    EXPECT_TRUE((overlay.HasPolylines()) && (++checks, true));
     OverlayCompositeParams params;
     params.inner_glow = true; params.occupation_stripes = true;
     overlay.CompositeAndUpload({0x112233,0x8899aa},{1,.5f},{0,1},{1,1},{0xff0000,0x00ff00},params);
     auto px = pixels(overlay.Texture());
-    CHECK(px.size()==static_cast<std::size_t>(n*n*16));
-    CHECK(std::any_of(px.begin(),px.end(),[](auto x){return x!=0;}));
+    EXPECT_TRUE((px.size()==static_cast<std::size_t>(n*n*16)) && (++checks, true));
+    EXPECT_TRUE((std::any_of(px.begin(),px.end(),[](auto x){return x!=0;})) && (++checks, true));
     overlay.RasterizePolylines({});
     overlay.CompositeAndUpload({0x112233,0x8899aa},{1,.5f},{0,1},{1,1},{0xff0000,0x00ff00},params);
-    CHECK(pixels(overlay.Texture()) != px); // empty rasterization clears channel content
+    EXPECT_TRUE((pixels(overlay.Texture()) != px) && (++checks, true)); // empty rasterization clears channel content
     std::vector<std::uint16_t> label_ids(n*n,1);
-    CHECK(overlay.Build(n,n,label_ids,1,1));
-    CHECK(!overlay.HasPolylines()); // rebuilding invalidates the rasterized channel cache
+    EXPECT_TRUE((overlay.Build(n,n,label_ids,1,1)) && (++checks, true));
+    EXPECT_TRUE((!overlay.HasPolylines()) && (++checks, true)); // rebuilding invalidates the rasterized channel cache
     overlay.ComputeBorderDistance({0},label_ids);
     std::vector<int> regions{0};
     Vec2 centroid{n/2.0f,n/2.0f}; double area=n*n;
@@ -142,8 +142,8 @@ static void overlay_tests() {
     req.region_centroids=&centroid; req.region_areas=&area;
     req.component_regions=&regions; req.text_candidates={"Test"}; req.total_pop=10000;
     auto label=PlaceContiguousLabel(req);
-    CHECK(label.valid && label.text=="Test" && label.size>0);
-    CHECK(label.x>=0 && label.x<n && label.y>=0 && label.y<n);
+    EXPECT_TRUE((label.valid && label.text=="Test" && label.size>0) && (++checks, true));
+    EXPECT_TRUE((label.x>=0 && label.x<n && label.y>=0 && label.y<n) && (++checks, true));
 }
 
 #ifdef FAKE2D_WITH_FAKELUA
@@ -151,16 +151,16 @@ static void lua_ui_tests() {
     ColorPool colors;
     const Color red{1,0,0,.5f};
     const auto id=colors.Id(red);
-    CHECK(id>0 && colors.Id(red)==id);
-    CHECK(colors.Get(id).r==1 && colors.Get(id).a==.5f);
-    CHECK(colors.Get(-1,Color{0,1,0,1}).g==1);
+    EXPECT_TRUE((id>0 && colors.Id(red)==id) && (++checks, true));
+    EXPECT_TRUE((colors.Get(id).r==1 && colors.Get(id).a==.5f) && (++checks, true));
+    EXPECT_TRUE((colors.Get(-1,Color{0,1,0,1}).g==1) && (++checks, true));
     colors.SetThemeColor("accent",red);
-    CHECK(colors.ThemeId("accent")==id);
-    CHECK(colors.ThemeId("missing",red)==id);
-    colors.Clear(); CHECK(colors.Pack(1,0,0,.5)==1);
+    EXPECT_TRUE((colors.ThemeId("accent")==id) && (++checks, true));
+    EXPECT_TRUE((colors.ThemeId("missing",red)==id) && (++checks, true));
+    colors.Clear(); EXPECT_TRUE((colors.Pack(1,0,0,.5)==1) && (++checks, true));
     colors.SetThemeColor("accent",red);
     fakelua::FakeluaStateGuard state;
-    auto *st=state.GetState(); CHECK(st);
+    auto *st=state.GetState(); EXPECT_TRUE((st) && (++checks, true));
     Engine engine;
     Camera2D camera; camera.SetViewport(640,480);
     Input input;
@@ -171,13 +171,13 @@ static void lua_ui_tests() {
     host.note_native=[&](const char *name){registered.insert(name);};
     RegisterCommonUILuaApi(nullptr,&host); RegisterCommonUILuaApi(st,nullptr);
     RegisterLayoutUILuaApi(nullptr,&host); RegisterLayoutUILuaApi(st,nullptr);
-    CHECK(registered.empty());
+    EXPECT_TRUE((registered.empty()) && (++checks, true));
     RegisterCommonUILuaApi(st,&host); RegisterLayoutUILuaApi(st,&host);
-    CHECK(registered.contains("u_strf") && registered.contains("ui_root_anchor"));
+    EXPECT_TRUE((registered.contains("u_strf") && registered.contains("ui_root_anchor")) && (++checks, true));
     fakelua::RegisterNativeFunction(st,"expect",false,
         std::function<void(fakelua::State*,bool,long long)>([](fakelua::State*,bool ok,long long stage){
             if (!ok) std::fprintf(stderr,"Lua UI assertion stage %lld failed\n",stage);
-            CHECK(ok);
+            EXPECT_TRUE((ok) && (++checks, true));
         }));
     fakelua::CompileConfig cfg;
     cfg.debug_mode=false; fakelua::DisableAllJit(cfg); cfg.disable_jit[fakelua::JIT_INTERP]=false;
@@ -277,15 +277,15 @@ end
 )LUA",cfg);
     int result=0;
     fakelua::Call(st,fakelua::JIT_INTERP,"coverage_ui",result);
-    CHECK(result==123);
+    EXPECT_TRUE((result==123) && (++checks, true));
 }
 
 static void snapshot_tests() {
     fakelua::FakeluaStateGuard state;
-    auto *s=state.GetState(); CHECK(s);
+    auto *s=state.GetState(); EXPECT_TRUE((s) && (++checks, true));
     auto &mgr=fakelua::GetNativeObjectManager(s);
     long long group=mgr.CreateGroup();
-    auto *root=mgr.GlobalCreate("coverage_world","World",1); CHECK(root);
+    auto *root=mgr.GlobalCreate("coverage_world","World",1); EXPECT_TRUE((root) && (++checks, true));
     std::int64_t next=10;
     std::vector<fakelua::NativeObject*> items;
     ObjectSnapshotChain::Schema schema;
@@ -293,79 +293,81 @@ static void snapshot_tests() {
     schema.is_transient=[](std::string_view, std::string_view key, int){return key.starts_with("tmp_");};
     ObjectSnapshotChain::View view{&root,&group,&next,{{"Item",&items,true}}};
     ObjectSnapshotChain chain;
-    CHECK(chain.SnapshotFull(nullptr,schema,view).empty());
-    CHECK(!chain.Reset(nullptr,schema,view,2026,11,1));
+    EXPECT_TRUE((chain.SnapshotFull(nullptr,schema,view).empty()) && (++checks, true));
+    EXPECT_TRUE((!chain.Reset(nullptr,schema,view,2026,11,1)) && (++checks, true));
     root->SetInt("date_y",2026); root->SetInt("date_m",11); root->SetInt("date_d",1);
     root->SetInt("gold",100); root->SetFloat("ratio",1.25); root->SetBool("active",true);
     root->SetString("name","root"); root->SetString("tmp_note","keep");
-    auto *child=mgr.Create(group,"Child",2); CHECK(child);
+    auto *child=mgr.Create(group,"Child",2); EXPECT_TRUE((child) && (++checks, true));
     child->SetInt("value",7); root->SetObject("child",child);
-    auto *item=mgr.Create(group,"Item",3); CHECK(item);
+    auto *item=mgr.Create(group,"Item",3); EXPECT_TRUE((item) && (++checks, true));
     item->SetInt("count",5); items.push_back(item);
     const auto stamp=child->GetVersion();
-    CHECK(child->GetInt("value")==7 && child->GetVersion()==stamp);
-    CHECK(chain.Reset(s,schema,view,2026,11,1));
+    EXPECT_TRUE((child->GetInt("value")==7 && child->GetVersion()==stamp) && (++checks, true));
+    EXPECT_TRUE((chain.Reset(s,schema,view,2026,11,1)) && (++checks, true));
     auto full=chain.SnapshotFull(s,schema,view);
-    CHECK(!full.empty());
+    EXPECT_TRUE((!full.empty()) && (++checks, true));
     child->SetInt("value",42);
-    CHECK(child->GetVersion()!=stamp); // API whose missing dependency broke CI
+    EXPECT_TRUE((child->GetVersion()!=stamp) && (++checks, true)); // API whose missing dependency broke CI
     root->SetInt("gold",200); next=20;
-    CHECK(chain.CatchUp(s,schema,view,2026,11,2,86400));
+    EXPECT_TRUE((chain.CatchUp(s,schema,view,2026,11,2,86400)) && (++checks, true));
     auto delta=chain.SnapshotForSave(s,schema,view,false,86400);
-    CHECK(!delta.empty());
-    CHECK(!chain.Materialize(s,schema,view).empty());
+    EXPECT_TRUE((!delta.empty()) && (++checks, true));
+    EXPECT_TRUE((!chain.Materialize(s,schema,view).empty()) && (++checks, true));
     auto flat=chain.SnapshotForSave(s,schema,view,true,86400);
     std::string error, warning;
-    CHECK(chain.Restore(s,schema,view,delta,&error,&warning));
-    CHECK(root->GetInt("gold")==200 && root->GetObject("child")->GetInt("value")==42);
-    CHECK(next==20 && items.size()==1 && items[0]->GetInt("count")==5);
-    CHECK(chain.Restore(s,schema,view,flat));
-    CHECK(root->GetInt("gold")==200);
-    CHECK(chain.Restore(s,schema,view,full));
-    CHECK(root->GetInt("gold")==100 && root->GetString("tmp_note")=="keep");
+    EXPECT_TRUE((chain.Restore(s,schema,view,delta,&error,&warning)) && (++checks, true));
+    EXPECT_TRUE((root->GetInt("gold")==200 && root->GetObject("child")->GetInt("value")==42) && (++checks, true));
+    EXPECT_TRUE((next==20 && items.size()==1 && items[0]->GetInt("count")==5) && (++checks, true));
+    EXPECT_TRUE((chain.Restore(s,schema,view,flat)) && (++checks, true));
+    EXPECT_TRUE((root->GetInt("gold")==200) && (++checks, true));
+    EXPECT_TRUE((chain.Restore(s,schema,view,full)) && (++checks, true));
+    EXPECT_TRUE((root->GetInt("gold")==100 && root->GetString("tmp_note")=="keep") && (++checks, true));
     const auto trans=chain.SaveTransients(schema,view,true);
     root->SetString("tmp_note","changed");
     chain.LoadTransients(schema,view,trans,true);
-    CHECK(root->GetString("tmp_note")=="keep");
-    CHECK(!chain.Restore(s,schema,view,"bad"));
+    EXPECT_TRUE((root->GetString("tmp_note")=="keep") && (++checks, true));
+    EXPECT_TRUE((!chain.Restore(s,schema,view,"bad")) && (++checks, true));
     auto bad_anchor=delta; bad_anchor[16]^=1;
-    CHECK(!chain.Restore(s,schema,view,bad_anchor,&error,&warning));
-    CHECK(error=="anchor checksum mismatch");
+    EXPECT_TRUE((!chain.Restore(s,schema,view,bad_anchor,&error,&warning)) && (++checks, true));
+    EXPECT_TRUE((error=="anchor checksum mismatch") && (++checks, true));
     auto bad_tail=delta; bad_tail.back()^=1; warning.clear();
-    CHECK(chain.Restore(s,schema,view,bad_tail,&error,&warning));
-    CHECK(!warning.empty() && root->GetInt("gold")==100);
-    CHECK(chain.Restore(s,schema,view,delta.substr(0,delta.size()-3),&error,&warning));
-    CHECK(root->GetInt("gold")==100);
+    EXPECT_TRUE((chain.Restore(s,schema,view,bad_tail,&error,&warning)) && (++checks, true));
+    EXPECT_TRUE((!warning.empty() && root->GetInt("gold")==100) && (++checks, true));
+    EXPECT_TRUE((chain.Restore(s,schema,view,delta.substr(0,delta.size()-3),&error,&warning)) && (++checks, true));
+    EXPECT_TRUE((root->GetInt("gold")==100) && (++checks, true));
     items.clear();
-    CHECK(chain.CatchUp(s,schema,view,2026,11,3,172800));
+    EXPECT_TRUE((chain.CatchUp(s,schema,view,2026,11,3,172800)) && (++checks, true));
     auto removed=chain.SnapshotForSave(s,schema,view,false,172800);
-    CHECK(chain.Restore(s,schema,view,removed)); CHECK(items.empty());
+    EXPECT_TRUE((chain.Restore(s,schema,view,removed)) && (++checks, true)); EXPECT_TRUE((items.empty()) && (++checks, true));
     chain.Rebase(view,2026,11,3);
-    CHECK(chain.CatchUp(s,schema,view,2026,12,1,172800)); // month reanchor
-    chain.Clear(); CHECK(chain.Materialize(s,schema,view).empty());
+    EXPECT_TRUE((chain.CatchUp(s,schema,view,2026,12,1,172800)) && (++checks, true)); // month reanchor
+    chain.Clear(); EXPECT_TRUE((chain.Materialize(s,schema,view).empty()) && (++checks, true));
     mgr.DestroyGroup(group); mgr.GlobalDestroy(schema.root_global);
 }
 #endif
 
-int main() {
-    try {
+// Google Test migration registration; helper/test bodies above are unchanged.
+void RegisterFake2dTestEnvironment() {}
 #ifdef FAKE2D_WITH_FAKELUA
-        snapshot_tests();
+TEST(RegressionSnapshot, RoundTrip) { snapshot_tests(); }
 #endif
-        platform::Window window;
+class RegressionGraphics : public testing::Test {
+protected:
+    inline static std::unique_ptr<platform::Window> window;
+    static void SetUpTestSuite() {
+        window = std::make_unique<platform::Window>();
         platform::WindowDesc desc; desc.headless=true; desc.width=64; desc.height=64;
-        CHECK(window.Create(desc));
-        // Windows resolves GL 3+ entry points (FBO, ActiveTexture, ...) only
-        // after this call. Renderer::Init does it for engine tests; this
-        // binary uses raw GL in procedural/overlay helpers first.
+        ASSERT_TRUE(window->Create(desc) && (++checks, true));
+        // Match the original pre-helper GL loader ordering on Windows.
         fake2d_gl_load_functions();
-        procedural_tests(); overlay_tests();
-#ifdef FAKE2D_WITH_FAKELUA
-        lua_ui_tests();
-#endif
-        std::printf("coverage regression: %d assertions passed\n", checks);
-        return 0;
-    } catch (const std::exception &e) {
-        std::fprintf(stderr,"coverage regression failed: %s\n",e.what()); return 1;
     }
-}
+    static void TearDownTestSuite() { window.reset(); }
+};
+TEST_F(RegressionGraphics, ProceduralTextures) { procedural_tests(); }
+TEST_F(RegressionGraphics, ProvinceOverlay) { overlay_tests(); }
+#ifdef FAKE2D_WITH_FAKELUA
+TEST_F(RegressionGraphics, LuaUI) { lua_ui_tests(); }
+#endif
+
+int Fake2dAssertionCount() { return checks; }

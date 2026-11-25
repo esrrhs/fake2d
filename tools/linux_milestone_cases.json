@@ -1,0 +1,464 @@
+[
+  {
+    "name": "birds",
+    "args": [
+      "--headless",
+      "--fixed-sim-dt",
+      "--angry-birds-demo",
+      "--frames",
+      "240"
+    ],
+    "env": {},
+    "benchmark": false,
+    "screenshot": null,
+    "contains": [],
+    "forbidden_literals": [],
+    "expected_exit": "zero",
+    "publish_log": "birds.log"
+  },
+  {
+    "name": "limbo",
+    "args": [
+      "--headless",
+      "--fixed-sim-dt",
+      "--limbo-demo",
+      "--frames",
+      "240"
+    ],
+    "env": {},
+    "benchmark": false,
+    "screenshot": null,
+    "contains": [],
+    "forbidden_literals": [],
+    "expected_exit": "zero",
+    "publish_log": "limbo.log"
+  },
+  {
+    "name": "limbo_walk",
+    "args": [
+      "--headless",
+      "--fixed-sim-dt",
+      "--limbo-demo",
+      "--frames",
+      "300",
+      "--screenshot",
+      "limbo_walk.png",
+      "--shot-frame",
+      "180",
+      "--shot-min-colors",
+      "12"
+    ],
+    "env": {
+      "LIMBO_TEST": "2"
+    },
+    "benchmark": false,
+    "screenshot": "limbo_walk.png",
+    "contains": [
+      "limbo: walk PASS"
+    ],
+    "forbidden_literals": [],
+    "expected_exit": "zero",
+    "publish_log": "limbo_walk.log"
+  },
+  {
+    "name": "light_bench",
+    "args": [
+      "--benchmark_filter=LightingTrace"
+    ],
+    "env": {},
+    "benchmark": true,
+    "screenshot": null,
+    "contains": [
+      "[light-bench] PASS"
+    ],
+    "forbidden_literals": [],
+    "expected_exit": "zero",
+    "publish_log": "light_bench.log"
+  },
+  {
+    "name": "skeleton_demo",
+    "args": [
+      "--headless",
+      "--fixed-sim-dt",
+      "--frames",
+      "240",
+      "--skeleton-demo",
+      "--screenshot",
+      "skeleton.png",
+      "--shot-frame",
+      "150",
+      "--shot-min-colors",
+      "12"
+    ],
+    "env": {},
+    "benchmark": false,
+    "screenshot": "skeleton.png",
+    "contains": [],
+    "forbidden_literals": [
+      "update() failed"
+    ],
+    "expected_exit": "zero",
+    "publish_log": "skeleton_demo.log"
+  },
+  {
+    "name": "skeleton_mesh_demo",
+    "args": [
+      "--headless",
+      "--fixed-sim-dt",
+      "--frames",
+      "240",
+      "--skeleton-mesh-demo",
+      "--screenshot",
+      "skeleton_mesh.png",
+      "--shot-frame",
+      "150",
+      "--shot-min-colors",
+      "8"
+    ],
+    "env": {},
+    "benchmark": false,
+    "screenshot": "skeleton_mesh.png",
+    "contains": [],
+    "forbidden_literals": [
+      "update() failed"
+    ],
+    "expected_exit": "zero",
+    "publish_log": "skeleton_mesh_demo.log"
+  },
+  {
+    "name": "skeleton_light_demo",
+    "args": [
+      "--headless",
+      "--fixed-sim-dt",
+      "--frames",
+      "240",
+      "--skeleton-light-demo",
+      "--screenshot",
+      "skeleton_light.png",
+      "--shot-frame",
+      "150",
+      "--shot-min-colors",
+      "8"
+    ],
+    "env": {},
+    "benchmark": false,
+    "screenshot": "skeleton_light.png",
+    "contains": [],
+    "forbidden_literals": [
+      "update() failed"
+    ],
+    "expected_exit": "zero",
+    "publish_log": "skeleton_light_demo.log"
+  },
+  {
+    "name": "update_fail",
+    "args": [
+      "--headless",
+      "--fixed-sim-dt",
+      "--interp",
+      "--entry",
+      "scripts/update_fail_test.lua",
+      "--frames",
+      "3"
+    ],
+    "env": {},
+    "benchmark": false,
+    "screenshot": null,
+    "contains": [
+      "update() failed"
+    ],
+    "forbidden_literals": [],
+    "expected_exit": "nonzero",
+    "publish_log": "update_fail.log"
+  },
+  {
+    "name": "light_demo",
+    "args": [
+      "--headless",
+      "--fixed-sim-dt",
+      "--frames",
+      "240",
+      "--light-demo",
+      "--screenshot",
+      "light.png",
+      "--shot-frame",
+      "150",
+      "--shot-min-colors",
+      "12"
+    ],
+    "env": {},
+    "benchmark": false,
+    "screenshot": "light.png",
+    "contains": [
+      "lighting: "
+    ],
+    "forbidden_literals": [],
+    "expected_exit": "zero",
+    "publish_log": "light_demo.log"
+  },
+  {
+    "name": "launcher_demo",
+    "args": [
+      "--headless",
+      "--fixed-sim-dt",
+      "--frames",
+      "40",
+      "--launcher",
+      "--screenshot",
+      "launcher.png",
+      "--shot-frame",
+      "19",
+      "--shot-min-colors",
+      "12"
+    ],
+    "env": {
+      "LAUNCHER_TEST_PICK": "3"
+    },
+    "benchmark": false,
+    "screenshot": "launcher.png",
+    "contains": [
+      "launcher: starting platformer",
+      "would restart with --platformer-demo"
+    ],
+    "forbidden_literals": [],
+    "expected_exit": "zero",
+    "publish_log": "launcher_demo.log"
+  },
+  {
+    "name": "launcher_filter",
+    "args": [
+      "--headless",
+      "--fixed-sim-dt",
+      "--frames",
+      "40",
+      "--launcher"
+    ],
+    "env": {
+      "LAUNCHER_TEST_CAT": "2",
+      "LAUNCHER_TEST_PICK": "0"
+    },
+    "benchmark": false,
+    "screenshot": null,
+    "contains": [
+      "launcher: filter engine",
+      "launcher: starting skeleton"
+    ],
+    "forbidden_literals": [],
+    "expected_exit": "zero",
+    "publish_log": "launcher_filter.log"
+  },
+  {
+    "name": "launcher_click",
+    "args": [
+      "--headless",
+      "--fixed-sim-dt",
+      "--frames",
+      "40",
+      "--launcher"
+    ],
+    "env": {
+      "LAUNCHER_TEST_MX": "100",
+      "LAUNCHER_TEST_MY": "241",
+      "LAUNCHER_TEST_CLICK": "10"
+    },
+    "benchmark": false,
+    "screenshot": null,
+    "contains": [
+      "launcher: starting beat-em-up"
+    ],
+    "forbidden_literals": [],
+    "expected_exit": "zero",
+    "publish_log": "launcher_click.log"
+  },
+  {
+    "name": "beat",
+    "args": [
+      "--headless",
+      "--fixed-sim-dt",
+      "--ai",
+      "--frames",
+      "240",
+      "--beat-em-up-demo",
+      "--screenshot",
+      "beat.png",
+      "--shot-min-colors",
+      "12"
+    ],
+    "env": {},
+    "benchmark": false,
+    "screenshot": "beat.png",
+    "contains": [],
+    "forbidden_literals": [
+      "beat-em-up: game over",
+      "update() failed"
+    ],
+    "expected_exit": "zero",
+    "publish_log": "beat.log"
+  },
+  {
+    "name": "shmup_demo",
+    "args": [
+      "--headless",
+      "--fixed-sim-dt",
+      "--ai",
+      "--frames",
+      "240",
+      "--shmup-demo",
+      "--screenshot",
+      "shmup.png",
+      "--shot-min-colors",
+      "12"
+    ],
+    "env": {},
+    "benchmark": false,
+    "screenshot": "shmup.png",
+    "contains": [],
+    "forbidden_literals": [
+      "update() failed"
+    ],
+    "expected_exit": "zero",
+    "publish_log": "shmup_demo.log"
+  },
+  {
+    "name": "snooker_demo",
+    "args": [
+      "--headless",
+      "--fixed-sim-dt",
+      "--ai",
+      "--frames",
+      "900",
+      "--snooker-demo",
+      "--screenshot",
+      "snooker.png",
+      "--shot-frame",
+      "500",
+      "--shot-min-colors",
+      "12"
+    ],
+    "env": {},
+    "benchmark": false,
+    "screenshot": "snooker.png",
+    "contains": [
+      "snooker: shot 1 resolved"
+    ],
+    "forbidden_literals": [
+      "update() failed"
+    ],
+    "expected_exit": "zero",
+    "publish_log": "snooker_demo.log"
+  },
+  {
+    "name": "contra_demo",
+    "args": [
+      "--headless",
+      "--fixed-sim-dt",
+      "--ai",
+      "--frames",
+      "2500",
+      "--contra-demo",
+      "--screenshot",
+      "contra.png",
+      "--shot-frame",
+      "1800",
+      "--shot-min-colors",
+      "12"
+    ],
+    "env": {},
+    "benchmark": false,
+    "screenshot": "contra.png",
+    "contains": [
+      "contra: fortress core destroyed"
+    ],
+    "forbidden_literals": [
+      "update() failed"
+    ],
+    "expected_exit": "zero",
+    "publish_log": "contra_demo.log"
+  },
+  {
+    "name": "city_demo",
+    "args": [
+      "--headless",
+      "--fixed-sim-dt",
+      "--ai",
+      "--frames",
+      "1800",
+      "--city-demo",
+      "--screenshot",
+      "city.png",
+      "--shot-frame",
+      "1600",
+      "--shot-min-colors",
+      "12"
+    ],
+    "env": {},
+    "benchmark": false,
+    "screenshot": "city.png",
+    "contains": [
+      "city: population milestone 250"
+    ],
+    "forbidden_literals": [
+      "update() failed"
+    ],
+    "expected_exit": "zero",
+    "publish_log": "city_demo.log"
+  },
+  {
+    "name": "rts_demo",
+    "args": [
+      "--headless",
+      "--fixed-sim-dt",
+      "--ai",
+      "--frames",
+      "2400",
+      "--rts-demo",
+      "--screenshot",
+      "rts.png",
+      "--shot-frame",
+      "1950",
+      "--shot-min-colors",
+      "12"
+    ],
+    "env": {},
+    "benchmark": false,
+    "screenshot": "rts.png",
+    "contains": [
+      "rts: first blood",
+      "rts: player victory"
+    ],
+    "forbidden_literals": [
+      "update() failed"
+    ],
+    "expected_exit": "zero",
+    "publish_log": "rts_demo.log"
+  },
+  {
+    "name": "vn_demo",
+    "args": [
+      "--headless",
+      "--fixed-sim-dt",
+      "--ai",
+      "--frames",
+      "2400",
+      "--vn-demo",
+      "--screenshot",
+      "vn.png",
+      "--shot-frame",
+      "1200",
+      "--shot-min-colors",
+      "12"
+    ],
+    "env": {},
+    "benchmark": false,
+    "screenshot": "vn.png",
+    "contains": [
+      "vn: day 7",
+      "vn: ending"
+    ],
+    "forbidden_literals": [
+      "update() failed"
+    ],
+    "expected_exit": "zero",
+    "publish_log": "vn_demo.log"
+  }
+]
