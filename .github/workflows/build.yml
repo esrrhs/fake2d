@@ -660,6 +660,18 @@ jobs:
           export LD_LIBRARY_PATH="$FLINSTALL/lib:${LD_LIBRARY_PATH:-}"
           tools/run_coverage.sh
 
+      # Publish the same post-gate Cobertura report. This does not replace
+      # or relax the 95% check inside tools/run_coverage.sh.
+      - name: Upload coverage reports to Codecov
+        if: ${{ always() && hashFiles('reports/coverage/current/cobertura.xml') != '' }}
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: reports/coverage/current/cobertura.xml
+          disable_search: true
+          flags: owned-library
+          fail_ci_if_error: true
+
       - name: Upload coverage evidence even when the target is unmet
         if: always()
         uses: actions/upload-artifact@v4
