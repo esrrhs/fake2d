@@ -3,6 +3,7 @@
 [English](README.md) | [中文说明](README_CN.md)
 
 [![Build Status](https://github.com/esrrhs/fake2d/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/esrrhs/fake2d/actions)
+[![Codecov](https://codecov.io/gh/esrrhs/fake2d/branch/master/graph/badge.svg)](https://codecov.io/gh/esrrhs/fake2d)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-brightgreen.svg)](https://en.cppreference.com/w/cpp/23)
 [![OpenGL](https://img.shields.io/badge/OpenGL-3.3%20Core%20%7C%202.1-orange.svg)](https://www.opengl.org/)

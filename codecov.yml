@@ -1,0 +1,27 @@
+# Codecov scope for the public badge and dashboard. Keep this aligned with
+# tools/coverage_report.py: Linux/GCC owned executable lines under src/** and
+# include/fake2d/**. The required 95% gate stays in CI
+# (tools/run_coverage.sh -> coverage_report.py --check) and is not replaced
+# or relaxed here. Status checks are informational so a slight difference in
+# how Codecov merges line records cannot override that gate.
+ignore:
+  - "tests/**"
+  - "examples/**"
+  - "tools/**"
+  - "scripts/**"
+  - "docs/**"
+  - "cmake/**"
+  - "assets/**"
+  - ".github/**"
+  - ".deps/**"
+  - "build*/**"
+  - "reports/**"
+
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
