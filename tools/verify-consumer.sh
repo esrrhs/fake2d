@@ -49,20 +49,7 @@ mkdir -p "$PREFIX" "$CONSUMER"
 echo "verify-consumer: installing to $PREFIX"
 cmake --install "$BUILD" --prefix "$PREFIX" >/dev/null
 
-if grep -q "CXX_STANDARD" "$CONSUMER_SRC/CMakeLists.txt"; then
-    echo "verify-consumer: ERROR: the consumer must declare no C++ standard; that is the point" >&2
-    exit 1
-fi
-
-TARGETS=$(find "$PREFIX" -name fake2dTargets.cmake | head -n 1)
-if [ -z "$TARGETS" ]; then
-    echo "verify-consumer: ERROR: fake2dTargets.cmake was not installed under $PREFIX" >&2
-    exit 1
-fi
-grep -q "cxx_std_23" "$TARGETS" || {
-    echo "verify-consumer: ERROR: $TARGETS does not declare cxx_std_23" >&2
-    exit 1
-}
+# Source/target/version predicates are owned by InstalledConsumer.BuildMetadata.
 
 # The consumer must find both fake2d and fakelua. Callers pass fakelua via
 # CMAKE_PREFIX_PATH / FLINSTALL; the fake2d prefix always goes first.
@@ -115,10 +102,5 @@ if [ -d "$PREFIX/bin" ]; then
     export PATH="$PREFIX/bin:$PATH"
 fi
 
-OUTPUT=$("$BIN")
-echo "$OUTPUT"
-echo "$OUTPUT" | grep -F "consumer: 1.55" >/dev/null || {
-    echo "verify-consumer: ERROR: consumer did not print the 1.55 version line" >&2
-    exit 1
-}
+"$BIN"
 echo "verify-consumer: PASS"

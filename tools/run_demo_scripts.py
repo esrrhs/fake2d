@@ -31,7 +31,8 @@ def main() -> int:
     demos = list_demos()
     if not demos:
         return die_with_errors("run_demo_scripts", ["no demos found in demos.h"])
-    errors: list[str] = []
+    from integration_bridge import case, run_cases
+    jobs = []
     for demo in demos:
         cmd = ["--headless"]
         if args.interp:
@@ -39,20 +40,11 @@ def main() -> int:
         if args.ai:
             cmd.append("--ai")
         cmd += ["--frames", str(args.frames), f"--{demo}-demo"]
-        print(f"run_demo_scripts: {' '.join(cmd)}", flush=True)
-        rc, log = run_hello(hello, cmd)
-        hits = script_error_hits(log)
-        if rc != 0 or hits:
-            reason = f"exit {rc}"
-            if hits:
-                reason += f", log: {', '.join(hits)}"
-            errors.append(f"demo '{demo}' {reason}\n{log}")
-            print(f"run_demo_scripts: FAIL {demo} ({reason})", file=sys.stderr, flush=True)
-        else:
-            print(f"run_demo_scripts: ok {demo}", flush=True)
-    if not errors:
+        jobs.append(case("CatalogDemo", demo, hello, cmd, script_errors=True))
+    rc = run_cases(hello, jobs)
+    if not rc:
         print(f"run_demo_scripts: PASS ({len(demos)} demos, {args.frames} frames)")
-    return die_with_errors("run_demo_scripts", errors)
+    return rc
 
 
 if __name__ == "__main__":

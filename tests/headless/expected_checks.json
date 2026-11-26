@@ -1,0 +1,179 @@
+{
+  "mario_smoke": [
+    {
+      "kind": "expect",
+      "lo": 900112,
+      "hi": 900112,
+      "label": "mario: map loads 112 cols"
+    },
+    {
+      "kind": "expect",
+      "lo": 900207,
+      "hi": 900207,
+      "label": "mario: 7 goombas read from spawns object layer"
+    },
+    {
+      "kind": "expect",
+      "lo": 201001,
+      "hi": 201001,
+      "label": "mario: mode stays PLAY"
+    },
+    {
+      "kind": "expect",
+      "lo": 204080,
+      "hi": 204080,
+      "label": "mario: idle player holds spawn px=80"
+    },
+    {
+      "kind": "forbid",
+      "lo": 300010,
+      "hi": 300010,
+      "label": "mario: no goomba death"
+    },
+    {
+      "kind": "forbid",
+      "lo": 300011,
+      "hi": 300011,
+      "label": "mario: no pit death"
+    },
+    {
+      "kind": "forbid",
+      "lo": 300012,
+      "hi": 300012,
+      "label": "mario: no timeout death"
+    }
+  ],
+  "mario_death": [
+    {
+      "kind": "expect",
+      "lo": 300004,
+      "hi": 300004,
+      "label": "mario: death sequence finished"
+    },
+    {
+      "kind": "expect",
+      "lo": 301002,
+      "hi": 301002,
+      "label": "mario: one life spent (lives=2)"
+    }
+  ],
+  "mario_win": [
+    {
+      "kind": "expect",
+      "lo": 300005,
+      "hi": 300005,
+      "label": "mario: pole touch starts win"
+    },
+    {
+      "kind": "expect",
+      "lo": 300021,
+      "hi": 300021,
+      "label": "mario: slide reaches ground"
+    },
+    {
+      "kind": "expect",
+      "lo": 300022,
+      "hi": 300022,
+      "label": "mario: walk reaches castle -> clear"
+    },
+    {
+      "kind": "expect_range",
+      "lo": 300023,
+      "hi": 304000,
+      "label": "mario: time bonus banked"
+    }
+  ],
+  "mario_die3": [
+    {
+      "kind": "expect",
+      "lo": 301000,
+      "hi": 301000,
+      "label": "mario: third death reaches GAME OVER"
+    },
+    {
+      "kind": "expect",
+      "lo": 840000,
+      "hi": 840000,
+      "label": "mario: reopen restores lives/score/tiles/goombas"
+    }
+  ],
+  "mario_phys": [
+    {
+      "kind": "expect_range",
+      "lo": 820000,
+      "hi": 820999,
+      "label": "mario PHYS: walk plateau ~150"
+    },
+    {
+      "kind": "expect_range",
+      "lo": 821000,
+      "hi": 821999,
+      "label": "mario PHYS: full-hop apex ~130px"
+    },
+    {
+      "kind": "expect_range",
+      "lo": 822000,
+      "hi": 822999,
+      "label": "mario PHYS: run plateau ~235"
+    }
+  ],
+  "mario_blocks": [
+    {
+      "kind": "expect",
+      "lo": 830001,
+      "hi": 830001,
+      "label": "mario BLOCKS: ? block becomes USED"
+    },
+    {
+      "kind": "expect",
+      "lo": 830002,
+      "hi": 830002,
+      "label": "mario BLOCKS: USED block does not retrigger"
+    },
+    {
+      "kind": "expect",
+      "lo": 830003,
+      "hi": 830003,
+      "label": "mario BLOCKS: mid block spawns mushroom"
+    },
+    {
+      "kind": "expect",
+      "lo": 830004,
+      "hi": 830004,
+      "label": "mario BLOCKS: mushroom grows player"
+    },
+    {
+      "kind": "expect",
+      "lo": 830007,
+      "hi": 830007,
+      "label": "mario BLOCKS: bonk kills goomba above"
+    },
+    {
+      "kind": "expect",
+      "lo": 830005,
+      "hi": 830005,
+      "label": "mario BLOCKS: big form breaks brick"
+    },
+    {
+      "kind": "expect_range",
+      "lo": 830006,
+      "hi": 830106,
+      "label": "mario BLOCKS: bump offset anim played"
+    }
+  ],
+  "slope_smoke": [
+    {
+      "kind": "expect",
+      "lo": 900001,
+      "hi": 900001,
+      "label": "slope: lab initializes"
+    },
+    {
+      "kind": "expect_range",
+      "lo": 900000,
+      "hi": 900099,
+      "label": "slope: feet trace logs"
+    }
+  ],
+  "platformer_smoke": []
+}

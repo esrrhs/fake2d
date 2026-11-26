@@ -41,7 +41,9 @@
 #define GetObject GetObjectA
 #include "render/gl.h"
 
-int main() {
+#include <gtest/gtest.h>
+
+TEST(WindowsMacroCompatibility, CollidingIdentifiers) {
     auto near = [](float a, float b) { return std::fabs(a - b) < 0.01f; };
     struct ShadowPoint {
         float near;
@@ -56,5 +58,5 @@ int main() {
     };
     void *(NativeProbe::*get_object)() = &NativeProbe::GetObject;
     const bool ok = near(p.near, 1.0f) && near(p.far, 2.0f) && get_object != nullptr;
-    return ok ? EXIT_SUCCESS : EXIT_FAILURE;
+    EXPECT_TRUE(ok);
 }

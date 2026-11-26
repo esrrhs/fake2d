@@ -421,7 +421,7 @@ draw_set_blend(0)
 `assets/fx_blur.{vert,frag}` is a ready-made separable Gaussian: `u_dir` is
 the step in UV (so `0,0` is a straight copy), and `u_dim` scales the pass for
 an additive composite. `scripts/fx_demo.lua` (`--fx-demo`) builds a bloom out
-of it and shows a split-screen mode; `--fx-test` asserts the whole chain with
+of it and shows a split-screen mode; `EngineContracts.fx` asserts the whole chain with
 pixel probes.
 
 **Auto uniforms**: the renderer stamps two uniforms onto every loaded custom
@@ -433,7 +433,7 @@ shader each frame, and a shader that does not declare them is untouched —
 - `u_resolution` — pixels of the surface being drawn into: the target's own
   size inside a pass, the window's outside one. This is what makes a
   pixel-space parameter mean the same thing at any resolution, which
-  `--fx-test` proves by running the same wave at 128 and at 64 and measuring
+  `EngineContracts.fx` proves by running the same wave at 128 and at 64 and measuring
   the same displacement.
 
 `assets/fx_bright.{vert,frag}` is the threshold a bloom starts with: keep the
@@ -532,10 +532,10 @@ light-facing edge, and the count is what the budget caps.
 **Cost is bounded by design.** Lights outside the view are skipped, casters
 outside a light's reach are never looked at, and only the edges that *face* the
 light are extruded — which is both the correct silhouette and 3/4 of the
-geometry saved. `--light-bench` runs 64 moving lights against all 256 caster
+geometry saved. `fake2d_benchmarks --benchmark_filter=LightingTrace` runs 64 moving lights against all 256 caster
 slots and gates the result: the draw-call count stays flat in the number of
 lights, and pulling the budget in lowers the frame cost rather than raising it.
-`--light-test` reads the light buffer back and proves the geometry from the
+`EngineContracts.light` reads the light buffer back and proves the geometry from the
 other side: a pool is bright exactly as far as its radius, a shadow is dark
 behind its caster, and no shadow lands outside the circle of the light that
 cast it.
@@ -631,13 +631,13 @@ the hand already follows the arm.
 
 **Cost.** Per instance per frame: `bones` matrix multiplies and `slots` quads.
 Every part comes off one sheet, so a whole character is **one draw call** and the
-batch coalesces identically-textured characters into one more — `--skeleton-test`
+batch coalesces identically-textured characters into one more — `EngineContracts.skeleton`
 draws a rank of twelve and asserts the call count does not move. `skel_stat`
 prints the live numbers: 1 assets, 2 instances, 3 bones posed, 4 parts drawn,
 5 draw calls, 6 events fired, 7 clips. The draw-call figure is the last completed
 frame's, because a quad still sitting in the batch has not cost a call yet.
 
-`--skeleton-test` builds a rig in code whose expected numbers are known exactly,
+`EngineContracts.skeleton` builds a rig in code whose expected numbers are known exactly,
 then loads the shipped soldier and checks the same shapes through the JSON path:
 hierarchy composition through a rotated parent, linear versus stepped keys, a
 cross-fade that keeps the outgoing clip running while it fades, one-shot
@@ -725,7 +725,7 @@ with a deform flutter; `scripts/skeleton_light_demo.lua`
 (`--skeleton-light-demo`) puts that flag under the Phase 46 lighting pass so the
 hull casts a shadow; `assets/skeleton/linkskin.json` covers skins-nested mesh +
 cross-skin linkedmesh; `assets/skeleton/linkchain.json` covers parent chains.
-`--skeleton-test` (Phase 51) also gates shared bind keys across linkedmesh /
+`EngineContracts.skeleton` (Phase 51) also gates shared bind keys across linkedmesh /
 instances, independent deform samples on two instances, and mixed region+mesh
 draw-call coalesce on `softskin.json` (pole region + flag mesh).
 
@@ -736,7 +736,7 @@ from C++ (`AudioEngine::AddClip` / `AddClipWav`, see the `MakeTone`
 synthesizer and `EnsureAudioDemoMusic` in `examples/hello/main.cpp` for
 asset-free examples). The mixer is **independent of the device**: buses,
 fades and the voice pool are pure mixing state, so on hosts without an audio
-device nothing is lost — the script runs unchanged (and `--audio-test` can
+device nothing is lost — the script runs unchanged (and `EngineContracts.audio` can
 drive `AudioEngine::Mix` itself to assert envelopes offline), but
 `audio_peak()` stays 0 because no device is consuming the output.
 
@@ -925,7 +925,7 @@ format version 1). Unknown versions are rejected on load.
     --replay /tmp/mario_attract.f2ir
 
 # Self-test: synthetic record → save → load → identical reads + hash
-./build/bin/fake2d_hello --replay-test
+./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.replay
 ```
 
 `--record` and `--replay` are mutually exclusive. Past the last sample the last
@@ -934,7 +934,7 @@ pre-reserves its sample buffer so Capture does not heap-allocate on the hot
 path while capacity remains. CI attract modes can check in an `.f2ir` next to a
 demo and pass `--replay` instead of relying on a live policy.
 
-#### Gameplay-state determinism (`--rng-seed` / `--determinism-test`)
+#### Gameplay-state determinism (`--rng-seed` / `EngineContracts.determinism`)
 
 Phase 53 pins the engine RNG and exposes a world/state hash so two runs with
 the same input stream **and** seed produce a matching digest:
@@ -944,7 +944,7 @@ the same input stream **and** seed produce a matching digest:
 ./build/bin/fake2d_hello --headless --ai --mario-demo --frames 120     --rng-seed 0xC0FFEE --record /tmp/mario.f2ir
 
 # Self-test: two identically seeded synthetic sessions → matching hashes
-./build/bin/fake2d_hello --determinism-test
+./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.determinism
 ```
 
 `world_hash()` (and `Engine::WorldHash()`) mixes RNG state, every alive physics
@@ -1880,7 +1880,7 @@ end
 `--ui-demo` is the migration template (long CJK, flex columns, caller-owned
 controls, auto-height scroll and shared tokens); `--ui2-demo` / `--ui3-demo`
 exercise bars/radios/combos and draggable windows/tabs/trees using box scopes.
-`--ui-test` includes pixel containment, empty/nested intersections, UTF-8 fit,
+`EngineContracts.ui` includes pixel containment, empty/nested intersections, UTF-8 fit,
 rectangle audit, same-frame columns, auto scroll growth/shrink and input tests.
 
 #### 1.48 game-UI primitives (Phases 57–62)
@@ -1991,7 +1991,7 @@ modal/menu/1000-row virtualization/tween/page. 1/2/3 select pages, SPACE auto.
 Automatic mode also toggles theme/skin, opens/closes overlays and scrolls the list.
 Both scenarios are registered in launcher/CLI, docs/CI/package checks; check-docs
 requires transition markers, real screenshots, no update exceptions or overflow.
-`--ui-test` separately asserts dynamic geometry, pixels, grow/shrink offsets,
+`EngineContracts.ui` separately asserts dynamic geometry, pixels, grow/shrink offsets,
 Latin splitting, selection/clipboard, modality, focus/gamepad and virtual ranges.
 No UI Builder, visual editor, CSS engine or arbitrary-tree virtualization ships.
 
@@ -2157,9 +2157,9 @@ remain outside this UI's scope.
 ./build/bin/fake2d_hello --headless --frames 240 --ui-variable-demo
 ./build/bin/fake2d_hello --ui-stress-demo
 ./build/bin/fake2d_hello --headless --frames 240 --ui-stress-demo
-./build/bin/fake2d_hello --headless --ui-test
-./build/bin/fake2d_hello --headless --ui-stress --frames 300 --ui-stress-seed 42
-./build/bin/fake2d_hello --headless --ui-bench
+./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.ui
+./build/bin/fake2d_engine_tests --gtest_filter=Seeds/UIStress.states/Seed42
+./build/bin/fake2d_ui_benchmark --benchmark_out=ui-bench.json --benchmark_out_format=json
 ```
 
 Variable demo: 1200 mixed Chinese/English rows, keyed expansion, insertion/deletion,
@@ -2170,7 +2170,7 @@ states, including short → long Chinese → short and long English. Stress demo
 seeded 30-frame short → long → short transitions with font/width/reference changes,
 measured auto panels, bottom-aligned hit targets, nested scrolls, first-frame modal
 precedence, visible geometry/hit metrics and audit toggle; SPACE pause, N step,
-R reset seed, A audit. `--ui-test` adds focused regressions plus 90 seeded states;
+R reset seed, A audit. `EngineContracts.ui` adds focused regressions plus 90 seeded states;
 CTest adds two 300-frame seeds. Failures report seed/frame/state for reproduction.
 The existing layout/features demos remain the market/digit/scale and full-widget
 migration templates. All four 240-frame demos compile/run through real FakeLua in
@@ -2181,7 +2181,7 @@ fixtures remain a separate, non-rendering gate: their exact-arity Lua stubs rece
 explicit nil padding for omitted native UI options in generated copies only; real
 demo sources continue to use the documented optional arguments.
 
-`--ui-bench` warms up eight frames and measures 30 samples for fixed 1000-row and
+`fake2d_ui_benchmark` uses Google Benchmark, warms up eight frames and measures 30 samples for fixed 1000-row and
 variable 1200-row lists, 64 rich links, and nested scroll/auto panels. Output is
 stable `UI_BENCH_CONFIG`, `UI_BENCH_CONTEXT`, and `UI_BENCH key=value` records: actual
 CPU layout/interaction/total timing, submitted/eligible nodes, measured rows,
@@ -2382,7 +2382,7 @@ and `rich_glyphs` expose logical runs and decoded glyphs, not GPU batches.
 Rich runs preserve the original independently positioned glyph advances (no new
 cross-glyph kerning). Font/Renderer `DrawText` and `MeasureText` accept an optional
 `kerning` flag (default true); ordinary text behavior is unchanged.
-`--ui-bench` also prints quads/draw calls and rejects the fixed 64-link fixture
+`fake2d_ui_benchmark` also prints quads/draw calls and rejects the fixed 64-link fixture
 above 320 logical runs or 400 draw calls; there is **no wall-clock gate**.
 
 Optional exact-text variable-list metadata:
@@ -2472,7 +2472,7 @@ changes to the game repository are included.
 **Cross-platform verification / IME evidence (1.50):** The Build workflow
 requires the same shared gates on Linux (Xvfb/llvmpipe), macOS (CGL FBO) and
 Windows (Mesa llvmpipe): CTest (all 31 `--*-test` suites, UI stress seeds 42
-and 1492026, `--ui-bench` complexity counters, and `fake2d-win-macro-compat`),
+and 1492026, the Google Benchmark `fake2d-ui-bench` complexity counters, and `fake2d-win-macro-compat`),
 `tools/check_ui_demos.py` (layout/features/variable/stress marker, grow/shrink/
 scroll metrics, overflow and screenshot colour floors, plus migrated-caller
 smokes), `tools/run_demo_scripts.py` (every catalog demo, exit code and

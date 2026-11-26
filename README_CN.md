@@ -28,7 +28,7 @@ Fake2D 采用现代工业级 2D 引擎架构（对齐 Raylib、MonoGame、Defold
 - **动态 VBO 流式写入**：搭配静态预分配共享索引缓冲区（`0-1-2-2-3-0` 规则每 Quad 6 个索引）；
 - **1×1 纯白单例贴图**：纯色色块、进度条、UI 面板背景与纹理精灵共享完全相同的 GLSL 着色器管线，彻底消除因绘制纯色图元打断批次的开销；
 - **多键智能排序合批**：支持延迟指令缓冲与多键稳定排序（Layer → Depth/Z → Blend Mode → Texture ID）。同纹理与同状态四边形自动合并绘制；支持 Alpha 覆盖、Additive 加法与 Multiply 正片叠底混合；
-- **超高渲染吞吐**：内置 `--bench` 实测，在 768 精灵 / 8 纹理场景下，DrawCall 从 674 次大幅降低至 **8 次**。
+- **超高渲染吞吐**：Google Benchmark `SpriteBatchTrace` 实测，在 768 精灵 / 8 纹理场景下，DrawCall 从 674 次大幅降低至 **8 次**。
 
 ### 3. 解耦的 2D 摄像机与视口系统（Camera2D）
 - 独立摄像机变换矩阵（正交 VP 矩阵），支持平滑平移、视口缩放（Zoom）、旋转及 `ScreenToWorld` / `WorldToScreen` 逆矩阵精准坐标反查；
@@ -127,7 +127,7 @@ Fake2D 仓库自带 35 个可直接运行的高质量 Demo，并提供一个引�
 
 ### 随包美术资源（Shipped Art）
 
-所有游戏类 Demo 的场景表现都来自随仓库提交的图片资源，而不再是首次运行时现画的图元：CC0 像素包（Chasersgaming、ansimuz、FisherG）、`assets/` 下的 AI 插画关键图，以及用 AI 材质重打光的 tile sheet。`tools/art_key.py` 负责从原始生成图烘焙出这些提交的 PNG；`--art-test` 会遍历整棵美术目录并逐张加载，因此某个文件夹一旦从 `.gitignore` 里漏掉就会直接让构建失败，而不是悄悄退回图元绘制。
+所有游戏类 Demo 的场景表现都来自随仓库提交的图片资源，而不再是首次运行时现画的图元：CC0 像素包（Chasersgaming、ansimuz、FisherG）、`assets/` 下的 AI 插画关键图，以及用 AI 材质重打光的 tile sheet。`tools/art_key.py` 负责从原始生成图烘焙出这些提交的 PNG；`EngineContracts.art` 会遍历整棵美术目录并逐张加载，因此某个文件夹一旦从 `.gitignore` 里漏掉就会直接让构建失败，而不是悄悄退回图元绘制。
 
 ### Demo 启动器
 
@@ -138,7 +138,7 @@ Fake2D 仓库自带 35 个可直接运行的高质量 Demo，并提供一个引�
 ./build/bin/fake2d_hello --launcher   # 显式进入启动器
 ```
 
-UP/DOWN 或鼠标选择，ENTER 或点击启动，TAB 切换分类过滤（全部 / 游戏 / 引擎特性），滚轮与 PAGEUP/PAGEDOWN 滚动，ESC 退出。可选清单来自 `include/fake2d/demos.h`，也就是命令行解析所用的同一张表，所以菜单只会提供宿主确实能启动的 Demo，往表里加一行就会自动出现在界面上；`--launcher-test` 负责守住这张表（flag 唯一、分类合法、脚本文件真实存在）。
+UP/DOWN 或鼠标选择，ENTER 或点击启动，TAB 切换分类过滤（全部 / 游戏 / 引擎特性），滚轮与 PAGEUP/PAGEDOWN 滚动，ESC 退出。可选清单来自 `include/fake2d/demos.h`，也就是命令行解析所用的同一张表，所以菜单只会提供宿主确实能启动的 Demo，往表里加一行就会自动出现在界面上；`Launcher.catalog` 负责守住这张表（flag 唯一、分类合法、脚本文件真实存在）。
 
 选中某个 Demo 后，宿主以 `--<flag>-demo` **拉起子进程**并等它结束：每个 Demo 都跑在干净的会话里、各自完成自己的资源与音频初始化，而关掉游戏后启动器还在原地，可以直接挑下一个。窗口模式下的 Demo 与启动器会跳过 GCC JIT、直接用解释器跑脚本，这一来一回因此只有一秒左右而不是五秒；`--jit` 强制原生编译，`--interp` 强制走 VM，无头模式（CI）仍按原样使用 JIT。
 
@@ -234,8 +234,8 @@ target_link_libraries(my_game PRIVATE fake2d::fake2d)   # GLFW/OpenGL/FakeLua �
 ./build/bin/fake2d_hello --ui3-demo
 ./build/bin/fake2d_hello --ui-variable-demo
 ./build/bin/fake2d_hello --ui-stress-demo
-./build/bin/fake2d_hello --headless --ui-stress --frames 300 --ui-stress-seed 42
-./build/bin/fake2d_hello --headless --ui-bench
+./build/bin/fake2d_engine_tests --gtest_filter=Seeds/UIStress.states/Seed42
+./build/bin/fake2d_ui_benchmark --benchmark_out=ui-bench.json --benchmark_out_format=json
 
 # UTF-8/CJK 文本与平台能力层（L 切换语言，SAVE 写入 v2 存档）
 ./build/bin/fake2d_hello --text-demo
@@ -281,15 +281,15 @@ target_link_libraries(my_game PRIVATE fake2d::fake2d)   # GLFW/OpenGL/FakeLua �
 ./build/bin/fake2d_hello --variable-step --mario-demo
 
 # 运行图形合批性能基准测试（立即模式 vs 排序多键合批）
-./build/bin/fake2d_hello --headless --bench
+./build/bin/fake2d_benchmarks --benchmark_filter=SpriteBatchTrace
 
 # 运行物理碰撞宽相基准测试（暴力扫描 vs 空间哈希网格）
-./build/bin/fake2d_hello --headless --phys-bench
+./build/bin/fake2d_benchmarks --benchmark_filter=PhysicsTrace
 ```
 
 ### 无头模式与自动化 CI 验证（Headless & Testing）
 
-Fake2D 原生支持无头运行模式，可在无物理显示器的 CI 上完整运行图形与逻辑。Build 工作流在 Linux（Xvfb/llvmpipe）、macOS（CGL FBO）和 Windows（Mesa llvmpipe）上共用同一组入口：`ctest`（31 组套件、两个 `--ui-stress` seed、`--ui-bench` 与 `fake2d-win-macro-compat`）、`tools/check_ui_demos.py`、`tools/run_demo_scripts.py`（退出码加上 `syntax error` / `CompileFile` / `update()` 日志扫描）、`tools/run_gpu_smoke.py`，以及 `tools/verify-consumer.sh`（`find_package(fake2d 1.55)`）。长游戏里程碑截图和完整的 staged 包 `tools/verify-package.sh` 仍只在 Linux Build 上强制执行。短的 `linux assets` 任务只负责上传生成的地图，这样 macOS/Windows 不必等完整 Linux 测试门禁；`linux tests` 与它并行启动。fakelua 安装树按镜像、架构、编译器、OpenSSL 和 `FAKELUA_REF` 缓存。缓存同时保存 TinyCC 运行时头文件（`lib/tcc/include`），并在恢复后把它们放回 libtcc 编译进二进制的 `CONFIG_TCCDIR`，这样构建树不在时 TCC/INTERP fixture 仍能编译。`tools/check-docs.py --ctest-log` 复用 CTest 的 PASS 计数，不再把 31 组套件跑第二遍。这些无头门使用内存剪贴板和注入的焦点/手柄事件，并不表示已在真实桌面上验收过系统剪贴板、物理手柄或 IME 组合预览。GLFW 3.4 仍无公开 preedit API，行内 IME 预览仍明确未实现。
+Fake2D 原生支持无头运行模式，可在无物理显示器的 CI 上完整运行图形与逻辑。Build 工作流在 Linux（Xvfb/llvmpipe）、macOS（CGL FBO）和 Windows（Mesa llvmpipe）上共用同一组入口：`ctest`（31 组套件、两组参数化 stress seed、`fake2d-ui-bench` Google Benchmark 计数门与 `fake2d-win-macro-compat`）、`tools/check_ui_demos.py`、`tools/run_demo_scripts.py`（退出码加上 `syntax error` / `CompileFile` / `update()` 日志扫描）、`tools/run_gpu_smoke.py`，以及 `tools/verify-consumer.sh`（`find_package(fake2d 1.55)`）。长游戏里程碑截图和完整的 staged 包 `tools/verify-package.sh` 仍只在 Linux Build 上强制执行。短的 `linux assets` 任务只负责上传生成的地图，这样 macOS/Windows 不必等完整 Linux 测试门禁；`linux tests` 与它并行启动。fakelua 安装树按镜像、架构、编译器、OpenSSL 和 `FAKELUA_REF` 缓存。缓存同时保存 TinyCC 运行时头文件（`lib/tcc/include`），并在恢复后把它们放回 libtcc 编译进二进制的 `CONFIG_TCCDIR`，这样构建树不在时 TCC/INTERP fixture 仍能编译。`tools/check-docs.py --ctest-log` 复用 CTest 的 PASS 计数，不再把 31 组套件跑第二遍。这些无头门使用内存剪贴板和注入的焦点/手柄事件，并不表示已在真实桌面上验收过系统剪贴板、物理手柄或 IME 组合预览。GLFW 3.4 仍无公开 preedit API，行内 IME 预览仍明确未实现。
 
 
 ```bash
@@ -299,8 +299,8 @@ xvfb-run ./build/bin/fake2d_hello --headless --frames 60
 # 无头截取指定帧缓冲导出为 PNG（用于视觉回归像素比对）
 xvfb-run ./build/bin/fake2d_hello --headless --mario-demo --shot-frame 60 --screenshot mario_snap.png
 
-# 拒绝“保存成功但画面空白”的截图（退出码 2）：颜色数量下限探测
-xvfb-run ./build/bin/fake2d_hello --headless --text-demo --screenshot text.png --shot-min-colors 12
+# 截图/颜色/日志断言由原生 Google Test 管理；demo 只生成图像与 GL 采样数据。
+python3 tools/run_gpu_smoke.py --hello ./build/bin/fake2d_hello --profile core
 
 # 把手柄交给自动演示驱动。`--ai` 会为没有内置自动策略的 demo 模拟按键与鼠标拖动，
 # 并为已有策略的 demo（mario、contra、city、snooker、rts、vn 等）打开脚本内的自动 AI。
@@ -311,41 +311,41 @@ xvfb-run ./build/bin/fake2d_hello --headless --ai --contra-demo --frames 2500
 # 录制 / 回放输入快照流（Phase 52，F2IR）
 ./build/bin/fake2d_hello --headless --ai --mario-demo --frames 120 --record /tmp/mario.f2ir
 ./build/bin/fake2d_hello --headless --mario-demo --frames 120 --replay /tmp/mario.f2ir
-./build/bin/fake2d_hello --replay-test
+./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.replay
 # 固定 RNG，并对两次同种子会话的世界哈希做断言（Phase 53）
-./build/bin/fake2d_hello --determinism-test
+./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.determinism
 ./build/bin/fake2d_hello --headless --frames 60 --rng-seed 42
 
 # 运行 31 组内置无头自测试套件（通过退出码断言执行结果）
 ctest --test-dir build --output-on-failure   # 统一入口，列出全部 31 组
-xvfb-run ./build/bin/fake2d_hello --phys-query-test    # 射线检测、形状重叠、接触生命周期
-xvfb-run ./build/bin/fake2d_hello --phys-filter-test   # 16位 Category/Mask 碰撞过滤
-xvfb-run ./build/bin/fake2d_hello --phys-rigid-test    # 转动惯量、摩擦与堆叠稳定性
-xvfb-run ./build/bin/fake2d_hello --phys-extended-test # 关节、休眠、运动学与防穿透
-xvfb-run ./build/bin/fake2d_hello --timestep-test      # 固定步长物理累加器与相机平滑
-xvfb-run ./build/bin/fake2d_hello --map-object-test    # Tiled 对象层与自定义属性
-xvfb-run ./build/bin/fake2d_hello --path-test          # 瓦片地图 A* 寻路（防切角与拉直）
-xvfb-run ./build/bin/fake2d_hello --tile-test          # Tiled 动画瓦片时钟推进
-xvfb-run ./build/bin/fake2d_hello --rt-test            # 离屏 FBO 渲染目标生命周期
-xvfb-run ./build/bin/fake2d_hello --ui-test            # 即时模式 UI 与输入注入测试
-xvfb-run ./build/bin/fake2d_hello --post-test          # 全屏后处理与小地图烘焙
-xvfb-run ./build/bin/fake2d_hello --fx-test            # 多趟 Ping-Pong 后处理链与高斯模糊
-xvfb-run ./build/bin/fake2d_hello --fog-test           # 战争迷雾 Multiply 混合与像素采样
-xvfb-run ./build/bin/fake2d_hello --light-test         # 光照池、阴影包含性与四边形预算
-xvfb-run ./build/bin/fake2d_hello --light-bench        # 光照合批：Draw Call 数不随光源增长
-xvfb-run ./build/bin/fake2d_hello --skeleton-test      # 骨骼层级、剪辑、交叉淡入、IK 与时间轴事件
-xvfb-run ./build/bin/fake2d_hello --audio-test         # 纯软件混音核心、包络、流式播放
-xvfb-run ./build/bin/fake2d_hello --font-test          # UTF-8/CJK 字形图集、换行、旋转与自动缩字
-xvfb-run ./build/bin/fake2d_hello --platform-test      # 语言包与格式串校验、用户目录、存档 v2、Steam stub、UI 文本
-xvfb-run ./build/bin/fake2d_hello --gameplay-test      # 随机数、缓动、实体快照、输入动作、窗口
-xvfb-run ./build/bin/fake2d_hello --determinism-test   # 同种子世界哈希一致性（Phase 53）
-xvfb-run ./build/bin/fake2d_hello --combat-test        # 时间缩放、命中停顿、16 槽角色、动画池
-xvfb-run ./build/bin/fake2d_hello --shmup-test         # 射击素材图集、最近邻采样、缺失文件
-xvfb-run ./build/bin/fake2d_hello --snooker-test       # 球体阴影贴图、透明度/光照采样、加载器拒绝
-xvfb-run ./build/bin/fake2d_hello --contra-test         # 士兵图集、爆炸序列、月亮/辉光采样、加载器拒绝
-xvfb-run ./build/bin/fake2d_hello --city-test           # 城市地形/建筑图集、基础地图道路与湖泊、加载器拒绝
-xvfb-run ./build/bin/fake2d_hello --rts-test            # RTS 地形/单位/建筑素材、战场混凝土/矿脉/水体
-xvfb-run ./build/bin/fake2d_hello --vn-test             # VN 背景/立绘、透明度采样、加载器拒绝
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.phys_query    # 射线检测、形状重叠、接触生命周期
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.phys_filter   # 16位 Category/Mask 碰撞过滤
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.phys_rigid    # 转动惯量、摩擦与堆叠稳定性
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.phys_extended # 关节、休眠、运动学与防穿透
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.timestep      # 固定步长物理累加器与相机平滑
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.map_object    # Tiled 对象层与自定义属性
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.path          # 瓦片地图 A* 寻路（防切角与拉直）
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.tile          # Tiled 动画瓦片时钟推进
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.rt            # 离屏 FBO 渲染目标生命周期
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.ui            # 即时模式 UI 与输入注入测试
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.post          # 全屏后处理与小地图烘焙
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.fx            # 多趟 Ping-Pong 后处理链与高斯模糊
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.fog           # 战争迷雾 Multiply 混合与像素采样
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.light         # 光照池、阴影包含性与四边形预算
+xvfb-run ./build/bin/fake2d_benchmarks --benchmark_filter=LightingTrace        # 光照合批：Draw Call 数不随光源增长
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.skeleton      # 骨骼层级、剪辑、交叉淡入、IK 与时间轴事件
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.audio         # 纯软件混音核心、包络、流式播放
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.font          # UTF-8/CJK 字形图集、换行、旋转与自动缩字
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.platform      # 语言包与格式串校验、用户目录、存档 v2、Steam stub、UI 文本
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.gameplay      # 随机数、缓动、实体快照、输入动作、窗口
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.determinism   # 同种子世界哈希一致性（Phase 53）
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.combat        # 时间缩放、命中停顿、16 槽角色、动画池
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.shmup         # 射击素材图集、最近邻采样、缺失文件
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.snooker       # 球体阴影贴图、透明度/光照采样、加载器拒绝
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.contra         # 士兵图集、爆炸序列、月亮/辉光采样、加载器拒绝
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.city           # 城市地形/建筑图集、基础地图道路与湖泊、加载器拒绝
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.rts            # RTS 地形/单位/建筑素材、战场混凝土/矿脉/水体
+xvfb-run ./build/bin/fake2d_engine_tests --gtest_filter=EngineContracts.vn             # VN 背景/立绘、透明度采样、加载器拒绝
 ```
 
 ---
