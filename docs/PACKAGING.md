@@ -96,7 +96,7 @@ Each archive has the same layout:
 fake2d-<ver>-<platform>/
 ├── bin/fake2d_hello[.exe]     # full engine
 ├── lib/ (linux/macos)         # bundled libfakelua + OpenSSL
-├── scripts/                   # all game/demo Lua sources
+├── scripts/                   # runtime Lua game/demo scripts (from examples/hello/scripts/)
 ├── assets/                    # shaders + pre-generated demo maps
 ├── run.command / run.sh / run.bat
 └── README.md LICENSE

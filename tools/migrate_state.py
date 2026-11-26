@@ -10,7 +10,7 @@ This tool moves exactly the locals that are actually reassigned somewhere
 outside their own declaration line. Names that are never reassigned stay put --
 they are constants and FakeLua is happy with them.
 
-  python3 tools/migrate_state.py scripts/platformer_demo.lua
+  python3 tools/migrate_state.py examples/hello/scripts/platformer_demo.lua
 """
 
 import re

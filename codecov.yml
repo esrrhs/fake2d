@@ -9,6 +9,7 @@ ignore:
   - "examples/**"
   - "tools/**"
   - "scripts/**"
+  - "examples/hello/scripts/**"
   - "docs/**"
   - "cmake/**"
   - "assets/**"

@@ -169,7 +169,7 @@ cmake --build build --parallel
 ./build/bin/fake2d_hello
 ```
 
-> **要在仓库根目录下运行。** `scripts/` 与 `assets/` 按当前工作目录解析，从别处启动只会得到一个空窗口。macOS 上直接双击 `run.command` 即可：它会 `cd` 进仓库、首次运行自动编译，然后打开选择器。
+> **要在仓库根目录下运行。** `scripts/` 与 `assets/` 按当前工作目录解析，从别处启动只会得到一个空窗口。Demo 的 Lua 源码在 `examples/hello/scripts/`，每次构建会拷贝到运行时的 `scripts/`。macOS 上直接双击 `run.command` 即可：它会 `cd` 进仓库、首次运行自动编译，然后打开选择器。
 
 > **纯 C++ 骨架模式**：如果本地暂未安装 FakeLua，可传入 `-DFAKE2D_WITH_FAKELUA=OFF` 编译纯 C++ 骨架工程用于底层图形与硬件调试。
 
@@ -266,7 +266,7 @@ target_link_libraries(my_game PRIVATE fake2d::fake2d)   # GLFW/OpenGL/FakeLua �
 ### 生产力与调试选项
 
 ```bash
-# 开启脚本热重载（运行期间修改 scripts/game.lua 保存即刻在游戏内生效）
+# 开启脚本热重载（修改运行时拷贝 scripts/game.lua 即刻生效；源码在 examples/hello/scripts/，构建时重新拷贝）
 ./build/bin/fake2d_hello --hot-reload
 
 # 选择脚本后端：窗口模式的 Demo 与启动器默认走解释器，一秒进入而非五秒；
@@ -455,7 +455,7 @@ fake2d/
 │   ├── scene/               # 变换缓存与节点树
 │   ├── script/              # FakeLua 原生 API 绑定与交互
 │   └── ui/                  # 即时模式 UI 几何计算与状态机
-├── scripts/                 # 丰富纯 Lua 游戏与系统 Demo 脚本集
+├── examples/hello/scripts/  # hello 示例 Lua 源码（构建时拷到运行时 scripts/）
 │   ├── game.lua             # 经典打砖块游戏
 │   ├── mario.lua            # 超级马里奥兄弟 1-1 关卡
 │   ├── angry_birds_demo.lua # 弹弓刚体沙盒

@@ -1,7 +1,7 @@
 # Fake2D Scripting Guide
 
 How to author gameplay with FakeLua scripts on the Fake2D engine. Entry point:
-`scripts/<your>.lua` (set `EngineConfig::script_entry`, default `scripts/game.lua`).
+`scripts/<your>.lua` (set `EngineConfig::script_entry`, default `scripts/game.lua`). Hello demo sources live in `examples/hello/scripts/` and are copied to the runtime `scripts/` directory on build.
 
 Run:
 
@@ -41,7 +41,7 @@ Each rule below was verified empirically against the installed FakeLua 2.0.0:
 1. **Only definitions are allowed at file level** — `local x = ...` and
    `function/ local function` definitions. A bare call such as `start_game()`
    at the bottom of the file is rejected by semantic analysis. Do one-time
-   setup on the first `update` instead (see `inited` in `scripts/game.lua`).
+   setup on the first `update` instead (see `inited` in `examples/hello/scripts/game.lua`).
 
 2. **File-level locals must have an initializer.** `local lives` alone is
    rejected ("global constant must be initialize").
@@ -63,8 +63,8 @@ Each rule below was verified empirically against the installed FakeLua 2.0.0:
 
    `new_global_obj(key, type)` / `get_global_obj(key)` are FakeLua's object
    module; the object lives on the C++ side, so it survives the arena reset.
-   `scripts/launcher.lua` is the reference for this pattern, and every demo in
-   `scripts/` now follows it (`tools/migrate_state.py` did the conversion).
+   `examples/hello/scripts/launcher.lua` is the reference for this pattern, and every demo in
+   `examples/hello/scripts/` now follows it (`tools/migrate_state.py` did the conversion).
    ⚠️ Writing fields on a NativeObject needs a FakeLua that permits native
    table mutation. `FAKELUA_REF` in `.github/workflows/build.yml` is pinned to
    such a commit; an older one rejects these writes with `attempt to modify a
@@ -73,7 +73,7 @@ Each rule below was verified empirically against the installed FakeLua 2.0.0:
 4. **File-level tables are deep-const.** A table built at file level — literal
    or returned by a function — is read-only data: writing a field throws
    `attempt to modify a const table`. That is exactly what you want for static
-   lookup data (the demo catalogue in `scripts/launcher.lua`, sprite clip
+   lookup data (the demo catalogue in `examples/hello/scripts/launcher.lua`, sprite clip
    tables, palettes). Anything that changes belongs in a NativeObject (rule 3)
    or in C++ (`EntityStore`).
 
@@ -164,7 +164,7 @@ character by `1 + depth * gain`, then set `draw_set_z(depth + x * 1e-5)`
 before drawing that character. Enable `batch_set_sorted(true)` at the start
 of the world pass and turn it off before the HUD: same-texture parts of one
 actor keep submission order, while actors at different depths sort correctly.
-See `scripts/beat_em_up_demo.lua` for a full implementation (state machine,
+See `examples/hello/scripts/beat_em_up_demo.lua` for a full implementation (state machine,
 attack windows, hit/hurt boxes, hit-stop, waves and a boss).
 
 **Vertical shooter pattern**: leave the camera at `(0, 0)` — the camera position
@@ -172,7 +172,7 @@ is the top-left of the view, so world coordinates then equal screen coordinates
 for a fixed shooter. Pool every entity in `EntityStore` by tag (player bullets,
 enemy bullets, enemies, pickups, effects) and advance them with `ent_at` loops;
 cull with a `while` loop that only increments the index when the entity survives.
-See `scripts/shmup_demo.lua` for scrolling backgrounds, weapons, bombs, waves and
+See `examples/hello/scripts/shmup_demo.lua` for scrolling backgrounds, weapons, bombs, waves and
 a multi-pattern boss.
 
 **Billiards / snooker pattern**: keep every ball in `EntityStore` with x, y,
@@ -183,7 +183,7 @@ the quadratic `|Δp + Δv·t|² = (2r)²` — the normal at that instant (not th
 overlapped one) decides where the object ball travels, which is what makes
 pots repeatable. Cushions reflect the normal velocity component, pockets test a
 radius, and rolling friction is a constant deceleration; a shot is resolved only
-once every ball is at rest. See `scripts/snooker_demo.lua` for the solver, the
+once every ball is at rest. See `examples/hello/scripts/snooker_demo.lua` for the solver, the
 ghost-ball aim line and a full snooker frame.
 
 **Run-and-gun pattern**: build the stage from persistent platform rows (solid
@@ -194,7 +194,7 @@ coyote/jump buffers, crouch height, aim vector) and enemies/bullets in
 `EntityStore` tags; update bullets with `while` loops so destroying one does not
 skip the next. A quantized aim vector gives the 8-way feel for the player while
 the attract AI may use a free vector so it can hit turrets above the ground line.
-See `scripts/contra_demo.lua` for the full jungle stage, weapon capsules and the
+See `examples/hello/scripts/contra_demo.lua` for the full jungle stage, weapon capsules and the
 fortress boss.
 
 **City-simulation pattern**: keep the mutable world in a Tiled tilemap —
@@ -209,7 +209,7 @@ headless runs deterministic even though `dt` is wall-clock. HUD panels are
 screen-space: read `camera_screen_to_world_x/y(0, 0)` as the view origin and
 draw at `origin + px / zoom` with `px / zoom` sizes and text scales, because the
 renderer and UI both transform through the camera. See
-`scripts/city_demo.lua` for the full budget, RCI, power and attract-mayor loop.
+`examples/hello/scripts/city_demo.lua` for the full budget, RCI, power and attract-mayor loop.
 
 **RTS pattern**: keep units, structures and projectiles in `EntityStore` by
 tag; store the selected flag, target id, destination and cooldown in numeric
@@ -222,7 +222,7 @@ attack-move as "always advance toward the destination, fire at what is in
 range, and switch to a focused attack at the destination building" so waves do
 not stall chasing individual defenders. All ids read back from entity slots are
 floats: pass them through `to_int` before `ent_active`, `ent_tag`, `ent_num`,
-`ent_destroy` or any id-taking helper. See `scripts/rts_demo.lua` for the
+`ent_destroy` or any id-taking helper. See `examples/hello/scripts/rts_demo.lua` for the
 harvester economy, power-gated production, enemy commander and victory loop.
 
 **Visual-novel pattern**: keep scene data in file-level functions that return a
@@ -238,7 +238,7 @@ character cards. Quick save/load uses `storage_reset`, `storage_set_num` per
 stat and `storage_save("vn_quick")`. The shipped VN art is AI-illustrated and
 tracked under `assets/vn/`; `EnsureVnAssets` still contains the procedural
 painters as a fallback if those files are absent. See
-`scripts/vn_demo.lua` for the full four-heroine schedule, chat/date/festival
+`examples/hello/scripts/vn_demo.lua` for the full four-heroine schedule, chat/date/festival
 branches, affection and ending.
 
 ### Debug lines
@@ -398,7 +398,7 @@ draw_text("HUD", 16, 16, 1.0, 1, 1, 1, 1)   -- drawn after: never graded
 
 `assets/post_grade.{vert,frag}` is a ready-made grade pass (desaturate,
 brightness, vignette, scanlines) where every uniform defaults to "unchanged";
-`scripts/post_demo.lua` (`--post-demo`) wires it to sliders and a baked
+`examples/hello/scripts/post_demo.lua` (`--post-demo`) wires it to sliders and a baked
 minimap.
 
 **Multi-pass chains** go further: blur, bloom, ping-pong passes, each reading
@@ -420,7 +420,7 @@ draw_set_blend(0)
 
 `assets/fx_blur.{vert,frag}` is a ready-made separable Gaussian: `u_dir` is
 the step in UV (so `0,0` is a straight copy), and `u_dim` scales the pass for
-an additive composite. `scripts/fx_demo.lua` (`--fx-demo`) builds a bloom out
+an additive composite. `examples/hello/scripts/fx_demo.lua` (`--fx-demo`) builds a bloom out
 of it and shows a split-screen mode; `EngineContracts.fx` asserts the whole chain with
 pixel probes.
 
@@ -468,7 +468,7 @@ rt_end()
 rt_present(scene_rt, 0)
 ```
 
-`scripts/fog_demo.lua` (`--fog-demo`) builds a full fog-of-war world out of
+`examples/hello/scripts/fog_demo.lua` (`--fog-demo`) builds a full fog-of-war world out of
 this — accumulating reveal, a baked minimap multiplied by the same mask, a
 click-to-jump map, and an "explored %" readout driven by `rt_sample`.
 
@@ -545,7 +545,7 @@ fill light be added after the shadow pass — an opaque crate stops the lantern,
 not the ceiling lamp behind it — without a single light being able to black out
 its neighbour.
 
-`scripts/light_demo.lua` (`--light-demo`) is a cavern with a lantern a soldier
+`examples/hello/scripts/light_demo.lua` (`--light-demo`) is a cavern with a lantern a soldier
 paces about, a flickering wall torch, an orbiting orb, a shadowless fill, a
 rotating beam and crates that drag their shadows as they slide — one of them is
 a kinematic *physics* body bound with `occluder_add_body`, so its shadow comes
@@ -649,7 +649,7 @@ weighted mesh, a known-weight lerp under a 90° bone, deform keys at t=0/mid/end
 and rejection of malformed weight / triangle indices with an error that names
 the offending attachment.
 
-`scripts/skeleton_demo.lua` (`--skeleton-demo`) is a soldier on a wall with a
+`examples/hello/scripts/skeleton_demo.lua` (`--skeleton-demo`) is a soldier on a wall with a
 rank of six more instances of the same rig marching behind him: LEFT/RIGHT walk,
 SPACE shoot, H take a hit, K die, R revive, B overlays the bones so you can see
 the rig steering the art, N swaps the skin. With nobody at the keyboard it works
@@ -720,8 +720,8 @@ local bx = skel_bounds_x(id)               -- instance-local AABB
 skel_sync_occluder(id, occ, att, x, y, scale, facing)
 ```
 
-`scripts/skeleton_mesh_demo.lua` (`--skeleton-mesh-demo`) flies a weighted flag
-with a deform flutter; `scripts/skeleton_light_demo.lua`
+`examples/hello/scripts/skeleton_mesh_demo.lua` (`--skeleton-mesh-demo`) flies a weighted flag
+with a deform flutter; `examples/hello/scripts/skeleton_light_demo.lua`
 (`--skeleton-light-demo`) puts that flag under the Phase 46 lighting pass so the
 hull casts a shadow; `assets/skeleton/linkskin.json` covers skins-nested mesh +
 cross-skin linkedmesh; `assets/skeleton/linkchain.json` covers parent chains.
@@ -763,11 +763,11 @@ drive `AudioEngine::Mix` itself to assert envelopes offline), but
 | `audio_clip_len(name) -> number` | Duration of a registered clip or stream in seconds (the file's full length, streamed or not; 0 for unknown names). |
 | `audio_clip_cached(name) -> number` | Frames of a clip currently held in memory — the whole file for decoded clips, at most one window for a stream. Feeds "buffered" read-outs. |
 
-`scripts/audio_demo.lua` (`--audio-demo`) is a mixer front panel: bus sliders,
+`examples/hello/scripts/audio_demo.lua` (`--audio-demo`) is a mixer front panel: bus sliders,
 two looping themes with a live cross-fade slider, SFX buttons on the sfx bus,
 a pause checkbox, a segment VU meter, and a file-playback section that runs the
 same `assets/music.wav` both decoded and streamed with a "buffered" read-out
-comparing what each path holds in memory. `scripts/spatial_demo.lua`
+comparing what each path holds in memory. `examples/hello/scripts/spatial_demo.lua`
 (`--spatial-demo`) demonstrates placement: emitters fire one-shots at fixed
 world positions while you move the listener (WASD/arrows/mouse) through them,
 with L/R meters and a balance indicator fed by the per-channel peaks.
@@ -1292,7 +1292,7 @@ with two queries:
 Slope tiles sit in the cell **above** the ground whose surface they meet:
 an `up` slope placed on row r rises from the top of row r+1 to the top of
 row r; pair it with a `down` tile at the next cell for a pyramid bump. The
-platformer demo (`scripts/platformer_demo.lua`) ships a complete, tested
+platformer demo (`examples/hello/scripts/platformer_demo.lua`) ships a complete, tested
 implementation of this controller (`ground_hint`, `move_x`, `move_y`).
 
 ##### Building a multi-cell hill
@@ -1376,14 +1376,14 @@ feet's row": a `rise = 64` ramp's cell sits two rows *above* the feet while the
 player is still at the bottom of the climb, so a slope-cell check silently
 disables the snap and the hill cannot be climbed at all.
 
-`--slope-demo` (`scripts/slope_demo.lua`) is the reference implementation and a
+`--slope-demo` (`examples/hello/scripts/slope_demo.lua`) is the reference implementation and a
 walkthrough: three hills (45°, `rise = 64`, and a long 45°), a HUD that shows
 the live `col / feet / slope / rise` readout, and **V** to overlay the surface
 the engine reports — red dots sampled straight from `map_ground_y`, which makes
 the interpolation visible along each diagonal. `SLOPE_TEST_RIGHT=1` drives it
 headless and logs the feet height every 30 frames so a climb can be verified
 without a keyboard. The platformer demo
-(`scripts/platformer_demo.lua`, `ground_hint`) is the reference controller.
+(`examples/hello/scripts/platformer_demo.lua`, `ground_hint`) is the reference controller.
 
 #### Parallax and image layers
 
@@ -1755,7 +1755,7 @@ effects, render into a target and present it with `rt_present(id, shader)`
 instead of routing every sprite through the override.
 
 A worked example lives in `assets/flag_shimmer.{vert,frag}` and is used by
-`scripts/mario.lua` to make the goal pole shimmer: the fragment stage computes
+`examples/hello/scripts/mario.lua` to make the goal pole shimmer: the fragment stage computes
 a wrapped distance to a band that travels along the quad diagonal, driven by
 `u_time` / `u_speed` / `u_width`, and re-tintable per level via `u_tint`.
 
@@ -2190,8 +2190,8 @@ renderer draw calls/batches and quads. Initial
 ID configuration is outside timed normal frames. Wall times vary by hardware,
 build and contention; CI gates deterministic workloads/complexity counters, **not
 absolute milliseconds**. Allocations are explicitly not instrumented; GPU timing
-is not measured. See [measured host sample](UI_BENCH_1_49.md) for actual context and
-numbers, not a fabricated performance claim. No visual editor or UI Builder.
+is not measured. Host samples are machine-specific and are not checked in as
+portable guarantees. No visual editor or UI Builder.
 
 ### Debugging
 
@@ -2236,13 +2236,11 @@ of a shipped demo (dev/test hook), e.g.
 
 > **Status (2026-10-04, fakelua `a55a4bf` installed):** all five previously
 > recorded codegen bugs are fixed upstream, and the two workarounds that existed
-> only to dodge them have been **reverted** in `scripts/platformer_demo.lua`:
+> only to dodge them have been **reverted** in `examples/hello/scripts/platformer_demo.lua`:
 > `build_intent(frame)` now takes its frame argument again (the multi-return
 > type-specialization bug is gone), and the hoisted `shake_amt` / `up_row` /
 > `down_row` temporaries are gone (the trailing-argument codegen bug is gone).
 > The `bool`/`va_start` UB and the `main` symbol clash were fixed earlier.
-> Full history and verification in
-> [FAKELUA_JIT_BUG_REPORT.md](FAKELUA_JIT_BUG_REPORT.md).
 >
 > The persistence rules 1–4 below are **not** bug workarounds — they are current
 > FakeLua 2.0 semantics and still required. In particular the `+ 0` idiom
@@ -2270,7 +2268,7 @@ Collected while building the samples, so you don't have to rediscover them:
   write is dropped without an error.** `S.list = {}` then `S.list[i] = v`
   leaves `S.list[i]` as `nil` — no `attempt to modify a const table`, nothing
   logged. The failure surfaces later as a type error wherever the nil lands,
-  which is why it is easy to misread as an engine crash: `scripts/skeleton_demo.lua`
+  which is why it is easy to misread as an engine crash: `examples/hello/scripts/skeleton_demo.lua`
   kept its marching-rank instance ids in such a table, and every
   `skel_draw(S.soldiers[i], ...)` died on `FakeluaToNativeDouble failed, type
   is Nil` with a JIT stack trace that pointed into the interpreter, not at the
@@ -2305,7 +2303,7 @@ their own heading. **All verified against `a55a4bf` on 2026-10-04 — do not
   local t = {}          ; table.insert(t, 7)  -- ok (native write)
   ```
 
-  `scripts/game.lua:build_powers()` relies on the `t[i] = v` form and is
+  `examples/hello/scripts/game.lua:build_powers()` relies on the `t[i] = v` form and is
   correct — do not "fix" it to a field write.
 
   Additional file-level findings (GCC JIT, verified 2026-10-06 while building
@@ -2362,7 +2360,7 @@ branches:
 - ~~Multi-return helpers must take no typed parameters.~~ **Reverted** —
   `598632f` added return-shape eligibility checks, so a multi-return local
   function with typed parameters is safe again. `build_intent(frame)` in
-  `scripts/platformer_demo.lua` now takes the argument.
+  `examples/hello/scripts/platformer_demo.lua` now takes the argument.
 - ~~Hoist arithmetic out of a call's trailing-argument slot.~~ **Reverted** —
   `ef43eae` made `CompileExp` evaluate into a local before emitting, so
   `camera_shake(math.min(0.5, impact / 1200.0))` and

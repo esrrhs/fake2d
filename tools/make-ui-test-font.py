@@ -13,7 +13,7 @@ from fontTools import subset
 from fontTools.ttLib import TTFont
 
 root = Path(__file__).resolve().parent.parent
-text = (root / "scripts/ui_demo.lua").read_text()
+text = (root / "examples/hello/scripts/ui_demo.lua").read_text()
 text += "能吏抚恤百姓修复水利田亩营制长句自动换行国朝纪事…"
 characters = "".join(re.findall(r"[\u3000-\u9fff…]+", text)) + " /1234567890+%()"
 font = TTFont(sys.argv[1], recalcTimestamp=False)

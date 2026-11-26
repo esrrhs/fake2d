@@ -16,7 +16,7 @@
 -- there; run in a window to pick rows and open the list.
 --
 -- FakeLua notes: `math.fmod` is not supported by the JIT codegen (see
--- scripts/slope_demo.lua), and state lives in plain file locals — this
+-- examples/hello/scripts/slope_demo.lua), and state lives in plain file locals — this
 -- script keeps its label sets in functions rather than tables.
 
 local ITEM_COUNT = 4 + 0
