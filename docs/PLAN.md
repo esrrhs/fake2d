@@ -1203,7 +1203,7 @@ or custom row styling. This is row virtualization, not arbitrary-tree virtualiza
       configuration. Allocation instrumentation and GPU timing explicitly absent
 - [x] Deterministic workload/complexity gates in CTest and CI, never absolute
       machine-dependent wall-clock thresholds
-- [x] Record final measured host output and environment in `UI_BENCH_1_49.md`
+- [x] Recorded a measured 1.49 Debug/llvmpipe host sample (historical; not a portable guarantee)
 
 No speedup or zero-allocation claim is made. Initial ID configuration is outside
 normal-frame samples; rebuild costs still occur when data/width/font invalidates.
@@ -1272,7 +1272,7 @@ Native Windows/macOS runs are CI-wired, not claimed as executed on this Linux ho
 ## Phase 68 — Rich-text submission complexity (1.50.x)
 - [x] Style/line glyph runs, per-run links/underlines, bounded revision-aware advances.
 - [x] Logical glyph/run counters, fixed-fixture draw/run gates, measured before/after
-      host record in `UI_BENCH_1_50.md`; no brittle timing threshold.
+      historical 1.50 Debug host sample (not a portable guarantee); no brittle timing threshold.
 
 ## Phase 69 — Budgeted variable text-row convergence (1.50.x)
 - [x] Optional stable-ID wrapped-text metadata and fixed adornment height; cyclic
@@ -1305,8 +1305,9 @@ Native Windows/macOS runs are CI-wired, not claimed as executed on this Linux ho
       requests XIMPreeditNothing. No vendor fork or faux committed-text preview.
 
 Phases 68–72 share public version **1.50.0**. Phase 72 completes investigation,
-not IME implementation. Visual editor remains excluded. See `UI_BENCH_1_50.md`
-for measured Linux results and platform limitations.
+not IME implementation. Visual editor remains excluded. Measured Linux results
+and platform limitations are recorded in the 1.50 verification section below;
+absolute timings are host-specific and are not a portable guarantee.
 
 
 ### 1.50.0 Linux verification record

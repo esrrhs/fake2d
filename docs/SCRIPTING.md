@@ -2190,8 +2190,8 @@ renderer draw calls/batches and quads. Initial
 ID configuration is outside timed normal frames. Wall times vary by hardware,
 build and contention; CI gates deterministic workloads/complexity counters, **not
 absolute milliseconds**. Allocations are explicitly not instrumented; GPU timing
-is not measured. See [measured host sample](UI_BENCH_1_49.md) for actual context and
-numbers, not a fabricated performance claim. No visual editor or UI Builder.
+is not measured. Host samples are machine-specific and are not checked in as
+portable guarantees. No visual editor or UI Builder.
 
 ### Debugging
 
@@ -2241,8 +2241,6 @@ of a shipped demo (dev/test hook), e.g.
 > type-specialization bug is gone), and the hoisted `shake_amt` / `up_row` /
 > `down_row` temporaries are gone (the trailing-argument codegen bug is gone).
 > The `bool`/`va_start` UB and the `main` symbol clash were fixed earlier.
-> Full history and verification in
-> [FAKELUA_JIT_BUG_REPORT.md](FAKELUA_JIT_BUG_REPORT.md).
 >
 > The persistence rules 1–4 below are **not** bug workarounds — they are current
 > FakeLua 2.0 semantics and still required. In particular the `+ 0` idiom
