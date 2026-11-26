@@ -35,7 +35,7 @@ chmod u+w "$BIN"
 # Make sure ldd can resolve libfakelua regardless of the build's RUNPATH.
 export LD_LIBRARY_PATH="$FLLIB:${LD_LIBRARY_PATH:-}"
 
-cp -R scripts/. "$STAGE/scripts/"
+cp -R examples/hello/scripts/. "$STAGE/scripts/"
 cp -R assets/. "$STAGE/assets/"
 
 # Copy the libfakelua the executable actually resolves, as a real file named

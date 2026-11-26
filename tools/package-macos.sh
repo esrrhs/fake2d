@@ -34,7 +34,7 @@ chmod u+w "$BIN"
 
 # Copy the script tree and the complete asset tree (shaders, generated maps,
 # sprite art subdirectories included).
-cp -R scripts/. "$STAGE/scripts/"
+cp -R examples/hello/scripts/. "$STAGE/scripts/"
 cp -R assets/. "$STAGE/assets/"
 
 # Seed with the libfakelua the executable links against (de-reference any

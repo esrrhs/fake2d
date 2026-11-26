@@ -25,7 +25,7 @@ mkdir -p "$BIN_DIR" "$STAGE/scripts" "$STAGE/assets"
 BIN="$BIN_DIR/fake2d_hello.exe"
 cp -f "$BIN_IN" "$BIN"
 
-cp -R scripts/. "$STAGE/scripts/"
+cp -R examples/hello/scripts/. "$STAGE/scripts/"
 cp -R assets/. "$STAGE/assets/"
 
 # Seed libfakelua.dll, then pull every MinGW-provided dependency to a

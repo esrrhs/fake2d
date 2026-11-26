@@ -1,6 +1,6 @@
 #pragma once
 // Private unchanged demo/fixture helpers shared by separated entrypoints.
-// The demos are pure FakeLua scripts (scripts/*_demo.lua + game.lua).
+// The demos are pure FakeLua scripts (examples/hello/scripts/*_demo.lua + game.lua).
 // This binary only provides: engine bootstrap, procedural asset generation
 // (PNG/Tiled JSON/WAV, since scripts cannot encode binary files), and the
 // micro-benchmarks that measure engine internals.
@@ -2699,7 +2699,7 @@ void EnsureMarioAssets(bool regen);
 
 
 // ---------------------------------------------------------------------------
-// Asset scaffolding for scripts/map_demo.lua: tilesheet + Tiled JSON.
+// Asset scaffolding for examples/hello/scripts/map_demo.lua: tilesheet + Tiled JSON.
 // Generated on demand so the repo stays binary-asset-free.
 // ---------------------------------------------------------------------------
 
@@ -2861,7 +2861,7 @@ void EnsureMapAssets() {
 
 
 // ---------------------------------------------------------------------------
-// Asset scaffolding for scripts/platformer_demo.lua: level tilesheet,
+// Asset scaffolding for examples/hello/scripts/platformer_demo.lua: level tilesheet,
 // player sprite, Tiled JSON and a 22050 Hz looping music WAV.
 // ---------------------------------------------------------------------------
 
@@ -4209,7 +4209,7 @@ void EnsureSlopeAssets(bool regen) {
 }
 
 // ---------------------------------------------------------------------------
-// Asset scaffolding for scripts/tile_demo.lua: an 8-tile sheet where two of
+// Asset scaffolding for examples/hello/scripts/tile_demo.lua: an 8-tile sheet where two of
 // the tiles carry Tiled animations (a 3-frame water cycle, a 2-frame torch),
 // plus the map that uses them. Generated on demand.
 // ---------------------------------------------------------------------------

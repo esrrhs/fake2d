@@ -116,7 +116,7 @@ local function build_scene()
     light_set_radius(S.alarm, 210.0)
 
     -- Flat fields, not a table: a table stored on a NativeObject cannot be
-    -- written per key (see the note in scripts/skeleton_demo.lua), and even
+    -- written per key (see the note in examples/hello/scripts/skeleton_demo.lua), and even
     -- handed over whole it stops reading past its first few slots.
     for i = 1, BURST_N do
         local id = light_create()

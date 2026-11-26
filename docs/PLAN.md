@@ -36,7 +36,7 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 - [x] `Engine` main loop (`PollEvents()` → `renderer.BeginFrame()` → `script.CallUpdate(dt)` → `Reset()` → `renderer.EndFrame()` → `SwapBuffers()`)
 - [x] `ScriptHost` FakeLua bridge (`CompileFile` / `Call(update)` / `Reset`)
 - [x] Standard `find_package(fakelua REQUIRED)` integration via `/usr/local` system package
-- [x] `examples/hello` + `scripts/main.lua`
+- [x] `examples/hello` + `examples/hello/scripts/main.lua`
 - [x] Bilingual README (`README.md`, `README_CN.md`) + GitHub Actions CI workflow
 - [x] Optional `FAKE2D_WITH_FAKELUA=OFF` window-only skeleton for bring-up and CI
 - [x] Wire richer FakeLua native object bindings (`draw_quad`, `camera_*`)
@@ -64,7 +64,7 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 
 - [x] Expose native engine modules to FakeLua: `fake2d.sprite`, `fake2d.camera`, `fake2d.input`, `fake2d.time`
 - [x] Input snapshot (keyboard, mouse position, button clicks) readable per-frame from Lua
-- [x] Complete runnable mini-game sample (breakout clone, `scripts/game.lua`)
+- [x] Complete runnable mini-game sample (breakout clone, `examples/hello/scripts/game.lua`)
 - [x] Documentation for FakeLua script authoring and performance best practices ([docs/SCRIPTING.md](SCRIPTING.md))
 
 ## Phase 4 — Text & audio (0.5.x) — done
@@ -106,7 +106,7 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 - [x] SaveStore KV persistence: JSON-based key/value storage in engine-managed save directory (`saves/`); slot validation against path traversal; `storage_load`, `storage_save`, `storage_get/set_num`, `storage_get/set_str`, `storage_has`, `storage_delete`, `storage_reset`
 - [x] EntityStore native fixed-slot storage: 256 C++-owned entity slots surviving FakeLua arena resets; tag + 8 double slots + 4 string slots; generation handles; `ent_create`, `ent_destroy`, `ent_num`, `ent_str`, `ent_count`, `ent_at`, `ent_clear`
 - [x] Custom GLSL shader slots: 8 slots; per-object `draw_use_shader(id)` batch switching with automatic per-frame restoration; `shader_load`, `shader_destroy`, `shader_set_float/int/vec2/vec4` (float/int/vec2/vec4 all bound to Lua)
-- [x] Super Mario Bros 1-1 demo (`scripts/mario.lua` + `--mario-demo`): procedural retro pixel art (ground, brick, ?, used, pipes, coin, flag, stone, Goomba, mushroom, small & big Mario); dual-form player with variable jump / coyote / buffer; Goombas with patrol / squashing / bonk death; ? blocks and brick breaking with debris particles; mushroom growth & walk; lives/score/coins/timer HUD; flagpole sequence; deterministic attract AI with looping clears
+- [x] Super Mario Bros 1-1 demo (`examples/hello/scripts/mario.lua` + `--mario-demo`): procedural retro pixel art (ground, brick, ?, used, pipes, coin, flag, stone, Goomba, mushroom, small & big Mario); dual-form player with variable jump / coyote / buffer; Goombas with patrol / squashing / bonk death; ? blocks and brick breaking with debris particles; mushroom growth & walk; lives/score/coins/timer HUD; flagpole sequence; deterministic attract AI with looping clears
 
 ## Phase 9 — Gamepad, sprite mirroring & window control (1.4.x) — done
 
@@ -145,14 +145,14 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 - [x] Full contact lifecycle: the per-step pair list becomes began / stayed / ended event streams — `StayedContacts()` and `EndedContacts()` join sorted touch snapshots via merge; ended events snapshot ids/user tags from the previous step so a destroyed body's last contacts still report; began lookup switched from linear scan to binary search
 - [x] 17 Lua bindings: `phys_raycast` + 6 hit readers, `phys_overlap_circle/box` + id/user readers, `phys_stay_count/end_count` and the four stayed/ended user-tag readers; the headless fixture generator picks the new signatures up automatically (24/24 cases green)
 - [x] `--phys-query-test`: headless C++ self-test with exact-value assertions (face points/normals/distances both ray directions, interior-start hits, misses, buffered readers, overlap counts incl. both-body and far-away cases, began→stayed→ended incl. the destroyed-body ended event); `--phys-bench` additionally reports per-frame raycast/overlap cost
-- [x] `scripts/phys_test.lua` exercises the same surface through real bindings end to end; bodies are placed initially touching because headless frames advance by wall-clock dt and an empty scene renders in microseconds (collision response is positional and frame-deterministic); CI runs both gates on Linux, macOS (CGL headless) and Windows (Mesa llvmpipe)
+- [x] `examples/hello/scripts/phys_test.lua` exercises the same surface through real bindings end to end; bodies are placed initially touching because headless frames advance by wall-clock dt and an empty scene renders in microseconds (collision response is positional and frame-deterministic); CI runs both gates on Linux, macOS (CGL headless) and Windows (Mesa llvmpipe)
 
 ## Phase 14 — Tiled object layers, data-driven level markup (1.8.x)
 
 - [x] Object-group parsing in `Tilemap`: `objectgroup` layers with rectangle/point/ellipse/polyline/polygon shapes, per-object id/name/class (legacy `type` accepted)/x/y/w/h/rotation/visible, and Tiled custom properties (bool/int/float/string; file/color degrade to strings); polyline/polygon vertices are converted to absolute world coordinates at load time
 - [x] C++ query surface: `LayerTypeAt` (0 tile / 1 image / 2 object / -1), `FindLayer(name)`, `ObjectsAt(layer)`, typed property readers with defaults (`PropBool/PropNum/PropStr`); object groups are skipped by every tile traversal (solid/one-way/slope/ground queries, gid reads/writes, draw)
 - [x] 20 Lua bindings: `map_find_layer`, `map_layer_type`, and the `map_obj_*` family (count/id/name/class/x/y/w/h/rotation/visible/shape/point_count/point_x/point_y/has_prop/prop_bool/prop_num/prop_str)
-- [x] Mario demo migrated off marker tiles: the host-generated `assets/mario.json` carries a `"spawns"` object group (seven goomba points + one `player_start`); `scripts/mario.lua` reads it once at boot into persistent entity-store slots and respawns from those slots on every level reset — the goomba marker gid is gone from both the generator and the script
+- [x] Mario demo migrated off marker tiles: the host-generated `assets/mario.json` carries a `"spawns"` object group (seven goomba points + one `player_start`); `examples/hello/scripts/mario.lua` reads it once at boot into persistent entity-store slots and respawns from those slots on every level reset — the goomba marker gid is gone from both the generator and the script
 - [x] `--map-object-test`: headless C++ self-test, 49 assertions on an inline map (every shape, property kinds and type-mismatch defaults, rotation/visibility defaults, layer lookup/count/type, out-of-range guards) plus an end-to-end check against the real generated mario map (8 objects, 7 goombas, zero leftover marker gids)
 - [x] Headless fixtures extended with object-layer stubs; all map/layer/object metadata is packed into a single integer-keyed table because the concatenated chunk's main function sits near FakeLua's 255-register ceiling (mario spawn reading was likewise extracted into its own `read_spawns()` function); a new `900207` smoke assertion pins the seven goomba spawns — 24/24 cases green across tcc/gcc/interpreter
 - [x] Verification: `--map-object-test` 49/49, 24/24 logic fixtures, all five demos headless with zero script errors; mario screenshot pixel-confirmed (player on the object-layer start point, goomba spawned on the ground)
@@ -164,7 +164,7 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 - [x] Masked query surface: `RayCast` / buffered `RayCast`, `OverlapCircle` / `OverlapBox` (caller-vector and buffered overloads) take an optional `mask` (default 0xFFFF) and skip bodies whose category does not intersect it
 - [x] 9 Lua bindings: `phys_create_box_cat` / `phys_create_circle_cat` (creators with an explicit filter), `phys_set_category` / `phys_set_mask` (runtime mutation — widening a mask re-enables an already-overlapping pair), `phys_category` / `phys_mask` readers, and `phys_raycast_cat` / `phys_overlap_circle_cat` / `phys_overlap_box_cat`
 - [x] `--phys-filter-test`: headless C++ self-test, 14 assertions (default pair collides, category/mask mismatch never contacts and falls through, one-way mask rejection, runtime mask widening re-enables the pair, masked vs unmasked ray casts and overlaps incl. the buffered overload)
-- [x] `scripts/phys_test.lua` extended with the same surface through real bindings: an intentionally overlapping filtered pair (mismatch → no began contact across 15 frames), masked ray/overlap reads, then `phys_set_mask` widening → the pair reports began; new log codes 1050–1059 (assertions) and 2004–2006 (final tally)
+- [x] `examples/hello/scripts/phys_test.lua` extended with the same surface through real bindings: an intentionally overlapping filtered pair (mismatch → no began contact across 15 frames), masked ray/overlap reads, then `phys_set_mask` widening → the pair reports began; new log codes 1050–1059 (assertions) and 2004–2006 (final tally)
 - [x] CI: `--phys-filter-test` runs alongside `--phys-query-test` on Linux, macOS (CGL headless) and Windows (Mesa llvmpipe)
 
 ## Phase 16 — Fixed timestep & camera tooling (1.10.x)
@@ -191,7 +191,7 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 - [x] 6 Lua bindings: `map_find_path` / `map_path_count` / `map_path_x` / `map_path_y` / `map_clear_path`; the waypoint index is a double (indices come from counters / EntityStore slots, same float-vs-int lesson as `anim_draw`)
 - [x] `--path-test`: headless self-test, 25 assertions (open-field pull to 2 waypoints, 4-way staircase preserved, detour through a gap, sealed goal, corner-cut refusal + legal-diagonal acceptance, solid/OOB endpoint guards, node cap, ClearPath)
 - [x] `--path-demo` (maze chase): deterministic fixed-seed maze (recursive backtracker + 30% loop knocking, exported as Tiled JSON with a 3-tile sheet and a `spawns` object layer), three chasers that re-path to the player on staggered timers, player autopilot to the goal whenever there is no input (attract AI), live path polylines (`draw_line`, toggle with P), catches/clears counters, Phase 16 camera follow + bounds
-- [x] **Fix: per-frame contact events were dropped on multi-step frames.** The fixed-step accumulator runs `PhysicsWorld::Step` several times per rendered frame, but every `Step` cleared the began/stayed/ended buffers, so an event raised on an earlier step of the frame was replaced before gameplay (which reads once per frame) could see it — `scripts/phys_test.lua` missed `began` and reported `2001/2002/2003` on roughly half of all runs, depending purely on frame-time jitter. `PhysicsWorld` now has `SetEventAccumulation(true)` + `ClearFrameEvents()`: the engine clears once per frame and every step *appends* (de-duplicated per slot pair), so no event is lost. Off by default, so hosts that step once per frame (and the C++ tests) keep the classic "buffers describe the last step" behaviour. Regression covered by 7 new `--timestep-test` assertions (30 total)
+- [x] **Fix: per-frame contact events were dropped on multi-step frames.** The fixed-step accumulator runs `PhysicsWorld::Step` several times per rendered frame, but every `Step` cleared the began/stayed/ended buffers, so an event raised on an earlier step of the frame was replaced before gameplay (which reads once per frame) could see it — `examples/hello/scripts/phys_test.lua` missed `began` and reported `2001/2002/2003` on roughly half of all runs, depending purely on frame-time jitter. `PhysicsWorld` now has `SetEventAccumulation(true)` + `ClearFrameEvents()`: the engine clears once per frame and every step *appends* (de-duplicated per slot pair), so no event is lost. Off by default, so hosts that step once per frame (and the C++ tests) keep the classic "buffers describe the last step" behaviour. Regression covered by 7 new `--timestep-test` assertions (30 total)
 - [x] Verification: `--path-test` 25/25; `--path-demo` headless smoke with pixel-checked screenshots (autopilot progress, chasers converging); `phys_test.lua` 12/12 consecutive headless runs green; all gates re-run green
 
 ---
@@ -233,7 +233,7 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 - [x] `assets/post_grade.{vert,frag}`: presentation-grade fragment stage (desaturate, brightness lift, vignette, scanlines) where **every uniform defaults to "unchanged"** — an untouched shader is a straight blit, which is also what makes the pass assertable
 - [x] `--post-test`: 44 headless assertions, all pixel probes (a generated two-tile tileset + an inline Tiled JSON): bake at scale 1 and 0.5, scale 0 no-op, the ActiveCamera regression, `rt_camera` aiming, plain-present coverage of a larger destination, identity-through-default-uniforms, +0.25 brightness, full desaturate, scanline row alternation, self/window/unknown-id guards, `ActiveShader` isolation, and the window framebuffer surviving a present. Mutation-checked: reverting `Draw` to the window camera, ignoring `DrawScaled`'s scale, and sizing the present quad from the source each fail the suite
 - [x] `--post-demo`: the world (mario.json when generated, else a procedural skyline) drawn into a full-screen target and presented through the grade shader; the HUD is drawn *after* the present so it stays ungraded. Right column: post/greyscale checkboxes + lift/vignette/scanline sliders driving the uniforms live; a baked minimap with the camera's viewport rectangle clipped to the pane; SPACE/G hotkeys; graceful no-FBO fallback draws straight to the screen
-- [x] **Fix (pre-existing):** `scripts/ui_demo.lua`'s footer sat at y=660 on a 960x540 logical canvas — invisible, but the demo still exited 0 and the earlier screenshot check eyeballed the picture instead of the bounds. Layout pulled inside the canvas and the check is now a pixel bounding-box probe; the same sweep found every other demo either inside (scene, rt, ui) or intentionally full-bleed (map/platformer/mario/slope)
+- [x] **Fix (pre-existing):** `examples/hello/scripts/ui_demo.lua`'s footer sat at y=660 on a 960x540 logical canvas — invisible, but the demo still exited 0 and the earlier screenshot check eyeballed the picture instead of the bounds. Layout pulled inside the canvas and the check is now a pixel bounding-box probe; the same sweep found every other demo either inside (scene, rt, ui) or intentionally full-bleed (map/platformer/mario/slope)
 - [x] Verification: `--post-test` 44/44; `--post-demo` headless smoke + pixel-probed screenshot (panel overflow past x=960 and an unclipped viewport rect found and fixed by probe); all gates re-run green
 
 ---
@@ -380,7 +380,7 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 - [x] **16 new Lua bindings**: `phys_create_poly` (vararg), `phys_set_rot` / `phys_rot`, `phys_set_ang_vel` / `phys_ang_vel`, `phys_set_friction` / `phys_friction`, `phys_set_density` / `phys_mass`, `phys_apply_impulse`, `phys_apply_force`, `phys_apply_torque`, `phys_vertex_count` / `phys_vertex_x` / `phys_vertex_y`, `phys_smooth_rot`
 - [x] **`--phys-rigid-test` (32 assertions)**: mass for box/circle/polygon plus static/infinite and density edits, off-centre impulse spin and integration, rotated world vertices, 45° corner support and a face-normal ray on a tilted box, friction vs frictionless sliders, restitution bounce without tunneling, deep containment push-out, five-box stack stability and edge-landing spin, force integration and `SmoothRotation`
 - [x] Wired into CI on Linux (xvfb), macOS and Windows next to the existing physics self-tests
-- [x] Verification: `--phys-rigid-test` 32/32, `--phys-query-test` 22/22, `--phys-filter-test` 14/14, `--timestep-test` 30/30, all twelve preceding engine self-tests green; Lua `scripts/phys_test.lua` PASS; `--map-demo` (24 balls on tile colliders) headless smoke; `--phys-bench` 600 dynamics ≈ 2.9 ms/step with the grid
+- [x] Verification: `--phys-rigid-test` 32/32, `--phys-query-test` 22/22, `--phys-filter-test` 14/14, `--timestep-test` 30/30, all twelve preceding engine self-tests green; Lua `examples/hello/scripts/phys_test.lua` PASS; `--map-demo` (24 balls on tile colliders) headless smoke; `--phys-bench` 600 dynamics ≈ 2.9 ms/step with the grid
 
 ---
 
@@ -398,7 +398,7 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 - [x] **`--angry-birds-demo` validation sandbox**: a slingshot (world-space drag + launch velocity), two wooden towers built from sleeping dynamic boxes, three pigs popped by bird contact events or by being shoved, tumbling tinted blocks (`sprite_draw_rotated_tinted`, a new binding), drag-trajectory preview, particle puffs, score/birds/pigs HUD and `R` restart. The camera follows the bird through a deadzone while it flies, then eases back to the sling framing; impacts and pops play the synthesized `brick` / `coin` / `launch` / `win` / `lose` clips and add camera trauma. Headless `ANGRY_TEST=1` auto-aims three shots; the run pops all three pigs (300 points) and flattens both towers, exercising stacking, wake-on-impact, impulses, friction, contact events, camera follow and render interpolation in one scene
 - [x] **`--limbo-demo` joint-heavy sandbox**: a 6-part ragdoll (head/torso/arms/legs) driven by impulses through 5 revolute joints; a 9-node hanging rope chain with a heavier hook that the right arm can weld to at runtime (E) and release; a 6-plank revolute bridge sagging over the water; buoyancy + drag impulses so a light ball floats, wood bobs and stone sinks (verified numerically: ball 421, stone 480); misty silhouette rendering with a following camera and a screen-anchored HUD reading live joint counts. `K` destroys every ragdoll joint and re-tethers the pieces with slack rope joints, so the body separates but the parts still pull on each other; drowning in deep water triggers the same severing. A new `to_int` binding bridges entity-read floats to handle-based APIs
 - [x] Wired into CI on Linux (xvfb), macOS and Windows next to the other physics self-tests (plus the Angry Birds and LIMBO demo headless smokes)
-- [x] Verification: `--phys-extended-test` 39/39, `--phys-rigid-test` 32/32, `--phys-query-test` 22/22, `--phys-filter-test` 14/14, `--timestep-test` 30/30, the other twelve engine self-tests green, Lua `scripts/phys_test.lua` PASS, `--map-demo` headless smoke, `--phys-bench` still ~5× faster than brute force, Angry Birds auto run typically pops all three pigs (score 300) and flattens both towers
+- [x] Verification: `--phys-extended-test` 39/39, `--phys-rigid-test` 32/32, `--phys-query-test` 22/22, `--phys-filter-test` 14/14, `--timestep-test` 30/30, the other twelve engine self-tests green, Lua `examples/hello/scripts/phys_test.lua` PASS, `--map-demo` headless smoke, `--phys-bench` still ~5× faster than brute force, Angry Birds auto run typically pops all three pigs (score 300) and flattens both towers
 
 ---
 
@@ -459,7 +459,7 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 - [x] **Actor capacity**: `EntityStore` grows to 16 numeric slots / 4 string slots and 512 entities, enough for a brawler roster (x, depth, height, velocities, facing, hp, state, state time, clip, i-frames, attack serial, hit-by serial, AI timer, type, flags)
 - [x] **Clip capacity**: `AnimationSystem::kMaxAnimations` 32 → 128 so every pose of every character type fits without id recycling
 - [x] **`--combat-test` (18 assertions)**: time scale defaults/clamps, hit-stop does not change the scale, 16-slot entity round-trip and snapshot restore, out-of-range slots, 512-entity roster, 128-clip pool exhaustion
-- [x] **`--beat-em-up-demo` (Dino Brawl)**: a complete Cadillacs-and-Dinosaurs-style stage built purely in `scripts/beat_em_up_demo.lua`:
+- [x] **`--beat-em-up-demo` (Dino Brawl)**: a complete Cadillacs-and-Dinosaurs-style stage built purely in `examples/hello/scripts/beat_em_up_demo.lua`:
   - ground-plane projection (x / depth / height) with per-depth scale and `draw_set_z` y-sorting over a sorted batch
   - per-actor state machine: idle / walk / 3-hit punch combo / kick / spin / hurt / knockdown / getup / dead, with attack active windows
   - AABB hit-vs-hurt boxes, per-attack serial (multi-hit prevention), 0.25 s invulnerability, heavy knockdowns, hit-stop + camera shake + additive impact sparks
@@ -474,7 +474,7 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 
 ## Phase 37 — Vertical shooter & Raiden-style demo (1.31.x)
 
-- [x] **`--shmup-demo` (Raiden-style vertical shooter)**, built in `scripts/shmup_demo.lua`:
+- [x] **`--shmup-demo` (Raiden-style vertical shooter)**, built in `examples/hello/scripts/shmup_demo.lua`:
   - vertically looping desert + parallax clouds; a fixed screen-space camera so world and screen coordinates agree
   - player ship: 8-way movement, held auto-fire, banking frames, engine glow, invulnerability blink and respawn
   - three upgradeable weapons — Vulcan (parallel / 3-way / 5-way), Laser (piercing beams), homing Missiles — plus pickups and a bomb that clears bullets and damages the screen
@@ -490,7 +490,7 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 
 ## Phase 38 — Snooker & billiards physics demo (1.32.x)
 
-- [x] **`--snooker-demo` (playable snooker frame)**, built in `scripts/snooker_demo.lua`:
+- [x] **`--snooker-demo` (playable snooker frame)**, built in `examples/hello/scripts/snooker_demo.lua`:
   - a purpose-built billiards solver: 5 fixed substeps per frame, constant cloth rolling deceleration, equal-mass elastic ball-ball impulses with positional separation
   - continuous contact rewind: each overlapping pair is solved at the exact contact instant (quadratic time-of-impact) so the object-ball direction stays accurate enough to pot
   - cushions reflect the normal component (restitution + tangential damping) and bend the rebound with side spin; follow/draw transfers top/back spin along the pre-impact cue direction
@@ -506,7 +506,7 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 
 ## Phase 39 — Run-and-gun & Contra-style demo (1.33.x)
 
-- [x] **`--contra-demo` (Contra-inspired run-and-gun)**, built in `scripts/contra_demo.lua`:
+- [x] **`--contra-demo` (Contra-inspired run-and-gun)**, built in `examples/hello/scripts/contra_demo.lua`:
   - a 3400px jungle stage with layered parallax (moon, stars, diamond mountains, three palm layers, mist); ground segments, pits, one-way steel beams and solid crates
   - kinematic player: acceleration/friction, coyote time, jump buffering, variable jump height, crouch, one-hit deaths, lives and safe respawns
   - 8-direction fire with a procedural gun arm and muzzle flash; Rifle, Machine Gun, Spread Gun and laser weapon capsules dropped by flying carriers
@@ -523,7 +523,7 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 
 ## Phase 40 — City simulation & SimCity-style demo (1.34.x)
 
-- [x] **`--city-demo` (city builder)**, built in `scripts/city_demo.lua`:
+- [x] **`--city-demo` (city builder)**, built in `examples/hello/scripts/city_demo.lua`:
   - a generated 56x42 region (grass, forest, lake + pond, sand shores) loaded as a Tiled map; the script mutates the tile grid in place with roads, R/C/I plots, parks and power pads
   - a screen-space HUD projected through the camera so it stays pixel-correct at any zoom: funds, date, population, jobs, RCI demand meters, adjustable tax slider, monthly income/upkeep, happiness, speed controls, alert banner and a clickable minimap
   - tool palette with keyboard hotkeys: road (drag-paint), residential / commercial / industrial zoning, parks, power plants and bulldozing, each with money costs, validity checks and synthesized SFX
@@ -539,7 +539,7 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 
 ## Phase 41 — RTS & Red Alert-style demo (1.35.x)
 
-- [x] **`--rts-demo` (real-time strategy skirmish)**, built in `scripts/rts_demo.lua`:
+- [x] **`--rts-demo` (real-time strategy skirmish)**, built in `examples/hello/scripts/rts_demo.lua`:
   - a 64x48 battle map with mirrored bases, ore fields, lakes, rocks and trees; generated 32px terrain tileset and per-unit / per-building sprites tinted by team colour
   - base building: power plants, barracks, war factory, refinery and turrets with construction timers; power generation/consumption gates production speed and alerts
   - economy: harvesters auto-mine ore cells (rich → poor → dirt), haul cargo to the nearest refinery and unload credits; credits pay for structures and units
@@ -556,7 +556,7 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 
 ## Phase 42 — Visual novel & Tokimeki-style dating sim (1.36.x)
 
-- [x] **`--vn-demo` (dating-sim visual novel)**, built in `scripts/vn_demo.lua`:
+- [x] **`--vn-demo` (dating-sim visual novel)**, built in `examples/hello/scripts/vn_demo.lua`:
   - eight illustrated 960x540 backgrounds (school gate, classroom, library, gym, park, cafe, rooftop, summer festival) and sixteen 320x480 heroine portraits (four girls x neutral / smile / blush / sad). The shipped art is AI-illustrated and tracked under `assets/vn/`; the host painters remain as a procedural fallback when a file is missing
   - a title screen, a 14-day calendar loop and a confession ending; stats for study / fitness / charm, stamina, money and affection for four heroines
   - daily actions (study, train, style, part-time work, rest), free chats with three topics per girl (the third unlocks at affection 20), gifts, dates at affection 30+, and a day-7 summer-festival choice
@@ -582,7 +582,7 @@ Fake2D adheres strictly to modern 2D engine industry standards (aligned with Mon
 
 - [x] **Art is source data, not first-run output**: `.gitignore` no longer throws away `assets/art`, `assets/arcade`, `assets/city`, `assets/contra`, `assets/limbo`, `assets/rts`, `assets/snooker` and the three relit tile sheets at the `assets/` root. Until now the AI key art existed only in the author's working tree, so every CI run and fresh clone silently fell back to the primitive painters.
 - [x] **`tools/art_key.py`**: the bake pipeline the committed art is generated with, so a raw generation can be re-baked reproducibly. Magenta chroma key with un-premultiply plus a magenta-dominance term (strips the pink bloom the model paints around lit sprites without eating white, gold or cyan art); `sprite`, `grid`, `spin`, `texture` and `relight` commands.
-- [x] **Breakout (`scripts/game.lua`)**: neon-arcade brick, paddle and ball, a four-frame spinning coin derived by squashing one illustrated disc, and the arcade-hall backdrop. The score bar and life icons are drawn from the same set; the flat quads remain as the missing-art fallback.
+- [x] **Breakout (`examples/hello/scripts/game.lua`)**: neon-arcade brick, paddle and ball, a four-frame spinning coin derived by squashing one illustrated disc, and the arcade-hall backdrop. The score bar and life icons are drawn from the same set; the flat quads remain as the missing-art fallback.
 - [x] **Limbo**: illustrated silhouette head, torso and limbs replace the tinted plank-and-ball ragdoll, a real rope strand replaces the chain of dotted knots, and the pool is painted art that bobs instead of stacked sine quads.
 - [x] **Mario**: the sky quad is replaced by the illustrated valley backdrop, and the 16px tile sheet is relit from an AI dirt/brick material.
 - [x] **Platformer / slope lab**: tile sheets relit from AI grass and cut-stone materials.
@@ -639,7 +639,7 @@ A 2D game should also be able to rig its characters: one set of parts, posed by 
 - [x] **53 script bindings** (`skel_*`), degrees throughout, and ids that stay valid across frames so a script caches them on its state object.
 - [x] **One draw call per character**: every part of a rig comes off one sheet, so the batch coalesces a whole soldier into a single submit. Measured, not asserted from the code: `--skeleton-test` flushes the batch and reads the renderer's own counter — 12 parts = 1 call, and a rank of 12 instances = still 1.
 - [x] **`--skeleton-test` (82 checks)** builds a rig whose expected numbers are known exactly and checks hierarchy through a rotated parent, linear versus stepped interpolation, a cross-fade measured mid-fade, one-shot semantics, event counts per loop pass, IK landing on the target and straightening when it cannot reach, the bend sign, skin change counts, bounds, and pool/teardown behaviour — then loads the shipped rig and re-checks the same shapes through the JSON path.
-- [x] **`scripts/skeleton_demo.lua`** (`--skeleton-demo`): a rigged soldier on a wall with five clips, mouse-tracked gun aim, footstep dust, muzzle flash and ejected casings driven by events, a bone overlay to see the rig steering the art, and a skin swap. Attract mode walks the whole clip set unattended.
+- [x] **`examples/hello/scripts/skeleton_demo.lua`** (`--skeleton-demo`): a rigged soldier on a wall with five clips, mouse-tracked gun aim, footstep dust, muzzle flash and ejected casings driven by events, a bone overlay to see the rig steering the art, and a skin swap. Attract mode walks the whole clip set unattended.
 - [x] **Part art drawn by `tools/make_skeleton_sheet.py`** rather than the image model: a rig cares exactly where each part's joint sits, and the sheet is generated with every limb drawn horizontally with its joint 48 px from the cell's left edge, so the JSON hangs parts off bones with one offset each. (Image generation was unavailable this session; procedural parts are also the reproducible choice.)
 - [x] **`FAKE2D_LUA_INTERP=1`** runs the interpreter backend instead of the GCC JIT — the switch had to set the *call* backend as well as the compile config, or `update` is looked up in the backend that never defined it and the run reports a false green.
 - [x] **The rank works, and the fault that hid it is now a documented rule.** A second instance in the demo had been faulting the script engine for a long time — a JIT stack trace pointing into `interp_rt`, no ASan finding in fake2d, and every element removed still crashing, so it was shipped with `CROWD = 0`. It was never a crash: a table stored on a `NativeObject` keeps its fields read-only and **drops the write silently**, so `S.soldiers[i] = id` left `nil`, and `skel_draw(nil, …)` threw `FakeluaToNativeDouble failed, type is Nil` on every frame after the first. The fix is flat fields (`S["soldier_" .. i]`), the demo marches 6 rigs behind the hero, and `docs/SCRIPTING.md` states the rule where the old speculation stood.
@@ -660,7 +660,7 @@ A 2D game can still have light sources: they move, the objects in the scene answ
 - [x] **The light buffer is taken lazily.** `Init()` allocates only the two textures; the first `Render()` claims a render-target slot, so a game that never lights anything keeps all 8.
 - [x] **Script API**: 24 calls — `light_create/destroy/valid/count`, `light_set_position/radius/color/shadows/enabled`, `occluder_add_rect/add_poly/add_body/set_rect/set_poly/destroy/set_enabled/count/sync_bodies`, `light_set_ambient/shadow_darkness/core/on`, `light_render`, `light_stat`. Caster ids stay valid across frames, so a script caches them once.
 - [x] **Body-backed casters**: `occluder_add_body` + `occluder_sync_bodies()` re-read a physics body's world polygon every frame, so a crate that gets pushed keeps casting the right shadow with no geometry re-upload. Covering it in `--light-test` caught a real defect: `Occluder::body` was an `int`, while `BodyId` is a slot+generation handle packed into 64 bits — so every handle truncated to a stale one and the caster silently deactivated instead of casting. The field, the API and the binding now carry the full `int64_t`, which is the convention the rest of the script layer already uses. A circle-backed caster goes inactive on sync, since only polygons have vertices to read.
-- [x] **`scripts/light_demo.lua`** (`--light-demo`, in the launcher): a stone cavern with a lantern a soldier paces about — attract mode now sweeps the length of the room instead of stopping after one leg — a flickering wall torch, an orbiting cyan orb, a shadowless fill, a pulsing alarm, script-slid crates and one kinematic-body crate whose shadow comes out of the simulation. `SPACE` bursts 24 more lights into the same buffer; `L` toggles the pass.
+- [x] **`examples/hello/scripts/light_demo.lua`** (`--light-demo`, in the launcher): a stone cavern with a lantern a soldier paces about — attract mode now sweeps the length of the room instead of stopping after one leg — a flickering wall torch, an orbiting cyan orb, a shadowless fill, a pulsing alarm, script-slid crates and one kinematic-body crate whose shadow comes out of the simulation. `SPACE` bursts 24 more lights into the same buffer; `L` toggles the pass.
 - [x] **`--light-test` (43 checks)** reads the light buffer back rather than trusting the counters: pool bright to exactly its radius, dark behind the caster, `== ambient` at 24 probes around the rim (the containment gate), a neighbour's pool untouched outside the first light's reach, a body-backed caster casting where the body is and following it when it moves, culling, budget clipping, id stability across `occluder_set_rect`, pool exhaustion, and bad ids ignored.
 - [x] **Gates on work submitted, not wall clock**: the bench asserts draw calls and geometry, which hold on any machine, and prints the milliseconds. CI runners use software GL, where a ceiling loose enough to pass would also let a real regression through.
 - [x] **One source of truth for the demo catalogue**: wiring the new demo exposed that `--<flag>-demo` was a hand-written chain of 27 branches duplicating the paths already in `demos.h` — and an unlisted flag was *silently ignored*, so `--light-demo` had been launching Breakout. The chain is now one branch that resolves through `FindDemo()`, unknown flags are a hard error, and `--launcher-test` (110 → 173 checks) proves every catalogued row is startable through the same parser the launcher's re-exec string goes through.
@@ -687,7 +687,7 @@ Phase 47 shipped rigid attachments on bones. The next step is weighted mesh defo
 - [x] Spine JSON loader extensions: `mesh` / `linkedmesh` (or documented subset), `vertices` with bone weights, deform keys; clear error strings naming the offending attachment
 - [x] Draw path that submits deformed triangles through the batch (one sheet per skin still preferred) without breaking the Phase 47 single-draw-call rank measurement for region-only rigs
 - [x] Lua bindings for mesh create/query, weight inspection, and forcing a deform sample for tests
-- [x] Extend `assets/skeleton/` (or a new soft-skin demo sheet) with at least one weighted mesh part; grow `scripts/skeleton_demo.lua` or add `scripts/skeleton_mesh_demo.lua`
+- [x] Extend `assets/skeleton/` (or a new soft-skin demo sheet) with at least one weighted mesh part; grow `examples/hello/scripts/skeleton_demo.lua` or add `examples/hello/scripts/skeleton_mesh_demo.lua`
 - [x] `--skeleton-test` growth: bind-pose identity, known-weight lerp under a 90° bone, deform key at t=0/mid/end, malformed weight / index rejection
 - [x] Docs: `SCRIPTING.md` skeletal section + PLAN verification notes; version bump suggestion **1.42.x**
 
@@ -717,7 +717,7 @@ and malformed rejection.
   links error with the attachment name. `assets/skeleton/linkskin.json` +
   `--skeleton-test` cases (happy path + bad parent / bad skin).
 - [x] **CI**: `--skeleton-mesh-demo` screenshot/colour probe next to skeleton-demo;
-  inverse gate for `scripts/update_fail_test.lua` (expect non-zero exit).
+  inverse gate for `examples/hello/scripts/update_fail_test.lua` (expect non-zero exit).
 - [x] Docs + package **1.42.1** (`DrawTriangles` API surface).
 
 ---

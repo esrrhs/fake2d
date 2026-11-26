@@ -154,8 +154,10 @@ cmake --build build --parallel
 
 > **Run it from the repository root.** `scripts/` and `assets/` are resolved
 > against the working directory, so starting the binary from elsewhere opens an
-> empty window. On macOS, double-clicking `run.command` does the right thing: it
-> `cd`s into the repository, builds on first run, and opens the picker.
+> empty window. Demo Lua sources live in `examples/hello/scripts/` and are
+> copied to the runtime `scripts/` directory on every build. On macOS,
+> double-clicking `run.command` does the right thing: it `cd`s into the
+> repository, builds on first run, and opens the picker.
 
 > **C++ Only Mode**: To build a windowed skeleton without linking FakeLua, pass `-DFAKE2D_WITH_FAKELUA=OFF`.
 
@@ -287,7 +289,8 @@ that round trip about a second instead of five; `--jit` compiles natively anyway
 ### Development & Benchmarking Options
 
 ```bash
-# Enable live script hot-reload (saving scripts/game.lua updates the running game)
+# Enable live script hot-reload (saving the runtime copy at scripts/game.lua;
+# sources live in examples/hello/scripts/ and are recopied on build)
 ./build/bin/fake2d_hello --hot-reload
 
 # Pick the script backend. A windowed demo or launcher run uses the interpreter
@@ -478,7 +481,7 @@ fake2d/
 │   ├── scene/               # Spatial node transforms & caching
 │   ├── script/              # FakeLua native bindings & execution
 │   └── ui/                  # Immediate-mode UI layout & interaction
-├── scripts/                 # Complete pure-Lua demo and game scripts
+├── examples/hello/scripts/  # Hello demo Lua sources (copied to runtime scripts/)
 │   ├── game.lua             # Classic Breakout game
 │   ├── mario.lua            # Super Mario Bros 1-1 level
 │   ├── angry_birds_demo.lua # Slingshot rigid-body sandbox

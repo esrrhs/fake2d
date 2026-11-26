@@ -126,3 +126,6 @@ assets/skeleton/_bad*.json
 # Reproducible local coverage build/evidence (published as CI artifacts).
 build-coverage*/
 reports/coverage/
+
+# Runtime copy of examples/hello/scripts/ (CMake, tests, run-from-root).
+/scripts/

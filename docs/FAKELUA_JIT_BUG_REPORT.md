@@ -182,14 +182,14 @@ unknown variable 'flag' at bug.lua:3:21; declare it with 'local' first
 | fake2d 5 个脚本 × 1200 帧 | `fake2d_hello --headless` | ✅ 5/5 `exit=0`，0 条 `[ERROR]` |
 
 GCC JIT 与解释器两条路径表现一致（预编译在加载阶段发生，故后端不影响判定）。
-`scripts/*.lua` 无需再改——fake2d 早已全部显式 `local` 声明。
+`examples/hello/scripts/*.lua` 无需再改——fake2d 早已全部显式 `local` 声明。
 
 ---
 
 ## 工作区绕过的还原（2026-10-04）
 
 fakelua 修好之后，fake2d 里为绕开缺陷 1/2 而写的代码就可以还原了。逐项实测后**只还原了
-`scripts/platformer_demo.lua` 的 3 处**，其余写法属于 FakeLua 2.0 的**现行语义**（不是 bug），
+`examples/hello/scripts/platformer_demo.lua` 的 3 处**，其余写法属于 FakeLua 2.0 的**现行语义**（不是 bug），
 必须保留 —— 完整分类见 [SCRIPTING.md](SCRIPTING.md) 的 "Not a bug" 与 "Reverted" 小节。
 
 ### 已还原（确认不再需要）
@@ -220,7 +220,7 @@ fakelua 修好之后，fake2d 里为绕开缺陷 1/2 而写的代码就可以还
 ⚠️ 一个文档与实现的偏差（已在 SCRIPTING.md 记录）：「每帧表是免费的」这条**只对部分形态成立**。
 `local t = {}` 后做**下标写入**（`t[i] = v`）或**原生写入**（`table.insert`）是 mutable 的，
 但后做**字段写入**（`t.hp = 10`）即使在 `update` 内部也会被判 const —— 这是类型推断的产物。
-`scripts/game.lua:build_powers()` 用的正是 `t[i] = v` 形态，正确，不要「修正」成字段写入。
+`examples/hello/scripts/game.lua:build_powers()` 用的正是 `t[i] = v` 形态，正确，不要「修正」成字段写入。
 
 ---
 
