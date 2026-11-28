@@ -489,6 +489,9 @@ void UISystem::DrawNodeBackdrop(const Rect &r, const AutoNode &node) {
         DrawDropShadow(r, node.radius, node.shadow_off_y, node.shadow_spread,
                        node.shadow_alpha * node.alpha_mul);
     }
+    if (node.kind == AutoNode::Kind::Button || node.kind == AutoNode::Kind::ProgressBar) {
+        return;
+    }
     if (node.backdrop_blur > 0.0f) {
         const Rect &pc = node.clip_rect;
         const float cx0 = std::max(pc.x, r.x), cy0 = std::max(pc.y, r.y);
@@ -512,10 +515,84 @@ void UISystem::DrawNodeBackdrop(const Rect &r, const AutoNode &node) {
         bg.a *= node.alpha_mul;
         DrawRoundedQuad(r, node.radius, bg);
     }
+}
+
+void UISystem::DrawNodeBorderAccents(const Rect &r, const AutoNode &node) {
+    if (!renderer_ || r.width <= 0.0f || r.height <= 0.0f) {
+        return;
+    }
+    if (node.kind == AutoNode::Kind::Button || node.kind == AutoNode::Kind::ProgressBar) {
+        return;
+    }
+    if (node.has_bevel && r.width > 4.0f && r.height > 2.0f) {
+        Color bv = node.bevel_col;
+        bv.a *= node.alpha_mul;
+        const float in = std::min(std::max(1.0f, node.radius * 0.55f), r.width * 0.2f);
+        renderer_->DrawQuad(MapRect({r.x + in, r.y + 1.0f, std::max(0.0f, r.width - 2.0f * in), 1.0f}), bv);
+    }
     if (node.has_border && node.border_w > 0.0f) {
         Color br = node.custom_border_col;
         br.a *= node.alpha_mul;
         DrawRoundedFrame(r, node.radius, node.border_w, br);
+    }
+    if (node.has_left_accent && node.left_accent_w > 0.0f && r.height > 2.0f) {
+        Color la = node.left_accent_col;
+        la.a *= node.alpha_mul;
+        const float ay = std::min(2.0f, r.height * 0.1f);
+        DrawRoundedQuad({r.x + 0.5f, r.y + ay, std::min(node.left_accent_w, r.width * 0.25f),
+                         std::max(0.0f, r.height - 2.0f * ay)},
+                        std::min(1.5f, node.radius), la);
+    }
+}
+
+void UISystem::DrawNodeChromeOverlay(const Rect &r, const AutoNode &node) {
+    if (!renderer_ || r.width <= 0.0f || r.height <= 0.0f) {
+        return;
+    }
+    if (node.has_inner_frame && node.inner_frame_w > 0.0f) {
+        const float in = std::max(0.0f, node.inner_frame_inset);
+        if (r.width > 2.0f * in + 2.0f && r.height > 2.0f * in + 2.0f) {
+            Color ifr = node.inner_frame_col;
+            ifr.a *= node.alpha_mul;
+            DrawRoundedFrame({r.x + in, r.y + in, r.width - 2.0f * in, r.height - 2.0f * in},
+                             std::max(0.0f, node.radius - in), node.inner_frame_w, ifr);
+        }
+    }
+    if (node.has_corners && r.width >= 24.0f && r.height >= 24.0f) {
+        Color cc = node.corner_col;
+        cc.a *= node.alpha_mul;
+        Color cc_in = cc;
+        cc_in.a *= 0.75f;
+        const float pad = 4.0f;
+        const float sz = std::clamp(node.corner_size, 6.0f, std::min(r.width, r.height) * 0.22f);
+        const float t1 = 1.4f;
+        const float t2 = 1.0f;
+        const float sub = sz * 0.55f;
+        const float key = sz * 0.28f;
+        // Top-left
+        renderer_->DrawQuad(MapRect({r.x + pad, r.y + pad, sz, t1}), cc);
+        renderer_->DrawQuad(MapRect({r.x + pad, r.y + pad, t1, sz}), cc);
+        renderer_->DrawQuad(MapRect({r.x + pad + 3.0f, r.y + pad + 3.0f, sub, t2}), cc_in);
+        renderer_->DrawQuad(MapRect({r.x + pad + 3.0f, r.y + pad + 3.0f, t2, sub}), cc_in);
+        renderer_->DrawQuad(MapRect({r.x + pad + 5.5f, r.y + pad + 5.5f, key, t2}), cc_in);
+        // Top-right
+        renderer_->DrawQuad(MapRect({r.x + r.width - pad - sz, r.y + pad, sz, t1}), cc);
+        renderer_->DrawQuad(MapRect({r.x + r.width - pad - t1, r.y + pad, t1, sz}), cc);
+        renderer_->DrawQuad(MapRect({r.x + r.width - pad - 3.0f - sub, r.y + pad + 3.0f, sub, t2}), cc_in);
+        renderer_->DrawQuad(MapRect({r.x + r.width - pad - 3.0f - t2, r.y + pad + 3.0f, t2, sub}), cc_in);
+        renderer_->DrawQuad(MapRect({r.x + r.width - pad - 5.5f - key, r.y + pad + 5.5f, key, t2}), cc_in);
+        // Bottom-left
+        renderer_->DrawQuad(MapRect({r.x + pad, r.y + r.height - pad - t1, sz, t1}), cc);
+        renderer_->DrawQuad(MapRect({r.x + pad, r.y + r.height - pad - sz, t1, sz}), cc);
+        renderer_->DrawQuad(MapRect({r.x + pad + 3.0f, r.y + r.height - pad - 3.0f - t2, sub, t2}), cc_in);
+        renderer_->DrawQuad(MapRect({r.x + pad + 3.0f, r.y + r.height - pad - 3.0f - sub, t2, sub}), cc_in);
+        renderer_->DrawQuad(MapRect({r.x + pad + 5.5f, r.y + r.height - pad - 5.5f - t2, key, t2}), cc_in);
+        // Bottom-right
+        renderer_->DrawQuad(MapRect({r.x + r.width - pad - sz, r.y + r.height - pad - t1, sz, t1}), cc);
+        renderer_->DrawQuad(MapRect({r.x + r.width - pad - t1, r.y + r.height - pad - sz, t1, sz}), cc);
+        renderer_->DrawQuad(MapRect({r.x + r.width - pad - 3.0f - sub, r.y + r.height - pad - 3.0f - t2, sub, t2}), cc_in);
+        renderer_->DrawQuad(MapRect({r.x + r.width - pad - 3.0f - t2, r.y + r.height - pad - 3.0f - sub, t2, sub}), cc_in);
+        renderer_->DrawQuad(MapRect({r.x + r.width - pad - 5.5f - key, r.y + r.height - pad - 5.5f - t2, key, t2}), cc_in);
     }
 }
 
@@ -1395,6 +1472,40 @@ void UISystem::NextTransition(std::string_view anim_key, float duration_sec) {
     next_auto_mod_.has_anim = true;
     next_auto_mod_.anim_key = ScopedKey(anim_key);
     next_auto_mod_.anim_duration = std::max(0.0f, duration_sec);
+}
+
+void UISystem::NextFontFace(int face) {
+    next_auto_mod_.has_font_face = true;
+    next_auto_mod_.font_face = std::max(0, face);
+}
+
+void UISystem::NextTextAlign(int align) {
+    next_auto_mod_.has_text_align = true;
+    next_auto_mod_.text_align = std::clamp(align, 0, 2);
+}
+
+void UISystem::NextInnerHighlight(const Color &col) {
+    next_auto_mod_.has_bevel = true;
+    next_auto_mod_.bevel_col = col;
+}
+
+void UISystem::NextInnerFrame(const Color &col, float inset, float thickness) {
+    next_auto_mod_.has_inner_frame = true;
+    next_auto_mod_.inner_frame_col = col;
+    next_auto_mod_.inner_frame_inset = std::max(0.0f, inset);
+    next_auto_mod_.inner_frame_w = std::max(0.0f, thickness);
+}
+
+void UISystem::NextCornerOrnaments(const Color &col, float size) {
+    next_auto_mod_.has_corners = true;
+    next_auto_mod_.corner_col = col;
+    next_auto_mod_.corner_size = std::max(4.0f, size);
+}
+
+void UISystem::NextLeftAccent(const Color &col, float width) {
+    next_auto_mod_.has_left_accent = true;
+    next_auto_mod_.left_accent_col = col;
+    next_auto_mod_.left_accent_w = std::max(0.0f, width);
 }
 
 // ---------------------------------------------------------------------------

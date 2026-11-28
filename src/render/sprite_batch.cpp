@@ -983,6 +983,195 @@ void SpriteBatch::DrawGradientQuad(const Rect &dst, const Color &tl, const Color
     ++current_quads_;
 }
 
+namespace {
+std::vector<Vec2> BuildBatchRoundedContour(const Rect &r, float radius) {
+    constexpr float kPiOver2 = 1.57079632679f;
+    const float max_r = std::min(r.width, r.height) * 0.5f;
+    const float rad = std::clamp(radius, 0.0f, std::max(0.0f, max_r));
+    constexpr int kSegs = 6;
+    std::vector<Vec2> pts;
+    pts.reserve(4 * (kSegs + 1));
+    const float cxs[4] = {r.x + r.width - rad, r.x + r.width - rad, r.x + rad, r.x + rad};
+    const float cys[4] = {r.y + rad, r.y + r.height - rad, r.y + r.height - rad, r.y + rad};
+    const float a0s[4] = {-kPiOver2, 0.0f, kPiOver2, 2.0f * kPiOver2};
+    for (int corner = 0; corner < 4; ++corner) {
+        for (int s = 0; s <= kSegs; ++s) {
+            const float a = a0s[corner] + kPiOver2 * (static_cast<float>(s) / kSegs);
+            pts.push_back({cxs[corner] + std::cos(a) * rad, cys[corner] + std::sin(a) * rad});
+        }
+    }
+    return pts;
+}
+
+Color LerpBatchColor(const Color &a, const Color &b, float t) {
+    const float u = std::clamp(t, 0.0f, 1.0f);
+    return {
+        a.r + (b.r - a.r) * u,
+        a.g + (b.g - a.g) * u,
+        a.b + (b.b - a.b) * u,
+        a.a + (b.a - a.a) * u,
+    };
+}
+} // namespace
+
+void SpriteBatch::DrawRoundedQuad(const Rect &dst, float radius, const Color &color) {
+    if (dst.width <= 0.0f || dst.height <= 0.0f || color.a <= 0.0f) {
+        return;
+    }
+    if (radius <= 0.5f) {
+        DrawQuad(dst, color);
+        return;
+    }
+    const auto contour = BuildBatchRoundedContour(dst, radius);
+    const size_t n = contour.size();
+    std::vector<Vertex2D> verts(n + 1);
+    verts[0] = {{dst.x + dst.width * 0.5f, dst.y + dst.height * 0.5f}, {0.5f, 0.5f}, color};
+    for (size_t i = 0; i < n; ++i) {
+        verts[i + 1] = {contour[i], {0.5f, 0.5f}, color};
+    }
+    std::vector<std::uint16_t> indices;
+    indices.reserve(n * 3);
+    for (size_t i = 0; i < n; ++i) {
+        indices.push_back(0);
+        indices.push_back(static_cast<std::uint16_t>(i + 1));
+        indices.push_back(static_cast<std::uint16_t>((i + 1) % n + 1));
+    }
+    DrawTriangles(Texture2D::White(), verts.data(), verts.size(), indices.data(), indices.size());
+}
+
+void SpriteBatch::DrawRoundedGradientQuad(const Rect &dst, float radius, const Color &start_col,
+                                          const Color &end_col, bool horizontal) {
+    if (dst.width <= 0.0f || dst.height <= 0.0f || (start_col.a <= 0.0f && end_col.a <= 0.0f)) {
+        return;
+    }
+    if (radius <= 0.5f) {
+        if (horizontal) {
+            DrawGradientQuad(dst, start_col, end_col, end_col, start_col);
+        } else {
+            DrawGradientQuad(dst, start_col, start_col, end_col, end_col);
+        }
+        return;
+    }
+    const auto contour = BuildBatchRoundedContour(dst, radius);
+    const size_t n = contour.size();
+    std::vector<Vertex2D> verts(n + 1);
+    const Color mid = LerpBatchColor(start_col, end_col, 0.5f);
+    verts[0] = {{dst.x + dst.width * 0.5f, dst.y + dst.height * 0.5f}, {0.5f, 0.5f}, mid};
+    for (size_t i = 0; i < n; ++i) {
+        const float t = horizontal
+                            ? (dst.width > 0.0f ? (contour[i].x - dst.x) / dst.width : 0.0f)
+                            : (dst.height > 0.0f ? (contour[i].y - dst.y) / dst.height : 0.0f);
+        verts[i + 1] = {contour[i], {0.5f, 0.5f}, LerpBatchColor(start_col, end_col, t)};
+    }
+    std::vector<std::uint16_t> indices;
+    indices.reserve(n * 3);
+    for (size_t i = 0; i < n; ++i) {
+        indices.push_back(0);
+        indices.push_back(static_cast<std::uint16_t>(i + 1));
+        indices.push_back(static_cast<std::uint16_t>((i + 1) % n + 1));
+    }
+    DrawTriangles(Texture2D::White(), verts.data(), verts.size(), indices.data(), indices.size());
+}
+
+void SpriteBatch::DrawRoundedFrame(const Rect &dst, float radius, float thickness, const Color &color) {
+    if (dst.width <= 0.0f || dst.height <= 0.0f || thickness <= 0.0f || color.a <= 0.0f) {
+        return;
+    }
+    if (radius <= 0.5f) {
+        DrawFrame(dst, color, thickness);
+        return;
+    }
+    const float t = std::min({thickness, dst.width * 0.45f, dst.height * 0.45f});
+    const Rect inner_r{dst.x + t, dst.y + t, std::max(0.0f, dst.width - 2.0f * t),
+                       std::max(0.0f, dst.height - 2.0f * t)};
+    const auto outer = BuildBatchRoundedContour(dst, radius);
+    const auto inner = BuildBatchRoundedContour(inner_r, std::max(0.0f, radius - t));
+    const size_t n = std::min(outer.size(), inner.size());
+    std::vector<Vertex2D> verts(n * 2);
+    for (size_t i = 0; i < n; ++i) {
+        verts[i * 2] = {outer[i], {0.5f, 0.5f}, color};
+        verts[i * 2 + 1] = {inner[i], {0.5f, 0.5f}, color};
+    }
+    std::vector<std::uint16_t> indices;
+    indices.reserve(n * 6);
+    for (size_t i = 0; i < n; ++i) {
+        const std::uint16_t o0 = static_cast<std::uint16_t>(i * 2);
+        const std::uint16_t i0 = static_cast<std::uint16_t>(i * 2 + 1);
+        const std::uint16_t o1 = static_cast<std::uint16_t>(((i + 1) % n) * 2);
+        const std::uint16_t i1 = static_cast<std::uint16_t>(((i + 1) % n) * 2 + 1);
+        indices.push_back(o0);
+        indices.push_back(o1);
+        indices.push_back(i0);
+        indices.push_back(o1);
+        indices.push_back(i1);
+        indices.push_back(i0);
+    }
+    DrawTriangles(Texture2D::White(), verts.data(), verts.size(), indices.data(), indices.size());
+}
+
+void SpriteBatch::DrawDropShadow(const Rect &dst, float radius, float off_y, float spread, float alpha) {
+    if (dst.width <= 0.0f || dst.height <= 0.0f || alpha <= 0.0f) {
+        return;
+    }
+    constexpr int layers = 3;
+    for (int l = layers; l >= 1; --l) {
+        const float frac = static_cast<float>(l) / static_cast<float>(layers);
+        const float ex = spread * frac;
+        const Rect sr{dst.x - ex, dst.y + off_y - ex * 0.5f, dst.width + 2.0f * ex, dst.height + 2.0f * ex};
+        const Color c{0.0f, 0.0f, 0.0f, alpha * (1.0f - frac * 0.65f) / static_cast<float>(layers)};
+        DrawRoundedQuad(sr, radius + ex * 0.5f, c);
+    }
+}
+
+void SpriteBatch::DrawCircleFilled(const Vec2 &center, float radius, int segments, const Color &color) {
+    if (radius <= 0.0f || color.a <= 0.0f) {
+        return;
+    }
+    if (segments < 6) {
+        segments = 6;
+    }
+    std::vector<Vertex2D> verts(static_cast<size_t>(segments) + 1);
+    verts[0] = {center, {0.5f, 0.5f}, color};
+    for (int i = 0; i < segments; ++i) {
+        const float ang = 6.2831853f * static_cast<float>(i) / static_cast<float>(segments);
+        verts[static_cast<size_t>(i) + 1] = {
+            {center.x + std::cos(ang) * radius, center.y + std::sin(ang) * radius},
+            {0.5f, 0.5f},
+            color};
+    }
+    std::vector<std::uint16_t> indices;
+    indices.reserve(static_cast<size_t>(segments) * 3);
+    for (int i = 0; i < segments; ++i) {
+        indices.push_back(0);
+        indices.push_back(static_cast<std::uint16_t>(i + 1));
+        indices.push_back(static_cast<std::uint16_t>((i + 1) % segments + 1));
+    }
+    DrawTriangles(Texture2D::White(), verts.data(), verts.size(), indices.data(), indices.size());
+}
+
+void SpriteBatch::DrawLineThick(const Vec2 &a, const Vec2 &b, float thickness, const Color &color) {
+    if (thickness <= 0.0f || color.a <= 0.0f) {
+        return;
+    }
+    const float dx = b.x - a.x;
+    const float dy = b.y - a.y;
+    const float len = std::hypot(dx, dy);
+    if (len < 1e-4f) {
+        return;
+    }
+    const float hw = thickness * 0.5f;
+    const float nx = (-dy / len) * hw;
+    const float ny = (dx / len) * hw;
+    const Vertex2D verts[4] = {
+        {{a.x + nx, a.y + ny}, {0.0f, 0.0f}, color},
+        {{b.x + nx, b.y + ny}, {1.0f, 0.0f}, color},
+        {{b.x - nx, b.y - ny}, {1.0f, 1.0f}, color},
+        {{a.x - nx, a.y - ny}, {0.0f, 1.0f}, color},
+    };
+    const std::uint16_t indices[6] = {0, 1, 2, 0, 2, 3};
+    DrawTriangles(Texture2D::White(), verts, 4, indices, 6);
+}
+
 void SpriteBatch::DrawBezierTapered(const Vec2 &p0, const Vec2 &c0, const Vec2 &c1, const Vec2 &p1,
                                     float w0, float w1, const Color &color) {
     const float chord = std::hypot(c0.x - p0.x, c0.y - p0.y) +

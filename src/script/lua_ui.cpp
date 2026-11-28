@@ -382,6 +382,50 @@ void RegisterLayoutUILuaApi(LS *s, LuaUIHost *host) {
         }
         return 0.0;
     });
+    RegVar(s, host, "ui_rquad", 6, [ui_sys, rc, col_of](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) {
+            const float rad = static_cast<float>(ArgNum(st, a, n, 4));
+            const Color fill = col_of(static_cast<std::int64_t>(ArgNum(st, a, n, 5)));
+            const Color brd = n > 6 && ArgNum(st, a, n, 6) > 0
+                                  ? col_of(static_cast<std::int64_t>(ArgNum(st, a, n, 6)))
+                                  : Color::Clear();
+            const float bw = n > 7 ? static_cast<float>(ArgNum(st, a, n, 7)) : (brd.a > 0.0f ? 1.0f : 0.0f);
+            u->DrawRoundedQuadAt(rc(ArgNum(st, a, n, 0), ArgNum(st, a, n, 1),
+                                    ArgNum(st, a, n, 2), ArgNum(st, a, n, 3)),
+                                 rad, fill, brd, bw);
+        }
+        return 0.0;
+    });
+    RegVar(s, host, "ui_rgrad", 7, [ui_sys, rc, col_of](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) {
+            u->DrawRoundedGradientAt(
+                rc(ArgNum(st, a, n, 0), ArgNum(st, a, n, 1), ArgNum(st, a, n, 2), ArgNum(st, a, n, 3)),
+                static_cast<float>(ArgNum(st, a, n, 4)),
+                col_of(static_cast<std::int64_t>(ArgNum(st, a, n, 5))),
+                col_of(static_cast<std::int64_t>(ArgNum(st, a, n, 6))),
+                n > 7 && ArgBool(st, a, n, 7));
+        }
+        return 0.0;
+    });
+    Reg<void(LS *, double, double, double, double, double, double, std::int64_t)>(
+        s, host, "ui_rframe",
+        [ui_sys, rc, col_of](LS *, double x, double y, double w, double h, double r, double th, std::int64_t cid) {
+            if (auto *u = ui_sys()) {
+                u->DrawRoundedFrameAt(rc(x, y, w, h), static_cast<float>(r), static_cast<float>(th), col_of(cid));
+            }
+        });
+    RegVar(s, host, "ui_rshadow", 5, [ui_sys, rc](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) {
+            const float r = static_cast<float>(ArgNum(st, a, n, 4));
+            const float oy = n > 5 ? static_cast<float>(ArgNum(st, a, n, 5)) : 4.0f;
+            const float sp = n > 6 ? static_cast<float>(ArgNum(st, a, n, 6)) : 8.0f;
+            const float al = n > 7 ? static_cast<float>(ArgNum(st, a, n, 7)) : 0.55f;
+            u->DrawDropShadowAt(
+                rc(ArgNum(st, a, n, 0), ArgNum(st, a, n, 1), ArgNum(st, a, n, 2), ArgNum(st, a, n, 3)),
+                r, oy, sp, al);
+        }
+        return 0.0;
+    });
     Reg<double(LS *, double, double, std::string, double, std::int64_t, std::int64_t, std::int64_t)>(
         s, host, "ui_text_at",
         [ui_sys, col_of](LS *, double x, double y, std::string t, double px, std::int64_t c,
@@ -992,6 +1036,40 @@ void RegisterLayoutUILuaApi(LS *s, LuaUIHost *host) {
         if (auto *u = ui_sys()) {
             u->NextTransition(ArgStr(st, a, n, 0),
                               n > 1 ? static_cast<float>(ArgNum(st, a, n, 1)) : 0.18f);
+        }
+        return 0.0;
+    });
+    Reg<void(LS *, std::int64_t)>(s, host, "ui_next_font", [ui_sys](LS *, std::int64_t face) {
+        if (auto *u = ui_sys()) u->NextFontFace(static_cast<int>(face));
+    });
+    Reg<void(LS *, std::int64_t)>(s, host, "ui_next_text_align", [ui_sys](LS *, std::int64_t align) {
+        if (auto *u = ui_sys()) u->NextTextAlign(static_cast<int>(align));
+    });
+    Reg<void(LS *, std::int64_t)>(s, host, "ui_next_bevel", [ui_sys, col_of](LS *, std::int64_t cid) {
+        if (auto *u = ui_sys()) u->NextInnerHighlight(col_of(cid));
+    });
+    RegVar(s, host, "ui_next_inner_frame", 1, [ui_sys, col_of](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) {
+            const Color c = col_of(static_cast<std::int64_t>(ArgNum(st, a, n, 0)));
+            const float ins = n > 1 ? static_cast<float>(ArgNum(st, a, n, 1)) : 3.0f;
+            const float w = n > 2 ? static_cast<float>(ArgNum(st, a, n, 2)) : 1.0f;
+            u->NextInnerFrame(c, ins, w);
+        }
+        return 0.0;
+    });
+    RegVar(s, host, "ui_next_corners", 1, [ui_sys, col_of](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) {
+            const Color c = col_of(static_cast<std::int64_t>(ArgNum(st, a, n, 0)));
+            const float sz = n > 1 ? static_cast<float>(ArgNum(st, a, n, 1)) : 14.0f;
+            u->NextCornerOrnaments(c, sz);
+        }
+        return 0.0;
+    });
+    RegVar(s, host, "ui_next_left_accent", 1, [ui_sys, col_of](LS *st, CVar *a, int n) -> double {
+        if (auto *u = ui_sys()) {
+            const Color c = col_of(static_cast<std::int64_t>(ArgNum(st, a, n, 0)));
+            const float w = n > 1 ? static_cast<float>(ArgNum(st, a, n, 1)) : 3.0f;
+            u->NextLeftAccent(c, w);
         }
         return 0.0;
     });

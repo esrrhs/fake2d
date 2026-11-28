@@ -267,6 +267,12 @@ class UISystem {
                          const Color &hover_tint = {1.0f, 0.9f, 0.6f, 0.06f});
     void DrawQuadAt(const Rect &rect, const Color &color);
     void DrawFrameAt(const Rect &rect, const Color &color, float thickness = 1.0f);
+    void DrawRoundedQuadAt(const Rect &rect, float radius, const Color &color,
+                           const Color &border = Color::Clear(), float border_w = 0.0f);
+    void DrawRoundedGradientAt(const Rect &rect, float radius, const Color &start_col,
+                               const Color &end_col, bool horizontal = false);
+    void DrawRoundedFrameAt(const Rect &rect, float radius, float thickness, const Color &color);
+    void DrawDropShadowAt(const Rect &rect, float radius, float off_y, float spread, float alpha);
     void DrawSpriteRect(const Texture2D *texture, const Rect &src, const Rect &dst,
                         const Color &tint = Color::White());
     float DrawTextPx(float x, float y, std::string_view text, float px,
@@ -440,6 +446,12 @@ class UISystem {
     void NextVisible(bool visible);
     void NextEnabled(bool enabled);
     void NextTransition(std::string_view anim_key, float duration_sec = 0.18f);
+    void NextFontFace(int face);
+    void NextTextAlign(int align);
+    void NextInnerHighlight(const Color &col);
+    void NextInnerFrame(const Color &col, float inset = 3.0f, float thickness = 1.0f);
+    void NextCornerOrnaments(const Color &col, float size = 14.0f);
+    void NextLeftAccent(const Color &col, float width = 3.0f);
 
     // Heightless auto-sized widgets (intrinsic size computed from font & theme metrics).
     bool Button(std::string_view key, std::string_view text, float scale = 0.0f);
@@ -731,6 +743,8 @@ class UISystem {
         bool has_placeholder = false, has_tip = false, has_sem = false;
         bool has_visible = false, visible_val = true;
         bool has_enabled = false, enabled_val = true;
+        bool has_font_face = false, has_text_align = false;
+        bool has_bevel = false, has_inner_frame = false, has_corners = false, has_left_accent = false;
         UISize w{}, h{};
         UIAxisAlign cross = UIAxisAlign::Start;
         UIAxisAlign main = UIAxisAlign::Start;
@@ -739,10 +753,13 @@ class UISystem {
         float margin_l = 0, margin_t = 0, margin_r = 0, margin_b = 0;
         float shrink = 0.0f, aspect_ratio = 0.0f;
         int col_span = 1, row_span = 1;
+        int font_face = 0, text_align = 0;
         Color bg_col{}, grad_start{}, grad_end{}, border_col{};
+        Color bevel_col{}, inner_frame_col{}, corner_col{}, left_accent_col{};
         bool grad_horiz = false;
         float border_w = 1.0f, radius = 0.0f, alpha_mul = 1.0f, backdrop_blur = 0.0f;
         float shadow_off_y = 0.0f, shadow_spread = 0.0f, shadow_alpha = 0.0f;
+        float inner_frame_inset = 3.0f, inner_frame_w = 1.0f, corner_size = 14.0f, left_accent_w = 3.0f;
         std::string anim_key;
         float anim_duration = 0.0f;
         std::string placeholder, tip, sem_role, sem_label, sem_value, sem_hint;
@@ -755,15 +772,20 @@ class UISystem {
         std::string modal, popup;
     };
     struct AutoCustomCmd {
-        enum class Op : std::uint8_t { Quad, Sprite, NineSlice, Text, WrappedText };
+        enum class Op : std::uint8_t {
+            Quad, Sprite, NineSlice, Text, WrappedText,
+            RoundedQuad, RoundedGrad, RoundedFrame, DropShadow
+        };
         Op op = Op::Quad;
         Rect rect{};
-        Color fill{}, border{};
+        Color fill{}, border{}, col2{};
         const Texture2D *texture = nullptr;
         Rect src{};
         std::string text;
         float px = 0, corner_x = 0, corner_y = 0;
+        float radius = 0.0f, thickness = 1.0f, off_y = 0.0f, spread = 0.0f, alpha = 0.0f;
         int align = 0, face = 0;
+        bool horizontal = false;
     };
     struct AutoNode {
         enum class Kind : std::uint8_t {
@@ -812,10 +834,15 @@ class UISystem {
         bool draw_panel = false, themed_panel = false;
         bool has_bg = false, has_border = false, has_shadow = false;
         bool has_grad = false, grad_horiz = false;
+        bool has_pad_override = false, has_text_align_override = false;
+        bool has_bevel = false, has_inner_frame = false, has_corners = false, has_left_accent = false;
+        int font_face = 0;
         Color fill_col{}, border_col{}, track_col{}, bg_col{}, custom_border_col{};
         Color grad_start{}, grad_end{};
+        Color bevel_col{}, inner_frame_col{}, corner_col{}, left_accent_col{};
         float border_w = 1.0f, radius = 0.0f, alpha_mul = 1.0f, backdrop_blur = 0.0f;
         float shadow_off_y = 0.0f, shadow_spread = 0.0f, shadow_alpha = 0.0f;
+        float inner_frame_inset = 3.0f, inner_frame_w = 1.0f, corner_size = 14.0f, left_accent_w = 3.0f;
         std::string anim_key;
         float anim_duration = 0.0f;
         bool has_btn_colors = false;
@@ -882,9 +909,11 @@ class UISystem {
                           std::string_view text, float scale, const Color &btn_c,
                           const Color &hov_c, const Color &prs_c, const Color &brd_c,
                           const Color &txt_c, float radius = 0.0f, float hover_t = 0.0f,
-                          float press_t = 0.0f, float alpha = 1.0f);
+                          float press_t = 0.0f, float alpha = 1.0f,
+                          const AutoNode *style_node = nullptr);
     void DrawProgressVisual(const Rect &r, float value, const Color &fill, const Color &track,
-                            float radius = 0.0f, float alpha = 1.0f);
+                            float radius = 0.0f, float alpha = 1.0f,
+                            const AutoNode *style_node = nullptr);
     void DrawSliderVisual(const Rect &r, float value, float min_v, float max_v, bool hover,
                           bool dragging, float radius = 0.0f, float hover_t = 0.0f,
                           float alpha = 1.0f);
@@ -909,6 +938,8 @@ class UISystem {
     void DrawRoundedFrame(const Rect &r, float radius, float thickness, const Color &color);
     void DrawDropShadow(const Rect &r, float radius, float off_y, float spread, float alpha);
     void DrawNodeBackdrop(const Rect &r, const AutoNode &node);
+    void DrawNodeBorderAccents(const Rect &r, const AutoNode &node);
+    void DrawNodeChromeOverlay(const Rect &r, const AutoNode &node);
     void StepWidgetTransition(WidgetState &st, bool hover, bool pressed, bool focused);
     void EnsureFocusedVisible();
     void ProcessDragAndDrop();

@@ -2455,6 +2455,93 @@ void UISystem::DrawFrameAt(const Rect &rect, const Color &color, float thickness
     DrawQuadAt({rect.x + rect.width - thickness, rect.y, thickness, rect.height}, color);
 }
 
+void UISystem::DrawRoundedQuadAt(const Rect &rect, float radius, const Color &color,
+                                 const Color &border, float border_w) {
+    if (!renderer_ || rect.width <= 0.0f || rect.height <= 0.0f) {
+        return;
+    }
+    if (InAutoLayout() && !auto_stack_.empty()) {
+        AutoCustomCmd cmd;
+        cmd.op = AutoCustomCmd::Op::RoundedQuad;
+        cmd.rect = rect;
+        cmd.radius = radius;
+        cmd.fill = color;
+        cmd.border = border;
+        cmd.thickness = border_w;
+        auto_nodes_[static_cast<std::size_t>(auto_stack_.back())].custom_cmds.push_back(std::move(cmd));
+        return;
+    }
+    renderer_->ClearClipRect();
+    const Rect mr = MapRect(rect);
+    const float rr = std::max(0.0f, radius * scale_);
+    if (color.a > 0.001f) {
+        renderer_->GetSpriteBatch().DrawRoundedQuad(mr, rr, color);
+    }
+    if (border.a > 0.001f && border_w > 0.0f) {
+        renderer_->GetSpriteBatch().DrawRoundedFrame(mr, rr, border_w * scale_, border);
+    }
+}
+
+void UISystem::DrawRoundedGradientAt(const Rect &rect, float radius, const Color &start_col,
+                                     const Color &end_col, bool horizontal) {
+    if (!renderer_ || rect.width <= 0.0f || rect.height <= 0.0f) {
+        return;
+    }
+    if (InAutoLayout() && !auto_stack_.empty()) {
+        AutoCustomCmd cmd;
+        cmd.op = AutoCustomCmd::Op::RoundedGrad;
+        cmd.rect = rect;
+        cmd.radius = radius;
+        cmd.fill = start_col;
+        cmd.col2 = end_col;
+        cmd.horizontal = horizontal;
+        auto_nodes_[static_cast<std::size_t>(auto_stack_.back())].custom_cmds.push_back(std::move(cmd));
+        return;
+    }
+    renderer_->ClearClipRect();
+    renderer_->GetSpriteBatch().DrawRoundedGradientQuad(MapRect(rect), std::max(0.0f, radius * scale_),
+                                                        start_col, end_col, horizontal);
+}
+
+void UISystem::DrawRoundedFrameAt(const Rect &rect, float radius, float thickness, const Color &color) {
+    if (!renderer_ || thickness <= 0.0f || rect.width <= 0.0f || rect.height <= 0.0f) {
+        return;
+    }
+    if (InAutoLayout() && !auto_stack_.empty()) {
+        AutoCustomCmd cmd;
+        cmd.op = AutoCustomCmd::Op::RoundedFrame;
+        cmd.rect = rect;
+        cmd.radius = radius;
+        cmd.thickness = thickness;
+        cmd.fill = color;
+        auto_nodes_[static_cast<std::size_t>(auto_stack_.back())].custom_cmds.push_back(std::move(cmd));
+        return;
+    }
+    renderer_->ClearClipRect();
+    renderer_->GetSpriteBatch().DrawRoundedFrame(MapRect(rect), std::max(0.0f, radius * scale_),
+                                                 thickness * scale_, color);
+}
+
+void UISystem::DrawDropShadowAt(const Rect &rect, float radius, float off_y, float spread, float alpha) {
+    if (!renderer_ || rect.width <= 0.0f || rect.height <= 0.0f || alpha <= 0.001f) {
+        return;
+    }
+    if (InAutoLayout() && !auto_stack_.empty()) {
+        AutoCustomCmd cmd;
+        cmd.op = AutoCustomCmd::Op::DropShadow;
+        cmd.rect = rect;
+        cmd.radius = radius;
+        cmd.off_y = off_y;
+        cmd.spread = spread;
+        cmd.alpha = alpha;
+        auto_nodes_[static_cast<std::size_t>(auto_stack_.back())].custom_cmds.push_back(std::move(cmd));
+        return;
+    }
+    renderer_->ClearClipRect();
+    renderer_->GetSpriteBatch().DrawDropShadow(MapRect(rect), std::max(0.0f, radius * scale_),
+                                               off_y * scale_, spread * scale_, alpha);
+}
+
 void UISystem::DrawSpriteRect(const Texture2D *texture, const Rect &src, const Rect &dst,
                               const Color &tint) {
     if (!renderer_ || !texture || !texture->IsValid() || dst.width <= 0.0f || dst.height <= 0.0f) {

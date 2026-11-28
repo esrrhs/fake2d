@@ -199,10 +199,38 @@ int UISystem::AllocAutoNode(AutoNode::Kind kind) {
         node.layout_dir = mod.dir;
     }
     if (mod.has_pad) {
+        node.has_pad_override = true;
         node.pad_l = mod.pad_l;
         node.pad_t = mod.pad_t;
         node.pad_r = mod.pad_r;
         node.pad_b = mod.pad_b;
+    }
+    if (mod.has_font_face) {
+        node.font_face = mod.font_face;
+    }
+    if (mod.has_text_align) {
+        node.has_text_align_override = true;
+        node.text_align = mod.text_align;
+    }
+    if (mod.has_bevel) {
+        node.has_bevel = true;
+        node.bevel_col = mod.bevel_col;
+    }
+    if (mod.has_inner_frame) {
+        node.has_inner_frame = true;
+        node.inner_frame_col = mod.inner_frame_col;
+        node.inner_frame_inset = mod.inner_frame_inset;
+        node.inner_frame_w = mod.inner_frame_w;
+    }
+    if (mod.has_corners) {
+        node.has_corners = true;
+        node.corner_col = mod.corner_col;
+        node.corner_size = mod.corner_size;
+    }
+    if (mod.has_left_accent) {
+        node.has_left_accent = true;
+        node.left_accent_col = mod.left_accent_col;
+        node.left_accent_w = mod.left_accent_w;
     }
     if (mod.has_margin) {
         node.margin_l = mod.margin_l;
@@ -1010,7 +1038,9 @@ float UISystem::AutoText(std::string_view text, float scale, UITextOverflow over
     node.scale = sc;
     node.min_scale = std::clamp(min_scale, 0.0f, sc);
     node.overflow = overflow;
-    node.text_align = align;
+    if (!node.has_text_align_override) {
+        node.text_align = align;
+    }
     node.fill_col = tint;
     if (node.width_spec.kind == UISizeKind::Auto && overflow == UITextOverflow::Wrap) {
         // Wrap text stretches to parent width unless explicit fixed width given
@@ -1899,13 +1929,17 @@ void UISystem::MeasureAutoNode(int idx, float avail_w, float avail_h) {
     case AutoNode::Kind::Text: {
         const float sc = AutoWidgetTextScale(node.scale);
         const float line_h = FontLineHeightPx(sc);
-        const float nat_w = renderer_ ? renderer_->MeasureText(node.text, sc) : 0.0f;
+        const bool use_hook_m = (node.font_face > 0 && text_hooks_.measure);
+        const float nat_w = use_hook_m ? text_hooks_.measure(node.text, sc * 32.0f, node.font_face)
+                                       : (renderer_ ? renderer_->MeasureText(node.text, sc) : 0.0f);
         node.baseline = node.margin_t + node.pad_t + line_h * 0.8f;
         if (node.overflow == UITextOverflow::Wrap) {
             const float wrap_w = (inner_avail_w < 1e7f) ? inner_avail_w : nat_w;
             const float w = (wrap_w > 0.0f) ? std::min(nat_w, wrap_w) : 0.0f;
-            const float h = (wrap_w > 0.0f && !node.text.empty() && renderer_)
-                                ? renderer_->GetFont().MeasureTextEx(node.text, sc, wrap_w)
+            const float h = (wrap_w > 0.0f && !node.text.empty())
+                                ? ((node.font_face > 0 && text_hooks_.measure_wrapped)
+                                       ? text_hooks_.measure_wrapped(node.text, sc * 32.0f, wrap_w, node.font_face)
+                                       : (renderer_ ? renderer_->GetFont().MeasureTextEx(node.text, sc, wrap_w) : 0.0f))
                                 : 0.0f;
             apply_explicit_size(w + pad_x, h + pad_y);
         } else {
@@ -1920,12 +1954,16 @@ void UISystem::MeasureAutoNode(int idx, float avail_w, float avail_h) {
     case AutoNode::Kind::Button:
     case AutoNode::Kind::Tab: {
         const float sc = AutoWidgetTextScale(node.scale);
-        const float px = ThemeMetric(node.kind == AutoNode::Kind::Tab ? "tab_pad_x" : "button_pad_x");
-        const float py = ThemeMetric(node.kind == AutoNode::Kind::Tab ? "tab_pad_y" : "button_pad_y");
-        const float tw = renderer_ ? renderer_->MeasureText(node.text, sc) : 0.0f;
+        const float px_l = node.has_pad_override ? node.pad_l : ThemeMetric(node.kind == AutoNode::Kind::Tab ? "tab_pad_x" : "button_pad_x");
+        const float px_r = node.has_pad_override ? node.pad_r : ThemeMetric(node.kind == AutoNode::Kind::Tab ? "tab_pad_x" : "button_pad_x");
+        const float py_t = node.has_pad_override ? node.pad_t : ThemeMetric(node.kind == AutoNode::Kind::Tab ? "tab_pad_y" : "button_pad_y");
+        const float py_b = node.has_pad_override ? node.pad_b : ThemeMetric(node.kind == AutoNode::Kind::Tab ? "tab_pad_y" : "button_pad_y");
+        const float tw = (node.font_face > 0 && text_hooks_.measure)
+                             ? text_hooks_.measure(node.text, sc * 32.0f, node.font_face)
+                             : (renderer_ ? renderer_->MeasureText(node.text, sc) : 0.0f);
         const float lh = FontLineHeightPx(sc);
-        node.baseline = node.margin_t + py + lh * 0.8f;
-        apply_explicit_size(tw + 2.0f * px, lh + 2.0f * py);
+        node.baseline = node.margin_t + py_t + lh * 0.8f;
+        apply_explicit_size(tw + px_l + px_r, lh + py_t + py_b);
         return;
     }
     case AutoNode::Kind::Tree:
@@ -3360,7 +3398,8 @@ void UISystem::CommitAutoNode(int idx, const Rect &parent_bounds, bool overlay_p
         const Color fill = node.themed_panel ? ThemeColor("panel") : node.fill_col;
         const Color brd = node.themed_panel ? ThemeColor("border") : node.border_col;
         if (renderer_) {
-            if (panel_slice_.texture && panel_slice_.texture->IsValid() && node.themed_panel) {
+            if (panel_slice_.texture && panel_slice_.texture->IsValid() && node.themed_panel &&
+                !node.has_grad && !node.has_bg && !node.has_border) {
                 const auto &s = panel_slice_;
                 const float cx = std::min(s.x, r.width * 0.5f), cy = std::min(s.y, r.height * 0.5f);
                 const float sx0 = s.source.x, sy0 = s.source.y, sw = s.source.width, sh = s.source.height;
@@ -3380,22 +3419,23 @@ void UISystem::CommitAutoNode(int idx, const Rect &parent_bounds, bool overlay_p
                 }
             } else {
                 const float border = ThemeMetric("border");
+                const bool custom_fill = node.has_grad || node.has_bg;
                 if (node.radius > 0.5f) {
-                    if (brd.a > 0.0f) {
+                    if (!node.has_border && brd.a > 0.0f) {
                         DrawRoundedFrame({r.x - border, r.y - border, r.width + 2 * border,
                                           r.height + 2 * border},
                                          node.radius + border, border, brd);
                     }
-                    if (fill.a > 0.0f) {
+                    if (!custom_fill && fill.a > 0.0f) {
                         DrawRoundedQuad(r, node.radius, fill);
                     }
                 } else {
-                    if (brd.a > 0.0f) {
+                    if (!node.has_border && brd.a > 0.0f) {
                         renderer_->DrawQuad(MapRect({r.x - border, r.y - border, r.width + 2 * border,
                                                      r.height + 2 * border}),
                                             brd);
                     }
-                    if (fill.a > 0.0f) {
+                    if (!custom_fill && fill.a > 0.0f) {
                         renderer_->DrawQuad(MapRect(r), fill);
                     }
                 }
@@ -3408,6 +3448,7 @@ void UISystem::CommitAutoNode(int idx, const Rect &parent_bounds, bool overlay_p
         // transparent container with no panel paint to emit an audit record.
         emit_audit("auto box", node.key);
     }
+    DrawNodeBorderAccents(r, node);
     if (renderer_) {
         for (const auto &cmd : node.custom_cmds) {
             if (cmd.op == AutoCustomCmd::Op::NineSlice && cmd.texture && cmd.texture->IsValid()) {
@@ -3436,12 +3477,16 @@ void UISystem::CommitAutoNode(int idx, const Rect &parent_bounds, bool overlay_p
         for (const int cid : node.children) {
             CommitAutoNode(cid, node.content_rect, false, overlay_queue);
         }
+        ApplyClipRectDirect(clip, node.clip_radius, &node.clip_rrect);
+        DrawNodeChromeOverlay(r, node);
         break;
     }
     case AutoNode::Kind::CachedBox: {
         for (const int cid : node.children) {
             CommitAutoNode(cid, node.content_rect, false, overlay_queue);
         }
+        ApplyClipRectDirect(clip, node.clip_radius, &node.clip_rrect);
+        DrawNodeChromeOverlay(r, node);
         if (!node.cached_hit) {
             CaptureSubtreeCache(idx);
         }
@@ -3461,6 +3506,23 @@ void UISystem::CommitAutoNode(int idx, const Rect &parent_bounds, bool overlay_p
                                             cmd.border);
                     }
                     renderer_->DrawQuad(MapRect(qr), cmd.fill);
+                } else if (cmd.op == AutoCustomCmd::Op::RoundedQuad) {
+                    Rect qr{ox + cmd.rect.x, oy + cmd.rect.y, cmd.rect.width, cmd.rect.height};
+                    if (cmd.fill.a > 0.001f) {
+                        DrawRoundedQuad(qr, cmd.radius, cmd.fill);
+                    }
+                    if (cmd.border.a > 0.001f && cmd.thickness > 0.0f) {
+                        DrawRoundedFrame(qr, cmd.radius, cmd.thickness, cmd.border);
+                    }
+                } else if (cmd.op == AutoCustomCmd::Op::RoundedGrad) {
+                    Rect qr{ox + cmd.rect.x, oy + cmd.rect.y, cmd.rect.width, cmd.rect.height};
+                    DrawRoundedGradientQuad(qr, cmd.radius, cmd.fill, cmd.col2, cmd.horizontal);
+                } else if (cmd.op == AutoCustomCmd::Op::RoundedFrame) {
+                    Rect qr{ox + cmd.rect.x, oy + cmd.rect.y, cmd.rect.width, cmd.rect.height};
+                    DrawRoundedFrame(qr, cmd.radius, cmd.thickness, cmd.fill);
+                } else if (cmd.op == AutoCustomCmd::Op::DropShadow) {
+                    Rect qr{ox + cmd.rect.x, oy + cmd.rect.y, cmd.rect.width, cmd.rect.height};
+                    DrawDropShadow(qr, cmd.radius, cmd.off_y, cmd.spread, cmd.alpha);
                 } else if (cmd.op == AutoCustomCmd::Op::Sprite && cmd.texture && cmd.texture->IsValid()) {
                     Rect dr{ox + cmd.rect.x, oy + cmd.rect.y, cmd.rect.width, cmd.rect.height};
                     renderer_->DrawSprite(*cmd.texture, cmd.src, MapRect(dr), cmd.fill);
@@ -3599,8 +3661,13 @@ void UISystem::CommitAutoNode(int idx, const Rect &parent_bounds, bool overlay_p
         float used = node.scale;
         std::string drawn = node.text;
         const bool wrap = node.overflow == UITextOverflow::Wrap;
+        const bool use_hook_t = (node.font_face > 0 && text_hooks_.measure && text_hooks_.draw);
+        auto meas_txt = [&](std::string_view tv, float sc_val) -> float {
+            return use_hook_t ? text_hooks_.measure(tv, sc_val * 32.0f, node.font_face)
+                              : renderer_->MeasureText(tv, sc_val);
+        };
         if (node.overflow == UITextOverflow::Shrink) {
-            const float natural = renderer_->MeasureText(node.text, node.scale);
+            const float natural = meas_txt(node.text, node.scale);
             if (natural > r.width && natural > 0.0f) {
                 used = std::max(node.min_scale, node.scale * r.width / natural);
             }
@@ -3612,17 +3679,27 @@ void UISystem::CommitAutoNode(int idx, const Rect &parent_bounds, bool overlay_p
         if (eff_align == 0 && node.layout_dir == UILayoutDirection::RTL) {
             eff_align = 2;
         }
-        const float measured = wrap ? r.width : renderer_->MeasureText(drawn, used);
+        const float measured = wrap ? r.width : meas_txt(drawn, used);
         const float dx = r.x + (wrap ? 0.0f
                                      : (eff_align == 1 ? (r.width - measured) * 0.5f
                                         : eff_align == 2 ? (r.width - measured)
                                                          : 0.0f));
         const Rect text_clip = IntersectClip(clip, r);
         ApplyClipRectDirect(text_clip, node.clip_radius, &node.clip_rrect);
-        renderer_->DrawTextEx(drawn, dx * scale_ + scale_offset_.x,
-                              r.y * scale_ + scale_offset_.y, used * scale_,
-                              wrap ? eff_align : 0, wrap ? r.width * scale_ : 0.0f,
-                              text_color);
+        if (use_hook_t && wrap && text_hooks_.draw_wrapped) {
+            text_hooks_.draw_wrapped(renderer_->GetSpriteBatch(), drawn, dx * scale_ + scale_offset_.x,
+                                     r.y * scale_ + scale_offset_.y, used * 32.0f * scale_,
+                                     r.width * scale_, text_color, node.font_face);
+        } else if (use_hook_t) {
+            text_hooks_.draw(renderer_->GetSpriteBatch(), drawn, dx * scale_ + scale_offset_.x,
+                             r.y * scale_ + scale_offset_.y, used * 32.0f * scale_, text_color,
+                             0, node.font_face);
+        } else {
+            renderer_->DrawTextEx(drawn, dx * scale_ + scale_offset_.x,
+                                  r.y * scale_ + scale_offset_.y, used * scale_,
+                                  wrap ? eff_align : 0, wrap ? r.width * scale_ : 0.0f,
+                                  text_color);
+        }
         break;
     }
     case AutoNode::Kind::Button: {
@@ -3638,13 +3715,13 @@ void UISystem::CommitAutoNode(int idx, const Rect &parent_bounds, bool overlay_p
         const Color brd = node.has_btn_colors ? node.btn_border : ThemeColor("border");
         const Color tc = node.has_btn_colors ? node.btn_text : ThemeColor("text");
         DrawButtonVisual(r, hov, st.pressed, node.disabled, node.text, node.scale, bc, hc, pc, brd, tc,
-                         node.radius, st.hover_t, st.press_t, node.alpha_mul);
+                         node.radius, st.hover_t, st.press_t, node.alpha_mul, &node);
         FocusIndicator(node.key, r);
         break;
     }
     case AutoNode::Kind::ProgressBar: {
         emit_audit("progress", node.key);
-        DrawProgressVisual(r, node.val, node.fill_col, node.track_col, node.radius, node.alpha_mul);
+        DrawProgressVisual(r, node.val, node.fill_col, node.track_col, node.radius, node.alpha_mul, &node);
         break;
     }
     case AutoNode::Kind::Slider: {
@@ -3858,7 +3935,7 @@ void UISystem::DrawButtonVisual(const Rect &r, bool hover, bool pressed, bool di
                                 std::string_view text, float scale, const Color &btn_c,
                                 const Color &hov_c, const Color &prs_c, const Color &brd_c,
                                 const Color &txt_c, float radius, float hover_t, float press_t,
-                                float alpha) {
+                                float alpha, const AutoNode *style_node) {
     if (!renderer_ || r.width <= 0.0f || r.height <= 0.0f) {
         return;
     }
@@ -3866,7 +3943,8 @@ void UISystem::DrawButtonVisual(const Rect &r, bool hover, bool pressed, bool di
     const float pt = std::max(press_t, pressed ? 1.0f : 0.0f);
     Color fill = MixColor(MixColor(btn_c, hov_c, ht), prs_c, pt);
     Color label_col = txt_c;
-    Color brd = brd_c;
+    const bool has_custom_brd = (style_node && style_node->has_border);
+    Color brd = has_custom_brd ? style_node->custom_border_col : brd_c;
     fill.a *= alpha;
     label_col.a *= alpha;
     brd.a *= alpha;
@@ -3875,38 +3953,79 @@ void UISystem::DrawButtonVisual(const Rect &r, bool hover, bool pressed, bool di
         label_col.a *= 0.45f;
         brd.a *= 0.45f;
     }
-    const float border = ThemeMetric("border");
-    if (radius > 0.5f) {
-        DrawRoundedQuad({r.x - border, r.y - border, r.width + border * 2.0f, r.height + border * 2.0f},
-                        radius + border, brd);
+    const float border = has_custom_brd ? style_node->border_w : ThemeMetric("border");
+    if (style_node && style_node->has_grad) {
+        auto mod_grad = [&](Color c) {
+            if (ht > 0.001f) {
+                c = MixColor(c, {std::min(1.0f, c.r + 0.10f), std::min(1.0f, c.g + 0.09f), std::min(1.0f, c.b + 0.07f), c.a}, ht);
+            }
+            if (pt > 0.001f) {
+                c = MixColor(c, {c.r * 0.72f, c.g * 0.72f, c.b * 0.72f, c.a}, pt);
+            }
+            c.a *= alpha * (disabled ? 0.45f : 1.0f);
+            return c;
+        };
+        DrawRoundedGradientQuad(r, radius, mod_grad(style_node->grad_start), mod_grad(style_node->grad_end),
+                                style_node->grad_horiz);
+    } else if (radius > 0.5f || has_custom_brd) {
         DrawRoundedQuad(r, radius, fill);
     } else {
-        renderer_->DrawQuad(
-            MapRect({r.x - border, r.y - border, r.width + border * 2.0f, r.height + border * 2.0f}),
-            brd);
+        if (brd.a > 0.001f && border > 0.0f) {
+            renderer_->DrawQuad(
+                MapRect({r.x - border, r.y - border, r.width + border * 2.0f, r.height + border * 2.0f}),
+                brd);
+        }
         renderer_->DrawQuad(MapRect(r), fill);
+    }
+    if ((radius > 0.5f || has_custom_brd) && brd.a > 0.001f && border > 0.0f) {
+        DrawRoundedFrame(r, radius, border, brd);
+    }
+    if (style_node && style_node->has_bevel && r.width > 4.0f && r.height > 2.0f) {
+        Color bv = style_node->bevel_col;
+        bv.a *= alpha * (disabled ? 0.45f : 1.0f);
+        const float in = std::min(std::max(1.0f, radius * 0.55f), r.width * 0.2f);
+        renderer_->DrawQuad(MapRect({r.x + in, r.y + 1.0f, std::max(0.0f, r.width - 2.0f * in), 1.0f}), bv);
     }
 
     if (!text.empty()) {
         const float lh = renderer_->GetFont().LineHeight();
-        float sc = std::min(scale, std::max(0.01f, (r.height - 4.0f) / std::max(1.0f, lh)));
-        const float available = std::max(0.0f, r.width - 8.0f);
-        const float natural = renderer_->MeasureText(text, sc);
+        const float pad_t = (style_node && style_node->has_pad_override) ? style_node->pad_t : 2.0f;
+        const float pad_b = (style_node && style_node->has_pad_override) ? style_node->pad_b : 2.0f;
+        const float pad_l = (style_node && style_node->has_pad_override) ? style_node->pad_l : 4.0f;
+        const float pad_r = (style_node && style_node->has_pad_override) ? style_node->pad_r : 4.0f;
+        float sc = std::min(scale, std::max(0.01f, (r.height - (pad_t + pad_b)) / std::max(1.0f, lh)));
+        const float available = std::max(0.0f, r.width - (pad_l + pad_r));
+        const int fface = style_node ? style_node->font_face : 0;
+        const bool use_hook_b = (fface > 0 && text_hooks_.measure && text_hooks_.draw);
+        auto meas_b = [&](std::string_view sv, float s_val) -> float {
+            return use_hook_b ? text_hooks_.measure(sv, s_val * 32.0f, fface)
+                              : renderer_->MeasureText(sv, s_val);
+        };
+        const float natural = meas_b(text, sc);
         const float used_scale =
             (natural > available && natural > 0.0f)
                 ? std::min(sc, std::max(ThemeMetric("min_font_scale"), sc * available / natural))
                 : sc;
         const std::string fitted = Ellipsize(text, available, used_scale);
-        const float text_w = renderer_->MeasureText(fitted, used_scale);
+        const float text_w = meas_b(fitted, used_scale);
         const float text_h = lh * used_scale;
-        const float tx = (r.x + (r.width - text_w) * 0.5f) * scale_ + scale_offset_.x;
+        const int talign = (style_node && style_node->has_text_align_override) ? style_node->text_align : 1;
+        const float rel_x = (talign == 0) ? pad_l
+                          : (talign == 2) ? (r.width - pad_r - text_w)
+                                          : ((r.width - text_w) * 0.5f);
+        const float tx = (r.x + rel_x) * scale_ + scale_offset_.x;
         const float ty = (r.y + (r.height - text_h) * 0.5f) * scale_ + scale_offset_.y;
-        renderer_->DrawTextEx(fitted, tx, ty, used_scale * scale_, 0, 0, label_col);
+        if (use_hook_b) {
+            text_hooks_.draw(renderer_->GetSpriteBatch(), fitted, tx, ty, used_scale * 32.0f * scale_,
+                             label_col, 0, fface);
+        } else {
+            renderer_->DrawTextEx(fitted, tx, ty, used_scale * scale_, 0, 0, label_col);
+        }
     }
 }
 
 void UISystem::DrawProgressVisual(const Rect &r, float value, const Color &fill, const Color &track,
-                                  float radius, float alpha) {
+                                  float radius, float alpha, const AutoNode *style_node) {
     if (!renderer_ || r.width <= 0.0f || r.height <= 0.0f) {
         return;
     }
@@ -3918,13 +4037,36 @@ void UISystem::DrawProgressVisual(const Rect &r, float value, const Color &fill,
     if (radius > 0.5f) {
         DrawRoundedQuad(r, radius, trk);
         if (t > 0.0f) {
-            DrawRoundedQuad({r.x, r.y, r.width * t, r.height}, radius, fl);
+            const Rect fr{r.x, r.y, r.width * t, r.height};
+            if (style_node && style_node->has_grad) {
+                Color gs = style_node->grad_start;
+                Color ge = style_node->grad_end;
+                gs.a *= alpha;
+                ge.a *= alpha;
+                DrawRoundedGradientQuad(fr, radius, gs, ge, true);
+            } else {
+                DrawRoundedQuad(fr, radius, fl);
+            }
         }
     } else {
         renderer_->DrawQuad(MapRect(r), trk);
         if (t > 0.0f) {
-            renderer_->DrawQuad(MapRect({r.x, r.y, r.width * t, r.height}), fl);
+            const Rect fr{r.x, r.y, r.width * t, r.height};
+            if (style_node && style_node->has_grad) {
+                Color gs = style_node->grad_start;
+                Color ge = style_node->grad_end;
+                gs.a *= alpha;
+                ge.a *= alpha;
+                renderer_->DrawGradientQuad(MapRect(fr), gs, ge, ge, gs);
+            } else {
+                renderer_->DrawQuad(MapRect(fr), fl);
+            }
         }
+    }
+    if (style_node && style_node->has_border && style_node->border_w > 0.0f) {
+        Color brd = style_node->custom_border_col;
+        brd.a *= alpha;
+        DrawRoundedFrame(r, radius, style_node->border_w, brd);
     }
 }
 

@@ -94,6 +94,15 @@ public:
     void DrawSpriteRotated(const Texture2D &texture, const Rect &src, const Rect &dst,
                            float angle_rad, const Vec2 &origin, const Color &tint = Color::White());
 
+    /// Rounded rectangle fill, gradient fill, crisp outline frame, and layered drop shadow.
+    void DrawRoundedQuad(const Rect &dst, float radius, const Color &color);
+    void DrawRoundedGradientQuad(const Rect &dst, float radius, const Color &start_col,
+                                 const Color &end_col, bool horizontal = false);
+    void DrawRoundedFrame(const Rect &dst, float radius, float thickness, const Color &color);
+    void DrawDropShadow(const Rect &dst, float radius, float off_y, float spread, float alpha);
+    void DrawCircleFilled(const Vec2 &center, float radius, int segments, const Color &color);
+    void DrawLineThick(const Vec2 &a, const Vec2 &b, float thickness, const Color &color);
+
     /// Low-level: submit a pre-transformed quad. Corners are world-space
     /// positions ordered TL, TR, BR, BL; uvs map the same corners.
     void DrawVertices(const Texture2D &texture, const Vec2 corners[4], const Vec2 uvs[4],
