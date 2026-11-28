@@ -543,6 +543,7 @@ void UISystem::CloseAutoNode(int expected_idx) {
 }
 
 void UISystem::RootBegin(float x, float y, UISize w, UISize h, float pad, bool block_input) {
+    const bool had_pad = next_auto_mod_.has_pad;
     const int idx = AllocAutoNode(AutoNode::Kind::Root);
     auto &node = auto_nodes_[static_cast<std::size_t>(idx)];
     node.anchor_x = x;
@@ -552,17 +553,20 @@ void UISystem::RootBegin(float x, float y, UISize w, UISize h, float pad, bool b
     node.cross_align = UIAxisAlign::Stretch;
     node.gap = 0.0f;
     node.block_input = block_input;
-    const float p = std::max(0.0f, pad);
-    node.pad_l = node.pad_t = node.pad_r = node.pad_b = p;
+    if (!had_pad) {
+        const float p = std::max(0.0f, pad);
+        node.pad_l = node.pad_t = node.pad_r = node.pad_b = p;
+    }
     const float est_w = (w.kind == UISizeKind::Fixed) ? w.value
                         : (w.kind == UISizeKind::Percent ? LogicalWidth() * w.value : LogicalWidth());
-    node.est_avail_w = std::max(0.0f, est_w - 2.0f * p);
+    node.est_avail_w = std::max(0.0f, est_w - node.pad_l - node.pad_r);
     auto_stack_.push_back(idx);
 }
 
 void UISystem::RootAnchorBegin(std::string_view h_align, std::string_view v_align, UISize w, UISize h,
                                float inset_x, float inset_y, float pad, bool overlay,
                                bool block_input) {
+    const bool had_pad = next_auto_mod_.has_pad;
     const int idx = AllocAutoNode(AutoNode::Kind::AnchorRoot);
     auto &node = auto_nodes_[static_cast<std::size_t>(idx)];
     node.h_align = std::string(h_align);
@@ -575,13 +579,15 @@ void UISystem::RootAnchorBegin(std::string_view h_align, std::string_view v_alig
     node.block_input = block_input;
     node.cross_align = UIAxisAlign::Stretch;
     node.gap = 0.0f;
-    const float p = std::max(0.0f, pad);
-    node.pad_l = node.pad_t = node.pad_r = node.pad_b = p;
+    if (!had_pad) {
+        const float p = std::max(0.0f, pad);
+        node.pad_l = node.pad_t = node.pad_r = node.pad_b = p;
+    }
     const float vw = LogicalWidth() > 1.0f ? LogicalWidth() : 1280.0f;
     const float est_w = (h_align == "stretch") ? std::max(0.0f, vw - 2.0f * inset_x)
                         : (w.kind == UISizeKind::Fixed ? w.value
                            : (w.kind == UISizeKind::Percent ? vw * w.value : vw));
-    node.est_avail_w = std::max(0.0f, est_w - 2.0f * p);
+    node.est_avail_w = std::max(0.0f, est_w - node.pad_l - node.pad_r);
     auto_stack_.push_back(idx);
 }
 

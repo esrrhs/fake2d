@@ -2441,6 +2441,17 @@ void UISystem::DrawQuadAt(const Rect &rect, const Color &color) {
     if (!renderer_ || rect.width <= 0.0f || rect.height <= 0.0f) {
         return;
     }
+    if (InAutoLayout() && !auto_stack_.empty()) {
+        auto &top = auto_nodes_[static_cast<std::size_t>(auto_stack_.back())];
+        if (top.kind == AutoNode::Kind::CustomBox) {
+            AutoCustomCmd cmd;
+            cmd.op = AutoCustomCmd::Op::Quad;
+            cmd.rect = rect;
+            cmd.fill = color;
+            top.custom_cmds.push_back(std::move(cmd));
+            return;
+        }
+    }
     renderer_->ClearClipRect();
     renderer_->DrawQuad(MapRect(rect), color);
 }

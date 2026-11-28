@@ -778,7 +778,7 @@ class UISystem {
         };
         Op op = Op::Quad;
         Rect rect{};
-        Color fill{}, border{}, col2{};
+        Color fill{}, border{0.0f, 0.0f, 0.0f, 0.0f}, col2{0.0f, 0.0f, 0.0f, 0.0f};
         const Texture2D *texture = nullptr;
         Rect src{};
         std::string text;
